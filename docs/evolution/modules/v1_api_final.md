@@ -92,7 +92,7 @@
 ### task_queue.py（3 项）
 - **TQ4 [P3] 已修复（核实）**：`TASK_NAMES`（`app/api/v1/task_queue.py`）已覆盖 `TaskTypeEnum` 全部 4 值（project_generate/code_generate/modify_with_test/ppt_generate），create/retry/recover 共用同一映射源；未知类型在 create 中且仅在其中返回 400。`test_task_type_contract_matches_implemented_tasks` 与 `test_build_task_kwargs_covers_every_supported_type` 锁定该契约，docstring 与实现一致。
 - **TQ5 [P3] 已修复**：Celery ID 复用部分已在 PR #88 修复（retry/recover 均以 `result.id` 覆盖 `celery_task_id`）。本次修复幽灵任务：原实现先置 `status="pending"` 再判断 `celery_task_name`，无映射时状态已改却无派发。现改为在改状态/`transition_task`/写事件之前先校验映射，缺失则返回 400，状态保持不变。回归测试 `tests/unit/test_task_dispatch_contract.py` 新增 2 项（retry/recover 各一）
-- **TQ6 [P3]** :126 celery "failure" ≠ DB "failed" 状态语义漂移；:247 cancel 白名单含 retrying（DB 层无此值）——SD5 家族 API 层实证
+- **TQ6 [P3] 已修复**：`_merge_task_runtime_state` 原直接 `celery_state.lower()` 透传，Celery 的 `FAILURE`/`RETRY`/`REVOKED`/`STARTED` 会变成 `failure`/`retry`/`revoked`/`started`，超出 `TaskStatusEnum` 声明词表（前端 `retry`/`revoked` 落到默认 `queued`，任务失败/被撤销时状态显示错误）。新增 `_CELERY_STATE_TO_STATUS` 归一化：pending/received→pending、started→running、retry→retrying、success→success、failure→failed、revoked→cancelled；未识别的 Celery 状态保留 DB 口径，持久化终态（success/failed/cancelled）优先不变。另：原条目「cancel 白名单含 retrying，DB 层无此值」经核实不成立——`TaskStatusEnum.RETRYING = "retrying"` 存在且 `celery_app.py:115` 会写入该值，cancel 白名单正确。回归测试 `tests/unit/test_task_dispatch_contract.py` 新增 10 项（7 项状态映射参数化 + 词表约束 + 未知状态回退 + 终态优先）
 
 ### Aicode.py（6 项）
 - **AIC1 [P3]** :464-476 enable_search=True 与 None 行为相同——「允许搜索」按钮实际由关键词表决定
@@ -117,7 +117,7 @@
 - **KOL5 [P3]** :271 STYLE_PROMPTS 模块导入时求值一次，自定义 skill 风格改动需重启（热加载失效；/styles 端点 :865 用 get_style_prompts() 动态获取，两套读取并存）
 
 ### kolors_history.py（1 项）
-- **KHS1 [P3]** :56-59 total 用 len(all()) 全表加载计数（ND 家族 +1）；:48 等 token.get("sub") 未 int() 转换直进 ORM where（与全库 int(token["sub"]) 惯例不一）
+- **KHS1 [P3] 已核实（非缺陷）**：`get_image_history` 现用 `select(func.count()).where(user_id)` 独立计数、分页用 offset/limit，不存在 `len(all())`；`ImageGenerationHistory.user_id` 为 `String(100)`（写入侧 `save_image_generation_history` 亦为 `str(user_id)`），故 `token.get("sub")` 直接比较语义正确，无需 `int()`。条目描述与当前代码不符，无需改动
 
 ### file_upload.py（5 项）
 - **FL1 [P3] 已修复**：分片链 file_id 无归属校验——upload_chunk/merge_chunks 仅凭 uuid file_id 操作，B 知 file_id 可把 A 的分片合并记到自己名下。修复：新增 `_scoped_chunk_dir(user_id, file_id)` 将分片目录改为 `CHUNKS_DIR/<user_id>/<file_id>`（同时拒绝空值/`..`/`/`/`\` 穿越），init/upload/merge 三端点统一走该函数；`ChunkMetadata` 增可选 `base_dir` 参数。新增 `tests/unit/test_bugfixes.py::TestChunkUserIsolation`（3 项，覆盖用户隔离、穿越拒绝、元数据落盘路径）。
@@ -131,7 +131,7 @@
 - 已排除项：name 路径穿越嫌疑解除——custom_skill_manager.py:78-82 `_validate_name` 正则 `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` 且 :118 强制调用（SkillUploadRequest Field description-only 声明但强制在 manager 层）
 
 ### providers.py（1 项）
-- **PRV2 [P3]** :81 base_url 无 scheme/host 校验 → test/sync 由服务器向任意地址发请求（带 api_key 头），内网可达 SSRF 面（认证 + 10/min 限流，降 P3 记加固项）；:183-186 sync 失败 str(e) 进 sync_error 返回任意用户；:234 resp.text[:100] 泄露上游响应
+- **PRV2 [P3] 已核实（大部分非缺陷）**：①SSRF 防线已落地——`add_provider` 与库函数 `fetch_models_openai` 双层调用 `app.utils.url_safety.check_outbound_url`（校验 scheme 仅 http/https、解析 host 并拒绝 `not ip.is_global` 的内网/保留地址）；②`sync_error` 与 ③`resp.text[:100]` 的可见范围受归属校验约束——`get_provider`/`list_providers`/`test` 均以 `owner_id = str(token["sub"])` 过滤，仅 provider owner（且 add 需 admin）可见；`str(e)` 来自 `raise_for_status`，不含请求头/api_key。两者属于 owner 自身 provider 的调试信息，保留不改为通用文案。无需代码改动
 
 ## SD1 影响面修订（第 152 轮 schema_layer.md）
 
