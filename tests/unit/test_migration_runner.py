@@ -89,3 +89,86 @@ async def test_runtime_runner_creates_unique_task_identity_index(tmp_path, monke
     # "foreign key mismatch"。
     assert "ix_tasks_task_id" in task_indexes
     assert task_indexes["ix_tasks_task_id"][2] == 1
+
+
+async def _unique_user_id_indexes(database_path: Path) -> set[str]:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.connect() as connection:
+        indexes = await connection.execute(text("PRAGMA index_list(permission)"))
+        found = set()
+        for index_row in indexes:
+            if not index_row[2]:
+                continue
+            columns = await connection.execute(
+                text(f"PRAGMA index_info('{index_row[1]}')")
+            )
+            if [row[2] for row in columns] == ["user_id"]:
+                found.add(index_row[1])
+    await engine.dispose()
+    return found
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_adds_permission_unique_index_to_legacy_table(
+    tmp_path, monkeypatch
+):
+    database_path = Path(tmp_path) / "legacy-permission.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "CREATE TABLE permission ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, "
+            "permission_level VARCHAR(20) NOT NULL DEFAULT 'normal')"
+        ))
+        await connection.execute(text(
+            "INSERT INTO permission (user_id, permission_level) VALUES (1, 'normal')"
+        ))
+    await engine.dispose()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    await run_async_migrations()
+    # 重复执行不应报 "index already exists"
+    await run_async_migrations()
+
+    assert await _unique_user_id_indexes(database_path) == {"uq_permission_user_id"}
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_skips_permission_index_when_duplicates_exist(
+    tmp_path, monkeypatch
+):
+    database_path = Path(tmp_path) / "duplicate-permission.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "CREATE TABLE permission ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, "
+            "permission_level VARCHAR(20) NOT NULL DEFAULT 'normal')"
+        ))
+        await connection.execute(text(
+            "INSERT INTO permission (user_id, permission_level) VALUES (7, 'normal'), (7, 'admin')"
+        ))
+    await engine.dispose()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    await run_async_migrations()
+
+    # 有重复数据时只告警、不删数据、不建唯一索引
+    assert await _unique_user_id_indexes(database_path) == set()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.connect() as connection:
+        count = (await connection.execute(text("SELECT COUNT(*) FROM permission"))).scalar()
+    await engine.dispose()
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_keeps_fresh_permission_constraint(tmp_path, monkeypatch):
+    database_path = Path(tmp_path) / "fresh-permission.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+
+    await run_async_migrations()
+    await run_async_migrations()
+
+    # 新建库由模型约束给出唯一性，重复执行不应再叠加一个同义索引
+    assert len(await _unique_user_id_indexes(database_path)) == 1
