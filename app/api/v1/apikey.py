@@ -253,13 +253,18 @@ async def test_key(request: Request, test_request: TestKeyRequest, user_id: str 
         
         # 测试连接
         health_checker = get_health_checker()
-        success, message = await health_checker.check(meta.provider, api_key)
-        
-        # 更新状态
+        success, message, definitive = await health_checker.check_detailed(meta.provider, api_key)
+
+        # 仅在结论明确时更新状态：超时、连接失败、限流等瞬时时不能把有效 Key
+        # 标成 invalid，否则该 Key 在用户重测前会一直被调用链跳过。
         if success:
             apikey_manager.update_status(user_id, test_request.token, "verified")
-        else:
+        elif definitive:
             apikey_manager.update_status(user_id, test_request.token, "invalid")
+        else:
+            logger.warning(
+                f"健康检查未定论，保留 Key 状态 | provider={meta.provider} | message={message}"
+            )
         
         return TestKeyResponse(success=success, message=message)
     except HTTPException:

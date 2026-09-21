@@ -176,11 +176,15 @@ class ResourceConfigService:
             是否成功
         """
         async with async_session() as db:
+            # 一次 IN 查询取回既有行，替代循环内逐个 SELECT
+            existing_rows = (await db.execute(
+                select(ServerConfig).where(ServerConfig.key.in_(list(configs)))
+            )).scalars().all()
+            existing = {row.key: row for row in existing_rows}
+
+            applied: Dict[str, str] = {}
             for key, value in configs.items():
-                result = await db.execute(
-                    select(ServerConfig).where(ServerConfig.key == key)
-                )
-                config = result.scalar_one_or_none()
+                config = existing.get(key)
 
                 if config:
                     config.value = value
@@ -196,9 +200,11 @@ class ResourceConfigService:
                     )
                     db.add(config)
 
-                self._config_cache[key] = value
+                applied[key] = value
 
             await db.commit()
+            # commit 成功后再更新缓存，避免提交失败时缓存与数据库漂移
+            self._config_cache.update(applied)
             logger.info(f"批量配置已更新 | count={len(configs)} | user_id={user_id}")
             return True
 
@@ -211,8 +217,11 @@ class ResourceConfigService:
         """
         import psutil
 
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
+        # psutil 采样与 docker SDK 均为同步阻塞调用（cpu_percent 还会 sleep
+        # interval），放进线程避免阻塞事件循环。
+        memory = await asyncio.to_thread(psutil.virtual_memory)
+        disk = await asyncio.to_thread(psutil.disk_usage, "/")
+        cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 0.1)
 
         docker_count = await self._get_docker_container_count()
         max_containers = int(
@@ -220,7 +229,7 @@ class ResourceConfigService:
         )
 
         stats = {
-            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "cpu_percent": cpu_percent,
             "memory": {
                 "total": memory.total,
                 "used": memory.used,
@@ -248,12 +257,16 @@ class ResourceConfigService:
             容器数量
         """
         try:
-            import docker
-            client = docker.from_env()
-            return len(client.containers.list())
+            return await asyncio.to_thread(self._count_docker_containers)
         except Exception as e:
             logger.warning(f"获取 Docker 容器数量失败: {e}")
             return 0
+
+    @staticmethod
+    def _count_docker_containers() -> int:
+        import docker
+        client = docker.from_env()
+        return len(client.containers.list())
 
     def invalidate_cache(self):
         """使配置缓存失效"""
