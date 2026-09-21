@@ -142,11 +142,11 @@
 - **AJP6 本次修复**：新增 `_extract_json_payload`，围栏代码块优先，否则从首个 `{`/`[` 起用 `json.JSONDecoder().raw_decode` 解析第一个完整 JSON 值，消除贪婪正则跨块拼接导致的静默回退。页数回退此前已按 `content_slide_count` 生成（非固定 4 页）。
 - **AJP9 已修复（随 AJP7）**：`update_ppt_task` 入口已调用 `_verify_ppt_owner(task_id, user_id)`，外层 `task_id` 读他人中间状态被拦；全文件共 10 处归属校验。
 - **AJP10 本次修复**：`PPT_OUTPUT_DIR`、`uploads/ppt_uploads`、`configs/ppt/custom_templates` 由相对路径改为锚定 `BASE_DIR`；`generated_asset_retention.DEFAULT_PPT_OUTPUT_DIR` 同步锚定，保证「生成写哪里、清理扫哪里」一致。清理机制本就存在（`app/db/scheduler.py` 定时调用 `cleanup_generated_assets`，按 `GENERATED_ASSET_RETENTION_DAYS` 回收），原「无清理机制」描述已过时。
-- **AJP11 本次修复**：两处上传已用 `_stream_upload_to_path` 分块写入（内存有界）；本轮把端点内同步 `parse_document` 抽为 `_parse_uploaded_document` 并走 `asyncio.to_thread`，不再阻塞事件循环。
+- **AJP11 本次修复**：两处上传已用 `_stream_upload_to_path` 分块写入（内存有界）；本轮把端点内同步 `parse_document` 抽为 `_parse_uploaded_document` 并走 `asyncio.to_thread`；`upload_custom_template` 的 `parser.parse_template_file`（20MB 模板解析）同样改为 `asyncio.to_thread`，不再阻塞事件循环。
 - **AJP13 已修复**：`_convert_pptx_to_pdf` 经 `asyncio.to_thread` 执行，且 PDF 新于 PPTX 时早返回（转换即缓存）。
 - **AJP14 已核实**：PPX1 已修复，现用 `CustomTemplateParser.parse_template_file`；`api_key_token` 是不透明引用 token（经 `apikey_manager` 换用户自定义 Key），非原始密钥，经 body/Form 传递属既有前端契约，且 `input_validator` 只记录 issues 不记录 body，本次未改。
 - **VA2 本次修复**：`/vision/ocr` 返回配置中的 `OCR_MODEL`，不再硬编码 `"deepseek-ai/DeepSeek-OCR"`。`analyze_image` 收显式模型时不降级，故上报值即实际使用值。
 - **VA3 已核实（非缺陷）**：`RateLimitMiddleware` 对所有 HTTP 路径生效（`/api/v1/vision/*` 不在 SKIP_PATHS），命中 IP 100/60、用户 50/60、端点默认 60/60。
 - **MM2 已核实（低危，需产品口径）**：端点有正常前端消费者（`src/stores/agentSession.js` 的 `fetchRoles` 取 `roles`/`version`）；返回的 `models` 仅含模型元数据（name/provider/context_length 等），`model_key` 已由 `/models/` 公开，无凭据泄露；v2.0 兼容分支 MEDIUM 缺失回退 LARGE 属既有兼容行为，是否收紧需产品口径。
 - **MM3 已核实（低危）**：`_runtime_default_model` 为进程内全局，2 worker 下确会不同步、重启即失效，但仅影响 `/models` 浏览接口的 `is_default` 标记，不参与实际 LLM 路由（后者走 `dynamic_model_router`/配置文件）；404 detail 列出的 model_key 已公开。跨 worker 持久化需引入共享存储，属独立设计改动，本次未改。
-- **测试**：新增 `tests/unit/test_pptx_generator_hardening.py`(7) 与 `tests/unit/test_vision_ocr_model_reporting.py`(1)。
+- **测试**：新增 `tests/unit/test_pptx_generator_hardening.py`(7)、`tests/unit/test_vision_ocr_model_reporting.py`(1) 与 `tests/unit/test_ppt_template_upload_offloads_parse.py`(1)；回退 `aiGeneratorPptx.py` 后模板解析用例 1 项失败。
