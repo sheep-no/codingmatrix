@@ -543,8 +543,9 @@ async def call_llm(
     # 优先级 1: 直接指定动态供应商
     if provider_id:
         from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        from app.utils.logging import get_user_id
         manager = get_dynamic_provider_manager()
-        provider = manager.get(provider_id)
+        provider = manager.get(provider_id, get_user_id() or "")
         if provider and provider.enabled:
             try:
                 from app.utils.aicloud.langchain_adapter import LangChainUnavailable
@@ -610,8 +611,9 @@ async def call_llm(
     # 优先级 3: 检查动态供应商中是否有该模型
     if adapter is None:
         from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        from app.utils.logging import get_user_id
         manager = get_dynamic_provider_manager()
-        dp = manager.get_by_model(model)
+        dp = manager.get_by_model(model, get_user_id() or "")
         if dp:
             adapter = DynamicAdapter(dp)
             adapter.timeout = timeout

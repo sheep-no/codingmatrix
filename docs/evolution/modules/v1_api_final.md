@@ -74,7 +74,8 @@
 
 ### PRV1 [P2] 动态供应商全局共享无归属（providers.py 全文件）（已修复）
 - 归属过滤已落地：`DynamicProvider.owner_id`（`dynamic_provider.py:44`）与 manager 的 `get/list/delete/toggle` 的 owner 过滤（:67-102）均存在；`providers.py` 全部端点现以 `owner_id = str(token.get("sub", "default_user"))` 传参，list/get/delete/toggle/sync/test 只能作用于本人 provider，add 仍要求 admin。原「DynamicProvider 无 user 字段」描述已与实现不符
-- 残留（未改，待确认设计意图）：模型路由 `get_by_model`（`dynamic_provider.py:71`）仍无 owner 过滤，`llm_caller.py:614` / `provider_router.py:115` / `dynamic_model_router.py:991` 会命中任一启用 provider 的 api_key。因 add 需 admin，实际形态是「普通用户按模型名消费管理员配置的 provider Key」；若动态供应商本意即系统级共享则属预期，若为 per-user 仍需按用户收口
+- 残留已收口（确认设计意图为 per-user）：请求级用户身份由 `verify_token` 写入 `app.utils.logging.set_user_id`（`user_id_var`），`DynamicProviderManager.get_by_model(model_id, owner_id)` 增 owner 过滤；`llm_caller.py` 优先级 1 `manager.get(provider_id, owner)` 与优先级 3 `get_by_model(model, owner)`、`provider_router.route`、`dynamic_model_router.get_context_length` 全部读取 `get_user_id()`。无请求上下文（后台/系统路径）时 owner 为空，保持旧的全局语义。回归测试 `tests/unit/test_dynamic_provider_user_scoping.py`（6 项）
+- 行为影响：`providers.py` 的 add 仍要求 admin，故非管理员用户不再可能按模型名命中管理员配置的动态供应商，而是回落到内置映射/系统默认路由
 - Backlog：#1202
 
 ## P3 发现（31 项）
@@ -155,7 +156,7 @@
 - MD4（naive/aware 混用）：+2（health.py:195、FL4）
 - 内部错误泄露（DB7/str(e) detail）：+4（AUT5、PRV2、kolors 图生图/修复 500 detail、KHS 无）
 - VK 磁盘/内存耗尽：+2（FL3、KOL3）
-- 全局态无用户隔离（新增家族 GLOB）：APY2、PRV1、SKY1、AIC6 —— 自定义 provider/skill/缓存四类全局单例均无 user 维度，建议专项治理
+- 全局态无用户隔离（新增家族 GLOB）：APY2、PRV1、SKY1、AIC6 —— PRV1 已在 CRUD + 模型路由两层按 `user_id` 收口；APY2/SKY1 此前已修；AIC6 残留多 worker 不共享的部分响应缓存仍待专项治理
 - SD5（状态语义漂移）：API 层实证 +2（TQ6）
 
 ## 数据

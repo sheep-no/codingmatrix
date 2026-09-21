@@ -68,9 +68,11 @@ class DynamicProviderManager:
         provider = self.providers.get(pid)
         return provider if provider and (not owner_id or provider.owner_id == owner_id) else None
     
-    def get_by_model(self, model_id: str) -> Optional[DynamicProvider]:
-        """根据模型名查找供应商"""
+    def get_by_model(self, model_id: str, owner_id: str = "") -> Optional[DynamicProvider]:
+        """根据模型名查找供应商；传入 owner_id 时只在本人的供应商中查找。"""
         for p in self.providers.values():
+            if owner_id and p.owner_id != owner_id:
+                continue
             if not p.enabled:
                 continue
             for m in p.models:

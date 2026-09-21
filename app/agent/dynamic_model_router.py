@@ -987,8 +987,9 @@ def get_context_length(model_name: str, api_key_token: str = None) -> int:
     # 动态供应商
     try:
         from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        from app.utils.logging import get_user_id
         manager = get_dynamic_provider_manager()
-        dp = manager.get_by_model(model_name)
+        dp = manager.get_by_model(model_name, get_user_id() or "")
         if dp:
             for m in dp.models:
                 if m.id == model_name and m.context_length > 0:
