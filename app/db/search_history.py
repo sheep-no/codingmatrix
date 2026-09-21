@@ -10,6 +10,29 @@ def escape_like_pattern(pattern: str) -> str:
     return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _apply_conversation_filters(
+        stmt,
+        user_id: int,
+        prompt_keyword: Optional[str],
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+):
+    """列表与计数共用的过滤口径：任一条消息命中全部条件即该会话命中。
+
+    关键词必须作用在会话的任意一条消息上，否则会话早期消息命中、最新一条
+    不含关键词时会漏召回，并与计数口径不一致。
+    """
+    stmt = stmt.where(History.user_id == user_id)
+    if start_date:
+        stmt = stmt.where(History.created_at >= start_date)
+    if end_date:
+        stmt = stmt.where(History.created_at <= end_date)
+    if prompt_keyword:
+        escaped_keyword = escape_like_pattern(prompt_keyword)
+        stmt = stmt.where(History.prompt.like(f"%{escaped_keyword}%", escape="\\"))
+    return stmt
+
+
 # 主函数：获取每个对话的最新记录（用于左侧历史列表）
 async def search_history_to_db(
         db: AsyncSession,
@@ -29,34 +52,27 @@ async def search_history_to_db(
     2. 主查询通过 IN 子句获取详细记录（避免复杂 JOIN）
     3. 尽早应用过滤条件减少数据量
     """
-    subquery = (
-        select(
-            History.conversation_id,
-            func.max(History.id).label('max_id')
-        )
-        .where(History.user_id == user_id)
+    # 命中会话集合：任一条消息命中关键词即可，与计数函数保持同一口径
+    matching_conversations = _apply_conversation_filters(
+        select(History.conversation_id), user_id, prompt_keyword, start_date, end_date
     )
-    
-    if start_date:
-        subquery = subquery.where(History.created_at >= start_date)
-    if end_date:
-        subquery = subquery.where(History.created_at <= end_date)
-    
+
+    # 展示行仍取该会话在时间范围内的最新一条记录
+    subquery = _apply_conversation_filters(
+        select(History.conversation_id, func.max(History.id).label('max_id')),
+        user_id, None, start_date, end_date
+    ).where(History.conversation_id.in_(matching_conversations))
     subquery = subquery.group_by(History.conversation_id).subquery()
-    
+
     max_ids_subquery = select(subquery.c.max_id)
-    
+
     stmt = select(History).where(
         and_(
             History.id.in_(max_ids_subquery),
             History.user_id == user_id
         )
     )
-    
-    if prompt_keyword:
-        escaped_keyword = escape_like_pattern(prompt_keyword)
-        stmt = stmt.where(History.prompt.like(f"%{escaped_keyword}%", escape="\\"))
-    
+
     stmt = stmt.order_by(desc(History.id)).limit(limit).offset(offset)
     
     result = await db.execute(stmt)
@@ -118,20 +134,10 @@ async def get_distinct_conversation_count(
     1. 子查询中提前应用时间过滤
     2. 简化总数统计逻辑
     """
-    subquery = (
-        select(History.conversation_id)
-        .where(History.user_id == user_id)
+    subquery = _apply_conversation_filters(
+        select(History.conversation_id), user_id, prompt_keyword, start_date, end_date
     )
-    
-    if start_date:
-        subquery = subquery.where(History.created_at >= start_date)
-    if end_date:
-        subquery = subquery.where(History.created_at <= end_date)
-    
-    if prompt_keyword:
-        escaped_keyword = escape_like_pattern(prompt_keyword)
-        subquery = subquery.where(History.prompt.like(f"%{escaped_keyword}%", escape="\\"))
-    
+
     subquery = subquery.group_by(History.conversation_id).subquery()
     
     stmt = select(func.count()).select_from(subquery)

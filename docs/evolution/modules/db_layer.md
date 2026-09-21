@@ -2,7 +2,7 @@
 
 > 版本：v0.1 | 扫描日期：2026-08-28 | 状态：已完成（第一百五十一轮，合扫）
 > 归属：基础设施层 / 数据访问层（对应 SERVICES-EVOLUTION.md H 组公共底座）
-> 路径：app/db/（12 文件 1322 行：database 36 + models 141 + add_history 63 + search_history 139 + chat_history_service 227 + chat_archiver 318 + scheduler 204 + log_server 132 + permission_service 37 + user_sql_server 20 + init_workflow 15 + clear 19）
+> 路径：app/db/（12 文件 1329 行：database 36 + models 141 + add_history 63 + search_history 146 + chat_history_service 227 + chat_archiver 318 + scheduler 204 + log_server 132 + permission_service 37 + user_sql_server 20 + init_workflow 15 + clear 19）
 > 索引：[TASKS.md](../TASKS.md)
 
 ## 0. 模块定位与状态判定（三态）
@@ -27,7 +27,7 @@
 ## 1. 模块作用与功能
 
 - 核心职责：异步引擎与会话工厂（database.py）+ Agent 业务四表 ORM（models.py）+ 对话历史读写（add_history/search_history）+ 虚拟姬对话历史（chat_history_service）+ 定时归档与清理调度（chat_archiver/scheduler）+ v2 日志流（log_server）+ 权限/用户查询便捷层（permission_service/user_sql_server）
-- 主要符号：`engine`/`async_session`/`get_db`（database.py:7/:20/:29）；`ProjectSession`/`WorkflowHistory`/`ImageGenerationHistory`/`ConversationMessage`（models.py:7/:48/:82/:118）；`save_history_to_db`（add_history.py:10）；`search_history_to_db`/`get_conversation_history`/`get_distinct_conversation_count`（search_history.py:14/:67/:107）；`ChatHistoryService`（chat_history_service.py:8）；`ChatArchiver`（chat_archiver.py:30）；`scheduler`/`archive_task`/`cleanup_files_task`/`cleanup_tasks_task`/`cleanup_logs_task`/`start_scheduler`（scheduler.py:16/:20/:27/:99/:138/:197）；`LogService`/`LogFilter`（log_server.py:11/:121）；`PermissionService`（permission_service.py:8）；`get_user_by_email`/`check_email_exists`（user_sql_server.py:10/:16）
+- 主要符号：`engine`/`async_session`/`get_db`（database.py:7/:20/:29）；`ProjectSession`/`WorkflowHistory`/`ImageGenerationHistory`/`ConversationMessage`（models.py:7/:48/:82/:118）；`save_history_to_db`（add_history.py:10）；`_apply_conversation_filters`/`search_history_to_db`/`get_conversation_history`/`get_distinct_conversation_count`（search_history.py:13/:37/:83/:123）；`ChatHistoryService`（chat_history_service.py:8）；`ChatArchiver`（chat_archiver.py:30）；`scheduler`/`archive_task`/`cleanup_files_task`/`cleanup_tasks_task`/`cleanup_logs_task`/`start_scheduler`（scheduler.py:16/:20/:27/:99/:138/:197）；`LogService`/`LogFilter`（log_server.py:11/:121）；`PermissionService`（permission_service.py:8）；`get_user_by_email`/`check_email_exists`（user_sql_server.py:10/:16）
 - 内部子功能划分：连接管理 / 历史存储 / 定时任务 / 日志流 / 认证辅助
 
 ## 2. 依赖与被依赖
@@ -330,7 +330,7 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 - **DB3 [P2] 已修**：`connect_args` 增加 `timeout=30`，连接钩子增加 `PRAGMA journal_mode=WAL` 与 `PRAGMA busy_timeout=30000`。更正原文一处事实：Python `sqlite3.connect` 默认 `timeout=5.0s`（非 0），但主库此前从未设置显式超时，WAL 亦未开启；本次统一收敛到主库一处。
 - **DB2 [P2] 已缓解（非本次改动）**：`settings.ENABLE_SCHEDULER` 默认 `False`，`main.py:133` 据此 gate `start_scheduler()`，默认单进程部署不再双跑。若在多 worker 下显式开启，`AsyncIOScheduler` 仍会每 worker 一份，需独立调度进程/分布式锁，保留。
 - **DB5 [P3] 已失效**：`chat_archiver._generate_summary_with_ai` 现对 `choices`、`message`、`content` 逐层做空值防护（`choices[0].get("message") or {}`、`(message.get("content") or "").strip()`），`content=None` 不再抛 `AttributeError` 中止整轮归档。
-- **DB4/DB7/DB12 [P3] 未处理**：归档水位线、搜索语义统一、schema 单轨等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
+- **DB4/DB12 [P3] 未处理**：归档水位线、schema 单轨等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
 
 新增回归 `tests/unit/test_sqlite_engine_config.py`（2 项，覆盖 DB1/DB3）。同时 `.gitignore` 补充 `*.db-wal`/`*.db-shm`/`*.db-journal`，避免 WAL 边车文件误入版本库。
 
@@ -342,3 +342,4 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 - **DB11 [P3] 部分已修，原判定部分待迁移决策**：实测确认 SQLite 下 `DateTime(timezone=True)` 写入 aware UTC 后读回 `tzinfo` 丢失、值本身仍是 UTC；`ConversationMessage.to_dict` 直接 `int(self.created_at.timestamp())` 会把该 naive UTC 值按本地时区解释，在 UTC+8 服务器上偏差 28800 秒。现于 `to_dict` 内对 naive 值补 `replace(tzinfo=timezone.utc)` 再取 timestamp（aware 值原样保留），消费链 `app/agent/conversation_store.py` 的下游只用 `role`/`content` 拼上下文，不依赖该偏移。新增回归 `tests/unit/test_conversation_message_timestamp.py`（3 项，用 `TZ=Asia/Shanghai` 暴露偏差；回退 models.py 后偏差 8h 用例失败）。**仍未做**：`WorkflowHistory`/`ImageGenerationHistory` 的 naive `DateTime` 列仍用 `default=datetime.now`（本地时间），统一为 aware UTC lambda 会让新写入值与该列既有本地时间数据语义混用，需先确定数据迁移策略，保留。
 - **DB6 [P3] 已修，原建议方案经核实不适用**：`conversation_id` 是**一对多**字段——`app/api/v1/Aicode.py` 续接会话时用同一 `conversation_id` 追加多轮 `History` 行（`:1106`、`:1220` 传回客户端给的 id），因此文档建议的 `UniqueConstraint(user_id, conversation_id)` 会直接阻断续接，不可采纳。真实缺陷仅在「新会话 id 生成」：`save_history_to_db` 在 `conversation_id is None` 时用 `max+1`，SQLite 侧 advisory lock 被 `except Exception: pass` 跳过（PG 侧 `pg_advisory_xact_lock` 持锁到 commit，语义正确），单进程 async 下两个并发新会话会读到同一 max 而拿到相同 id，导致同用户两条本应独立的会话合并。现增加按 `user_id` 粒度的模块级 `asyncio.Lock`，把「读 max → 构造 → add → commit/flush」串行化；PG 多进程仍由 advisory xact lock 兜底。新增回归 `tests/unit/test_add_history_conversation_id.py`（3 项：并发新会话 id 互异、不同用户各自从 1 起、续接保留给定 id；回退 add_history.py 后并发用例返回 `[1,1]` 失败）。
 - **DB13 [P3] 已修**：`app/db/scheduler.py`（原文件头误写 `app/services/scheduler.py`，已更正）新增模块级 `UPLOAD_ROOT` 与 `_delete_managed_path()`。删除物理文件前用 `Path.resolve()` + `is_relative_to` 校验目标必须落在上传目录内，拒绝目录外路径、父目录逃逸与上传根本身；去掉 `os.path.exists` 前置检查，改由 `FileNotFoundError` 兜底，消除 exists→remove 的 TOCTOU 窗口；孤立文件关联查询由「每文件一次 `select(Task)`」收敛为一次 `Task.input_file_id.in_(...)` 批量查询；`shutil.rmtree`/`unlink` 经 `asyncio.to_thread` 移出事件循环，避免同步 I/O 阻塞。批次上限未做，保留。新增回归 `tests/unit/test_scheduler_file_cleanup.py`（8 项，覆盖路径白名单、逃逸拒绝、TOCTOU 空操作与单次批量查询）。
+- **DB7 [P3] 已修**：`app/db/search_history.py` 抽出模块级 `_apply_conversation_filters(stmt, user_id, prompt_keyword, start_date, end_date)`，把「用户 + 时间范围 + 关键词」统一为「**任一条消息**命中全部条件即该会话命中」的子查询口径，`search_history_to_db` 与 `get_distinct_conversation_count` 共用同一 helper，消除列表（旧：关键词套在每会话最新一条上）与计数（旧：关键词放子查询内）的双语义失配。展示行仍取该会话在时间范围内的最新一条记录（`func.max(History.id)`），因此「早期消息命中、最新一条不含关键词」的会话既会被召回、又只计一次，与分页总数一致。新增回归 `tests/unit/test_search_history_semantics.py`（2 项：早期消息命中的会话被召回且计数为 1、不命中会话从列表与计数同时排除；回退 `search_history.py` 后首项因列表漏召回失败）。
