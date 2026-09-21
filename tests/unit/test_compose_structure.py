@@ -47,9 +47,15 @@ def test_prod_compose_shares_cleanup_volumes_with_scheduler():
     compose = _load("docker-compose.prod.yml")
     services = compose["services"]
 
+    managed = (
+        "uploads:/app/uploads",
+        "ppt-artifacts:/app/pptx_output",
+        "generated-images:/app/generated_images",
+        "projects:/app/projects",
+    )
     for name in ("api", "celery", "scheduler"):
-        assert "uploads:/app/uploads" in services[name]["volumes"], name
+        for mount in managed:
+            assert mount in services[name]["volumes"], f"{name}:{mount}"
 
-    # scheduler 负责按龄清理 pptx 产物，缺此挂载会扫到空目录
-    assert "ppt-artifacts:/app/pptx_output" in services["scheduler"]["volumes"]
-    assert "uploads" in compose["volumes"]
+    for volume in ("uploads", "ppt-artifacts", "generated-images", "projects"):
+        assert volume in compose["volumes"]
