@@ -58,6 +58,15 @@ TEMP_DIR = Path(tempfile.gettempdir()) / "kolors_uploads"
 TEMP_DIR.mkdir(exist_ok=True)
 
 
+def _literal_contains(column, value: str):
+    """按字面量做子串匹配。
+
+    用户可控的 `%`/`_` 会被 LIKE 当作通配符，从而放宽归属校验或缓存命中
+    （KOL1/KOL2），故统一转义。
+    """
+    return column.contains(value, autoescape=True)
+
+
 async def _save_upload_file(upload_file: UploadFile) -> str:
     """保存上传文件到临时目录，返回文件路径"""
     import uuid
@@ -97,7 +106,7 @@ async def get_cached_image(
         
         query_conditions = [
             History.user_id == user_id,
-            History.metadata_json.contains(cache_key),
+            _literal_contains(History.metadata_json, cache_key),
             History.created_at >= cutoff_time
         ]
         
@@ -105,7 +114,7 @@ async def get_cached_image(
             query_conditions.append(History.conversation_id == conversation_id)
 
         if fingerprint:
-            query_conditions.append(History.metadata_json.contains(fingerprint))
+            query_conditions.append(_literal_contains(History.metadata_json, fingerprint))
         
         result = await db.execute(
             select(History).where(*query_conditions).order_by(History.id.desc()).limit(1)
@@ -370,7 +379,7 @@ async def get_generated_resource(
         raise HTTPException(status_code=404, detail="图片不存在")
     records = await db.execute(select(History.metadata_json).where(
         History.user_id == int(token["sub"]),
-        History.metadata_json.contains(filename),
+        _literal_contains(History.metadata_json, filename),
     ))
     owned = False
     for raw in records.scalars():
@@ -580,7 +589,7 @@ async def image_to_image_api(
             result = await db.execute(
                 select(File).where(
                     File.user_id == user_id,
-                    File.file_path.contains(image_path)
+                    _literal_contains(File.file_path, image_path)
                 )
             )
             file_record = result.scalar_one_or_none()
@@ -592,7 +601,7 @@ async def image_to_image_api(
                         select(History).where(
                             History.user_id == user_id,
                             History.conversation_id == request.conversation_id,
-                            History.metadata_json.contains(image_path)
+                            _literal_contains(History.metadata_json, image_path)
                         )
                     )
                     history = history_result.scalar_one_or_none()
@@ -759,7 +768,7 @@ async def inpaint_api(
             if image_path:
                 result = await db.execute(
                     select(File).where(
-                        File.file_path.contains(image_path),
+                        _literal_contains(File.file_path, image_path),
                         File.user_id == user_id,
                         File.is_deleted == 0
                     )
@@ -784,7 +793,7 @@ async def inpaint_api(
             if mask_path:
                 result = await db.execute(
                     select(File).where(
-                        File.file_path.contains(mask_path),
+                        _literal_contains(File.file_path, mask_path),
                         File.user_id == user_id,
                         File.is_deleted == 0
                     )
