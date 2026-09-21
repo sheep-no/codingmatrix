@@ -134,3 +134,11 @@ app/middleware/ 是 FastAPI 应用的**HTTP 中间件层**——请求进入路�
 - **RLM5 已修复**：429 响应体 `retry_after` 由 `window // 2` 改为 `window`，与响应头 `retry-after` 一致，客户端按任一值等待都不会提前重试撞墙。
 - **RLM3 仍未处理**：反代部署 IP 桶失真与多 worker 内存态不共享依赖部署配置，留待运维口径。
 - **测试**：新增 `tests/unit/test_middleware_rlm_and_request_id.py`(7)；同步调整 `tests/unit/test_performance_monitor_metrics.py` 两处 `_metric_path` 调用签名。回退源码后 8 项失败。
+
+## 十、状态更新（2026-09-21 核实）
+
+- **SH1 已部分修复（unsafe-eval 移除）**：应用页面 CSP 的 `script-src` 由 `'self' 'unsafe-inline' 'unsafe-eval'` 收敛为 `'self' 'unsafe-inline'`，并补 `object-src 'none'`。依据：`src/dist/index.html` 构建产物无内联脚本，Vue 模板在构建期编译，运行期不依赖 eval；两个 bundle 中仅有的 `eval(`/`new Function(`（core-js `setImmediate` 传字符串分支、zrender 取不到 `JSON.parse` 时的 `parseJSON` 回退）正常路径不可达。实测（真实中间件 + 真实 dist，Chromium 加载 `http://127.0.0.1:8100/`）：`eval` 抛 `EvalError`，外部脚本正常执行，页面 0 console error / 0 page error。
+- **SH1 保留 `'unsafe-inline'` 的原因（已实测）**：`documentPictureInPicture` 创建的画中画文档会继承本文档的 CSP（隔离实验：父文档 `script-src 'self'` 时，画中画窗口内联脚本被拦、`document.write` 的脚本不执行），而 `src/components/VirtualGirl.vue` 的画中画聊天界面正是靠窗口内内联脚本 + `postMessage` 工作。撤销该依赖需要 nonce 方案（后端按请求注入 + 画中画复用 nonce）或把画中画 UI 改为由主窗口直接操作其 DOM，属独立专项。
+- **文档分支判定补段边界**：`/api/docs`、`/api/redoc`、`/api/openapi` 三个前缀改为 `_is_docs_path()` 的段边界/精确匹配。原 `path.startswith("/api/docs")` 会让 `/api/docsomething` 这类同前缀业务路径命中放宽策略（`unsafe-eval` + jsdelivr + 免 COEP），与 IV2 的 `startswith` 前缀碰撞同族；当前路由表暂无此类路径，属潜在放行面。`/api/openapi` 由前缀改为精确 `/api/openapi.json`，与 `app/main.py:186` 的 `openapi_url` 一致。
+- **FSW1 仍未处理**：`SKIP_PATHS` 五项均不在 `PATH_FEATURE_MAP`（`/api/v1/aicloud|docker|agent|workflow`）内，属装饰性白名单；`/api/v1/docker` 在路由表 0 条命中，映射项已死；前缀匹配同样缺段边界（当前路由表无碰撞路径）。属整洁性 + 潜在正确性问题，留待下轮。
+- **测试**：新增 `tests/unit/test_security_headers_csp.py`(12)；回退 `app/middleware/security_headers.py` 后 6 项失败。
