@@ -103,7 +103,7 @@
 - **AIC3 [P3] 已修复**：新增 `extract_response_text(result)`，用安全取值替代 `result["choices"][0]["message"]["content"]` 裸索引，结构异常（缺 choices/空 choices/缺 message/content 非 str）统一抛 `RuntimeError`，被调用方 `(…RuntimeError…)` 元组捕获为 500 友好提示。回归测试 `tests/unit/test_aicode_response_hardening.py`
 - **AIC4 [P3] 已核实（非缺陷）**：`_build_context`（`Aicode.py:783-786`）实际调用 `get_or_parse_file` → `parse_document`（`app/utils/aicloud/knowledge_processor.py:93`），txt/md/py/js/ts/json/yaml/yml/csv/log/pdf/docx/doc 均解析正文并拼入 `[参考文件：name]\n{parsed_content}`；解析失败分支返回「附件处理失败」文案而非静默占位。原条目行号已漂移，描述与当前实现不符
 - **AIC5 [P3] 已修复**：`ai_decide_search`（`Aicode.py:216-245`）现调用 `DEFAULT_FAST_MODEL` 走 `_SEARCH_DECISION_PROMPT` + `parse_search_decision`，仅对空串/`_GREETINGS` 短路返回 False，解析失败或调用异常时默认检索 True；不再是硬编码关键词表。`select_model_for_prompt`（:475）仍为启发式规则表，4 个候选模型均在 `ALLOWED_MODELS_LIST` 白名单内，属合法实现
-- **AIC6 [P3] 部分已修复**：恢复缓存改由 `_restore_partial_prefix(resume_from, user_id)` 处理，校验缓存 `user_id` 与当前用户一致，不一致则忽略，避免他人 resume_id 注入其部分响应。残留：`_partial_response_cache` 模块级字典多 worker 不共享（RLM3 家族）
+- **AIC6 [P3] 已修复**：恢复缓存改由 `_restore_partial_prefix(resume_from, user_id)` 处理，校验缓存 `user_id` 与当前用户一致，不一致则忽略且不消费他人条目，避免他人 resume_id 注入其部分响应。残留的多 worker 不共享（RLM3 家族）已收口：新增 `app/utils/partial_response_store.py`，部分响应改存 Redis（TTL 300s），Redis 不可用时 fail-open 回退进程内 dict（有 TTL + 上限 100）；用同步客户端以适配流式生成被取消的 `CancelledError` 保存分支（取消上下文里 await 新协程可能再次抛错导致保存丢失）。回归测试 `tests/unit/test_partial_response_store.py`(3) 与 `tests/unit/test_aicode_response_hardening.py`(15)
 - 已排除项：verify_file_access 有 File.user_id == user_id 过滤（:402），跨用户文件访问嫌疑解除
 
 ### GirlAi.py（3 项）
@@ -158,7 +158,7 @@
 - MD4（naive/aware 混用）：+2（health.py:195、FL4）
 - 内部错误泄露（DB7/str(e) detail）：+4（AUT5、PRV2、kolors 图生图/修复 500 detail、KHS 无）
 - VK 磁盘/内存耗尽：+2（FL3、KOL3）
-- 全局态无用户隔离（新增家族 GLOB）：APY2、PRV1、SKY1、AIC6 —— PRV1 已在 CRUD + 模型路由两层按 `user_id` 收口；APY2/SKY1 此前已修；AIC6 残留多 worker 不共享的部分响应缓存仍待专项治理
+- 全局态无用户隔离（新增家族 GLOB）：APY2、PRV1、SKY1、AIC6 —— PRV1 已在 CRUD + 模型路由两层按 `user_id` 收口；APY2/SKY1 此前已修；AIC6 的多 worker 不共享部分响应缓存已改 Redis（见 AIC6 条目）
 - SD5（状态语义漂移）：API 层实证 +2（TQ6）
 
 ## 数据
