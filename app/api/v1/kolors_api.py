@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.utils.security import verify_token
@@ -43,6 +43,7 @@ from app.services.image_resource_service import (
     get_or_create_generation,
 )
 from app.db.database import get_db
+from app.db.add_history import save_history_to_db
 from app.models.history import History
 from app.models.file import File
 from app.db.models import ImageGenerationHistory
@@ -149,21 +150,11 @@ async def cache_image_to_history(
     缓存图片到 history.metadata_json
     
     用于后续快速访问，避免重复生成
+
+    conversation_id 为 None 时复用 save_history_to_db 的按用户加锁生成逻辑，
+    避免与并发的新会话/缓存写入读到同一 max 而撞号（DB6 家族复现）。
     """
     try:
-        # 查询当前用户的最大 conversation_id
-        max_conv_stmt = select(func.max(History.conversation_id)).where(
-            History.user_id == user_id
-        )
-        max_result = await db.execute(max_conv_stmt)
-        max_conv_id = max_result.scalar() or 0
-        
-        # 确定 conversation_id
-        if conversation_id is None:
-            new_conv_id = int(max_conv_id) + 1
-        else:
-            new_conv_id = conversation_id
-        
         # 构建元数据
         metadata = {
             "type": "image",
@@ -175,21 +166,16 @@ async def cache_image_to_history(
         }
         if fingerprint:
             metadata["fingerprint"] = fingerprint
-        
-        # 创建历史记录
-        history = History(
+
+        new_conv_id = await save_history_to_db(
+            db=db,
             user_id=user_id,
-            conversation_id=new_conv_id,
+            conversation_id=conversation_id,
             prompt=prompt,
             response=f"图片已生成：{image_path}",
-            thinking=None,
-            title=f"图像生成：{prompt[:50]}",
-            metadata_json=json.dumps(metadata)
+            metadata=metadata,
         )
-        
-        db.add(history)
-        await db.commit()
-        
+
         logger.info(f"缓存图片到历史 | conversation_id={new_conv_id} | path={image_path}")
         
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
