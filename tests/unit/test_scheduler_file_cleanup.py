@@ -59,8 +59,9 @@ def test_rejects_managed_root_itself(upload_root):
     assert upload_root.exists()
 
 
-def test_missing_path_is_a_noop(upload_root):
-    assert scheduler._delete_managed_path(str(upload_root / "gone.txt")) is False
+def test_missing_path_is_treated_as_deleted(upload_root):
+    # 磁盘上已无该产物等价于删除完成，调用方应可清理数据库记录
+    assert scheduler._delete_managed_path(str(upload_root / "gone.txt")) is True
 
 
 def test_empty_path_is_rejected():
@@ -141,3 +142,26 @@ async def test_cleanup_issues_one_batch_task_query(upload_root, monkeypatch):
     assert db.task_queries == 1
     # 仅删除无关联任务的文件（1 与 3），保留被引用的 2
     assert sorted(record.id for record in db.deleted_records) == [1, 3]
+
+
+async def test_physical_delete_failure_keeps_record(upload_root, monkeypatch):
+    """物理删除失败时必须保留数据库记录，避免磁盘残留失去索引。"""
+    taken = _FakeFile(7, str(upload_root / "locked.txt"))
+    db = _FakeDb(deleted=[taken], orphaned=[], linked_ids=set())
+    monkeypatch.setattr(scheduler, "async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr(scheduler, "_delete_managed_path", lambda path: False)
+
+    await scheduler.cleanup_files_task()
+
+    assert db.deleted_records == []
+
+
+async def test_orphan_delete_failure_keeps_record(upload_root, monkeypatch):
+    orphan = _FakeFile(9, str(upload_root / "locked-orphan.txt"))
+    db = _FakeDb(deleted=[], orphaned=[orphan], linked_ids=set())
+    monkeypatch.setattr(scheduler, "async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr(scheduler, "_delete_managed_path", lambda path: False)
+
+    await scheduler.cleanup_files_task()
+
+    assert db.deleted_records == []
