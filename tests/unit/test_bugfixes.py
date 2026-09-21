@@ -231,6 +231,88 @@ class TestUploadStorageDateDir:
         assert "/" not in result.name
 
 
+class TestChunkUploadLimits:
+    """测试分片链的大小/序号/总数校验（FL3）"""
+
+    @pytest.mark.asyncio
+    async def test_oversized_chunk_rejected_and_not_written(self, tmp_path):
+        import io
+        from fastapi import HTTPException
+        from starlette.datastructures import UploadFile
+        from app.api.v1 import file_upload
+
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path), \
+                patch.object(file_upload, "CHUNK_SIZE", 10):
+            upload = UploadFile(filename="c", file=io.BytesIO(b"x" * 11))
+            with pytest.raises(HTTPException) as exc:
+                await file_upload.upload_chunk("fid", 0, upload, 1, {"sub": "1"})
+
+        assert exc.value.status_code == 413
+        assert not (tmp_path / "1" / "fid" / "chunk_0").exists()
+
+    @pytest.mark.asyncio
+    async def test_chunk_index_out_of_range_rejected(self, tmp_path):
+        import io
+        from fastapi import HTTPException
+        from starlette.datastructures import UploadFile
+        from app.api.v1 import file_upload
+
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path):
+            for index in (-1, 3):
+                upload = UploadFile(filename="c", file=io.BytesIO(b"data"))
+                with pytest.raises(HTTPException) as exc:
+                    await file_upload.upload_chunk("fid", index, upload, 3, {"sub": "1"})
+                assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_total_chunks_bounds_rejected(self, tmp_path):
+        import io
+        from fastapi import HTTPException
+        from starlette.datastructures import UploadFile
+        from app.api.v1 import file_upload
+
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path):
+            for total in (0, file_upload.MAX_TOTAL_CHUNKS + 1):
+                upload = UploadFile(filename="c", file=io.BytesIO(b"data"))
+                with pytest.raises(HTTPException) as exc:
+                    await file_upload.upload_chunk("fid", 0, upload, total, {"sub": "1"})
+                assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_init_rejects_out_of_range_file_size(self):
+        from fastapi import HTTPException
+        from app.api.v1 import file_upload
+
+        for size in (0, -1, file_upload.MAX_FILE_SIZE + 1):
+            with pytest.raises(HTTPException) as exc:
+                await file_upload.init_chunked_upload(
+                    "f.bin", size, "hash", None, {"sub": "1"}, AsyncMock()
+                )
+            assert exc.value.status_code == 413
+
+
+class TestStaleChunkCleanup:
+    """测试孤儿分片目录按 TTL 回收（FL3）"""
+
+    def test_stale_dir_removed_and_fresh_dir_kept(self, tmp_path):
+        import os
+        import time
+        from app.api.v1 import file_upload
+
+        user_dir = tmp_path / "1"
+        stale = user_dir / "old-file"
+        fresh = user_dir / "new-file"
+        stale.mkdir(parents=True)
+        fresh.mkdir(parents=True)
+        old = time.time() - file_upload.CHUNK_TTL_SECONDS - 10
+        os.utime(stale, (old, old))
+
+        file_upload._cleanup_stale_user_chunks(user_dir)
+
+        assert not stale.exists()
+        assert fresh.exists()
+
+
 class TestImageGenerationFormat:
     """测试 image_generation.py 的 response_format"""
 
