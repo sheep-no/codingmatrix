@@ -42,6 +42,11 @@ def get_user_id() -> Optional[str]:
     return user_id_var.get()
 
 
+def set_user_id(user_id) -> None:
+    """设置当前请求的 user_id，供后续路由/缓存按用户隔离。"""
+    user_id_var.set(str(user_id) if user_id is not None else None)
+
+
 def set_request_context(request_id: str, user_id: Optional[str] = None):
     """设置请求上下文"""
     request_id_var.set(request_id)

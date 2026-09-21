@@ -133,7 +133,7 @@ def _decode_and_validate_token(token: str, verify_expiry: bool = True) -> tuple[
     return True, payload, None, None
 
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     token = credentials.credentials
     success, payload, error_code, error_msg = _decode_and_validate_token(token)
 
@@ -148,6 +148,10 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     # 验证 token 类型必须为 access
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无效的 token 类型")
+
+    # 写入请求级用户上下文，供动态供应商路由等按用户隔离（模型路由不能读到他人 provider）。
+    from app.utils.logging import set_user_id
+    set_user_id(payload.get("sub"))
 
     return payload
 
