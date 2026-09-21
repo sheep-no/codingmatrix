@@ -33,7 +33,9 @@ def _delete_managed_path(raw_path: str) -> bool:
     """删除受管上传目录内的文件或目录。
 
     只允许删除 ``UPLOAD_ROOT`` 下的路径，避免 DB 脏数据或误配置把
-    ``shutil.rmtree`` 指向目录树外部。返回 True 表示已删除。
+    ``shutil.rmtree`` 指向目录树外部。返回 True 表示磁盘上已无该产物，
+    调用方可安全清理数据库记录；返回 False 表示删除未完成，应保留记录
+    以便下个周期重试。
     """
     if not raw_path:
         return False
@@ -52,8 +54,8 @@ def _delete_managed_path(raw_path: str) -> bool:
             target.unlink()
         return True
     except FileNotFoundError:
-        # 已不存在视为删除完成，避免 exists→remove 的 TOCTOU 误判
-        return False
+        # 目标已不存在等价于删除完成，避免 exists→remove 的 TOCTOU 误判
+        return True
     except OSError as exc:
         logger.error("删除物理文件失败 | path=%s | error=%s", raw_path, exc)
         return False
@@ -87,13 +89,16 @@ async def cleanup_files_task():
                 if file.updated_at:
                     days_since_deleted = (datetime.utcnow() - file.updated_at).days
                     if days_since_deleted > 7:
-                        # 删除物理文件
+                        # 仅当物理文件确认删除后才移除数据库记录；否则保留记录
+                        # 以便下个周期重试，避免磁盘残留永久失去索引。
                         if await asyncio.to_thread(_delete_managed_path, file.file_path):
                             logger.info(f"删除物理文件：{file.file_path}")
-                        
-                        # 删除数据库记录
-                        await db.delete(file)
-                        deleted_count += 1
+                            await db.delete(file)
+                            deleted_count += 1
+                        else:
+                            logger.warning(
+                                f"物理文件未删除，保留记录以便重试 | file_id={file.id}"
+                            )
             
             # 2. 清理上传超过 30 天且无关联任务的孤立文件
             orphaned_cutoff = datetime.utcnow() - timedelta(days=30)
@@ -115,12 +120,15 @@ async def cleanup_files_task():
 
             for file in orphaned_files:
                 if file.id not in linked_ids:
-                    # 删除物理文件
+                    # 仅当物理文件确认删除后才移除数据库记录
                     if await asyncio.to_thread(_delete_managed_path, file.file_path):
                         logger.info(f"删除孤立文件：{file.file_path}")
-                    
-                    await db.delete(file)
-                    orphaned_count += 1
+                        await db.delete(file)
+                        orphaned_count += 1
+                    else:
+                        logger.warning(
+                            f"孤立文件未删除，保留记录以便重试 | file_id={file.id}"
+                        )
             
             await db.commit()
             
