@@ -14,7 +14,7 @@ import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.utils.crypto import get_rsa_key_manager
 from app.utils.rate_limiter import limiter
@@ -336,9 +336,31 @@ async def update_enabled(request: Request, token: str, enabled: bool = True, use
         raise HTTPException(status_code=500, detail="更新 Key 状态失败")
 
 
+_MAX_CONTEXT_ENTRIES = 200
+_MAX_CONTEXT_LENGTH = 10_000_000
+_MAX_FALLBACK_ENTRIES = 20
+_MAX_MODEL_NAME_LEN = 200
+
+
 class UpdateContextLengthsRequest(BaseModel):
     """更新模型 context_length 配置请求"""
+
     context_lengths: dict = Field(default_factory=dict, description="模型 context_length 配置 {model_id: context_length}")
+
+    @field_validator("context_lengths")
+    @classmethod
+    def _validate_context_lengths(cls, value: dict) -> dict:
+        if len(value) > _MAX_CONTEXT_ENTRIES:
+            raise ValueError(f"context_lengths 条目过多（最多 {_MAX_CONTEXT_ENTRIES} 条）")
+        for model_id, length in value.items():
+            if not isinstance(model_id, str) or not model_id.strip() or len(model_id) > _MAX_MODEL_NAME_LEN:
+                raise ValueError(f"模型名必须为非空字符串且不超过 {_MAX_MODEL_NAME_LEN} 字符")
+            # bool 是 int 子类，需先排除，避免 true 被当成 1
+            if isinstance(length, bool) or not isinstance(length, int):
+                raise ValueError("context_length 必须为整数")
+            if not 1 <= length <= _MAX_CONTEXT_LENGTH:
+                raise ValueError(f"context_length 需在 1-{_MAX_CONTEXT_LENGTH} 之间")
+        return value
 
 
 @router.put("/{token}/context-lengths", summary="更新模型 context_length 配置")
@@ -376,6 +398,17 @@ class UpdateFallbackPreferenceRequest(BaseModel):
         default_factory=list,
         description="自定义降级链模型列表（仅 fallback_preference='custom' 时生效）"
     )
+
+    @field_validator("custom_fallback_chain")
+    @classmethod
+    def _validate_custom_chain(cls, value: list) -> list:
+        # 不校验模型名白名单：自定义供应商允许任意模型名，白名单会误伤
+        if len(value) > _MAX_FALLBACK_ENTRIES:
+            raise ValueError(f"降级链元素过多（最多 {_MAX_FALLBACK_ENTRIES} 个）")
+        for item in value:
+            if not isinstance(item, str) or not item.strip() or len(item) > _MAX_MODEL_NAME_LEN:
+                raise ValueError(f"降级链元素必须为非空字符串且不超过 {_MAX_MODEL_NAME_LEN} 字符")
+        return value
 
 
 @router.put("/{token}/fallback-preference", summary="更新降级链偏好")

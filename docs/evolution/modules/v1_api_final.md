@@ -87,7 +87,7 @@
 
 ### apikey.py（2 项）
 - **APY3 [P3]** batch TTL 仅允许 TTL_OPTIONS 预设字符串，单条支持自定义 int —— 双语义不一致；batch_import 无 _sync_provider_models（单条有），行为不一致
-- **APY4 [P3]** :331-353 update_context_lengths 值无校验；:368-400 fallback chain 元素为任意字符串（模型名无白名单）
+- **APY4 [P3] 已修复（部分）**：`UpdateContextLengthsRequest.context_lengths` 增 `field_validator` —— 条目 ≤200、模型名为非空 str 且 ≤200 字符、值必须为 int（先排除 bool，避免 `true` 被当作 1）且落在 1-10,000,000；`UpdateFallbackPreferenceRequest.custom_fallback_chain` 增校验 —— 元素 ≤20、每个为非空 str 且 ≤200 字符。**刻意不引入模型名白名单**：自定义供应商允许任意模型名，白名单会误伤合法用法，故只做格式/规模约束。消费方 `get_context_length` 本就有 `val > 0` 兜底与 try/except，本次是写入侧收敛。回归测试 `tests/unit/test_apikey_request_validation.py`
 
 ### task_queue.py（3 项）
 - **TQ4 [P3] 已修复（核实）**：`TASK_NAMES`（`app/api/v1/task_queue.py`）已覆盖 `TaskTypeEnum` 全部 4 值（project_generate/code_generate/modify_with_test/ppt_generate），create/retry/recover 共用同一映射源；未知类型在 create 中且仅在其中返回 400。`test_task_type_contract_matches_implemented_tasks` 与 `test_build_task_kwargs_covers_every_supported_type` 锁定该契约，docstring 与实现一致。
