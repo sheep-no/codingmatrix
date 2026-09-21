@@ -171,6 +171,66 @@ class TestChunkUserIsolation:
             assert (base / "fid" / "metadata.json").exists()
 
 
+class TestChunkLockRegistry:
+    """测试分片锁按用户隔离且可回收（FL5）"""
+
+    @pytest.mark.asyncio
+    async def test_lock_entry_released_after_use(self):
+        """最后一个使用者离开后锁表清空，不会随上传次数无界增长"""
+        from app.api.v1 import file_upload
+
+        async with file_upload._chunk_lock_scope(1, "fid"):
+            pass
+        assert file_upload._chunk_locks == {}
+        assert file_upload._chunk_lock_refs == {}
+
+    @pytest.mark.asyncio
+    async def test_same_file_serialized_and_distinct_users_not_shared(self):
+        """同一 (user, file) 串行；不同用户的同名 file_id 不共享锁"""
+        from app.api.v1 import file_upload
+
+        order = []
+        entered = asyncio.Event()
+
+        async def holder():
+            async with file_upload._chunk_lock_scope(1, "fid"):
+                order.append("first-enter")
+                entered.set()
+                await asyncio.sleep(0.05)
+                order.append("first-exit")
+
+        async def waiter():
+            await entered.wait()
+            async with file_upload._chunk_lock_scope(1, "fid"):
+                order.append("second-enter")
+
+        async def other_user():
+            async with file_upload._chunk_lock_scope(2, "fid"):
+                order.append("other-user")
+
+        await asyncio.gather(holder(), waiter(), other_user())
+
+        assert order.index("first-exit") < order.index("second-enter")
+        # 其他用户不受同 file_id 锁的阻塞：无需等待第一个使用者退出即可进入
+        assert order.index("other-user") < order.index("first-exit")
+        assert file_upload._chunk_locks == {}
+
+
+class TestUploadStorageDateDir:
+    """测试上传落盘日期目录统一（FL4）"""
+
+    def test_date_dir_uses_compact_format_under_upload_root(self):
+        from app.api.v1 import file_upload
+        from datetime import datetime
+
+        with patch.object(file_upload, "UPLOAD_DIR", Path("/tmp/uploads")):
+            result = file_upload._storage_date_dir()
+
+        assert result.parent == Path("/tmp/uploads")
+        assert result.name == datetime.now().strftime("%Y%m%d")
+        assert "/" not in result.name
+
+
 class TestImageGenerationFormat:
     """测试 image_generation.py 的 response_format"""
 
