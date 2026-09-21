@@ -29,6 +29,11 @@ router = APIRouter(prefix="/Controller")
 # 单点、批量与恢复端点共用，避免批量/恢复绕过键白名单。
 VALID_CONFIG_KEYS = frozenset(ServerConfig.DEFAULT_CONFIGS)
 
+# 备份下载端点挂在 router 的 /Controller 前缀下，对外完整路径为
+# /api/v2/Controller/admin/backup/{timestamp}；创建与列表两处共用同一
+# 前缀，避免 download_url 与实际路由漂移。
+BACKUP_DOWNLOAD_URL_BASE = "/api/v2/Controller/admin/backup"
+
 
 # 单例模式 ====================
 
@@ -618,12 +623,17 @@ async def create_backup(token: dict = Depends(require_superadmin)):
 
         backup_size = backup_file.stat().st_size
 
-        backup_list = list(backup_dir.glob("config_backup_*.json"))
-        backup_list.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        older_backups = backup_list[5:]
+        # 淘汰只针对历史备份：文件系统时间戳精度较粗时，同一秒内创建的
+        # 备份 mtime 会相同，按 mtime 排序可能把刚创建的这个也排进淘汰窗口。
+        older_backups = [
+            path for path in backup_dir.glob("config_backup_*.json")
+            if path != backup_file
+        ]
+        older_backups.sort(key=lambda x: x.stat().st_mtime, reverse=True)
 
-        for old_backup in older_backups:
-            old_backup.unlink()
+        for old_backup in older_backups[4:]:
+            # 并发创建时另一请求可能已删掉同一文件，缺失即可，不必报错
+            old_backup.unlink(missing_ok=True)
 
         return {
             "status": "success",
@@ -631,7 +641,7 @@ async def create_backup(token: dict = Depends(require_superadmin)):
             "backup_file": str(backup_file),
             "backup_size": backup_size,
             "config_count": len(backup_data["configs"]),
-            "download_url": f"/api/v2/Controller/admin/backup/{timestamp}"
+            "download_url": f"{BACKUP_DOWNLOAD_URL_BASE}/{timestamp}"
         }
 
     except Exception as e:
@@ -653,11 +663,13 @@ async def list_backups(token: dict = Depends(require_admin)):
         backups = []
         for backup_file in sorted(backup_dir.glob("config_backup_*.json"), reverse=True):
             stat = backup_file.stat()
+            # 下载端点按时间戳寻址（/admin/backup/{timestamp}），而非文件名
+            timestamp = backup_file.stem.removeprefix("config_backup_")
             backups.append({
                 "filename": backup_file.name,
                 "size": stat.st_size,
                 "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "download_url": f"/api/v2/Controller/admin/backup/download/{backup_file.name}"
+                "download_url": f"{BACKUP_DOWNLOAD_URL_BASE}/{timestamp}"
             })
 
         return {"backups": backups}

@@ -114,6 +114,8 @@
 - **V2N1 nginx_ai.py 未接入死文件**：仍未挂载（除 `tests/archive/legacy` 外全库零引用）。建议删除，待确认后执行。
 - **V2M1/V2M2/V2M3 仍存续**：model_admin 声明废弃仍挂载（双轨）、`/models/default` 改运行时全局、`fallback-chain` 的 `chain_name` 收而不用。均属设计收敛/配置结构决策，需架构口径。
 - **V2A1 仍存续**：`/sandbox-config` 改 `os.environ` 非持久、多 worker 不同步，属设计债。
-- **新发现（未修）**：`/admin/backup/list` 返回的 `download_url` 形如 `/admin/backup/download/{filename}`，与实际路由 `/admin/backup/{timestamp}` 不匹配；前端未消费该字段（自行拼接），暂记待办。
+- **V2N4 本次修复**：`/admin/backup/list` 返回的 `download_url` 原为 `/admin/backup/download/{filename}`，与实际路由 `/admin/backup/{timestamp}` 不匹配，按该字段请求必然 404；现抽出模块级 `BACKUP_DOWNLOAD_URL_BASE`，创建与列表共用，列表按 `config_backup_{timestamp}.json` 反推 timestamp 拼 URL。前端虽自行拼接（`src/utils/api/admin.js`）未消费该字段，但对外契约应与路由一致。同处一并修掉两个保留期缺陷：淘汰候选改为显式排除本次新建文件（文件系统 mtime 精度粗时同秒备份可能被自己挤出/删掉），`unlink` 加 `missing_ok=True`（并发创建下另一请求已删同一文件不再抛错）。
 
 测试：新增 `tests/unit/test_v2_api_hardening.py`(16)；回退五个源文件后 13 项失败。定向回归 `test_v2_api_hardening + test_v2_user_manage_privilege + test_mcp_admin_api + test_model_admin_api` = 68 passed。
+
+V2N4 测试：新增 `tests/unit/test_admin_backup_download_url.py`(4)；回退 `app/api/v2/guardian_router.py` 后 3 项失败。
