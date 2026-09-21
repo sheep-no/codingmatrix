@@ -5,6 +5,8 @@ import asyncio
 import hashlib
 import logging
 import os
+import shutil
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional, List
@@ -32,6 +34,8 @@ UPLOAD_DIR = Path("./uploads")
 CHUNKS_DIR = UPLOAD_DIR / ".chunks"  # 断点续传分片目录
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
+MAX_TOTAL_CHUNKS = (MAX_FILE_SIZE + CHUNK_SIZE - 1) // CHUNK_SIZE  # 由文件上限推导
+CHUNK_TTL_SECONDS = 24 * 60 * 60  # 孤儿分片保留时长（无活动即视为中断上传）
 
 # 分片上传锁（保护并发上传同一文件）；按 (user_id, file_id) 隔离，用引用计数在
 # 最后一个使用者离开后回收，避免锁表随上传次数无界增长（FL5）。
@@ -126,6 +130,22 @@ async def _chunk_lock_scope(user_id: int, file_id: str):
 def _storage_date_dir() -> Path:
     """上传落盘的日期子目录；统一时钟与格式（原单文件用 utcnow %Y/%m/%d，合并用 now %Y%m%d）。"""
     return UPLOAD_DIR / datetime.now().strftime("%Y%m%d")
+
+
+def _cleanup_stale_user_chunks(user_dir: Path) -> None:
+    """清理当前用户久未活动的分片目录，避免中断的上传永久占用磁盘（FL3）。
+    只扫当前用户目录，不跨用户清理；活跃上传会持续刷新 mtime，故过期即视为中断。
+    """
+    if not user_dir.is_dir():
+        return
+    cutoff = time.time() - CHUNK_TTL_SECONDS
+    for entry in user_dir.iterdir():
+        try:
+            if entry.is_dir() and entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry, ignore_errors=True)
+                logger.info(f"已清理过期分片目录 | {entry}")
+        except OSError as error:
+            logger.warning(f"清理分片目录失败 | {entry} | error={error}")
 
 
 def _scoped_chunk_dir(user_id: int, file_id: str) -> Path:
@@ -349,7 +369,16 @@ async def init_chunked_upload(
     """
     user_id = int(token.get("sub"))
     logger.info(f"初始化分片上传 | user_id={user_id} | filename={filename} | size={file_size}")
-    
+
+    if file_size <= 0 or file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 (最大 {MAX_FILE_SIZE // 1024 // 1024}MB)"
+        )
+
+    # 顺带回收本用户此前中断上传留下的过期分片
+    _cleanup_stale_user_chunks(CHUNKS_DIR / str(user_id))
+
     # 检查是否存在相同哈希的文件（秒传）
     existing_result = await db.execute(
         select(File).where(
@@ -409,13 +438,24 @@ async def upload_chunk(
     - 分片会自动保存到临时目录
     """
     user_id = int(token.get("sub"))
+
+    if total_chunks < 1 or total_chunks > MAX_TOTAL_CHUNKS:
+        raise HTTPException(status_code=400, detail="非法的分片总数")
+    if chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=400, detail="非法的分片序号")
+
     chunk_dir = _scoped_chunk_dir(user_id, file_id)
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
     chunk_path = chunk_dir / f"chunk_{chunk_index}"
 
-    # 保存分片
-    content = await chunk.read()
+    # 保存分片；多读 1 字节以识别超限，避免无上限写入磁盘（FL3）
+    content = await chunk.read(CHUNK_SIZE + 1)
+    if len(content) > CHUNK_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"单个分片超过限制 ({CHUNK_SIZE // 1024 // 1024}MB)"
+        )
     chunk_path.write_bytes(content)
 
     logger.info(f"分片上传成功 | file_id={file_id} | chunk={chunk_index}/{total_chunks} | size={len(content)}")
