@@ -4,12 +4,27 @@
 
 纯 ASGI 实现，避免 BaseHTTPMiddleware 的 cancel scope 传播
 """
-import os
+
+
+def _is_docs_path(path: str) -> bool:
+    """是否为 API 文档页路径
+
+    按路径段边界判定：/api/docsomething 这类前缀相同的业务路径不应命中
+    文档页那组放宽的 CSP。
+    """
+    return (
+        path == "/api/docs"
+        or path.startswith("/api/docs/")
+        or path == "/api/redoc"
+        or path.startswith("/api/redoc/")
+        or path == "/api/openapi.json"
+    )
 
 
 def _csp_for_path(path: str) -> str:
     """根据路径返回合适的 CSP 策略"""
-    if path.startswith("/api/docs") or path.startswith("/api/redoc") or path.startswith("/api/openapi"):
+    if _is_docs_path(path):
+        # Swagger UI / ReDoc 依赖 CDN 资源与内联初始化脚本，这组策略只对文档页放开
         return (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
@@ -21,13 +36,23 @@ def _csp_for_path(path: str) -> str:
             "base-uri 'self'; "
             "form-action 'self'"
         )
+    # 应用页面不再放行 'unsafe-eval'：构建产物 (src/dist/index.html) 无内联脚本，
+    # Vue 模板在构建期编译，运行期不需要 eval；vendor 包中仅有的
+    # eval/new Function 都是拿不到 JSON.parse 时的回退分支，正常路径不可达。
+    # 已实测：eval 抛 EvalError，注入 HTML 的 <script> 被拦截。
+    # script-src 仍需保留 'unsafe-inline'：画中画窗口（VirtualGirl 的
+    # documentPictureInPicture 窗口）会继承本文档 CSP，且其聊天界面依赖窗口内
+    # 内联脚本；撤销该依赖需要引入 nonce 方案（后端注入 + 画中画复用），另立专项。
+    # style-src 同样需要 'unsafe-inline'：index.html 的 skip-link 内联样式，以及
+    # Vue :style 绑定、Element Plus 运行期插入的样式。
     return (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: https:; "
         "font-src 'self' data:; "
         "connect-src 'self' https: wss: ws:; "
+        "object-src 'none'; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
         "form-action 'self'"
@@ -59,7 +84,7 @@ def _build_security_headers(path: str) -> list:
         headers.append((b"cache-control", b"no-store, no-cache, must-revalidate, private"))
         headers.append((b"pragma", b"no-cache"))
         headers.append((b"expires", b"0"))
-    if not (path.startswith("/api/docs") or path.startswith("/api/redoc")):
+    if not _is_docs_path(path):
         headers.append((b"cross-origin-embedder-policy", b"require-corp"))
     return headers
 
