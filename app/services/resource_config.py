@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import time
 from typing import Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,10 @@ class ResourceConfigService:
     管理服务器配置项和资源监控数据
     """
 
+    # 配置缓存的最大陈旧时间。缓存是进程内的，多 worker 部署下 `set_config`
+    # 只能更新当前进程；没有 TTL 时其他 worker 会一直返回旧值直到重启。
+    _CACHE_TTL_SECONDS = 30.0
+
     _instance: Optional["ResourceConfigService"] = None
     _lock_conf = None
 
@@ -37,15 +42,23 @@ class ResourceConfigService:
         self._initialized = True
         self._config_cache: Dict[str, str] = {}
         self._cache_loaded = False
+        self._cache_loaded_at = 0.0
         self._cache_lock = asyncio.Lock()
+
+    def _cache_is_fresh(self) -> bool:
+        """缓存已加载且未超过 TTL。"""
+        return (
+            self._cache_loaded
+            and (time.monotonic() - self._cache_loaded_at) < self._CACHE_TTL_SECONDS
+        )
 
     async def _ensure_cache_loaded(self, db: AsyncSession):
         """确保配置缓存已加载"""
-        if self._cache_loaded:
+        if self._cache_is_fresh():
             return
 
         async with self._cache_lock:
-            if self._cache_loaded:
+            if self._cache_is_fresh():
                 return
 
             result = await db.execute(select(ServerConfig))
@@ -66,6 +79,7 @@ class ResourceConfigService:
 
             await db.commit()
             self._cache_loaded = True
+            self._cache_loaded_at = time.monotonic()
 
     async def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """
@@ -78,7 +92,7 @@ class ResourceConfigService:
         Returns:
             配置值或默认值
         """
-        if key in self._config_cache:
+        if self._cache_is_fresh() and key in self._config_cache:
             return self._config_cache[key]
 
         async with async_session() as db:
@@ -244,6 +258,7 @@ class ResourceConfigService:
     def invalidate_cache(self):
         """使配置缓存失效"""
         self._cache_loaded = False
+        self._cache_loaded_at = 0.0
         self._config_cache.clear()
 
 
