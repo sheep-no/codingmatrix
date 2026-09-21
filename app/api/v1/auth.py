@@ -107,46 +107,61 @@ async def login(
     - 加密模式：发送 encrypted_data 和 encrypted_key
     - 明文模式：直接发送 email 和 password（兼容旧版）
     """
-    # 加密模式验证
-    encrypted_body = None
-    plain_body = None
-    
     # 判断是加密还是明文模式
-    if "encrypted_data" in body and "encrypted_key" in body:
-        encrypted_body = body
-    elif "email" in body and "password" in body:
-        plain_body = body
-    
+    encrypted_mode = "encrypted_data" in body and "encrypted_key" in body
+    plain_mode = not encrypted_mode and "email" in body and "password" in body
+
     # 解密或直接使用数据
-    if encrypted_body:
+    if encrypted_mode:
         try:
             from app.schema.user import UserLoginEncrypted
-            encrypted_model = UserLoginEncrypted(**encrypted_body)
+            encrypted_model = UserLoginEncrypted(**body)
             # 解密数据
             decrypted_data = await decrypt_sensitive_data({
                 "encrypted_data": encrypted_model.encrypted_data,
                 "encrypted_key": encrypted_model.encrypted_key
             })
-            email = decrypted_data["email"]
-            password = decrypted_data["password"]
-            logger.info(f"用户登录请求（加密模式）| email={email[:3]}***@***")
+            email = decrypted_data.get("email")
+            password = decrypted_data.get("password")
         except Exception as e:
             logger.warning(f"登录数据解密失败：{e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="数据解密失败"
             )
-    elif plain_body:
+    elif plain_mode:
         # 明文模式（应该被弃用）
-        email = plain_body["email"]
-        password = plain_body["password"]
-        logger.warning(f"用户使用明文登录（建议升级加密）| email={email[:3]}***@***")
+        email = body["email"]
+        password = body["password"]
     else:
         logger.warning("登录请求格式错误：缺少 email/password 或 encrypted_data/encrypted_key")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="登录数据格式错误"
         )
+
+    # 明文分支直收 JSON（body: dict），绕过 UserLogin 的 EmailStr/min_length/max_length 校验，
+    # 此处统一补齐类型与长度校验，避免非字符串输入在日志切片或查询环节抛 TypeError 逃逸为 500。
+    # 刻意不校验登录密码最小长度：注册链已保证强度，对存量短密码用户强制 min_length 会造成锁死，
+    # 且 verify_password 本就会拒绝错误密码，无安全收益。
+    if not isinstance(email, str) or not isinstance(password, str) or not email or not password:
+        logger.warning("登录请求格式错误：email/password 类型或取值无效")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="登录数据格式错误"
+        )
+    email = email.strip()
+    if not email or len(email) > 254 or len(password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        logger.warning("登录请求格式错误：email/password 超出长度限制")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="登录数据格式错误"
+        )
+
+    if encrypted_mode:
+        logger.info(f"用户登录请求（加密模式）| email={email[:3]}***@***")
+    else:
+        logger.warning(f"用户使用明文登录（建议升级加密）| email={email[:3]}***@***")
     
     # 获取客户端标识用于限流
     client_ip = request.client.host

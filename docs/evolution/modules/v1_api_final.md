@@ -72,15 +72,15 @@
 - **已修复**：upload/list/get/update/delete/upload-file 均加 `Depends(verify_token)`，author 由硬编码 `"api_user"` 改为 `token.sub`，并传入 `owner_user_id` 做归属过滤；`migrate-legacy` 另有管理员校验。`/categories` 为静态分类表保持公开；`/reload` 见 SKY2
 - Backlog：#1201
 
-### PRV1 [P2] 动态供应商全局共享无归属（providers.py 全文件）
-- get_dynamic_provider_manager() 全局单例，DynamicProvider 无 user 字段（dynamic_provider.py:37 类定义确认）
-- 任意认证用户可 list/get/delete/toggle/test 全局 provider 池，并消费他人 api_key 发起 test/sync 请求
+### PRV1 [P2] 动态供应商全局共享无归属（providers.py 全文件）（已修复）
+- 归属过滤已落地：`DynamicProvider.owner_id`（`dynamic_provider.py:44`）与 manager 的 `get/list/delete/toggle` 的 owner 过滤（:67-102）均存在；`providers.py` 全部端点现以 `owner_id = str(token.get("sub", "default_user"))` 传参，list/get/delete/toggle/sync/test 只能作用于本人 provider，add 仍要求 admin。原「DynamicProvider 无 user 字段」描述已与实现不符
+- 残留（未改，待确认设计意图）：模型路由 `get_by_model`（`dynamic_provider.py:71`）仍无 owner 过滤，`llm_caller.py:614` / `provider_router.py:115` / `dynamic_model_router.py:991` 会命中任一启用 provider 的 api_key。因 add 需 admin，实际形态是「普通用户按模型名消费管理员配置的 provider Key」；若动态供应商本意即系统级共享则属预期，若为 per-user 仍需按用户收口
 - Backlog：#1202
 
 ## P3 发现（31 项）
 
 ### auth.py（4 项）
-- **AUT2 [P3]** :126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***`；生产入口 `main.py:100` 调用 `setup_logging()`，全局 `SensitiveDataFilter` 会对日志 record 做脱敏，现状属于过滤器兜底的日志 PII 防御纵深问题
+- **AUT2 [P3] 已核实（非缺陷）**：:126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***`；生产入口 `main.py:100` 调用 `setup_logging()`，全局 `SensitiveDataFilter`（`app/core/logging_config.py:18-75`）的 `email` 规则会命中完整邮箱并替换为 `***EMAIL_REDACTED***`，且已挂载到 console/file_app/file_error 三个 handler（:117-149）。明文分支的邮箱落盘前即被脱敏，属过滤器兜底的日志 PII 纵深防御，无需改动
 - **AUT3 [P3]** 无 /logout 端点，refresh token（7 天 JWT）无吊销机制
 - **AUT4 [P3] 已修复**：`register` 中 `check_email_exists` 与 `db.flush()` 之间存在 TOCTOU，并发注册同一邮箱时 `User.email` 唯一约束触发 `IntegrityError` 逃逸为 500。修复：flush 包 try/except IntegrityError → rollback 并返回与预检一致的 400「邮箱已存在」。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
 - **AUT5 [P3] 已修复**：实际泄露点在 `get_conversations` 异常分支 `detail=str(e)`（原文档 :322-325/:354-357 的 history/conversation 分支现已返回通用文案）。修复：改返回「查询会话列表失败」，内部错误仅进日志。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
@@ -95,11 +95,11 @@
 - **TQ6 [P3] 已修复**：`_merge_task_runtime_state` 原直接 `celery_state.lower()` 透传，Celery 的 `FAILURE`/`RETRY`/`REVOKED`/`STARTED` 会变成 `failure`/`retry`/`revoked`/`started`，超出 `TaskStatusEnum` 声明词表（前端 `retry`/`revoked` 落到默认 `queued`，任务失败/被撤销时状态显示错误）。新增 `_CELERY_STATE_TO_STATUS` 归一化：pending/received→pending、started→running、retry→retrying、success→success、failure→failed、revoked→cancelled；未识别的 Celery 状态保留 DB 口径，持久化终态（success/failed/cancelled）优先不变。另：原条目「cancel 白名单含 retrying，DB 层无此值」经核实不成立——`TaskStatusEnum.RETRYING = "retrying"` 存在且 `celery_app.py:115` 会写入该值，cancel 白名单正确。回归测试 `tests/unit/test_task_dispatch_contract.py` 新增 10 项（7 项状态映射参数化 + 词表约束 + 未知状态回退 + 终态优先）
 
 ### Aicode.py（6 项）
-- **AIC1 [P3]** :464-476 enable_search=True 与 None 行为相同——「允许搜索」按钮实际由关键词表决定
+- **AIC1 [P3] 已修复**：`_build_context`（`Aicode.py:809-818`）现按 `search_mode`/`enable_search` 先算 `effective_mode`——`enable_search=True` → `"on"` 直接 `should_search=True`，`False` → `"off"` 跳过，仅 `None` 才落回 `ai_decide_search` 自动判断。三态语义已区分，原「True 与 None 行为相同」不成立
 - **AIC2 [P3] 部分已修复**：`CodeRequest` 已补 `resume_id: Optional[str]` 字段，`/code` 流式分支改用 `resume_from=body.resume_id`（原 `getattr(body, 'resume_id', None)` 恒 None）。残留：客户端断开分支不可达、`/code/resume` 恢复 conversation_id=None 会话断裂
 - **AIC3 [P3] 已修复**：新增 `extract_response_text(result)`，用安全取值替代 `result["choices"][0]["message"]["content"]` 裸索引，结构异常（缺 choices/空 choices/缺 message/content 非 str）统一抛 `RuntimeError`，被调用方 `(…RuntimeError…)` 元组捕获为 500 友好提示。回归测试 `tests/unit/test_aicode_response_hardening.py`
-- **AIC4 [P3]** :360-367 非图片文件仅返回 "[文件：name]" 占位符，文本内容从未读出（docstring 承诺理解内容）
-- **AIC5 [P3]** :109-173 ai_decide_search「AI 自主判断」实为硬编码关键词表（子串误报 + 2024-2027 年份硬编码）；:204-218 select_model_for_prompt 同为关键词表（4 模型均在 ALLOWED_MODELS_LIST 白名单内，合法）
+- **AIC4 [P3] 已核实（非缺陷）**：`_build_context`（`Aicode.py:783-786`）实际调用 `get_or_parse_file` → `parse_document`（`app/utils/aicloud/knowledge_processor.py:93`），txt/md/py/js/ts/json/yaml/yml/csv/log/pdf/docx/doc 均解析正文并拼入 `[参考文件：name]\n{parsed_content}`；解析失败分支返回「附件处理失败」文案而非静默占位。原条目行号已漂移，描述与当前实现不符
+- **AIC5 [P3] 已修复**：`ai_decide_search`（`Aicode.py:216-245`）现调用 `DEFAULT_FAST_MODEL` 走 `_SEARCH_DECISION_PROMPT` + `parse_search_decision`，仅对空串/`_GREETINGS` 短路返回 False，解析失败或调用异常时默认检索 True；不再是硬编码关键词表。`select_model_for_prompt`（:475）仍为启发式规则表，4 个候选模型均在 `ALLOWED_MODELS_LIST` 白名单内，属合法实现
 - **AIC6 [P3] 部分已修复**：恢复缓存改由 `_restore_partial_prefix(resume_from, user_id)` 处理，校验缓存 `user_id` 与当前用户一致，不一致则忽略，避免他人 resume_id 注入其部分响应。残留：`_partial_response_cache` 模块级字典多 worker 不共享（RLM3 家族）
 - 已排除项：verify_file_access 有 File.user_id == user_id 过滤（:402），跨用户文件访问嫌疑解除
 
@@ -140,6 +140,12 @@
 - 加密登录解密后同样无长度校验 → 登录链密码校验整体缺失
 - 注册链有效：:234 走 UserRegister + :241 validate_password_strength
 - 结论修正：SD1 的影响面从「兼容端点 422 锁死（可用性）」升级为「登录链密码强度校验整体缺失（安全性）」，P2 定级维持，影响面扩大
+
+### SD1 已修复（登录链凭据校验）
+- 真实缺陷是**类型混淆逃逸 500**：`body: dict` 下 `plain_body["email"]` 可为任意 JSON 类型，`email[:3]`（原日志行）或 `get_user_by_email` 遇非字符串输入抛 TypeError → 500；不是认证绕过（`verify_password` 已拒绝非 `$2b$` 哈希、超 72 字节及截断比较，见 `app/utils/security.py:69-77`）。
+- 修复：加密/明文两分支汇合后统一校验——`email`/`password` 必须为非空 `str`，`email` 去空白后非空且 ≤254 字符，`password` UTF-8 ≤ `BCRYPT_MAX_PASSWORD_BYTES`(72)，不满足返回 400「登录数据格式错误」；校验前移，日志切片不再可能收到非字符串。
+- **刻意不引入登录密码 min_length=8**：注册链已保证强度，对存量短密码用户强制最小长度会锁死登录，且 `verify_password` 本就拒绝错误密码，无安全收益。
+- 回归测试 `tests/unit/test_auth_login_credential_validation.py`（10 项：9 项非法形态参数化 + 1 项合法形态仍走 401 未知用户流程）
 
 ## 家族归并累计
 
