@@ -86,3 +86,15 @@ def test_metric_path_prefers_route_template():
 
 def test_metric_path_falls_back_to_placeholder_when_unmatched():
     assert PerformanceMonitorMiddleware._metric_path({}) == "<unmatched>"
+
+
+def test_metrics_text_emits_single_label_block(registry):
+    registry.counter(
+        "http_requests_total",
+        {"method": "GET", "path": "/items/{item_id}", "status": "200"},
+    )
+
+    text = metrics_module.generate_metrics_text()
+    lines = [line for line in text.splitlines() if line.startswith("http_requests_total{")]
+
+    assert lines == ['http_requests_total{method="GET",path="/items/{item_id}",status="200"} 1']

@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 
 import redis
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Redis Lua 脚本：原子性检查 Key 数量限制并添加 Token
@@ -620,10 +622,21 @@ def get_apikey_manager(redis_client: Optional[redis.Redis] = None) -> APIKeyMana
         with _apikey_manager_lock:
             if _apikey_manager is None:
                 if redis_client is None:
-                    # 默认 Redis 连接
-                    redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=False)
+                    redis_client = _build_default_redis_client()
                 _apikey_manager = APIKeyManager(redis_client)
     return _apikey_manager
+
+
+def _build_default_redis_client() -> redis.Redis:
+    """按配置构建默认 Redis 连接。
+
+    未显式注入 client 时，优先使用 ``REDIS_URL``；生产环境下 Redis 位于独立
+    容器，硬编码 ``localhost`` 会让所有 Key 读写连接失败。
+    """
+    url = (getattr(settings, "REDIS_URL", "") or "").strip()
+    if url:
+        return redis.from_url(url, decode_responses=False)
+    return redis.Redis(host="localhost", port=6379, db=0, decode_responses=False)
 
 
 def init_apikey_manager(redis_client: redis.Redis) -> APIKeyManager:
