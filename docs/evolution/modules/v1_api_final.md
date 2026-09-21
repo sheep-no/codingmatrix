@@ -98,7 +98,8 @@
 
 ### Aicode.py（6 项）
 - **AIC1 [P3] 已修复**：`_build_context`（`Aicode.py:809-818`）现按 `search_mode`/`enable_search` 先算 `effective_mode`——`enable_search=True` → `"on"` 直接 `should_search=True`，`False` → `"off"` 跳过，仅 `None` 才落回 `ai_decide_search` 自动判断。三态语义已区分，原「True 与 None 行为相同」不成立
-- **AIC2 [P3] 部分已修复**：`CodeRequest` 已补 `resume_id: Optional[str]` 字段，`/code` 流式分支改用 `resume_from=body.resume_id`（原 `getattr(body, 'resume_id', None)` 恒 None）。残留：客户端断开分支不可达、`/code/resume` 恢复 conversation_id=None 会话断裂
+- **AIC2 [P3] 已修复**：`CodeRequest` 已补 `resume_id: Optional[str]` 字段，`/code` 流式分支改用 `resume_from=body.resume_id`（原 `getattr(body, 'resume_id', None)` 恒 None）。本次修复会话断裂：中断缓存原不记 `conversation_id`，`/code/resume` 恒以 `conversation_id=None` 保存，续写结果会另起新会话而非写回原会话；现两处中断保存统一走新增 `_store_partial_response(...)` 并落 `conversation_id`（顺带去重原先两段逐字重复的 8 行保存逻辑），`/code/resume` 传 `cache.get("conversation_id")`——中断时尚未建立会话则为 None，由保存侧新建，属预期。回归测试 `tests/unit/test_aicode_response_hardening.py` 新增 4 项
+- 残留（未改）：`is_disconnected()` 分支在 Starlette StreamingResponse 的 anyio 任务组取消语义下基本不可达，实际中断由 `except asyncio.CancelledError` 兜底；两分支现已共用同一保存 helper，路径不再发散
 - **AIC3 [P3] 已修复**：新增 `extract_response_text(result)`，用安全取值替代 `result["choices"][0]["message"]["content"]` 裸索引，结构异常（缺 choices/空 choices/缺 message/content 非 str）统一抛 `RuntimeError`，被调用方 `(…RuntimeError…)` 元组捕获为 500 友好提示。回归测试 `tests/unit/test_aicode_response_hardening.py`
 - **AIC4 [P3] 已核实（非缺陷）**：`_build_context`（`Aicode.py:783-786`）实际调用 `get_or_parse_file` → `parse_document`（`app/utils/aicloud/knowledge_processor.py:93`），txt/md/py/js/ts/json/yaml/yml/csv/log/pdf/docx/doc 均解析正文并拼入 `[参考文件：name]\n{parsed_content}`；解析失败分支返回「附件处理失败」文案而非静默占位。原条目行号已漂移，描述与当前实现不符
 - **AIC5 [P3] 已修复**：`ai_decide_search`（`Aicode.py:216-245`）现调用 `DEFAULT_FAST_MODEL` 走 `_SEARCH_DECISION_PROMPT` + `parse_search_decision`，仅对空串/`_GREETINGS` 短路返回 False，解析失败或调用异常时默认检索 True；不再是硬编码关键词表。`select_model_for_prompt`（:475）仍为启发式规则表，4 个候选模型均在 `ALLOWED_MODELS_LIST` 白名单内，属合法实现

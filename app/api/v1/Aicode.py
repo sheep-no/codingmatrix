@@ -130,6 +130,34 @@ def _cleanup_partial_cache():
     
     return len(expired_keys)
 
+
+def _store_partial_response(
+    prompt: str,
+    partial_text: str,
+    model: str,
+    user_id,
+    conversation_id: Optional[int],
+) -> Optional[str]:
+    """保存中断的部分响应，返回 resume_id。
+
+    必须一并记录 conversation_id：恢复时要把续写结果写回原会话，否则会另起
+    新会话导致上下文断裂（无原会话时为 None，由保存侧新建，属预期）。
+    """
+    if len(partial_text) <= 10:
+        return None
+    _cleanup_partial_cache()
+    task_id = str(uuid.uuid4())
+    _partial_response_cache[task_id] = {
+        "prompt": prompt,
+        "partial_response": partial_text,
+        "model": model,
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    return task_id
+
+
 # 通用提示词模板
 # -----------------------------
 GENERAL_PROMPT = """请回答以下问题：
@@ -1073,16 +1101,8 @@ async def stream_response(
                 cancel_event.set()
                 # 保存部分响应
                 partial_text = prefix_text + "".join(response_parts)
-                if len(partial_text) > 10:
-                    task_id = str(uuid.uuid4())
-                    _cleanup_partial_cache()
-                    _partial_response_cache[task_id] = {
-                        "prompt": prompt,
-                        "partial_response": partial_text,
-                        "model": model,
-                        "user_id": user_id,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
+                task_id = _store_partial_response(prompt, partial_text, model, user_id, conversation_id)
+                if task_id:
                     yield f'{{"interrupted": true, "resume_id": "{task_id}", "partial_length": {len(partial_text)}}}\n'
                 return
 
@@ -1120,16 +1140,8 @@ async def stream_response(
     except asyncio.CancelledError:
         logger.info(f"LLM 调用被取消 | user_id={user_id}")
         partial_text = prefix_text + "".join(response_parts)
-        if len(partial_text) > 10:
-            task_id = str(uuid.uuid4())
-            _cleanup_partial_cache()
-            _partial_response_cache[task_id] = {
-                "prompt": prompt,
-                "partial_response": partial_text,
-                "model": model,
-                "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat()
-            }
+        task_id = _store_partial_response(prompt, partial_text, model, user_id, conversation_id)
+        if task_id:
             yield f'{{"interrupted": true, "resume_id": "{task_id}", "partial_length": {len(partial_text)}}}\n'
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"流式生成失败 | error={str(e)}")
@@ -1454,7 +1466,8 @@ async def resume_code_generation(
             user_id=user_id,
             prompt=resume_prompt,
             model=auto_model,
-            conversation_id=None,
+            # 续写写回原会话；无原会话（中断时尚未建立）时为 None，由保存侧新建
+            conversation_id=cache.get("conversation_id"),
             db=db,
             request=request,
             use_reasoning=use_reasoning,
