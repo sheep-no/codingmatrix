@@ -120,7 +120,9 @@ app/middleware/ 是 FastAPI 应用的**HTTP 中间件层**——请求进入路�
 - **RLM1 已修复**：`RateLimitConfig.get_endpoint_rule` 改最长前缀匹配（新增 `resolve_endpoint_key`，按路径段边界判断），中间件端点桶 key 由完整 raw path 归一为匹配到的规则前缀。六项 AI 主链路前缀规则恢复生效，带路径参数请求不再各自成桶。
 - **IV1 已部分修复**：SQL 正则从单词黑名单改为组合特征（引号布尔注入、`UNION SELECT`、堆叠 DDL、`--` 注释、`1=1`），消除 `create`/`delete`/`select`/`update` 日常文本误报；XSS 移除 `eval(`、`document.*` 等代码语义模式，保留标签/协议/事件属性 payload；`SKIP_SECURITY_CHECK_PATHS` 的空转范围收窄为「仅跳过内容扫描」，Content-Type 与请求体大小校验对 AI 主链路重新生效，并顺带用路径段边界匹配修掉 `startswith` 前缀碰撞。
 - **仍存权衡**：AI 主链路仍不做 SQL/XSS 内容扫描（代码生成场景下把代码文本当攻击 payload 拦截本身不成立，正确防护是输入侧提示词注入检测）；XSS 对 `<script>` 等标签仍会在非白名单端点拦截含字面标签的文本。
-- **仍未处理**：IV2、FSW1、SH1、SH2（P3）。
+- **IV2 已失效（核实为不成立）**：`MAX_BODY_SIZE = 10MB`，14 字节的 `b"__TOO_LARGE__"` 永远达不到该阈值，`_read_body_safe` 不可能把它当作超限哨兵返回，因此「真实 body 恰等于哨兵被误判 413」不可复现（`input_validator.py:19/:143-144/:225`）。`path.startswith(p)` 前缀碰撞已在 IV1 用 `path == p or path.startswith(p + "/")` 的段边界匹配修掉（`:172-175`）。「非 JSON body 不扫描」是对文档已记录的设计取舍，本项无代码缺陷。
+- **SH2 已失效（核实为不成立）**：`app/main.py:186` 显式配置 `docs_url="/api/docs"`、`redoc_url="/api/redoc"`、`openapi_url="/api/openapi.json"`，与 `security_headers.py` 的 `/api/docs` CSP 特化分支一致，不存在「docs 专用分支永不命中」。`input_validator` 的 `/docs` SKIP_PATH 属另一清单，不影响该分支命中。
+- **仍未处理**：FSW1、SH1（P3）。FSW1 为清单冗余与静态前缀映射的整洁性问题（`SKIP_PATHS` 装饰性、新增受控功能需改代码），非正确性缺陷；SH1（CSP `'unsafe-inline'`/`'unsafe-eval'`）需先确认前端是否依赖内联脚本与 eval，收敛为 nonce 会改变全部页面脚本加载方式，属需实测的专项。
 - **测试**：新增 `tests/unit/test_middleware_hardening.py`(15)；回退源码后 8 项失败。
 
 ## 九、状态更新（2026-09-20 核实）
