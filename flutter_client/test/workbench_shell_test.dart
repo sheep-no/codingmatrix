@@ -86,6 +86,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('手机宽度下抽屉导航不溢出', (tester) async {
+    useSize(tester, const Size(360, 640));
+    await tester.pumpWidget(
+      shell(ShellAuth(Fixture())..switchAccount('alice')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Drawer), findsNothing);
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('capabilityNav_chat')));
+    await tester.tap(find.byKey(const Key('capabilityNav_chat')));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(AppBar, '聊天'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('权限过滤隐藏高权限能力', (tester) async {
     useSize(tester, const Size(1200, 900));
     final auth = ShellAuth(Fixture())

@@ -44,6 +44,13 @@ Future<void> fillLogin(WidgetTester tester) async {
   await tester.enterText(find.byKey(const Key('passwordField')), 'secret');
 }
 
+void useSize(WidgetTester tester, Size size) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 void main() {
   testWidgets('空邮箱不会发起登录请求', (tester) async {
     var calls = 0;
@@ -171,5 +178,27 @@ void main() {
           ?.text,
       isEmpty,
     );
+  });
+
+  testWidgets('手机宽度与软键盘弹出时不溢出', (tester) async {
+    final container = loginContainer(
+      MockClient((_) async => throw const SocketException('connection lost')),
+    );
+    addTearDown(container.dispose);
+
+    useSize(tester, const Size(360, 640));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+
+    await pumpLogin(tester, container);
+    expect(tester.takeException(), isNull);
+
+    await tester.ensureVisible(find.byKey(const Key('loginButton')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('loginButton')));
+    await tester.pump();
+
+    expect(find.text('请输入有效邮箱'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
