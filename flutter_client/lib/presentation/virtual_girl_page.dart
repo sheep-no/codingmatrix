@@ -167,17 +167,16 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
                   horizontal: 12,
                   vertical: 4,
                 ),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
                     if (state.emotion != null)
                       Chip(label: Text('情绪: ${state.emotion!.label}')),
-                    const SizedBox(width: 8),
                     if (state.intent != null)
                       Chip(label: Text('意图: ${state.intent!.label}')),
-                    if (state.voiceInput?.status == 'received') ...[
-                      const SizedBox(width: 8),
+                    if (state.voiceInput?.status == 'received')
                       const Chip(label: Text('语音已识别')),
-                    ],
                   ],
                 ),
               ),

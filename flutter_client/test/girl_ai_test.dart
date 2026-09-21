@@ -123,6 +123,52 @@ void main() {
     expect(find.text('嗨'), findsOneWidget);
   });
 
+  testWidgets('窄屏下情绪意图与语音标签同时出现不溢出', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    api = GirlApi((path, method, body) async {
+      if (path == '/api/v1/GirlAi/characters') {
+        return {
+          'characters': [
+            {'id': 'gentle', 'name': '温柔'},
+          ],
+        };
+      }
+      if (path == '/api/v1/GirlAi/companion/turn') {
+        return {
+          'assistant_text': '嗨',
+          'turn_id': 't1',
+          'emotion': {'label': 'stressed'},
+          'intent': {'label': 'task_execution'},
+          'voice_input': {'status': 'received'},
+        };
+      }
+      fail('unexpected $path');
+    });
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    await container.read(girlAiControllerProvider.notifier).send('你好');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('情绪: stressed'), findsOneWidget);
+    expect(find.text('意图: task_execution'), findsOneWidget);
+    expect(find.text('语音已识别'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('发送中退出再进入会丢掉晚到的回复', (tester) async {
     final pending = Completer<Object?>();
     api = GirlApi((path, method, body) async {
