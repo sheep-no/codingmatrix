@@ -141,11 +141,16 @@ class ConversationMessage(Base):
     )
 
     def to_dict(self):
+        # SQLite 读回 DateTime(timezone=True) 会丢失 tzinfo，值本身是 UTC；
+        # 直接 .timestamp() 会按本地时区解释，非 UTC 服务器上偏移 TZ 秒。
+        created_at = self.created_at
+        if created_at is not None and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
         return {
             "id": self.id,
             "session_id": self.session_id,
             "user_id": self.user_id,
             "role": self.role,
             "content": self.content,
-            "timestamp": int(self.created_at.timestamp()) if self.created_at else 0,
+            "timestamp": int(created_at.timestamp()) if created_at else 0,
         }
