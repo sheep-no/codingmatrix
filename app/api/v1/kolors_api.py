@@ -283,10 +283,6 @@ def get_style_prompts() -> dict:
     return styles
 
 
-# 向后兼容
-STYLE_PROMPTS = get_style_prompts()
-
-
 class TextToImageRequest(BaseModel):
     """文生图请求"""
     prompt: str
