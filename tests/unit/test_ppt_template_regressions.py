@@ -77,6 +77,10 @@ class TestCustomTemplateUpload:
     def _auth_and_cwd(self, tmp_path, monkeypatch):
         app.dependency_overrides[verify_token] = lambda: {"sub": "u1", "role": "user"}
         monkeypatch.chdir(tmp_path)
+        # 模板目录已锚定 BASE_DIR（不再随 CWD 漂移），测试改为指向 tmp_path
+        from app.api.v1 import aiGeneratorPptx
+
+        monkeypatch.setattr(aiGeneratorPptx, "BASE_DIR", tmp_path)
         yield tmp_path
         app.dependency_overrides.clear()
 

@@ -17,6 +17,7 @@ from app.utils.vision import (
     extract_text_from_image,
     generate_code_from_image,
     check_image_safety,
+    OCR_MODEL,
     SUPPORTED_IMAGE_FORMATS,
     MAX_IMAGE_SIZE,
 )
@@ -199,7 +200,7 @@ async def api_ocr(
 
         text = await extract_text_from_image(image_path)
 
-        return OCRResponse(text=text, model_used="deepseek-ai/DeepSeek-OCR")
+        return OCRResponse(text=text, model_used=OCR_MODEL)
 
     except HTTPException:
         raise
