@@ -313,6 +313,99 @@ class TestStaleChunkCleanup:
         assert fresh.exists()
 
 
+class TestChunkMergeValidation:
+    """测试分片合并链的三道校验（FL2）：扩展名、声明大小、内容/MIME"""
+
+    def _prepare_chunks(self, tmp_path, content: bytes) -> Path:
+        chunk_dir = tmp_path / "1" / "fid"
+        chunk_dir.mkdir(parents=True)
+        (chunk_dir / "metadata.json").write_text(
+            json.dumps({"file_id": "fid", "total_chunks": 1, "uploaded_chunks": [0]})
+        )
+        (chunk_dir / "chunk_0").write_bytes(content)
+        return chunk_dir
+
+    @pytest.mark.asyncio
+    async def test_unsupported_extension_rejected(self, tmp_path):
+        import hashlib
+        from fastapi import HTTPException
+        from app.api.v1 import file_upload
+
+        content = b"#!/bin/sh\necho hi\n"
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path):
+            for filename in ("evil.exe", "noext"):
+                with pytest.raises(HTTPException) as exc:
+                    await file_upload.merge_chunks(
+                        "fid", filename, hashlib.sha256(content).hexdigest(),
+                        len(content), "text/plain", None, {"sub": "1"}, AsyncMock()
+                    )
+                assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_declared_size_mismatch_rejected(self, tmp_path):
+        import hashlib
+        from fastapi import HTTPException
+        from app.api.v1 import file_upload
+
+        content = b'{"a": 1}'
+        chunk_dir = self._prepare_chunks(tmp_path, content)
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path), \
+                patch.object(file_upload, "UPLOAD_DIR", tmp_path):
+            out_dir = file_upload._storage_date_dir()
+            with pytest.raises(HTTPException) as exc:
+                await file_upload.merge_chunks(
+                    "fid", "chunk_test.json", hashlib.sha256(content).hexdigest(),
+                    len(content) + 1, "application/json", None, {"sub": "1"}, AsyncMock()
+                )
+
+        assert exc.value.status_code == 400
+        # 合并结果不落库、不残留在正式目录
+        assert list(out_dir.glob("*")) == []
+        assert chunk_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_content_type_mismatch_rejected(self, tmp_path):
+        import hashlib
+        from fastapi import HTTPException
+        from app.api.v1 import file_upload
+
+        # 扩展名声明为图片，内容实为 JSON
+        content = b'{"a": 1}'
+        self._prepare_chunks(tmp_path, content)
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path), \
+                patch.object(file_upload, "UPLOAD_DIR", tmp_path):
+            with pytest.raises(HTTPException) as exc:
+                await file_upload.merge_chunks(
+                    "fid", "fake.png", hashlib.sha256(content).hexdigest(),
+                    len(content), "image/png", None, {"sub": "1"}, AsyncMock()
+                )
+
+        assert exc.value.status_code == 400
+        assert "内容校验失败" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_valid_merge_persists_and_cleans_chunks(self, tmp_path):
+        import hashlib
+        from app.api.v1 import file_upload
+
+        content = b'{"a": 1}'
+        chunk_dir = self._prepare_chunks(tmp_path, content)
+        db = AsyncMock()
+
+        with patch.object(file_upload, "CHUNKS_DIR", tmp_path), \
+                patch.object(file_upload, "UPLOAD_DIR", tmp_path):
+            result = await file_upload.merge_chunks(
+                "fid", "chunk_test.json", hashlib.sha256(content).hexdigest(),
+                len(content), "application/json", None, {"sub": "1"}, db
+            )
+
+        assert result["success"] is True
+        assert result["file"]["filename"] == "chunk_test.json"
+        assert result["file"]["file_size"] == len(content)
+        assert db.add.called and db.commit.called
+        assert not chunk_dir.exists()
+
+
 class TestImageGenerationFormat:
     """测试 image_generation.py 的 response_format"""
 
