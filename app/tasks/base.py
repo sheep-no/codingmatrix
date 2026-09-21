@@ -27,6 +27,8 @@ class ProgressCallback:
 
     async def update(self, progress: int, message: str = ""):
         """Update task progress and send WebSocket notification"""
+        # 进度契约：任意调用方都可能传入越界值，这里统一夹到 [0, 100]
+        progress = max(0, min(100, progress))
         self._last_progress = progress
         if self.ws_manager and self.user_id:
             await self.ws_manager.send_task_update(
@@ -143,7 +145,8 @@ def handle_task_result(result: Any, max_size: int = 1024 * 1024) -> dict:
 
     if len(result_str.encode('utf-8')) > max_size:
         import re
-        safe_task_id = re.sub(r'[^a-zA-Z0-9_-]', '', result.get('task_id', 'unknown'))
+        raw_task_id = result.get('task_id', 'unknown') if isinstance(result, dict) else 'unknown'
+        safe_task_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(raw_task_id))
         if not safe_task_id:
             safe_task_id = 'unknown'
         file_path = f"/tmp/task_results/{safe_task_id}.json"
@@ -174,6 +177,9 @@ def parse_priority(priority: str) -> int:
         "medium": 5,
         "low": 2
     }
+    # Celery 重放/直连调用可能绕过 API 的 Enum 约束，非字符串一律落默认档
+    if not isinstance(priority, str):
+        return priority_map["medium"]
     return priority_map.get(priority.lower(), 5)
 
 
