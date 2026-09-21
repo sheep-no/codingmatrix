@@ -66,6 +66,7 @@ from app.services.ppt_generation_persistence import (
 from app.services.ppt_quality_orchestrator import run_quality_pipeline
 from app.utils.pptx.semantic_renderer import build_render_metadata
 from app.utils.aicloud.llm_caller import LLMCallError
+from app.utils.json_parser import extract_json_from_llm
 from app.utils.pptx.semantic_renderer import normalize_slide_type
 from app.utils.pptx.templates.manager import TemplateManager
 from app.utils.pptx.commercial_content import (
@@ -1698,14 +1699,10 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
         else:
             content = str(response)
 
-        # 提取 JSON（可能用 markdown 代码块包裹）
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```|(\{[\s\S]*\}|\[[\s\S]*\])', content)
-        if json_match:
-            json_str = json_match.group(1) or json_match.group(2)
-        else:
-            json_str = content
-
-        outline = json.loads(json_str)
+        # 提取 JSON：交给共享解析器做括号配平，避免贪婪匹配跨块吞掉后续文本
+        outline = extract_json_from_llm(content)
+        if outline is None:
+            raise ValueError("无法从模型响应中提取大纲 JSON")
         if isinstance(outline, dict) and isinstance(outline.get("slides"), list):
             _ensure_commercial_role_diversity(outline["slides"])
             _ensure_content_diversity(outline["slides"], req.topic)
@@ -3438,7 +3435,8 @@ async def generate_ppt_from_file(
     # 解析文件内容
     try:
         from app.utils.aicloud.knowledge_processor import parse_document
-        parsed_text = parse_document(str(temp_path))
+        # 解析是 CPU/IO 密集的同步操作，放入线程池避免阻塞事件循环
+        parsed_text = await asyncio.to_thread(parse_document, str(temp_path))
         if not parsed_text or not parsed_text.strip():
             raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
     except HTTPException:
@@ -3593,7 +3591,8 @@ async def upload_custom_template(
     try:
         from app.utils.pptx.custom_template import CustomTemplateParser
         parser = CustomTemplateParser()
-        config = parser.parse_template_file(str(template_path))
+        # 解析是 CPU/IO 密集的同步操作，放入线程池避免阻塞事件循环
+        config = await asyncio.to_thread(parser.parse_template_file, str(template_path))
 
         # 保存配置
         config_path = template_dir / f"{template_id}.json"

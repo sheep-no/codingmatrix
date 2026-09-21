@@ -133,5 +133,8 @@
 - **VK1/VK2 已修**：`parse_document`/`chunk_text` 走 `asyncio.to_thread`，上传分块累计并受 `MAX_DOCUMENT_SIZE`(20MB) 限制；`chunk_size`/`chunk_overlap` 校验为 `chunk_size > 0` 且 `0 <= chunk_overlap < chunk_size`。
 - **VA1 本次修复**：data URI 拆分前校验逗号、`base64.b64decode(validate=True)` 并对 `binascii.Error` 返回 400；原先 `split(",", 1)` 的 `ValueError` 与无效 base64 落入通用 except 变成 500（无效 base64 还会被静默解码为空图后调用视觉模型）。
 - **MM1 部分修复**：`free_only` 已在 `list_models` 生效；四端点仍未加认证（是否作为公开目录需产品口径）。
-- **未核实/未处理**：AJP4/AJP6/AJP9/AJP10/AJP11/AJP13/AJP14、VA2/VA3、MM2/MM3。
-- **测试**：新增 `tests/unit/test_ppt_dead_code_cleanup.py`(1) 与 `tests/unit/test_vision_api_data_uri.py`(4)；回退 `aiGeneratorPptx.py` 后 1 项失败，回退 `vision_api.py` 后 2 项失败。
+- **AJP6 本次修复（2026-09-21）**：`generate_ppt_outline` 的 JSON 提取弃用贪婪正则 `(\{[\s\S]*\}|\[[\s\S]*\])`（会从首个 `{` 吞到最后一个 `}`，尾随说明文字里的括号即让整段变非法 JSON），改走共享 `app/utils/json_parser.extract_json_from_llm`（括号配平、跳过字符串内括号、容错解析）。降级大纲页数由 `content_slide_count` 决定，已非固定 4 页，该子项不再成立。
+- **AJP9/AJP13/PPX1（AJP14 后半）核实已修**：`update_ppt_task` 开头 `_verify_ppt_owner` + `raw_data["user_id"]` 二次校验（AJP9）；`_convert_pptx_to_pdf` 走 `asyncio.to_thread` 且按 `st_mtime_ns` 命中缓存（AJP13）；`upload_custom_template` 改用存在的 `parser.parse_template_file`（PPX1）。
+- **AJP11 本次修复（2026-09-21）**：`generate_ppt_from_file` 的 `parse_document` 与 `upload_custom_template` 的 `parse_template_file` 都改为 `await asyncio.to_thread(...)`，不再在事件循环内同步解析大文件/模板。上传体积已为分块累计 + 上限（50MB/20MB），该子项此前已修。
+- **未核实/未处理**：AJP4（素材内容未进 LLM，属功能补齐）、AJP10（相对路径 CWD 依赖 + `pptx_output` 无清理，属部署/运维口径）、AJP14 前半（`api_key_token` 走请求体，属协议改造）、VA2/VA3、MM2/MM3（MM3 的 404 键列表泄露以 MM1 认证口径为前提）。
+- **测试**：新增 `tests/unit/test_ppt_dead_code_cleanup.py`(1)、`tests/unit/test_vision_api_data_uri.py`(4)、`tests/unit/test_ppt_upload_offloads_blocking_parse.py`(2)、`tests/unit/test_ppt_outline_json_extraction.py`(2)；回退 `aiGeneratorPptx.py` 后分别为 1、3 项失败，回退 `vision_api.py` 后 2 项失败。
