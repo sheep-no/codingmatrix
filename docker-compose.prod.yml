@@ -27,6 +27,7 @@ services:
       - api-logs:/app/logs
       - api-data:/app/data
       - ppt-artifacts:/app/pptx_output
+      - uploads:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -67,6 +68,7 @@ services:
       - api-logs:/app/logs
       - api-data:/app/data
       - ppt-artifacts:/app/pptx_output
+      - uploads:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -100,6 +102,8 @@ services:
     volumes:
       - api-data:/app/data
       - api-logs:/app/logs
+      - ppt-artifacts:/app/pptx_output
+      - uploads:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -186,6 +190,8 @@ volumes:
   api-data:
     driver: local
   ppt-artifacts:
+    driver: local
+  uploads:
     driver: local
   redis-data:
     driver: local

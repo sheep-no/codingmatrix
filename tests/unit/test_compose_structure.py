@@ -40,3 +40,16 @@ def test_prod_compose_service_and_network_names_are_consistent():
 
     assert {"api", "celery", "nginx", "redis", "scheduler"} <= set(compose["services"])
     assert set(compose["networks"]) == {"ai-agent-prod-net"}
+
+
+def test_prod_compose_shares_cleanup_volumes_with_scheduler():
+    """清理任务所在容器必须能看到 api 写入的上传与生成物目录。"""
+    compose = _load("docker-compose.prod.yml")
+    services = compose["services"]
+
+    for name in ("api", "celery", "scheduler"):
+        assert "uploads:/app/uploads" in services[name]["volumes"], name
+
+    # scheduler 负责按龄清理 pptx 产物，缺此挂载会扫到空目录
+    assert "ppt-artifacts:/app/pptx_output" in services["scheduler"]["volumes"]
+    assert "uploads" in compose["volumes"]
