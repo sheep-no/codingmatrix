@@ -10,11 +10,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import BASE_DIR, settings
 from app.db.models import ImageGenerationHistory
 from app.services.image_resource_service import cleanup_file, cleanup_stale_files
 
-DEFAULT_PPT_OUTPUT_DIR = Path("./pptx_output")
+# 与生成侧（aiGeneratorPptx.PPT_OUTPUT_DIR）锚定同一根目录，避免进程 CWD
+# 不同时「生成写这里、清理扫那里」导致产物永不回收。
+DEFAULT_PPT_OUTPUT_DIR = BASE_DIR / "pptx_output"
 DEFAULT_IMAGE_OUTPUT_DIR = Path("./generated_images")
 _PPT_FILE_SUFFIXES = (".pptx", ".html", ".md", ".pdf")
 _SLIDES_SUFFIX = "_slides.json"

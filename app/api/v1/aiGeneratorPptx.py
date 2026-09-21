@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from app.db.database import get_db
 from app.db.database import async_session
+from app.core.config import BASE_DIR
 from app.utils.security import verify_token, verify_token_ws
 from app.utils.task_manager import task_manager
 from app.schema.task_schema import TaskResponse
@@ -323,7 +324,8 @@ async def get_ppt_quality_report(
 
 PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
 PPT_MAX_SLIDES = 50
-PPT_OUTPUT_DIR = Path("./pptx_output")
+# 锚定仓库根目录，避免相对路径随进程 CWD 漂移导致产物写到意外位置。
+PPT_OUTPUT_DIR = BASE_DIR / "pptx_output"
 PPT_OWNER_DIR = PPT_OUTPUT_DIR / ".owners"
 
 
@@ -1613,6 +1615,26 @@ from app.utils import call_llm
 # 辅助函数：大纲生成、多格式导出、预览
 # =============================================================================
 
+
+def _extract_json_payload(content: str) -> str:
+    """从 LLM 响应中提取首个完整 JSON 文本。
+
+    优先取 markdown 代码块内容；否则从首个 ``{`` 或 ``[`` 起用
+    ``raw_decode`` 解析到第一个完整 JSON 值为止，避免贪婪正则跨越
+    多段 JSON 把整段拼成一个无法解析的字符串，最终静默回退模板大纲。
+    """
+    fenced = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+    if fenced:
+        return fenced.group(1)
+
+    starts = [index for index in (content.find("{"), content.find("[")) if index != -1]
+    if not starts:
+        raise ValueError("响应中未找到 JSON")
+    start = min(starts)
+    _, end = json.JSONDecoder().raw_decode(content[start:])
+    return content[start:start + end]
+
+
 async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -> Dict[str, Any]:
     """使用 AI 生成 PPT 大纲 (支持 Skills 和多参数)"""
     # 构建 prompt
@@ -1698,14 +1720,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
         else:
             content = str(response)
 
-        # 提取 JSON（可能用 markdown 代码块包裹）
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```|(\{[\s\S]*\}|\[[\s\S]*\])', content)
-        if json_match:
-            json_str = json_match.group(1) or json_match.group(2)
-        else:
-            json_str = content
-
-        outline = json.loads(json_str)
+        outline = json.loads(_extract_json_payload(content))
         if isinstance(outline, dict) and isinstance(outline.get("slides"), list):
             _ensure_commercial_role_diversity(outline["slides"])
             _ensure_content_diversity(outline["slides"], req.topic)
@@ -3394,6 +3409,14 @@ async def _stream_upload_to_path(file: UploadFile, destination: Path, max_size: 
             output.write(chunk)
     return total_size
 
+
+async def _parse_uploaded_document(temp_path: Path) -> str:
+    """在工作线程中解析上传文档，避免同步 CPU/IO 解析阻塞事件循环。"""
+    from app.utils.aicloud.knowledge_processor import parse_document
+
+    return await asyncio.to_thread(parse_document, str(temp_path))
+
+
 @router.post("/pptx/generate_from_file", response_model=TaskResponse)
 async def generate_ppt_from_file(
     file: UploadFile = FastAPIFile(..., description="上传文件 (PDF/Word/TXT/MD 等)"),
@@ -3423,7 +3446,7 @@ async def generate_ppt_from_file(
         )
 
     # 保存上传文件到临时目录
-    upload_dir = Path("./uploads/ppt_uploads")
+    upload_dir = BASE_DIR / "uploads" / "ppt_uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_id = str(uuid.uuid4())
     temp_path = upload_dir / f"{file_id}{suffix}"
@@ -3437,8 +3460,7 @@ async def generate_ppt_from_file(
 
     # 解析文件内容
     try:
-        from app.utils.aicloud.knowledge_processor import parse_document
-        parsed_text = parse_document(str(temp_path))
+        parsed_text = await _parse_uploaded_document(temp_path)
         if not parsed_text or not parsed_text.strip():
             raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
     except HTTPException:
@@ -3576,7 +3598,7 @@ async def upload_custom_template(
         raise HTTPException(status_code=400, detail="仅支持 .pptx 格式")
 
     # 保存模板文件
-    template_dir = Path("./configs/ppt/custom_templates")
+    template_dir = BASE_DIR / "configs" / "ppt" / "custom_templates"
     template_dir.mkdir(parents=True, exist_ok=True)
 
     template_id = f"custom_{user_id}_{uuid.uuid4().hex[:8]}"
@@ -3626,7 +3648,7 @@ async def list_custom_templates(
 ):
     """列出用户上传的自定义模板"""
     user_id = token.get("sub", "anonymous")
-    template_dir = Path("./configs/ppt/custom_templates")
+    template_dir = BASE_DIR / "configs" / "ppt" / "custom_templates"
 
     if not template_dir.exists():
         return {"templates": []}
