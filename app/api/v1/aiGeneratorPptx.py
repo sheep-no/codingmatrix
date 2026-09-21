@@ -3615,7 +3615,8 @@ async def upload_custom_template(
     try:
         from app.utils.pptx.custom_template import CustomTemplateParser
         parser = CustomTemplateParser()
-        config = parser.parse_template_file(str(template_path))
+        # 模板解析是 CPU/IO 密集的同步操作，放入线程池避免阻塞事件循环
+        config = await asyncio.to_thread(parser.parse_template_file, str(template_path))
 
         # 保存配置
         config_path = template_dir / f"{template_id}.json"
