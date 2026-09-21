@@ -149,6 +149,11 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无效的 token 类型")
 
+    # 已登出/吊销的 token 直接拒绝，避免 access token 在剩余有效期内继续可用。
+    from app.utils.token_denylist import is_token_revoked
+    if await is_token_revoked(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 已失效，请重新登录")
+
     # 写入请求级用户上下文，供动态供应商路由等按用户隔离（模型路由不能读到他人 provider）。
     from app.utils.logging import set_user_id
     set_user_id(payload.get("sub"))
@@ -166,9 +171,17 @@ def require_superadmin(payload: dict = Depends(verify_token)) -> dict:
     return payload
 
 
-def verify_token_ws(token: str) -> tuple[bool, dict | None, int | None, str | None]:
+async def verify_token_ws(token: str) -> tuple[bool, dict | None, int | None, str | None]:
     """返回：(是否成功，payload, 关闭码，原因)"""
-    return _decode_and_validate_token(token)
+    valid, payload, close_code, reason = _decode_and_validate_token(token)
+    if not valid:
+        return valid, payload, close_code, reason
+
+    from app.utils.token_denylist import is_token_revoked
+    if await is_token_revoked(token):
+        return False, None, WS_TOKEN_EXPIRED, "Token 已失效，请重新登录"
+
+    return valid, payload, close_code, reason
 
 
 # =============================================================================

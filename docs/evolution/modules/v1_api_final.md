@@ -82,7 +82,8 @@
 
 ### auth.py（4 项）
 - **AUT2 [P3] 已核实（非缺陷）**：:126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***`；生产入口 `main.py:100` 调用 `setup_logging()`，全局 `SensitiveDataFilter`（`app/core/logging_config.py:18-75`）的 `email` 规则会命中完整邮箱并替换为 `***EMAIL_REDACTED***`，且已挂载到 console/file_app/file_error 三个 handler（:117-149）。明文分支的邮箱落盘前即被脱敏，属过滤器兜底的日志 PII 纵深防御，无需改动
-- **AUT3 [P3]** 无 /logout 端点，refresh token（7 天 JWT）无吊销机制
+- **AUT3 [P3] 已修复**：JWT 无状态导致登出后 token 在剩余有效期（access 30min / refresh 7 天）内仍可用，且前端 `src/utils/api/auth.js` 已在调用 `POST /logout`（后端缺失）。修复：新增 `app/utils/token_denylist.py`（Redis denylist，按 token 的 sha256 摘要 `setex`，TTL=剩余有效期，Redis 不可用时 fail-open + 告警）；新增 `POST /api/v1/logout`，同时吊销 `Authorization` 里的 access token 与 `refresh_token` Cookie，并清除两个 Cookie；`verify_token` / `verify_token_ws` / `/refresh` 均查黑名单，命中即拒绝。`verify_token_ws` 由同步改异步（4 处调用点均 async），使 WebSocket 建连同样受吊销约束。回归测试 `tests/unit/test_token_denylist_and_logout.py`（5 项）+ `tests/unit/test_utils.py` 4 项 WS 测试改 await
+- 残留：黑名单按 token 摘要逐条记录，未做用户级「全端登出」批量吊销；Redis 故障期 fail-open，吊销能力短期失效
 - **AUT4 [P3] 已修复**：`register` 中 `check_email_exists` 与 `db.flush()` 之间存在 TOCTOU，并发注册同一邮箱时 `User.email` 唯一约束触发 `IntegrityError` 逃逸为 500。修复：flush 包 try/except IntegrityError → rollback 并返回与预检一致的 400「邮箱已存在」。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
 - **AUT5 [P3] 已修复**：实际泄露点在 `get_conversations` 异常分支 `detail=str(e)`（原文档 :322-325/:354-357 的 history/conversation 分支现已返回通用文案）。修复：改返回「查询会话列表失败」，内部错误仅进日志。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
 

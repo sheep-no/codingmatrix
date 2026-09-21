@@ -253,9 +253,9 @@ class TestTokenGeneration:
 class TestWebSocketTokenValidation:
     """WebSocket Token 验证测试"""
 
-    def test_verify_token_ws_valid_token(self, auth_token: str):
+    async def test_verify_token_ws_valid_token(self, auth_token: str):
         """测试验证有效 Token"""
-        is_valid, payload, close_code, reason = verify_token_ws(auth_token)
+        is_valid, payload, close_code, reason = await verify_token_ws(auth_token)
         
         assert is_valid is True
         assert payload is not None
@@ -264,23 +264,23 @@ class TestWebSocketTokenValidation:
         assert close_code is None
         assert reason is None
 
-    def test_verify_token_ws_invalid_token(self):
+    async def test_verify_token_ws_invalid_token(self):
         """测试验证无效 Token"""
-        is_valid, payload, close_code, reason = verify_token_ws("invalid_token_xyz")
+        is_valid, payload, close_code, reason = await verify_token_ws("invalid_token_xyz")
         
         assert is_valid is False
         assert payload is None
         assert close_code is not None
         assert reason is not None
 
-    def test_verify_token_ws_empty_token(self):
+    async def test_verify_token_ws_empty_token(self):
         """测试验证空 Token"""
-        is_valid, payload, close_code, reason = verify_token_ws("")
+        is_valid, payload, close_code, reason = await verify_token_ws("")
         
         assert is_valid is False
         assert close_code is not None
 
-    def test_verify_token_ws_expired_token(self):
+    async def test_verify_token_ws_expired_token(self):
         """测试验证过期 Token"""
         with patch("app.utils.security.datetime") as mock_datetime:
             mock_now = datetime.now(timezone.utc) - timedelta(days=10)
@@ -292,7 +292,7 @@ class TestWebSocketTokenValidation:
                 expires_delta=timedelta(minutes=5)
             )
         
-        is_valid, payload, close_code, reason = verify_token_ws(old_token)
+        is_valid, payload, close_code, reason = await verify_token_ws(old_token)
         
         assert is_valid in [True, False]
 
