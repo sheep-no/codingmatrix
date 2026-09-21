@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 UPLOAD_ROOT = Path("./uploads").resolve()
 
 
+def _deferred_start(seconds: int = 60) -> datetime:
+    """返回长周期任务在进程启动后不久的首次触发时间。
+
+    APScheduler 对未指定 ``start_date`` 的 ``IntervalTrigger`` 会把首次触发
+    安排在 ``now + interval``。调度容器每次发版都会重建，重启周期远短于
+    7/10 天，文件清理、归档等长周期任务因此几乎永不执行。给出临近的
+    ``start_date`` 让首次触发落在启动后不久，后续仍按原间隔重复。
+    """
+    return datetime.now() + timedelta(seconds=seconds)
+
+
 def _delete_managed_path(raw_path: str) -> bool:
     """删除受管上传目录内的文件或目录。
 
@@ -266,7 +277,7 @@ async def cleanup_generated_assets_task():
 # 1. 对话归档 - 每 10 天执行一次
 scheduler.add_job(
     archive_task,
-    trigger=IntervalTrigger(days=10),
+    trigger=IntervalTrigger(days=10, start_date=_deferred_start()),
     id="chat_archive",
     replace_existing=True,
     max_instances=1,
@@ -276,7 +287,7 @@ scheduler.add_job(
 # 2. 文件清理 - 每 7 天执行一次
 scheduler.add_job(
     cleanup_files_task,
-    trigger=IntervalTrigger(days=7),
+    trigger=IntervalTrigger(days=7, start_date=_deferred_start()),
     id="file_cleanup",
     replace_existing=True,
     max_instances=1,
@@ -286,7 +297,7 @@ scheduler.add_job(
 # 3. 任务清理 - 每 7 天执行一次
 scheduler.add_job(
     cleanup_tasks_task,
-    trigger=IntervalTrigger(days=7),
+    trigger=IntervalTrigger(days=7, start_date=_deferred_start()),
     id="task_cleanup",
     replace_existing=True,
     max_instances=1,
@@ -296,7 +307,7 @@ scheduler.add_job(
 # 4. 日志清理 - 每 7 天执行一次
 scheduler.add_job(
     cleanup_logs_task,
-    trigger=IntervalTrigger(days=7),
+    trigger=IntervalTrigger(days=7, start_date=_deferred_start()),
     id="log_cleanup",
     replace_existing=True,
     max_instances=1,
@@ -306,7 +317,7 @@ scheduler.add_job(
 # 5. 项目保留扫描 - 每天执行一次
 scheduler.add_job(
     project_retention_sweep_task,
-    trigger=IntervalTrigger(days=1),
+    trigger=IntervalTrigger(days=1, start_date=_deferred_start()),
     id="project_retention_sweep",
     replace_existing=True,
     max_instances=1,
@@ -326,7 +337,7 @@ scheduler.add_job(
 # 6. 统一状态归档与外部产物清理 - 每天执行一次
 scheduler.add_job(
     unified_retention_task,
-    trigger=IntervalTrigger(days=1),
+    trigger=IntervalTrigger(days=1, start_date=_deferred_start()),
     id="unified_state_retention",
     replace_existing=True,
     max_instances=1,
@@ -337,7 +348,7 @@ scheduler.add_job(
 # 7. PPT / Kolors 生成物按龄淘汰 - 每天执行一次
 scheduler.add_job(
     cleanup_generated_assets_task,
-    trigger=IntervalTrigger(days=1),
+    trigger=IntervalTrigger(days=1, start_date=_deferred_start()),
     id="generated_asset_retention",
     replace_existing=True,
     max_instances=1,

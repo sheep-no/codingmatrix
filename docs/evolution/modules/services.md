@@ -187,3 +187,9 @@ app/models（12 文件，含 agent_memory cascade 确认）/ app/db（12）/ app
 - **CPM1 已缓解 / 部分成立**：`app/main.py` 启动钩子 `_restore_user_providers()`（main.py:141 调用 :262 定义）会从 Redis 中已启用的用户 API Key 重建 `CustomProvider` 并重新拉取模型列表，所以「重启丢失全部自定义供应商」不成立；`services.CustomProviderManager` 只承载内置供应商（`_provider_base_urls`），真正的自定义 base_url 由另一套 `app/utils/aicloud/dynamic_provider.py` 管理。
 - **CPM2 潜在项（无实际影响）**：`provider_id` 用 `hash(name+base_url)` 在重启后不稳定，但 id 从不持久化、还原时按 name 重建，无任何消费方依赖跨重启稳定 id；仅属代码卫生，未改。
 - **CPM5 未改（需产品口径）**：`_fetch_anthropic_models` 的静态硬编码列表与 `app/utils/aicloud/dynamic_provider.py::fetch_models_anthropic` 完全同源，两处一致；单独改动 services 侧会制造新的双轨不一致，且 Anthropic `/v1/models` 不返回 context/max_tokens 元数据，替换需产品确认，暂缓。
+
+## 9. 状态更新（2026-09-21 核实）
+
+- **AKM4 更正（原结论有误）**：原文称「默认 `localhost:6379` 仅作为 `get_apikey_manager()` 未传 client 时的兜底，启动期由 `init_apikey_manager` 注入真实 client」不成立。全库对 `init_apikey_manager` 为**零调用**（仅定义于 apikey_manager.py:635），`get_apikey_manager()` 的全部 19 处调用点均不传 client，因此硬编码 `localhost:6379` 是**唯一生效路径**；生产 `REDIS_URL=redis://redis:6379/0` 且 Redis 位于独立容器，提交/测试/列举 API Key 全部会连接失败。现 `get_apikey_manager()` 未注入 client 时改由新增 `_build_default_redis_client()` 读取 `settings.REDIS_URL`（为空才回落 localhost）。新增回归 `tests/unit/test_apikey_manager_redis_url.py`（2 项）。
+- **PM1 附属（标签重复）已修**：`generate_metrics_text()` 对 `http_requests_total` 曾同时输出指标 key（已含标签块）与 `_format_labels(labels)`，产出 `http_requests_total{...}{...}` 非法行；现直接输出 key。新增断言于 `tests/unit/test_performance_monitor_metrics.py`。PM1 主项（histogram/celery_tasks_total/database_connections_active 收集后不暴露）仍缺，保留。
+- **RC2（多 worker 陈旧）部分已修**：`ResourceConfigService` 的进程内缓存原先永久驻留，`set_config` 只更新当前 worker，2 worker 部署下功能开关/配置改写对其他 worker 不生效直到重启。现加入 `_CACHE_TTL_SECONDS = 30` 与 `_cache_loaded_at`，`_ensure_cache_loaded`/`get_config` 按 TTL 判定新鲜度，超时即重载。新增回归 `tests/unit/test_resource_config_cache_ttl.py`（3 项）。RC2 的 `batch_update_configs` 循环内逐个 SELECT 与 commit 前改缓存仍未改，保留。
