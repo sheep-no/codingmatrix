@@ -494,6 +494,19 @@ async def merge_chunks(
     user_id = int(token.get("sub"))
     logger.info(f"合并分片 | file_id={file_id} | filename={filename}")
 
+    # 与单文件上传链保持一致：先做扩展名与声明大小校验（FL2）
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型：{ext or '无扩展名'}。允许的类型：{', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        )
+    if file_size <= 0 or file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 (最大 {MAX_FILE_SIZE // 1024 // 1024}MB)"
+        )
+
     chunk_dir = _scoped_chunk_dir(user_id, file_id)
 
     # 使用锁保护合并操作
@@ -530,6 +543,15 @@ async def merge_chunks(
                     raise HTTPException(status_code=500, detail=f"分片 {i} 丢失")
                 f.write(chunk_path.read_bytes())
 
+        # 合并结果必须与 init 声明的 file_size 一致
+        actual_size = file_path.stat().st_size
+        if actual_size != file_size:
+            file_path.unlink()
+            raise HTTPException(
+                status_code=400,
+                detail=f"文件大小与声明不一致（声明 {file_size}，实际 {actual_size}）"
+            )
+
         # 验证合并后的文件哈希（分块计算，避免大文件 OOM）
         actual_hash = hashlib.sha256()
         with open(file_path, 'rb') as f:
@@ -545,11 +567,18 @@ async def merge_chunks(
                 detail="文件校验失败，请重新上传"
             )
 
+        # 内容/MIME 深度校验，避免分片链绕过单文件链的安全检查
+        try:
+            validate_file_path(file_path, filename)
+        except ValueError as error:
+            file_path.unlink()
+            raise HTTPException(status_code=400, detail=f"文件内容校验失败：{error}") from error
+
         # 写入数据库
         db_file = File(
             filename=filename,
             file_path=str(file_path),
-            file_size=file_path.stat().st_size,
+            file_size=actual_size,
             content_type=content_type,
             file_hash=actual_hash_hex,
             user_id=user_id,
