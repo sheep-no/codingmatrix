@@ -74,6 +74,7 @@
   - 账号切换竞态统一守卫是自增 epoch 快照：`NotifierProvider` 重建会复用 notifier 实例，`ref.onDispose` 里置位的一次性布尔会永久生效并静默屏蔽后续请求；`StateNotifierProvider` 重建会新建实例，用 `mounted` 判断即可。
   - 区分度测试只用默认参数构造被测对象；使用新增命名参数会让旧代码编译失败而非干净失败，掩盖真实断言。
   - 测试坑：`Stream.timeout` 在响应体阻塞于永不完成的 await 且从未 yield 时不触发；流超时测试必须用真实 `StreamController` 作为响应体，否则测试永久挂起。
+  - 测试坑：`flutter test` 默认 Ahem 字体每个字符等宽且宽度等于字号，窄屏溢出像素数会被显著放大，不能直接用该数值推断真机行为；判断窄屏风险要看布局结构（无弹性的 `Row` 配可变长文本）并按真实字体宽度估算。反向也成立：空数据下页面多为空态，其窄屏冒烟通过不能代表真机安全（GirlAI 状态行就是空态通过、有数据时溢出的例子），修法是改用 `Wrap`。
   - Android 打包受环境限制：`flutter build apk` 由 AGP 触发 NDK 下载（需 strip native 库），NDK 27 解压约 2.9G；本机根分区 20G 无法容纳，构建会把磁盘压到 0 可用并在中断时留下 `$ANDROID_SDK/.temp` 残留。移除 `jni`（例如 pin `path_provider_android: 2.2.20`）不能免除该需求，已回滚该覆盖。
   - 不依赖 NDK 的 Android 验证用 `flutter build bundle --target-platform android-arm64`（验证 Android 目标 Dart 编译），产物在 `build/flutter_assets`。环境无 Android 设备或模拟器，真机联调不在此环境进行。
   - Android 原生/Kotlin/Manifest 改动在本环境无法编译验证：`:app` 在配置阶段即报 `NDK not configured`，`flutter build bundle` 只编译 Dart 资产、不触发 Kotlin。安全探测用 `./gradlew :app:compileDebugKotlin --offline`，会快速失败而不下载 2.9G NDK；这类改动只能靠静态一致性核对（namespace == Kotlin `package` == 源码目录路径，Manifest 用 `.MainActivity` 相对 namespace 解析）。
