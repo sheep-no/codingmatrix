@@ -62,38 +62,52 @@ class ProviderHealthChecker:
         Returns:
             (success, message)
         """
+        success, message, _ = await self.check_detailed(provider, api_key)
+        return success, message
+
+    async def check_detailed(
+        self, provider: str, api_key: str
+    ) -> Tuple[bool, str, bool]:
+        """检查供应商 API Key，并区分失败是否可归因于 Key 本身。
+
+        Returns:
+            (success, message, definitive)。``definitive`` 为 True 表示结论由
+            服务端明确给出（如 401/403/不支持的供应商），可据此停用该 Key；
+            为 False 表示超时、连接失败、限流等瞬时或服务端侧问题，调用方
+            不应据此改变 Key 的可用状态。
+        """
         config = PROVIDER_CONFIGS.get(provider)
         if config is None:
-            return False, f"不支持的供应商：{provider}"
-        
+            return False, f"不支持的供应商：{provider}", True
+
         checker = getattr(self, f"_check_{provider}", None)
         if checker is not None:
             return await checker(api_key, config)
-        
+
         # 默认使用 OpenAI 兼容接口检查
         return await self._check_openai_compatible(api_key, config)
-    
+
     async def _check_siliconflow(self, api_key: str, config: dict) -> Tuple[bool, str]:
         """检查硅基流动"""
         return await self._check_openai_compatible(api_key, config)
-    
+
     async def _check_openai(self, api_key: str, config: dict) -> Tuple[bool, str]:
         """检查 OpenAI"""
         return await self._check_openai_compatible(api_key, config)
-    
+
     async def _check_bailian(self, api_key: str, config: dict) -> Tuple[bool, str]:
         """检查阿里百炼"""
         return await self._check_openai_compatible(api_key, config)
-    
+
     async def _check_glm(self, api_key: str, config: dict) -> Tuple[bool, str]:
         """检查智谱 GLM"""
         return await self._check_openai_compatible(api_key, config)
-    
+
     async def _check_deepseek(self, api_key: str, config: dict) -> Tuple[bool, str]:
         """检查 DeepSeek"""
         return await self._check_openai_compatible(api_key, config)
     
-    async def _check_anthropic(self, api_key: str, config: dict) -> Tuple[bool, str]:
+    async def _check_anthropic(self, api_key: str, config: dict) -> Tuple[bool, str, bool]:
         """检查 Anthropic"""
         url = f"{config['base_url']}/v1/messages"
         headers = {
@@ -114,19 +128,20 @@ class ProviderHealthChecker:
                 response = await client.post(url, headers=headers, json=payload)
                 
                 if response.status_code == 200:
-                    return True, "连接成功"
+                    return True, "连接成功", True
                 elif response.status_code == 401:
-                    return False, "API Key 无效"
+                    return False, "API Key 无效", True
                 elif response.status_code == 403:
-                    return False, "权限不足"
+                    return False, "权限不足", True
                 else:
-                    return False, f"HTTP {response.status_code}: {response.text[:100]}"
+                    # 5xx、429 等由服务端或限流引起，不能据此判定 Key 无效
+                    return False, f"HTTP {response.status_code}: {response.text[:100]}", False
         except httpx.TimeoutException:
-            return False, "请求超时"
+            return False, "请求超时", False
         except Exception as e:
-            return False, f"连接失败：{str(e)}"
-    
-    async def _check_openai_compatible(self, api_key: str, config: dict) -> Tuple[bool, str]:
+            return False, f"连接失败：{str(e)}", False
+
+    async def _check_openai_compatible(self, api_key: str, config: dict) -> Tuple[bool, str, bool]:
         """检查 OpenAI 兼容接口"""
         url = f"{config['base_url']}/chat/completions"
         headers = {
@@ -146,19 +161,19 @@ class ProviderHealthChecker:
                 response = await client.post(url, headers=headers, json=payload)
                 
                 if response.status_code == 200:
-                    return True, "连接成功"
+                    return True, "连接成功", True
                 elif response.status_code == 401:
-                    return False, "API Key 无效"
+                    return False, "API Key 无效", True
                 elif response.status_code == 403:
-                    return False, "权限不足"
+                    return False, "权限不足", True
                 elif response.status_code == 429:
-                    return False, "请求频率过高"
+                    return False, "请求频率过高", False
                 else:
-                    return False, f"HTTP {response.status_code}: {response.text[:100]}"
+                    return False, f"HTTP {response.status_code}: {response.text[:100]}", False
         except httpx.TimeoutException:
-            return False, "请求超时"
+            return False, "请求超时", False
         except Exception as e:
-            return False, f"连接失败：{str(e)}"
+            return False, f"连接失败：{str(e)}", False
 
 
 # 全局单例
