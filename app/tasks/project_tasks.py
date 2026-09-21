@@ -5,11 +5,10 @@ Celery tasks for AI project code generation.
 """
 import asyncio
 import logging
-from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from app.celery_app import celery_app
-from app.tasks.base import BaseTask, parse_priority, parse_timeout
+from app.tasks.base import BaseTask
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,6 @@ def generate_project(self, task_id: str, requirement: str, user_id: int, **kwarg
     """
     async def _execute():
         from app.api.v1.AiProjectCode import ProjectGeneratorAgent
-        from app.db.database import async_session
 
         progress_cb = self._get_progress_callback(task_id, user_id)
 
@@ -61,4 +59,6 @@ def generate_project(self, task_id: str, requirement: str, user_id: int, **kwarg
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
         raise Exception("任务执行超时")
-
+    except Exception:
+        logger.exception(f"Task {task_id} failed")
+        raise

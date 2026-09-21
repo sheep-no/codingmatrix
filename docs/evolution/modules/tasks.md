@@ -113,4 +113,10 @@
 - **TSK5 已修复**：`task_queue` 的 create/retry/recover 统一以 `kwargs=` 下发业务参数（原先作为 AMQP options 被丢弃，实测消息体为 `args=()/kwargs={}`）；`TaskTypeEnum` 与真实任务对齐（新增 `modify_with_test`、支持 `ppt_generate`、移除无实现的 `file_process`）。
 - **TSK6 已修复**：重试/恢复生成并保存新的 Celery ID，三个入口共用 `TASK_NAMES` 映射源。
 - **TSK13 已加固**：测试进度分母做非零保护，`MAX_RETRY_LOOPS=0` 不再除零。
-- **仍未处理**：TSK7–TSK12、TSK14–TSK26（P3）。
+- **TSK7 部分修复（2026-09-21）**：`ProgressCallback.update` 现在把 progress 夹到 `[0, 100]`，越界值不再透传到 WebSocket。原条目里「进度只发 WebSocket、不写 Task DB，实时通知与刷新查询两套来源」属架构分裂，未改。
+- **TSK11 修复（2026-09-21）**：`handle_task_result` 大结果分支改为 `isinstance(result, dict)` 取 `task_id`，非 dict 结果不再抛 `AttributeError`（文件仍按 `unknown` 落盘）。「函数全库无生产消费」仍属实。
+- **TSK12 修复（2026-09-21）**：`parse_priority` 对 `None`/非字符串输入返回默认档 `medium`(5)，不再抛 `AttributeError`；字符串语义不变。
+- **TSK21/TSK22 修复（2026-09-21）**：`project_tasks.py` 删除零消费的 `Task`、`parse_priority`、`parse_timeout` 与函数内 `async_session` 导入；`generate_project` 补 `except Exception` 带 `task_id` 的 `logger.exception` 再抛出，与 `code_tasks.py` 的粒度对齐。
+- **TSK23 失效**：`validate_project` 任务已随 TSK2/TSK3 一并删除，`project_tasks.py` 现仅剩 `generate_project`，其 `async_session` 未使用导入已在本轮清理。
+- **仍未处理**：TSK8–TSK10、TSK14–TSK20（`code_tasks.py`，属 Agent 子系统，不在本轮范围）、TSK24–TSK26（P3，`acks_late` 幂等 / `kwargs` 契约 / 双 `asyncio.run` 桥接）。
+- **测试**：新增 `tests/unit/test_task_base_input_contracts.py`(4)；回退 `app/tasks/base.py` 后 4 项失败。
