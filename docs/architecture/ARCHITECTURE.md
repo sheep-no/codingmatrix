@@ -6,7 +6,7 @@
 
 ## 架构概览
 
-当前架构在统一 LLM 调用路径之外，已经形成统一状态层、PPT 阶段编排、模型上下文持久化、Mobile Agent、VS Code Agent Host 和 Flutter 桌面客户端等运行时能力。
+当前架构在统一 LLM 调用路径之外，已经形成统一状态层、PPT 阶段编排、模型上下文持久化、Mobile Agent、VS Code Agent Host 和 Flutter 客户端等运行时能力。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -167,7 +167,7 @@ SQL 权威状态由 `app/models/unified_state.py` 和 `app/services/unified_stat
 | Web Mobile Agent | `AgentDashboard.vue` 与 `agent-layout.css` 在 768px 以下切换单列布局，提供会话抽屉、文件抽屉、遮罩和焦点管理 |
 | VS Code Agent Host | `agent_host.py` 提供协议版本 1 的握手、动作队列、事件、审批、Skill 同步及 pause/resume/cancel；会话以内存为主，并原子持久化到 `data/agent_host_sessions/*.json` |
 | VS Code 扩展 | `vscode-extension/src/` 共 21 个 TypeScript 文件，流式生成使用 `/api/v1/agent/orchestrate/stream`，工作台含对话、会话历史、模型、文件版本、性能、学习和设置七个面板，支持本地结果恢复 |
-| Flutter 桌面客户端 | `flutter_client/` 共 70 个 Dart 文件 / 12,217 行，18 个页面；经 `AuthenticatedClient` 调用现有 v1/v2 API，MCP 管理仅 superadmin |
+| Flutter 客户端 | `flutter_client/` 共 70 个 Dart 文件 / 12,217 行，18 个页面；经 `AuthenticatedClient` 调用现有 v1/v2 API，MCP 管理仅 superadmin |
 
 ### 任务取消与恢复
 

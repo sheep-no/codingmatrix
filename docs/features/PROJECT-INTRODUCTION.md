@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-12
 
-CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 Flutter 桌面客户端，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
+CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 Flutter 客户端，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
 
 ## 核心能力
 
@@ -65,13 +65,13 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 - ECharts 用于图表，Vitest 与 Playwright 用于测试。
 - SSE 和 WebSocket 用于流式响应与任务进度。
 
-### Flutter 桌面客户端
+### Flutter 客户端
 
 - 源码位于 `flutter_client/`，使用 Riverpod 与四层架构。
 - 已接入对话、GirlAI、PPT、图片生成、工作流、文件中心、模型、动态供应商、任务队列、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理。
 - GitHub Token 加密写入 `github_user_configs`，GET 不回传 Token。`POST /save` 按请求体 `use_github` 创建公开仓库或本地 Git。Flutter 设置页只提交配置。详见 [GitHub 集成](GITHUB.md)。
 
-详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md)。
+详见 [Flutter 客户端](FLUTTER-CLIENT.md)。
 
 ## 当前边界
 
@@ -85,4 +85,4 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 - [架构设计](../architecture/ARCHITECTURE.md)
 - [API 文档](../api/API-DOCUMENTATION.md)
 - [安全说明](../security/SECURITY-OVERVIEW.md)
-- [Flutter 桌面客户端](FLUTTER-CLIENT.md)
+- [Flutter 客户端](FLUTTER-CLIENT.md)

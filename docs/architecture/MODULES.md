@@ -106,7 +106,7 @@ codingmatrix/
 | 测试文件 | **33** | `flutter_client/test/**/*_test.dart` |
 | 包名 / 版本 | `codingmatrix_desktop` / `1.0.0+1` | `pubspec.yaml` |
 
-分层与页面清单见 [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)。HTTP 统一走 `AuthenticatedClient`；MCP 写操作使用 `/api/v2/mcp/servers`；GitHub 仅配置与 `/api/v1/github/save`。
+分层与页面清单见 [Flutter 客户端](../features/FLUTTER-CLIENT.md)。HTTP 统一走 `AuthenticatedClient`；MCP 写操作使用 `/api/v2/mcp/servers`；GitHub 仅配置与 `/api/v1/github/save`。
 
 ### 测试规模
 

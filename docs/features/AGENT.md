@@ -24,7 +24,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | 模型上下文持久化 | 活跃 | 独立 Task/revision 和 GET/PUT API |
 | Mobile Agent | 活跃 | `/agent` 同页响应式工作台 |
 | VS Code Agent Host | 活跃 | 本地 action、策略、验证、Skills 和会话控制 |
-| Flutter 桌面客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md) |
+| Flutter 客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 客户端](FLUTTER-CLIENT.md) |
 | 架构师默认架构回退 | 活跃 | LLM 超时、空输出或解析失败时返回需求感知默认架构，并标记 `used_default_architecture` |
 | 语言骨架生成 | 活跃 | 入口、README、依赖清单由 `adapters/boilerplate.py` 确定性生成 |
 | Spec-first 符号表 | 活跃 | `symbol_table.py` 冻结跨文件符号；单文件 prompt 只带压缩上下文 |

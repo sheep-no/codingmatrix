@@ -97,14 +97,14 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `webview-bridge.ts`、`status-view.ts`：Webview 消息关联和状态快照。
 - `app/api/v1/agent_host.py`：认证握手、动作、事件、策略、Skills 和 session control 后端端点；队列与确认原子保存到 `data/agent_host_sessions/`。
 
-### Flutter 桌面客户端
+### Flutter 客户端
 
 - `flutter_client/lib/main.dart`：应用入口与 Riverpod 装配。
 - `flutter_client/lib/domain/`：会话、任务、快照、工作流、PPT、GirlAI 等模型。
 - `flutter_client/lib/application/`：页面状态与编排。
 - `flutter_client/lib/infrastructure/`：`AuthenticatedClient`、SSE、文件上传、GitHub/MCP/管理 API。
 - `flutter_client/lib/presentation/`：18 个页面，含工作台、对话、管理后台和 MCP 管理。
-- 2026-09-20 清点：70 个 `lib/**/*.dart` / 12,217 行。能力与边界见 [Flutter 桌面客户端](features/FLUTTER-CLIENT.md)。
+- 2026-09-20 清点：70 个 `lib/**/*.dart` / 12,217 行。能力与边界见 [Flutter 客户端](features/FLUTTER-CLIENT.md)。
 
 ## 测试结构
 

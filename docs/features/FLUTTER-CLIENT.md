@@ -1,4 +1,4 @@
-# Flutter 桌面客户端
+# Flutter 客户端
 
 > 最后更新：2026-09-21 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,217 行 | 页面：18 | 测试：33 个文件
 

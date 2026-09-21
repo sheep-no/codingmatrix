@@ -41,7 +41,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 ### Agent 与模型
 
 - [Agent 系统](features/AGENT.md) - Web/Mobile Agent、架构回退、骨架生成、模型上下文和 VS Code Host
-- [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、18 个页面、GitHub/MCP/管理边界
+- [Flutter 客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、18 个页面、GitHub/MCP/管理边界
 - [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
 - [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
 - [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、托管项目回收、SSE 断线续跑和 checkpoint
@@ -123,8 +123,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | 数据 | SQLAlchemy 2.0 + SQLite + Alembic | 业务、统一状态与迁移 |
 | 缓存与任务 | Redis + Celery + APScheduler | Key、缓存、任务队列和定时任务 |
 | 流式通信 | SSE + WebSocket | Agent 事件、任务进度和系统状态 |
-| 桌面客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
-| 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和桌面客户端验证 |
+| Flutter 客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
+| 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和 Flutter 客户端验证 |
 | 部署 | Docker Compose + Nginx | API、Worker、Redis 和前端入口 |
 
 ## 最新能力状态
@@ -138,7 +138,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | PPT 大纲与质量 | 大纲支持版本化编辑和批准门禁；生成按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 编排，提供质量报告、最多 2 次自动重排和单页重生成 |
 | Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
 | VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel；工作台面板覆盖对话、会话历史、模型、文件版本、性能、学习和设置 |
-| Flutter 桌面客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
+| Flutter 客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
 | 架构师超时回退 | Architect LLM 超时、空输出或解析失败时使用需求感知默认架构，生成不中断 |
 | 语言骨架 | 入口、README、依赖清单由 `app/agent/adapters/boilerplate.py` 确定性生成 |
 | 托管项目回收 | `DELETE /api/v1/agent/projects/{session_id}` 立即删除托管文件；内存生成任务已结束的卡住 `running` 项目可删 |
@@ -167,7 +167,7 @@ PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd /workspace/src
 npm run dev
 
-# 启动 Flutter 桌面客户端（需本机已配置 Flutter）
+# 启动 Flutter 客户端（需本机已配置 Flutter）
 cd /workspace/flutter_client
 flutter run -d linux
 ```

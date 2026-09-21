@@ -76,6 +76,7 @@
   - 测试坑：`Stream.timeout` 在响应体阻塞于永不完成的 await 且从未 yield 时不触发；流超时测试必须用真实 `StreamController` 作为响应体，否则测试永久挂起。
   - Android 打包受环境限制：`flutter build apk` 由 AGP 触发 NDK 下载（需 strip native 库），NDK 27 解压约 2.9G；本机根分区 20G 无法容纳，构建会把磁盘压到 0 可用并在中断时留下 `$ANDROID_SDK/.temp` 残留。移除 `jni`（例如 pin `path_provider_android: 2.2.20`）不能免除该需求，已回滚该覆盖。
   - 不依赖 NDK 的 Android 验证用 `flutter build bundle --target-platform android-arm64`（验证 Android 目标 Dart 编译），产物在 `build/flutter_assets`。环境无 Android 设备或模拟器，真机联调不在此环境进行。
+  - Android 原生/Kotlin/Manifest 改动在本环境无法编译验证：`:app` 在配置阶段即报 `NDK not configured`，`flutter build bundle` 只编译 Dart 资产、不触发 Kotlin。安全探测用 `./gradlew :app:compileDebugKotlin --offline`，会快速失败而不下载 2.9G NDK；这类改动只能靠静态一致性核对（namespace == Kotlin `package` == 源码目录路径，Manifest 用 `.MainActivity` 相对 namespace 解析）。
   - Android SDK 不入库且 `/tmp` 会被清理：`android/local.properties` 的 `sdk.dir` 指向 `/tmp/opencode/android-sdk`，重建需 cmdline-tools 11076708 加 `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`，并设 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`。
   - Linux 桌面产物验证：`flutter build linux --debug`（工具链 clang/cmake/ninja/gtk+-3.0 齐全）产出 `build/linux/x64/debug/bundle/flutter_client`；无 GPU 时用 `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe` 加自建 `Xvfb :99 -screen 0 1280x800x24` 启动，用 `xwininfo -root -tree` 确认 1280x720 窗口已映射、进程存活、日志无 Dart 异常即为通过。注意 shell 里 `cmd &` 会绑定整个 `&&` 链导致工作目录错乱，后台任务用 `( cmd & )` 分组。
   - 无 keyring 的环境启动 Linux 桌面端会打印 `libsecret_error: Failed to unlock the keyring`，属环境噪声：`AuthController.restore()` 已捕获存储失败并降级为「会话恢复失败，请重新登录」，不崩溃；只有需要持久化登录态时才受影响。

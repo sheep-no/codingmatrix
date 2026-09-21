@@ -14,7 +14,7 @@
 
 当前代码已完成 `flutter build apk --release --no-pub`，执行时显式设置 `ANDROID_HOME=/tmp/opencode/android-sdk`。构建耗时 410.7 秒，退出码 0，峰值内存约 2.04 GiB；日志 `/tmp/terminal_term_1788869844986_116.log`。Gradle 的重复目录监听提示未阻断本次构建。
 
-产物：`flutter_client/build/app/outputs/flutter-apk/app-release.apk`，约 51.2 MB，版本 1.0.0 (1)，包名 `com.example.codingmatrix_desktop`。最低 API 24、目标 API 36，包含 arm64-v8a、armeabi-v7a、x86_64。APK v2 签名和 ZIP 完整性校验通过，证书为 Android Debug；校验日志 `/tmp/terminal_term_1788870305414_117.log`。
+产物：`flutter_client/build/app/outputs/flutter-apk/app-release.apk`，约 51.2 MB，版本 1.0.0 (1)，包名 `com.example.codingmatrix_desktop`（该标识在后续统一应用标识时改为 `com.codingmatrix.agent`，见 `DEVELOPER_GUIDE.md`）。最低 API 24、目标 API 36，包含 arm64-v8a、armeabi-v7a、x86_64。APK v2 签名和 ZIP 完整性校验通过，证书为 Android Debug；校验日志 `/tmp/terminal_term_1788870305414_117.log`。
 
 SHA-256：`9f353f73d9e472d484433132b7638ed08f8fc11168c5325bda881f37d14db276`。
 

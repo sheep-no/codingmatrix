@@ -52,7 +52,7 @@ pytest tests/integration/ -v
 
 ### 功能
 - [Agent 系统](docs/features/AGENT.md)
-- [Flutter 桌面客户端](docs/features/FLUTTER-CLIENT.md)
+- [Flutter 客户端](docs/features/FLUTTER-CLIENT.md)
 - [AI 云管理](docs/features/AICLOUD.md)
 - [SSE 优化](docs/features/SSE-DISPLAY-OPTIMIZATION.md)
 
@@ -75,7 +75,7 @@ pytest tests/integration/ -v
 | `src/` | 前端 (Vue 3) | ~71K 行源码（不含 `src/node_modules`） |
 | `src/views/` | 页面组件 | 9 个主视图 |
 | `src/components/` | 组件库 | 54 个组件 |
-| `flutter_client/` | Flutter 桌面 Agent 客户端 | 68 个 Dart 文件 / ~11K 行 |
+| `flutter_client/` | Flutter Agent 客户端 | 70 个 Dart 文件 / 12,217 行 |
 | `vscode-extension/` | VS Code 本地验证扩展 | 协议包 + E2E |
 | `tests/` | 测试 | 后端单元 144 文件 + 浏览器 E2E 77 spec |
 | `docs/` | 项目文档 | 50+ 文档 |
@@ -98,7 +98,7 @@ pytest tests/integration/ -v
 | **视觉分析** | ✅ 完成 | OCR、图像理解 |
 | **用户管理** | ✅ 完成 | 三级权限、RSA 加密 |
 | **系统监控** | ✅ 完成 | 健康检查、熔断限流 |
-| **Flutter 桌面客户端** | ✅ 完成 | 18 个页面、能力注册表分组导航、生成开关按账号保持 |
+| **Flutter 客户端** | ✅ 完成 | 18 个页面、能力注册表分组导航、生成开关按账号保持 |
 | **VS Code 扩展** | ✅ 完成 | 本地验证协议包、动作队列与 Skill 同步 |
 | **会话恢复** | ✅ 完成 | SSE 断线续跑、`reconnectable` / `is_resume` 挂回 |
 
@@ -120,7 +120,7 @@ pytest tests/integration/ -v
 - Python 3.11+
 - Node.js 18+
 - SQLite 3.35+
-- Flutter SDK（构建桌面客户端时需要，Dart SDK ^3.9.2）
+- Flutter SDK（构建 Flutter 客户端时需要，Dart SDK ^3.9.2）
 - Docker (可选)
 
 ### 配置环境变量

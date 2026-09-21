@@ -84,13 +84,13 @@ npm --prefix vscode-extension test
 # 在真实 VS Code Extension Host 中运行插件 E2E
 npm --prefix vscode-extension run e2e
 
-# 检查 Flutter 桌面客户端
+# 检查 Flutter 客户端
 cd /workspace/flutter_client
 FLUTTER_ALLOW_ROOT=1 flutter analyze
 FLUTTER_ALLOW_ROOT=1 flutter test
 ```
 
-### Flutter 桌面客户端
+### Flutter 客户端
 
 Flutter SDK 使用 3.35.7 stable。当前环境从 `/tmp/opencode/flutter` 执行 Flutter 命令，并在 `/workspace/flutter_client` 内运行客户端检查：
 
@@ -121,6 +121,8 @@ ANDROID_HOME=/tmp/opencode/android-sdk /tmp/opencode/flutter/bin/flutter build a
 ```
 
 Android release 当前使用 debug 签名，产物路径为 `flutter_client/build/app/outputs/flutter-apk/app-release.apk`。当前环境 Gradle 采用单 worker；构建前检查磁盘余量，避免并行运行多个打包任务。真机使用可访问的 HTTPS 服务地址，默认 `127.0.0.1` 指向设备自身。
+
+应用标识三端已统一为 `com.codingmatrix.agent`：Android 的 `namespace`/`applicationId`（源码包目录 `com/codingmatrix/agent`）、Linux GTK 的 `APPLICATION_ID`、Linux 窗口标题与 Windows 产品名均为 `CodingMatrix Agent`。Windows 无反向域名标识，二进制名为 `codingmatrix_agent`；Linux 二进制名仍为 `flutter_client`（产物 `build/linux/x64/debug/bundle/flutter_client`）。Dart 包名保持 `codingmatrix_desktop`。
 
 设备验收步骤：
 
