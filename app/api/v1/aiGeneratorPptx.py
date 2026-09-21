@@ -3729,7 +3729,7 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
     - {"type": "error", "error": "错误信息"}
     """
     access_token = websocket.query_params.get("token", "")
-    valid, payload, close_code, reason = verify_token_ws(access_token)
+    valid, payload, close_code, reason = await verify_token_ws(access_token)
     if not valid or not payload:
         await websocket.close(code=close_code or 1008, reason=reason or "未授权")
         return

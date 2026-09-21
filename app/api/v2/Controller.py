@@ -96,7 +96,7 @@ async def controller(websocket: WebSocket, token: str):
         f"WebSocket连接请求 | client={client_host}:{client_port} | token_preview={token[:20] if token else 'None'}")
 
     # 先验证 token，再建立连接，避免未认证连接占用服务端资源
-    is_valid, payload, close_code, reason = verify_token_ws(token)
+    is_valid, payload, close_code, reason = await verify_token_ws(token)
     if not is_valid:
         await websocket.close(code=close_code, reason=reason)
         logger.warning(
@@ -173,7 +173,7 @@ async def stream_logs_websocket(
     logger.info(f"日志流连接请求 | client={client_host} | log_type={log_type} | db_monitor={enable_db_monitor}")
 
     # 先验证 token，再建立连接，避免未认证连接占用服务端资源
-    is_valid, payload, close_code, reason = verify_token_ws(token)
+    is_valid, payload, close_code, reason = await verify_token_ws(token)
     if not is_valid:
         await websocket.close(code=close_code, reason=reason)
         logger.warning(f"日志流连接被拒绝 | client={client_host}")

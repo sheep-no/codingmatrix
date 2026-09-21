@@ -549,7 +549,7 @@ async def task_websocket(websocket: WebSocket, user_id: int):
     否则拒绝连接，避免任意连接者订阅他人任务推送。
     """
     access_token = websocket.query_params.get("token", "")
-    valid, payload, close_code, reason = verify_token_ws(access_token)
+    valid, payload, close_code, reason = await verify_token_ws(access_token)
     if not valid or not payload:
         await websocket.close(code=close_code or 1008, reason=reason or "未授权")
         logger.warning(f"WebSocket 认证失败: user_id={user_id} | reason={reason}")

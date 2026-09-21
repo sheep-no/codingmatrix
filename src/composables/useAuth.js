@@ -41,7 +41,13 @@ export function useAuth() {
     }
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      await api.logout()
+    } catch (e) {
+      // 后端吊销失败不应阻塞本地登出
+      console.warn('[useAuth] 后端登出失败:', e?.message || e)
+    }
     userStore.clearUser()
     window.location.reload()
   }

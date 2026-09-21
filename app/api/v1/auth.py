@@ -1,6 +1,7 @@
 import logging
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from jose import jwt, JWTError
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +45,24 @@ def _history_payload(record: History) -> dict:
     except (TypeError, ValueError):
         payload["metadata"] = {}
     return payload
+
+
+def _remaining_ttl(payload: dict) -> int:
+    """token 剩余有效秒数；无 exp 或已过期返回 0。"""
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)):
+        return 0
+    return max(int(exp - datetime.now(timezone.utc).timestamp()), 0)
+
+
+def _refresh_token_ttl(token: str) -> int:
+    """refresh token 剩余有效秒数；解析失败时按 7 天兜底（宁可多留不可少留）。"""
+    try:
+        unverified = jwt.decode(token, settings.SECRET_KEY, options={"verify_signature": False})
+    except JWTError:
+        return 7 * 24 * 60 * 60
+    ttl = _remaining_ttl(unverified)
+    return ttl if ttl > 0 else 7 * 24 * 60 * 60
 
 
 @router.get("/public-key", summary="获取 RSA 公钥")
@@ -414,7 +433,15 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="缺少刷新令牌，请重新登录"
         )
-    
+
+    from app.utils.token_denylist import is_token_revoked
+    if await is_token_revoked(refresh_token):
+        logger.warning("Token 刷新失败：Refresh Token 已被吊销")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="刷新令牌已失效，请重新登录"
+        )
+
     logger.info("Token 刷新请求 | 从 Cookie 读取 Refresh Token")
     
     try:
@@ -481,6 +508,37 @@ async def refresh_token(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Refresh Token 无效，请重新登录"
         )
+
+
+@router.post("/logout", summary="用户登出")
+async def logout(
+    request: Request,
+    token: dict = Depends(verify_token),
+    csrf: str = Depends(csrf_protect)  # 与其余写操作一致，要求 CSRF
+):
+    """
+    登出：把当前 access token 与 refresh token 写入 Redis 吊销黑名单，并清除 Cookie。
+
+    JWT 无状态，登出后 token 在剩余有效期内也应失效，故此处落黑名单而非仅前端丢弃。
+    """
+    from app.utils.token_denylist import revoke_token
+
+    revoked = 0
+    auth_header = request.headers.get("authorization", "")
+    access_token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    if access_token and await revoke_token(access_token, _remaining_ttl(token)):
+        revoked += 1
+
+    refresh_cookie = request.cookies.get("refresh_token")
+    if refresh_cookie and await revoke_token(refresh_cookie, _refresh_token_ttl(refresh_cookie)):
+        revoked += 1
+
+    response = JSONResponse(content={"message": "已登出", "revoked_tokens": revoked})
+    response.delete_cookie("refresh_token", path="/api/v1")
+    response.delete_cookie("csrf_token", path="/")
+
+    logger.info(f"用户登出 | user_id={token.get('sub')} | revoked_tokens={revoked}")
+    return response
 
 
 @router.get("/user/profile")
