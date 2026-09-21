@@ -1,3 +1,4 @@
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from app.models.history import History
@@ -6,6 +7,11 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+
+# conversation_id 是「一个会话对多轮记录」的一对多字段，无法靠唯一约束
+# 防重。新会话 id 由 max+1 生成，单进程 async 下两个新会话可能读到同一
+# max 而撞号，用按用户粒度的进程内锁串行化「读取 max→插入→提交」。
+_conversation_id_locks: dict[int, asyncio.Lock] = {}
 
 
 async def save_history_to_db(
@@ -24,41 +30,47 @@ async def save_history_to_db(
     - 如果 conversation_id 有值，续接对话
     """
 
-    if conversation_id is not None:
-        new_conv_id = conversation_id
-    else:
-        # 并发安全：用 advisory lock 序列化同一用户的 conversation_id 生成
-        # PostgreSQL: pg_advisory_xact_lock
-        # SQLite: 跳过（单写者，无真正并发）
-        try:
-            await db.execute(text(
-                "SELECT pg_advisory_xact_lock(hashtext(:uid), hashtext('conversation_id'))"
-            ), {"uid": f"user_{user_id}"})
-        except Exception:
-            pass  # SQLite 或不支持 advisory lock 的数据库
+    lock = _conversation_id_locks.setdefault(user_id, asyncio.Lock()) \
+        if conversation_id is None else None
+    if lock is not None:
+        await lock.acquire()
+    try:
+        if conversation_id is not None:
+            new_conv_id = conversation_id
+        else:
+            # 多进程 PostgreSQL 部署另有 advisory xact lock 兜底
+            try:
+                await db.execute(text(
+                    "SELECT pg_advisory_xact_lock(hashtext(:uid), hashtext('conversation_id'))"
+                ), {"uid": f"user_{user_id}"})
+            except Exception:
+                pass  # SQLite 或不支持 advisory lock 的数据库
 
-        max_conv_stmt = select(func.max(History.conversation_id)).where(
-            History.user_id == user_id
+            max_conv_stmt = select(func.max(History.conversation_id)).where(
+                History.user_id == user_id
+            )
+            max_result = await db.execute(max_conv_stmt)
+            max_conv_id = max_result.scalar() or 0
+            new_conv_id = int(max_conv_id) + 1
+
+        history = History(
+            user_id=user_id,
+            conversation_id=new_conv_id,
+            prompt=prompt,
+            response=response,
+            thinking=thinking,
+            title=prompt[:100],
+            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
         )
-        max_result = await db.execute(max_conv_stmt)
-        max_conv_id = max_result.scalar() or 0
-        new_conv_id = int(max_conv_id) + 1
-
-    history = History(
-        user_id=user_id,
-        conversation_id=new_conv_id,
-        prompt=prompt,
-        response=response,
-        thinking=thinking,
-        title=prompt[:100],
-        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
-    )
-    db.add(history)
-    if commit:
-        await db.commit()
-    else:
-        await db.flush()
-    await db.refresh(history)
+        db.add(history)
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+        await db.refresh(history)
+    finally:
+        if lock is not None:
+            lock.release()
 
     if commit:
         await invalidate_history_caches()
