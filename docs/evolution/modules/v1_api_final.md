@@ -86,7 +86,7 @@
 - **AUT5 [P3] 已修复**：实际泄露点在 `get_conversations` 异常分支 `detail=str(e)`（原文档 :322-325/:354-357 的 history/conversation 分支现已返回通用文案）。修复：改返回「查询会话列表失败」，内部错误仅进日志。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
 
 ### apikey.py（2 项）
-- **APY3 [P3]** batch TTL 仅允许 TTL_OPTIONS 预设字符串，单条支持自定义 int —— 双语义不一致；batch_import 无 _sync_provider_models（单条有），行为不一致
+- **APY3 [P3] 已修复（部分）**：`batch_import` 补齐与单条提交一致的 `_sync_provider_models` 后台同步（仅 OpenAI 兼容供应商，且同一批次内同一供应商去重只同步一次），此前批量导入的 Key 不会被同步模型列表，缺少 context_length 等元数据。**TTL 双语义一项经核实不成立**：batch 将原始 `ttl` 交给 `store_key` → `resolve_ttl`，与单条走同一条解析链，预设字符串与自定义秒数（int/数字字符串）均被接受，见 `test_batch_import_custom_ttl_still_accepted`。回归测试 `tests/unit/test_apikey_batch_import_sync.py`（2 项）
 - **APY4 [P3] 已修复（部分）**：`UpdateContextLengthsRequest.context_lengths` 增 `field_validator` —— 条目 ≤200、模型名为非空 str 且 ≤200 字符、值必须为 int（先排除 bool，避免 `true` 被当作 1）且落在 1-10,000,000；`UpdateFallbackPreferenceRequest.custom_fallback_chain` 增校验 —— 元素 ≤20、每个为非空 str 且 ≤200 字符。**刻意不引入模型名白名单**：自定义供应商允许任意模型名，白名单会误伤合法用法，故只做格式/规模约束。消费方 `get_context_length` 本就有 `val > 0` 兜底与 try/except，本次是写入侧收敛。回归测试 `tests/unit/test_apikey_request_validation.py`
 
 ### task_queue.py（3 项）
@@ -104,7 +104,7 @@
 - 已排除项：verify_file_access 有 File.user_id == user_id 过滤（:402），跨用户文件访问嫌疑解除
 
 ### GirlAi.py（3 项）
-- **GIR2 [P3]** :511-512 response["choices"][0]... / response["usage"]["total_tokens"] 无 KeyError 防护（DB5 家族同款）
+- **GIR2 [P3] 已核实（已修复）**：`_extract_llm_response`（`app/api/v1/GirlAi.py:317`）已用 try/except 捕获 `KeyError/IndexError/TypeError` 并抛 `RuntimeError("AI 服务返回了无效响应")`，空/非字符串内容抛空响应错误，`usage` 用 `response.get("usage") or {}` 取值后再 `int(... or 0)`，不存在裸索引。其余 `(raw_response.get("usage") or {})` 取值点同样安全。无需改动
 - **GIR3 [P3] 已修复**：`create_custom_character` 原 `int(float(body.get("temperature", 0.8)) * 100)`、`int(body.get("max_tokens", 180))` 对非数字输入抛 ValueError/TypeError → 500；model 无白名单。修复：temperature/max_tokens 解析失败或越界（0.0-2.0 / 50-1000）返回 400，model 校验必须命中 `MODEL_REGISTRY` 的 `model_key`。前端创建角色不传这三个字段，默认值不受影响。回归测试 `tests/unit/test_girl_custom_character_validation.py`
 - **GIR4 [P3] 已修复**：原 `ilike(f"%{q}%")` 未转义通配符，输入 `%`/`_` 会匹配全部记录；`total=len(records)` 实为当前页条数。修复：新增 `_escape_like` 转义 `\`/`%`/`_` 并 `ilike(..., escape="\\")`；`total` 改用独立 `select(func.count())` 统计匹配总数。回归测试 `tests/unit/test_girl_history_search.py`
 - 已排除项：girl_request.py 有 character_id/temperature/max_tokens 字段，getattr 兜底对齐无害；:215-229 _clean_response 正则安全；:346-353 头像端点静态 SVG 无害

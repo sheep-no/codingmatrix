@@ -499,6 +499,7 @@ async def batch_import(request: Request, import_request: BatchImportRequest, use
     results = []
     success_count = 0
     failed_count = 0
+    synced_providers = set()
     
     try:
         apikey_manager = get_apikey_manager()
@@ -539,6 +540,14 @@ async def batch_import(request: Request, import_request: BatchImportRequest, use
                     "message": "导入成功"
                 })
                 success_count += 1
+
+                # 与单条提交保持一致：为 OpenAI 兼容供应商后台同步模型列表；
+                # 同一批次内同一供应商只同步一次，避免重复请求（APY3）
+                if provider in _OPENAI_COMPAT_PROVIDERS and provider not in synced_providers:
+                    synced_providers.add(provider)
+                    asyncio.create_task(
+                        _sync_provider_models(provider, api_key.strip(), user_id)
+                    )
                 
             except Exception as e:
                 logger.warning(f"批量导入第 {idx} 个 Key 失败：{e}")
