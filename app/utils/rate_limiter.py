@@ -14,6 +14,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 限流存储的 Redis 读写/连接超时（秒）。缺省值是无限等待，Redis 卡住或网络
+# 黑洞时会把请求线程永久挂住；`in_memory_fallback_enabled` 只在存储抛异常时
+# 才生效，对阻塞无效，所以必须给 socket 设超时让失败快速冒泡到内存回退。
+REDIS_SOCKET_TIMEOUT_SECONDS = 2
+
 
 def _is_trusted_peer(host: str) -> bool:
     """直连对端是否为可信反向代理（内网/回环地址）。"""
@@ -61,6 +66,10 @@ def _create_limiter() -> Limiter:
                 key_func=get_client_ip,
                 default_limits=["100/minute"],
                 storage_uri=storage_uri,
+                storage_options={
+                    "socket_connect_timeout": REDIS_SOCKET_TIMEOUT_SECONDS,
+                    "socket_timeout": REDIS_SOCKET_TIMEOUT_SECONDS,
+                },
                 in_memory_fallback_enabled=True,
             )
         except Exception as e:  # 存储不可用不得阻断启动，退化为单进程内存限流
