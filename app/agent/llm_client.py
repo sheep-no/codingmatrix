@@ -187,8 +187,11 @@ class LLMClient:
             if self._semaphore:
                 if self._cancel_event and self._cancel_event.is_set():
                     raise asyncio.CancelledError("请求已取消")
-                async with self._semaphore:
-                    async with self._model_semaphore:
+                # 先按模型后全局：等待模型额度时不占用全局槽，否则某模型队列的
+                # 等待者会占满全局额度，令其它模型即使额度空闲也全部饿死（LC2）。
+                # 嵌套上下文保证在等待内层额度时被取消也会释放外层额度（LC5）。
+                async with self._model_semaphore:
+                    async with self._semaphore:
                         full_content, full_reasoning, response = await self._consume_stream(
                             prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
                         )
@@ -274,6 +277,10 @@ class LLMClient:
         if asyncio.iscoroutine(stream_iter):
             stream_iter = await stream_iter
 
+        # 流中途挂起（连接半开/上游无响应）不能无限等待：对每次取下一个 chunk
+        # 施加空闲超时。用逐块超时而非整体超时，避免正常的长文本生成被截断（LC3）。
+        iterator = stream_iter.__aiter__()
+
         full_content = ""
         full_reasoning = ""
         last_meta: Dict[str, Any] = {}
@@ -282,7 +289,13 @@ class LLMClient:
         first_reasoning_logged = False
         chunk_n = 0
 
-        async for chunk_str in stream_iter:
+        while True:
+            try:
+                chunk_str = await asyncio.wait_for(
+                    iterator.__anext__(), timeout=call_timeout
+                )
+            except StopAsyncIteration:
+                break
             chunk_n += 1
             if not chunk_str:
                 continue
@@ -411,9 +424,11 @@ class LLMClient:
             if self._semaphore:
                 if self._cancel_event and self._cancel_event.is_set():
                     raise asyncio.CancelledError("请求已取消")
-                # 嵌套上下文确保等待模型额度时被取消也会释放全局额度。
-                async with self._semaphore:
-                    async with self._model_semaphore:
+                # 先按模型后全局：等待模型额度时不占用全局槽，否则某模型队列的
+                # 等待者会占满全局额度，令其它模型即使额度空闲也全部饿死（LC2）。
+                # 嵌套上下文保证在等待内层额度时被取消也会释放外层额度（LC5）。
+                async with self._model_semaphore:
+                    async with self._semaphore:
                         response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
             else:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
