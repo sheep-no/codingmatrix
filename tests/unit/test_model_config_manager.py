@@ -1,4 +1,4 @@
-"""ModelConfigManager 回归测试（MCM2 同步失败、MCM3 字段注入、MCM4 引用检查、MCM5 脱敏）。"""
+"""ModelConfigManager 回归测试（MCM2 同步失败、MCM3 字段注入、MCM4 引用检查）。"""
 from app.services.model_config_manager import (
     ModelConfig,
     ModelConfigManager,
@@ -84,16 +84,3 @@ class TestSyncFailureSurfaced:
 
         assert manager.save_config() is True
         assert (tmp_path / "config.yaml").exists()
-
-
-class TestExportRedaction:
-
-    def test_export_config_redacts_api_key(self, tmp_path, monkeypatch):
-        manager = _manager(tmp_path, monkeypatch)
-        manager._providers["p1"] = ProviderConfig(id="p1", name="P1", api_key="secret")
-        manager._providers["p2"] = ProviderConfig(id="p2", name="P2")
-
-        exported = manager.export_config()
-
-        assert exported["providers"]["p1"]["api_key"] == "***"
-        assert exported["providers"]["p2"]["api_key"] == ""

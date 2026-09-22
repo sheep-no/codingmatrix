@@ -436,18 +436,6 @@ class ModelConfigManager:
                 return m
         return None
     
-    def export_config(self) -> Dict:
-        """导出配置为字典（api_key 脱敏，避免未来接线到响应时泄露明文）"""
-        return {
-            "providers": {
-                pid: {**vars(p), "api_key": "***" if p.api_key else ""}
-                for pid, p in self._providers.items()
-            },
-            "models": {mid: vars(m) for mid, m in self._models.items()},
-            "agent": vars(self._agent_config)
-        }
-
-
 # 全局单例
 import threading
 _manager: Optional[ModelConfigManager] = None
