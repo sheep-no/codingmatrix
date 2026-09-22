@@ -271,7 +271,7 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 
 文件已增长到 2688 行，§8 前各节行号整体漂移。按当前代码逐条复核 §3 与 §7 的发现：
 
-### 8.1 已修复（文档滞后）
+### 8.1 已修复
 
 - **SPFG1 [P1] 已修复**：断点续传跳过前改走 `reusable_existing_file_content` 校验（普通分支 :542、动态拓扑 :1210），占位/垃圾内容不再被直接标记成功。
 - **SPFG2 / SPFG2b [P1/P2] 已修复**：`_validate_content_syntax` 改为调用 `app/agent/js_syntax.py` 的共享解析器（:1848-1866），`import`/`class`/`from` 指示符启发式已删除，`.jsx`/`.tsx` 已进入校验分支，不再兜底 `return True`。
@@ -284,6 +284,10 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 - **SPFG15 [P3] 前提不成立**：`DependencyGraph.add_file` 明确拒绝含空格路径，带空格的旧路径不可能进入依赖图；rename 后 `ctx.files` 与磁盘改用无空格路径，反而与依赖图（来自 file_plan 的无空格路径）一致。真正需要同步的是删除场景，已随 SPFG11/12 补上 `dep_graph.remove_node`。
 - **SPFG5 [P1] 已修复**：`refactor_file` 的适配器改为 `LanguageAdapterRegistry.get_adapter_for_file(file_to_split)`（回退 python），拆分文件改由 `self._select_engineer(new_path)` 选工程师，`expected_language` 改用 `get_expected_language_for_file`，非 Python 项目不再用 python 适配器加载依赖图。
 - **SPFG6 [P2] 已修复**：`BackendEngineer`/`FrontendEngineer` 的 `generate_file` 均为 `async def`，调用方的 `asyncio.iscoroutine` 兜底不可达，6 处全部删除；契约由「全 async + 直接 await」保证，违规会以 `TypeError` 显式失败。
+- **SPFG9 [P2] 已修复（早于本校准）**：`ba26089` 起 `_validate_content_syntax` 的 html/css 分支已委托共享 `app/agent/markup_syntax.py`——`html_structure_errors` 用 `HTMLParser` 计数（script/style 原始文本里的 `<script>`、注释均不算标签），`css_structure_errors` 先 `strip_css_noise` 剥离注释与字符串再配对括号，故「合法 CSS `content: "{"`」「HTML 的 JS 字符串含 `<script>`」两类误报均已消除；不可达的原启发式（:1544-1558）已不存在。仅「未知扩展名直接放行」保留（`.json`/`.md` 等本就不做语法校验）。
+- **SPFG7 [P2] 已修复**：新增模块级 `gather_with_limit`（`LAYER_CONCURRENCY_LIMIT = 5`），普通分支层内 `asyncio.gather` 改为受信号量约束的收集，与动态拓扑分支 `TopologyScheduler` 的 `max_concurrent=5` 对齐。
+- **SPFG10 [P2] 已修复**：`old_file_action` 默认值改为 `"keep"`，拆分方案未显式要求删除时不再删原文件。
+- **SPFG17 [P3] 已修复**：`_quick_llm_check` 改走 `LLMClient`（`task_type="review"` + cancel_event），复用全局/按模型信号量与降级链；`_fix_sandbox_errors` 的直连路径不可达（§8.2），`refactor_file` 无调用方（死代码），两者直连不再构成运行期绕过。
 
 ### 8.2 不可达（随「云端验证收敛」消解）
 
@@ -291,12 +295,8 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 
 ### 8.3 仍在
 
-- **SPFG7 [P2] 仍在**：普通分支层内 `asyncio.gather` 仍无显式并发上限（:879-883）。
 - **SPFG8 [P2] 仍在**：缓存键仍按 requirement 原样，无复杂度/技术栈/版本维度。
-- **SPFG9 [P2] 仍在**：html/css 括号计数与 script 开闭计数启发式仍在（:1863-1884）。
-- **SPFG10 [P2] 仍在**：`old_file_action` 仍默认 `"delete"`（:2580）。
-- **SPFG17 [P3] 部分已修复**：`_infer_unknown_file_types` 那一路已消解（不再有 LLM 调用）；`_quick_llm_check`（:2460）、`_fix_sandbox_errors`（:2096，不可达）、`refactor_file`（:2548）三路仍直连 `call_llm`，未走 LLMClient/信号量/成本追踪。
 
 ### 8.4 测试状态（本次复核）
 
-§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。本次新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`）与 `tests/unit/test_spec_first_language_contract.py`（3 项：工程师 `generate_file` 全 async 契约、协程兜底已清除、`refactor_file` 按目标文件选适配器），8.3 各条目仍无用例保护。
+§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。已新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`）、`tests/unit/test_spec_first_language_contract.py`（3 项：工程师 `generate_file` 全 async 契约、协程兜底已清除、`refactor_file` 按目标文件选适配器）、`tests/unit/test_spec_first_llm_and_concurrency.py`（6 项：`gather_with_limit` 并发上限与异常收集、`_quick_llm_check` 走 LLMClient、`refactor_file` 默认 keep 与显式 delete）。8.3 仅剩 SPFG8 无用例保护。
