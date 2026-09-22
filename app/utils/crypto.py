@@ -8,12 +8,14 @@ RSA 加密工具模块
 """
 import os
 import base64
+import json
 import logging
 import threading
 from pathlib import Path
 from typing import Optional, Tuple
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
@@ -194,3 +196,33 @@ def init_rsa_key_manager(key_dir: Optional[Path] = None, key_size: int = 2048) -
     global _rsa_key_manager
     _rsa_key_manager = RSAKeyManager(key_dir=key_dir, key_size=key_size)
     return _rsa_key_manager
+
+
+def encrypt_secret(value: str, aad: str) -> str:
+    """用 RSA 公钥包裹的随机 AES-256-GCM 密钥加密敏感值，返回 JSON 信封。
+
+    信封为 `[wrapped_key, nonce, ciphertext]` 的 base64 JSON 数组；`aad` 作为
+    附加认证数据绑定上下文（如用户与记录标识），解密时须传入相同值。
+    """
+    key = AESGCM.generate_key(bit_length=256)
+    nonce = os.urandom(12)
+    wrapped = get_rsa_key_manager().public_key.encrypt(
+        key,
+        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+    )
+    ciphertext = AESGCM(key).encrypt(nonce, value.encode(), aad.encode())
+    return json.dumps(
+        [base64.b64encode(part).decode() for part in (wrapped, nonce, ciphertext)]
+    )
+
+
+def decrypt_secret(envelope: str, aad: str) -> str:
+    """解密 `encrypt_secret` 生成的信封，`aad` 必须与加密时一致。"""
+    wrapped, nonce, ciphertext = [
+        base64.b64decode(part) for part in json.loads(envelope)
+    ]
+    key = get_rsa_key_manager().private_key.decrypt(
+        wrapped,
+        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+    )
+    return AESGCM(key).decrypt(nonce, ciphertext, aad.encode()).decode()

@@ -1,35 +1,19 @@
 """Encrypted configuration storage using the application's existing RSA keypair."""
-import base64
-import json
-import os
 import re
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.github_config import GithubUserConfig
-from app.utils.crypto import get_rsa_key_manager
+from app.utils.crypto import decrypt_secret, encrypt_secret
 
 
 def encrypt_token(token: str, user_id: int) -> str:
-    key = AESGCM.generate_key(bit_length=256)
-    nonce = os.urandom(12)
-    wrapped = get_rsa_key_manager().public_key.encrypt(
-        key, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-    )
-    ciphertext = AESGCM(key).encrypt(nonce, token.encode(), f"github:{user_id}".encode())
-    return json.dumps([base64.b64encode(value).decode() for value in (wrapped, nonce, ciphertext)])
+    return encrypt_secret(token, f"github:{user_id}")
 
 
 def decrypt_token(record: GithubUserConfig) -> str:
-    wrapped, nonce, ciphertext = [base64.b64decode(value) for value in json.loads(record.encrypted_token)]
-    key = get_rsa_key_manager().private_key.decrypt(
-        wrapped, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-    )
-    return AESGCM(key).decrypt(nonce, ciphertext, f"github:{record.user_id}".encode()).decode()
+    return decrypt_secret(record.encrypted_token, f"github:{record.user_id}")
 
 
 def config_summary(record: GithubUserConfig | None) -> dict:

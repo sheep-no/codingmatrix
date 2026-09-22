@@ -3,6 +3,7 @@ API Key 管理器
 
 将用户的 API Key 安全存储在 Redis 中：
 - Key 不落库，仅存 Redis 内存
+- Key 以 RSA 包裹的 AES-256-GCM 信封落 Redis，明文不出现在存储层
 - TTL 到期自动删除
 - 支持多供应商、多 Key 管理
 """
@@ -18,8 +19,12 @@ from datetime import datetime, timezone
 import redis
 
 from app.core.config import settings
+from app.utils.crypto import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger(__name__)
+
+# 加密信封标记：带此前缀的值经 encrypt_secret 加密；无前缀视为历史明文，读取时透传
+_SECRET_PREFIX = "v1:"
 
 # Redis Lua 脚本：原子性检查 Key 数量限制并添加 Token
 # 避免并发请求绕过 max_keys 限制的竞态条件
@@ -154,6 +159,10 @@ class APIKeyManager:
     def _key_token(self, user_id: str, token: str) -> str:
         """Redis 键：存储 API Key"""
         return f"apikey:{user_id}:{token}"
+
+    def _secret_aad(self, user_id: str, token: str) -> str:
+        """API Key 信封的附加认证数据，绑定用户与 Token，防止跨条目重放。"""
+        return f"apikey:{user_id}:{token}"
     
     def _key_meta(self, user_id: str, token: str) -> str:
         """Redis 键：存储元数据"""
@@ -222,7 +231,11 @@ class APIKeyManager:
         
         # 存储 API Key
         key_name = self._key_token(user_id, token)
-        self.redis.setex(key_name, ttl_seconds, api_key)
+        self.redis.setex(
+            key_name,
+            ttl_seconds,
+            _SECRET_PREFIX + encrypt_secret(api_key, self._secret_aad(user_id, token)),
+        )
         
         # 存储元数据
         meta = KeyMetadata(
@@ -267,7 +280,17 @@ class APIKeyManager:
             self._cleanup_meta(user_id, token)
             return None
         
-        return api_key.decode("utf-8") if isinstance(api_key, bytes) else api_key
+        stored = api_key.decode("utf-8") if isinstance(api_key, bytes) else api_key
+        if not stored.startswith(_SECRET_PREFIX):
+            # 历史明文条目：缓存写入前遗留，直接返回，随其 TTL 自然淘汰
+            return stored
+        try:
+            return decrypt_secret(
+                stored[len(_SECRET_PREFIX):], self._secret_aad(user_id, token)
+            )
+        except Exception as e:
+            logger.error(f"用户 {user_id} 的 API Key 解密失败: {e}")
+            return None
     
     def get_metadata(self, user_id: str, token: str) -> Optional[KeyMetadata]:
         """
