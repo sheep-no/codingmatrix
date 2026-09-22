@@ -116,7 +116,7 @@ codingmatrix/
 | 集成测试 | **4 文件 / 31 个直接定义** | `tests/integration/test_*.py` |
 | E2E | **77 spec / 433 个直接定义** | `tests/e2e/*.spec.js` |
 | 归档测试 | **56+** | tests/archive/legacy/ + integration_old/ |
-| Flutter 测试 | **15 文件** | `flutter_client/test/**/*_test.dart` |
+| Flutter 测试 | **33 文件** | `flutter_client/test/**/*_test.dart` |
 
 ### 已知技术债务
 
