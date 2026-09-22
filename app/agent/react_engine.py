@@ -43,6 +43,38 @@ class ReActResult:
     reflection_summary: str = ""
 
 
+_GENERATION_SYSTEM_PROMPT = (
+    "你是一个代码生成器。基于用户提供的任务描述和工具探索结果，直接生成最终代码。\n"
+    "【禁止】\n"
+    "- 不要调用任何工具\n"
+    "- 不要输出 JSON 格式的工具调用\n"
+    "- 不要输出 markdown 代码块标记\n"
+    "- 不要输出总结或解释\n"
+    "【要求】\n"
+    "- 直接输出完整的文件代码\n"
+    "- 代码必须可直接使用，无需修改"
+)
+
+# 统计工具结果条数时不计入的列表字段（错误列表不是「找到的结果」）。
+_NON_RESULT_LIST_KEYS = {"errors"}
+
+
+def _count_tool_results(tool_result: Any, success: bool) -> int:
+    """统计工具结果条数（RE4）。
+
+    各工具返回的列表字段名不统一（search_files 用 `matches`、list_files 用
+    `entries`、web_search 用 `results`、read_symbols 用 `functions`/`classes`），
+    只认 `results` 会让统计恒为 0。改为汇总所有列表字段（排除错误列表）。
+    """
+    if not success or not isinstance(tool_result, dict):
+        return 0
+    return sum(
+        len(value)
+        for key, value in tool_result.items()
+        if isinstance(value, list) and key not in _NON_RESULT_LIST_KEYS
+    )
+
+
 class ReActEngine:
     """
     统一的 ReAct 引擎
@@ -317,17 +349,7 @@ class ReActEngine:
 请严格按照原始任务的要求，直接输出最终结果。如果任务要求返回文件内容，请直接返回完整的文件代码，不要添加额外的总结或解释。"""
 
         # 使用干净的 system prompt，不包含工具描述，避免 LLM 返回工具调用 JSON
-        clean_system = (
-            "你是一个代码生成器。基于用户提供的任务描述和工具探索结果，直接生成最终代码。\n"
-            "【禁止】\n"
-            "- 不要调用任何工具\n"
-            "- 不要输出 JSON 格式的工具调用\n"
-            "- 不要输出 markdown 代码块标记\n"
-            "- 不要输出总结或解释\n"
-            "【要求】\n"
-            "- 直接输出完整的文件代码\n"
-            "- 代码必须可直接使用，无需修改"
-        )
+        clean_system = _GENERATION_SYSTEM_PROMPT
         try:
             response = await self._call_llm_with_heartbeat(prompt, clean_system)
             if not response or not str(response).strip():
@@ -473,17 +495,7 @@ class ReActEngine:
                     "tool_history_count": len(self.tool_history)
                 })
                 # 使用干净的 system prompt，不包含工具描述，避免 LLM 返回工具调用 JSON
-                clean_system = (
-                    "你是一个代码生成器。基于用户提供的任务描述和工具探索结果，直接生成最终代码。\n"
-                    "【禁止】\n"
-                    "- 不要调用任何工具\n"
-                    "- 不要输出 JSON 格式的工具调用\n"
-                    "- 不要输出 markdown 代码块标记\n"
-                    "- 不要输出总结或解释\n"
-                    "【要求】\n"
-                    "- 直接输出完整的文件代码\n"
-                    "- 代码必须可直接使用，无需修改"
-                )
+                clean_system = _GENERATION_SYSTEM_PROMPT
                 final_response = await self.call_llm_fn(
                     f"{current_prompt}\n\n### 注意：已达到工具调用上限，请直接生成最终代码。",
                     clean_system
@@ -570,7 +582,7 @@ class ReActEngine:
                 f"返回结果: {result_str}"
             )
 
-            result_count = len(tool_result.get("results", [])) if isinstance(tool_result, dict) and success else 0
+            result_count = _count_tool_results(tool_result, success)
             await self._emit_event("react_tool_result", {
                 "message": f"找到 {result_count} 条结果" if result_count else f"工具返回 {len(result_str)} 字符",
                 "tool": tool_name,
