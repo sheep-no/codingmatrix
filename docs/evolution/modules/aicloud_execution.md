@@ -104,7 +104,8 @@
 - **CI1**：`context_isolator.setup_sandbox` 产出的 `sandbox_env` 仍未注入 `CodeExecutor`（后者使用固定环境字典）（P3）。
 - **KP2/KP3 已修复（2026-09-22）**：`embed_chunks` 向量化失败不再写入 `[0.0] * 768` 零向量占位，改为跳过该块并记录跳过数量；返回值非列表或为空同样按失败处理。`search_similar_chunks` 丢弃相似度非正的结果（零向量、维度不匹配、与查询正交），不再让它们占用 `top_k` 名额。上传端点在全部分块都向量化失败时把文档标记为 `failed` 并返回 500（原实现落一个 `completed` 但不可检索的空壳文档），`chunk_count` 改为实际入库分块数；`embedding_model` 改记 `DEFAULT_EMBEDDING_MODEL`，不再硬编码 `BAAI/bge-m3`（可能与实际调用模型不符）。新增 `tests/unit/test_aicloud_embedding_failure.py`（6 项），回退两个源文件后 6 项全失败。
 - **KP4 仍未处理**：`.doc` 旧格式仍按 `python-docx` 解析（`parse_document` 的 `.docx`/`.doc` 分支）。
-- **CA6/CA7、CI3、SF1**：内容分析正则覆盖面、`check_dangerous_extensions` 零消费死代码、单例无锁、密码正则等 P3 项未处理。
+- **SF1 已修复（2026-09-22）**：`SENSITIVE_PATTERNS` 的 `password` / `api[_-]?key` 值部分原写作 `[\"']?[^\"'\\s]+[\"']?`，字符类里的 `\\s` 在正则中等于「反斜杠或字母 s」，因此 **以 `s`、`\`、引号开头的值整体漏检**——实测 `password=secret123` 既不被 `filter_sensitive_content` 替换，也不被 `detect_sensitive_info` 识别，明文直入审计日志；带空格的引号值只匹配到首个空格前，`password: "my pass word"` 替换后残留 `ss word"`。现抽出模块级 `_SECRET_VALUE = (?:"[^"]*"|'[^']*'|[^\s"']+)`，`SENSITIVE_PATTERNS` 两条与 `mask_api_keys`/`mask_passwords` 共用，引号值整体替换、无引号值按连续串替换。新增 `tests/unit/test_aicloud.py::TestSensitiveFilter` 5 项，回退 `sensitive_filter.py` 后 5 项全失败。
+- **CA6/CA7、CI3**：内容分析正则覆盖面、`check_dangerous_extensions` 零消费死代码、单例无锁等 P3 项未处理。
 
 > 本次未触及 Agent 子系统、Flutter 与 VS Code 插件范围。
 
