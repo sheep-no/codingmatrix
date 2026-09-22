@@ -31,6 +31,7 @@ from app.utils.aicloud.knowledge_processor import (
     embed_chunks,
     search_similar_chunks,
     compute_content_hash,
+    DEFAULT_EMBEDDING_MODEL,
 )
 from app.utils.AiCodeUtil import get_embedding
 from app.models.aicloud_knowledge import AicloudKnowledgeDoc, AicloudKnowledgeChunk
@@ -164,6 +165,13 @@ async def upload_document(
         
         # 3. 向量化
         chunks_with_vectors = await embed_chunks(chunks)
+
+        # 全部向量化失败时不能只落空壳：文档会被标记 completed 但检索永远为空
+        if not chunks_with_vectors:
+            doc.status = "failed"
+            doc.error_message = "文本向量化失败，未生成任何可检索分块"
+            await db.commit()
+            raise HTTPException(status_code=500, detail="文档向量化失败，请稍后重试")
         
         # 4. 存储到数据库
         for chunk, vector in chunks_with_vectors:
@@ -174,7 +182,7 @@ async def upload_document(
                 content=chunk.content,
                 content_hash=chunk.content_hash,
                 embedding=str(vector),  # 存储为 JSON 字符串
-                embedding_model="BAAI/bge-m3",
+                embedding_model=DEFAULT_EMBEDDING_MODEL,
                 chunk_index=chunk.chunk_index,
                 collection=collection,
             )
@@ -182,15 +190,15 @@ async def upload_document(
         
         # 更新文档状态
         doc.status = "completed"
-        doc.chunk_count = len(chunks)
+        doc.chunk_count = len(chunks_with_vectors)
         await db.commit()
         
         return {
             "status": "success",
             "doc_id": doc_id,
             "filename": file.filename,
-            "chunk_count": len(chunks),
-            "message": f"文档上传成功，已分割为 {len(chunks)} 个文本块"
+            "chunk_count": len(chunks_with_vectors),
+            "message": f"文档上传成功，已存储 {len(chunks_with_vectors)} 个文本块"
         }
         
     except HTTPException:
