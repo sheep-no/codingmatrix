@@ -117,11 +117,20 @@ engine = ReActEngine(
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |
 |---|--------|---------|---------|---------|-------------|
 | 1 | P1 | SB1：评估主路径是否应回退 simple 模式或传 memory 接 full 能力 | 控制主路径成本/启用记忆 | specialist_base.py:26/:258 | 新增 |
-| 2 | P1 | SB2：修复 test_specialist_base.py 的 `_REACT_MODE_BY_COMPLEXITY` 引用 | 主路径基类恢复测试覆盖 | tests/unit/test_specialist_base.py | 新增 |
-| 3 | P2 | SB3：`.get("params", {})` 统一下标 | 工具条目契约健壮 | specialist_base.py:101 | #6 |
+| 2 | P1 | ~~SB2：修复 test_specialist_base.py 的 `_REACT_MODE_BY_COMPLEXITY` 引用~~ 已消解 | 主路径基类恢复测试覆盖 | tests/unit/test_specialist_base.py | 新增 |
+| 3 | P2 | ~~SB3：`.get("params", {})` 统一下标~~ 已修 | 工具条目契约健壮 | specialist_base.py:121 | #6 |
 | 4 | P2 | SB5：编辑记录改为基于写工具返回结构校验 + `_write_tools` 与工具注册同步 | 记录不失效 | specialist_base.py:45/:273 | 新增 |
-| 5 | P2 | SB6：保留 task 引用或统一 await | 事件推送可靠 | specialist_base.py:291 | 新增 |
-| 6 | P2 | SB7：移除 call_llm 的 stream 参数或改 call_stream | API 语义清晰 | specialist_base.py:88 | 新增 |
+| 5 | P2 | ~~SB6：保留 task 引用或统一 await~~ 已修 | 事件推送可靠 | specialist_base.py:345 | 新增 |
+| 6 | P2 | ~~SB7：移除 call_llm 的 stream 参数或改 call_stream~~ 已修（含遗留 import） | API 语义清晰 | specialist_base.py:88 | 新增 |
+
+## 7. 状态更新（2026-09-22）
+
+- **SB2 [P1] 已消解（文档滞后）**：`_REACT_MODE_BY_COMPLEXITY` 现存在于 specialist_base.py:26，`pytest tests/unit/test_specialist_base.py` 正常收集 27 项，无 ImportError。
+- **SB3 [P2] 已修**：`_build_tools_description` 的 `info["params"]` 改为 `info.get("params", {})`，与 react_engine.py:131 同场景一致，工具条目缺 `params` 键不再 KeyError。回归 `tests/unit/test_specialist_base.py::TestBuildToolsDescription::test_tool_without_params_key`；回退后该用例 KeyError 失败。
+- **SB4 [P2] 已核实为文档滞后**：`update_edited_file_path` 的后缀匹配循环命中首个匹配即 `return`（:96-99），不会误改多个同后缀文件。
+- **SB6 [P2] 已修**：`_emit_event` 对回调返回的协程新增模块级 `_background_tasks` 集合保留引用，并以 `add_done_callback(_background_tasks.discard)` 在完成后释放，避免任务被 GC。回归 `TestEmitEvent::test_emit_event_keeps_task_reference`；回退后该用例断言集合为空失败。
+- **SB7 [P2] 已修**：删除未使用的 `from app.utils import call_llm`（F401）；`LLMClient.call` 已对 `stream=True` 直接抛错（llm_client.md LC6），`call_llm(stream=...)` 不再静默无效，仓库内亦无 `stream=True` 调用方。
+- **SB1 [P1] 未改**：主路径固定 full 模式 + 不传 memory 属设计取舍（成本 vs 记忆能力），需产品侧决策。
 
 ## 6. 演化方向关联
 
