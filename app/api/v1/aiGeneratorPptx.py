@@ -1635,6 +1635,76 @@ def _extract_json_payload(content: str) -> str:
     return content[start:start + end]
 
 
+# 单个素材正文进入 prompt 的上限（字符），与 ppt_state_service._load_materials 对齐
+_MATERIAL_CONTENT_LIMIT = 12000
+
+
+async def _read_material_text(file_record: File, limit: int = _MATERIAL_CONTENT_LIMIT) -> str:
+    """读取素材正文：优先使用解析缓存，未命中则解析并回填缓存。
+
+    此前只把文件名拼进 prompt，素材正文（`parsed_content`）从未被消费，
+    与 ppt_state_service._load_materials 的行为不一致。
+    """
+    if file_record.is_parse_cache_valid():
+        return (file_record.parsed_content or "").strip()[:limit]
+
+    from app.utils.aicloud.knowledge_processor import parse_document
+
+    try:
+        content = await asyncio.to_thread(parse_document, str(file_record.file_path))
+    except Exception as exc:
+        logger.warning("素材解析失败 | file=%s | error=%s", file_record.filename, exc)
+        return ""
+
+    content = (content or "").strip()
+    if content:
+        file_record.update_parse_cache(content)
+    return content[:limit]
+
+
+async def _build_material_context(
+    db: AsyncSession,
+    user_id: str,
+    material_file_ids: List[int],
+    session_id: Optional[str] = None,
+) -> str:
+    """按 file_id 读取素材正文，返回可直接拼进 prompt 的 `[参考素材]` 段。
+
+    原先只记录文件名（`- name.pdf`），素材正文从未进入 LLM。无可用素材时返回空串。
+    """
+    material_info = []
+    for file_id in material_file_ids:
+        try:
+            result = await db.execute(
+                select(File).where(File.id == file_id, File.user_id == int(user_id))
+            )
+            file_record = result.scalar_one_or_none()
+        except Exception as exc:
+            logger.warning("查询素材失败 | file_id=%s | error=%s", file_id, exc)
+            continue
+
+        if not file_record:
+            continue
+        # conversation_id 是 Integer，session_id 是 str：直接比较恒不相等，会误过滤全部素材
+        if session_id and str(file_record.conversation_id) != str(session_id):
+            continue
+
+        try:
+            content = await _read_material_text(file_record)
+        except Exception as exc:
+            logger.warning("读取素材正文失败 | file=%s | error=%s", file_record.filename, exc)
+            content = ""
+
+        if content:
+            material_info.append(f"[素材：{file_record.filename}]\n{content}")
+        else:
+            material_info.append(f"- {file_record.filename}")
+
+    if not material_info:
+        return ""
+    return "\n[参考素材]\n" + "\n\n".join(material_info)
+
+
 async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -> Dict[str, Any]:
     """使用 AI 生成 PPT 大纲 (支持 Skills 和多参数)"""
     # 构建 prompt
@@ -2403,18 +2473,11 @@ async def generate_ppt_task(
                     logger.warning(f"获取会话历史失败: {e}")
 
             # 素材文件
-            if material_file_ids:
-                material_info = []
-                for file_id in material_file_ids:
-                    try:
-                        result = await db.execute(select(File).where(File.id == file_id, File.user_id == int(user_id)))
-                        file_record = result.scalar_one_or_none()
-                        if file_record:
-                            if not req.session_id or file_record.conversation_id == req.session_id:
-                                material_info.append(f"- {file_record.filename}")
-                    except Exception: pass
-                if material_info:
-                    context_parts.append(f"\n[参考素材]\n" + "\n".join(material_info))
+            material_context = await _build_material_context(
+                db, user_id, material_file_ids, req.session_id
+            )
+            if material_context:
+                context_parts.append(material_context)
             
             if context_parts:
                 req.topic = f"{full_prompt}\n\n{''.join(context_parts)}"
