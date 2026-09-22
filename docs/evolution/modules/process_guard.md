@@ -51,6 +51,7 @@ watch_port 循环：is_port_open ─失联► find_pid_by_port ─杀旧进程�
 
 - **PG2 [P2] 已修复**：`restart_service` 原先 `await proc.communicate()` 无限等待，前台常驻的重启命令（如直接 `python app.py`）会让监控循环与熔断机制永久失效，`:150` 的 `except asyncio.TimeoutError` 也因此不可达。改为「命令退出」与「端口就绪」并行等待：端口先就绪即视为成功，并把命令的管道排空交给后台任务跟踪（`_background_tasks`）；命令长时间不退出且端口未就绪时终止命令并返回 False；无端口场景以 `startup_timeout` 为界。实测挂起场景由永久卡死收敛到 3s 内返回。
 - **PG4 [P3，非活跃漏洞] 未修**：`download_backup` 的 `{timestamp}` 是 FastAPI 单段路径参数，实测携带 `..%2F` 的请求在路由匹配阶段即 404，无法穿越到 `data/backups/` 之外；doc 中「可读任意 .json」不成立。与 `delete_backup` 的校验不对称属纵深防御问题，非可利用缺陷，未改动。
-- **仍存在**：PG1（`create_subprocess_shell` 执行用户配置命令，白名单/审计属产品决策）；PG3（失联后直接杀端口上的进程，PID create_time 校验与健康确认需先定义「假死」判据）；PG5–PG10（见原文档）。
+- **PG1 部分收口（2026-09-22）**：手动 API 入口的 `restart_cmd` 已在 `StartGuard`（`app/schema/guardian.py`）加输入端格式校验，拒绝命令链/替换语法/重定向元字符（`;|&`、反引号、`$`、`>`、`<`、换行、`\`）与空串、注释，见 schema 层 SD7。**执行侧 `create_subprocess_shell` 保持原样**（未改 shell 语义），因此自动学习模板与既有持久化配置不受影响；「参数数组化 `create_subprocess_exec` + 配置变更审计」仍属产品决策，未改。
+- **仍存在**：PG3（失联后直接杀端口上的进程，PID create_time 校验与健康确认需先定义「假死」判据）；PG5–PG10（见原文档）。
 
 新增 `tests/unit/test_process_guard_restart.py`（5 项）；回退源码后 3 项失败（其余 2 项为失败返回码场景，旧实现本身也正确）。

