@@ -279,6 +279,9 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 - **SPFG14 [P2] 已修复**：动态拓扑分支跳过已有文件前先做 `reusable_existing_file_content` 校验，通过后才 `update_file_validation(..., True, [])`（:1210-1217）。
 - **SPFG16 [P3] 已修复**：`_infer_unknown_file_types` 已移除 LLM + `json.loads` 贪婪解析，改为路径规则/反向依赖推断，无法推断时抛 `RuntimeError`（:1939-1960）。
 - **SPFG18 [P3] 已修复**：原 :1135 `"Qwen/Qwen3-8B"`、:1584 `"glm-z1-9b"` 两处硬编码模型名已不存在。
+- **SPFG11 [P2] 已修复**：清理「不符合项目语言的文件」改走 `_select_language_mismatch_files`——断点续传复用的既有文件（`generated_by == "cached"`）不再被删；删除时调用 `dep_graph.remove_node` 同步依赖图，避免已删文件在 `validate_completeness` 里被当缺失文件。
+- **SPFG12 [P2] 已修复**：两类同名删除合并为 `_select_duplicate_files`——只有内容完全相同的同名文件才判为重复（保留优先级 `src/` > `app/` > `src/app/` > 根目录），内容不同则视为不同模块保留，cached 文件不删，删除时同步移除依赖图节点。
+- **SPFG15 [P3] 前提不成立**：`DependencyGraph.add_file` 明确拒绝含空格路径，带空格的旧路径不可能进入依赖图；rename 后 `ctx.files` 与磁盘改用无空格路径，反而与依赖图（来自 file_plan 的无空格路径）一致。真正需要同步的是删除场景，已随 SPFG11/12 补上 `dep_graph.remove_node`。
 
 ### 8.2 不可达（随「云端验证收敛」消解）
 
@@ -292,11 +295,8 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 - **SPFG8 [P2] 仍在**：缓存键仍按 requirement 原样，无复杂度/技术栈/版本维度。
 - **SPFG9 [P2] 仍在**：html/css 括号计数与 script 开闭计数启发式仍在（:1868-1882）。
 - **SPFG10 [P2] 仍在**：`old_file_action` 仍默认 `"delete"`（:2582）。
-- **SPFG11 [P2] 仍在**：动态拓扑收尾仍按扩展名白名单静默 `unlink` 生成产物（:1578-1601）。
-- **SPFG12 [P2] 仍在**：根目录与 `src/` 同名删除（:1642-1661）、功能重复按同名聚合删除（:1663-1701）仍不看内容与依赖。
-- **SPFG15 [P3] 仍在**：文件名含空格时 `rename` 仍只更新 `ctx.files` 与 `generated_files_dict`（:1616-1630），`dep_graph` 节点路径不更新。
 - **SPFG17 [P3] 部分已修复**：`_infer_unknown_file_types` 那一路已消解（不再有 LLM 调用）；`_quick_llm_check`（:2465）、`_fix_sandbox_errors`（:2101，不可达）、`refactor_file`（:2550）三路仍直连 `call_llm`，未走 LLMClient/信号量/成本追踪。
 
 ### 8.4 测试状态（本次复核）
 
-§7.4 的「零测试」结论仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。8.3 各条目无用例保护。
+§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。本次为收尾清理逻辑新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`），8.3 各条目仍无用例保护。
