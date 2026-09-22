@@ -1,6 +1,6 @@
 from pathlib import Path
-from typing import TYPE_CHECKING
-import os
+from typing import TYPE_CHECKING, Optional
+import re
 
 from pydantic import Field, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,10 +46,12 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, v):
+    def validate_secret_key(cls, v, info):
         if not v:
             # 开发环境使用跨进程稳定的本地密钥，生产环境必须显式设置。
-            if os.getenv("ENV", "development") == "production":
+            # 以 pydantic 解析后的 ENV 为准：原实现读 os.getenv 会让「仅写 .env、
+            # 不导出环境变量」的部署绕过生产校验（CFG1）。
+            if info.data.get("ENV", "development") == "production":
                 raise ValueError("生产环境必须设置 SECRET_KEY")
             return "development-only-secret-key-change-me"
         if len(v) < 16:
@@ -164,6 +166,20 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_mb(self) -> int:
         return self.MAX_UPLOAD_SIZE_MB
+
+    @property
+    def cors_origin_regex(self) -> Optional[str]:
+        """由 ALLOWED_HOSTS 派生的 CORS origin 正则。
+
+        锚定并转义：只匹配列出的主机本身（浏览器 Origin 形如 scheme://host[:port]），
+        避免原 `"localhost|127.0.0.1|0.0.0.0"` 经 re.search 造成的子串误放行
+        （如 https://localhost.evil.com）与未转义点号（CFG4）。
+        """
+        hosts = [host.strip() for host in self.ALLOWED_HOSTS.split(",") if host.strip()]
+        if not hosts:
+            return None
+        alternatives = "|".join(re.escape(host) for host in hosts)
+        return rf"^(?:https?://)?(?:{alternatives})(?::\d+)?$"
     
     def get_provider_registry(self) -> "ProviderRegistry":
         """从配置构建供应商注册表"""

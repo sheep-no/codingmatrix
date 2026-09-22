@@ -194,7 +194,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex=settings.ALLOWED_HOSTS.replace(",", "|"),
+    allow_origin_regex=settings.cors_origin_regex,
 )
 
 # 请求日志中间件（生成 request_id、记录请求耗时）

@@ -62,7 +62,7 @@ CSRF 使用 Cookie、Header 与服务端有效 Token 三重匹配：
 
 `app/main.py` 注册以下安全相关组件：
 
-- `CORSMiddleware`：来源取自 `CORS_ORIGINS`，正则取自 `ALLOWED_HOSTS`，允许 credentials、全部方法和全部请求头。
+- `CORSMiddleware`：来源取自 `CORS_ORIGINS`，正则由 `ALLOWED_HOSTS` 派生（逐项 `re.escape` 并锚定），允许 credentials、全部方法和全部请求头。
 - `RequestLoggingMiddleware`：生成请求 ID 并记录请求耗时。
 - `InputValidatorMiddleware`：请求体大小及 SQL 注入/XSS 模式检查。
 - `RateLimitMiddleware`：请求限流；登录另有 IP 与邮箱组合的失败尝试限流。
@@ -98,7 +98,7 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
 ```
 
-`ALLOWED_HOSTS` 当前被直接转换为 CORS `allow_origin_regex`，它并非独立的 Host Header 校验中间件。生产环境应使用精确转义的来源正则，并在 Nginx 或专用中间件校验 Host。
+`ALLOWED_HOSTS` 通过 `Settings.cors_origin_regex` 派生 CORS `allow_origin_regex`：每个主机逐项转义并锚定为 `^(?:https?://)?(?:host…)(?::\d+)?$`，只放行所列主机本身及其任意端口，`localhost.evil.com` 这类子串不再命中。它仍不是独立的 Host Header 校验中间件；生产环境应在 Nginx 或专用中间件校验 Host。
 
 ## 文件与工作区边界
 

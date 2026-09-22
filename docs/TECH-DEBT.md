@@ -15,7 +15,7 @@
 | 5 | Celery signal 使用异步 task | 已解决 | `app/celery_app.py` signal handler 使用同步 SQLAlchemy `Session` |
 | 6 | 无时区 `datetime.utcnow()` | 部分解决 | 主要模型列已迁移，`app/models/file.py` 与 `app/models/aicloud.py` 仍有残留调用 |
 | 7 | WebSocket Manager 单连接 | 已解决 | `app/services/websocket_manager.py` 按用户保存连接列表 |
-| 8 | CORS host 正则未转义 | 仍在 | `app/main.py` 仍直接执行 `ALLOWED_HOSTS.replace(",", "|")` |
+| 8 | CORS host 正则未转义 | 已解决 | `app/core/config.py` 的 `cors_origin_regex` 对 `ALLOWED_HOSTS` 逐项 `re.escape` 并锚定，`app/main.py` 改用该属性 |
 | 9 | PostgreSQL UUID 未使用导入 | 已解决 | `app/models/chat_history.py` 已无该导入 |
 | 10 | `CHUNKS_DIR` 定义顺序 | 已解决 | `app/api/v1/file_upload.py` 在使用前定义常量 |
 | 11 | SQL LIKE 未转义 | 已解决 | `app/db/search_history.py` 使用 `escape_like_pattern` 和显式 escape |
@@ -78,7 +78,7 @@
 | 5 | Celery 信号 asyncio.create_task | `app/celery_app.py` | 改用同步数据库操作 |
 | 6 | datetime.utcnow() 无时区 | 历史修复覆盖部分模型时间列 | 改用 `datetime.now(timezone.utc)`；当前仍有残留 |
 | 7 | WebSocket Manager 单连接 | `app/services/websocket_manager.py` | 支持同一用户多连接 |
-| 8 | CORS ALLOWED_HOSTS 正则 | `app/main.py` | 历史曾记录修复；当前实现已回归 |
+| 8 | CORS ALLOWED_HOSTS 正则 | `app/core/config.py` | `cors_origin_regex` 锚定 + 转义，`app/main.py` 改用该属性 |
 | 10 | file_upload.py CHUNKS_DIR | `app/api/v1/file_upload.py` | 移动配置到类定义之前 |
 
 ### P2: 中等问题 (3 项)
