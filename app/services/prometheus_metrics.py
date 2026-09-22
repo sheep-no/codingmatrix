@@ -31,6 +31,15 @@ class HistogramBucket:
     count: float = 0
 
 
+@dataclass
+class Histogram:
+    """直方图（含标签、累计和与总观测数）"""
+    labels: Dict[str, str] = field(default_factory=dict)
+    buckets: List[HistogramBucket] = field(default_factory=list)
+    sum: float = 0.0
+    count: float = 0
+
+
 class MetricsRegistry:
     """
     指标注册表
@@ -41,7 +50,7 @@ class MetricsRegistry:
     def __init__(self):
         self._counters: Dict[str, Counter] = {}
         self._gauges: Dict[str, Gauge] = {}
-        self._histograms: Dict[str, List[HistogramBucket]] = {}
+        self._histograms: Dict[str, Histogram] = {}
         self._lock = threading.RLock()
 
         self._histogram_buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
@@ -65,14 +74,19 @@ class MetricsRegistry:
         """记录直方图值"""
         with self._lock:
             key = self._make_key(name, labels)
-            if key not in self._histograms:
-                self._histograms[key] = [
-                    HistogramBucket(le=le) for le in self._histogram_buckets
-                ]
+            histogram = self._histograms.get(key)
+            if histogram is None:
+                histogram = Histogram(
+                    labels=labels or {},
+                    buckets=[HistogramBucket(le=le) for le in self._histogram_buckets],
+                )
+                self._histograms[key] = histogram
 
-            for bucket in self._histograms[key]:
+            for bucket in histogram.buckets:
                 if value <= bucket.le:
                     bucket.count += 1
+            histogram.sum += value
+            histogram.count += 1
 
     def get_all(self) -> Dict:
         """获取所有指标"""
@@ -82,6 +96,15 @@ class MetricsRegistry:
                             for k, v in self._counters.items()},
                 "gauges": {k: {"value": v.value, "labels": v.labels}
                           for k, v in self._gauges.items()},
+                "histograms": {
+                    k: {
+                        "labels": v.labels,
+                        "buckets": [{"le": b.le, "count": b.count} for b in v.buckets],
+                        "sum": v.sum,
+                        "count": v.count,
+                    }
+                    for k, v in self._histograms.items()
+                },
             }
 
     def _make_key(self, name: str, labels: Optional[Dict[str, str]]) -> str:
@@ -104,9 +127,6 @@ class PrometheusMetrics:
 
     def __init__(self):
         self._registry = _metrics_registry
-        self._request_counts: Dict[str, int] = {}
-        self._request_durations: List[float] = []
-        self._lock = threading.RLock()
 
     def record_request(self, method: str, path: str, status: int, duration: float):
         """记录 HTTP 请求"""
@@ -155,50 +175,72 @@ def get_prometheus_metrics() -> PrometheusMetrics:
     return _prometheus_metrics
 
 
+def _metric_name(key: str) -> str:
+    """从 ``name{labels}`` 形式的键提取指标名"""
+    return key.split("{", 1)[0]
+
+
+def _format_float(value: float) -> str:
+    """按 Prometheus 字面量格式输出浮点（整数不留小数点）"""
+    if value == int(value):
+        return str(int(value))
+    return repr(value)
+
+
 def generate_metrics_text() -> str:
-    """生成 Prometheus 格式的指标文本"""
+    """生成 Prometheus 格式的指标文本
+
+    覆盖注册表中的全部 Counter / Gauge / Histogram。此前只放行
+    ``http_requests_total`` 等少数前缀，``celery_tasks_total``、
+    ``database_connections_active`` 等收集后静默丢弃，直方图段也永远为空。
+    """
     registry = get_prometheus_metrics().get_registry()
     data = registry.get_all()
 
-    lines = []
+    lines: List[str] = []
 
-    lines.append("# HELP http_requests_total Total HTTP requests")
-    lines.append("# TYPE http_requests_total counter")
+    counters_by_name: Dict[str, list] = {}
     for key, info in data["counters"].items():
-        if key.startswith("http_requests_total"):
-            # key 已在 MetricsRegistry._make_key 中包含标签块，重复追加会写出
-            # http_requests_total{...}{...} 这类非法行。
+        counters_by_name.setdefault(_metric_name(key), []).append((key, info))
+    for name, entries in counters_by_name.items():
+        lines.append(f"# HELP {name} Application counter")
+        lines.append(f"# TYPE {name} counter")
+        for key, info in entries:
             lines.append(f'{key} {info["value"]}')
+        lines.append("")
 
-    lines.append("")
-    lines.append("# HELP http_request_duration_seconds HTTP request duration")
-    lines.append("# TYPE http_request_duration_seconds histogram")
+    histograms_by_name: Dict[str, list] = {}
+    for key, info in data["histograms"].items():
+        histograms_by_name.setdefault(_metric_name(key), []).append((key, info))
+    for name, entries in histograms_by_name.items():
+        lines.append(f"# HELP {name} Application histogram")
+        lines.append(f"# TYPE {name} histogram")
+        for _, info in entries:
+            labels = info["labels"]
+            for bucket in info["buckets"]:
+                bucket_labels = {**labels, "le": _format_float(bucket["le"])}
+                lines.append(
+                    f'{name}_bucket{_format_labels(bucket_labels)} {bucket["count"]}'
+                )
+            # +Inf 桶的累计数即总观测数
+            lines.append(
+                f'{name}_bucket{_format_labels({**labels, "le": "+Inf"})} {info["count"]}'
+            )
+            lines.append(f'{name}_sum{_format_labels(labels)} {info["sum"]}')
+            lines.append(f'{name}_count{_format_labels(labels)} {info["count"]}')
+        lines.append("")
 
-    lines.append("")
-    lines.append("# HELP websocket_connections_active WebSocket connections")
-    lines.append("# TYPE websocket_connections_active gauge")
+    gauges_by_name: Dict[str, list] = {}
     for key, info in data["gauges"].items():
-        if "websocket" in key:
-            labels_str = _format_labels(info["labels"])
-            lines.append(f'{key.split("{")[0]}{labels_str} {info["value"]}')
+        gauges_by_name.setdefault(_metric_name(key), []).append((key, info))
+    for name, entries in gauges_by_name.items():
+        lines.append(f"# HELP {name} Application gauge")
+        lines.append(f"# TYPE {name} gauge")
+        for key, info in entries:
+            lines.append(f'{key} {info["value"]}')
+        lines.append("")
 
-    lines.append("")
-    lines.append("# HELP health_status Component health status")
-    lines.append("# TYPE health_status gauge")
-    for key, info in data["gauges"].items():
-        if "health" in key:
-            labels_str = _format_labels(info["labels"])
-            lines.append(f'{key.split("{")[0]}{labels_str} {info["value"]}')
-
-    lines.append("")
-    lines.append("# HELP memory_usage_bytes Memory usage in bytes")
-    lines.append("# TYPE memory_usage_bytes gauge")
-    for key, info in data["gauges"].items():
-        if "memory" in key:
-            labels_str = _format_labels(info["labels"])
-            lines.append(f'{key.split("{")[0]}{labels_str} {info["value"]}')
-
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip("\n")
 
 
 def _format_labels(labels: Dict[str, str]) -> str:
