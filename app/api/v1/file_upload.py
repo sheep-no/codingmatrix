@@ -24,6 +24,7 @@ from app.models.file import File
 from app.models.task import Task
 from app.utils.security import verify_token
 from app.schema.file_schema import FileUploadResponse, FileListResponse
+from app.core.config import settings
 from app.core.file_validator import validate_file_path
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ router = APIRouter(prefix="/files", tags=["文件上传"])
 # 配置
 UPLOAD_DIR = Path("./uploads")
 CHUNKS_DIR = UPLOAD_DIR / ".chunks"  # 断点续传分片目录
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+# 与 InputValidatorMiddleware 的上传体积上限共用 MAX_UPLOAD_SIZE_MB（默认 100MB）
+MAX_FILE_SIZE = settings.max_upload_size_mb * 1024 * 1024
 CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
 MAX_TOTAL_CHUNKS = (MAX_FILE_SIZE + CHUNK_SIZE - 1) // CHUNK_SIZE  # 由文件上限推导
 CHUNK_TTL_SECONDS = 24 * 60 * 60  # 孤儿分片保留时长（无活动即视为中断上传）

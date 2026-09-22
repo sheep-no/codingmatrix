@@ -206,3 +206,81 @@ async def test_chunked_body_over_limit_stops_reading_early(monkeypatch):
     assert reached is False
     assert messages[0]["status"] == 413
     assert consumed < len(chunks), "超限后仍在继续读取 body"
+
+
+def test_upload_quota_is_shared_with_file_upload_endpoint():
+    """中间件上传上限必须与上传端点共用同一配置，否则整体上传会被 413 误拦。"""
+    from app.api.v1 import file_upload
+
+    assert input_validator.MAX_UPLOAD_BODY_SIZE == file_upload.MAX_FILE_SIZE
+
+
+def _scope_declared(path: str, content_type: str, declared_length: int) -> dict:
+    """声明 Content-Length 但不真正发送 body，用于校验体积阈值判定。"""
+    return {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "headers": [
+            (b"content-type", content_type.encode()),
+            (b"content-length", str(declared_length).encode()),
+        ],
+    }
+
+
+async def _run_declared(scope):
+    reached = False
+    messages = []
+
+    async def app(scope, receive, send):
+        nonlocal reached
+        reached = True
+
+    async def send(message):
+        messages.append(message)
+
+    middleware = InputValidatorMiddleware(app)
+    await middleware(scope, _receive(b""), send)
+    return reached, messages
+
+
+@pytest.mark.asyncio
+async def test_multipart_upload_within_quota_passes_middleware():
+    """超过 10MB 常规上限但在上传配额内的 multipart 请求应放行（P2-3）。"""
+    scope = _scope_declared(
+        "/api/v1/files/upload",
+        "multipart/form-data; boundary=x",
+        50 * 1024 * 1024,
+    )
+
+    reached, messages = await _run_declared(scope)
+
+    assert reached is True
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_multipart_upload_over_quota_is_rejected():
+    over = input_validator.MAX_UPLOAD_BODY_SIZE + 1
+    scope = _scope_declared(
+        "/api/v1/files/upload",
+        "multipart/form-data; boundary=x",
+        over,
+    )
+
+    reached, messages = await _run_declared(scope)
+
+    assert reached is False
+    assert messages[0]["status"] == 413
+
+
+@pytest.mark.asyncio
+async def test_json_body_over_10mb_still_rejected():
+    """上传配额只放宽 multipart，常规 JSON 请求仍按 10MB 拒绝。"""
+    scope = _scope_declared("/api/v1/users", "application/json", 20 * 1024 * 1024)
+
+    reached, messages = await _run_declared(scope)
+
+    assert reached is False
+    assert messages[0]["status"] == 413
+    assert messages[1]["body"] and b"10MB" in messages[1]["body"]
