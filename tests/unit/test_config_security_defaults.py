@@ -13,7 +13,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
@@ -88,3 +88,14 @@ def test_cors_origin_regex_escapes_domain_hosts():
 
 def test_cors_origin_regex_none_when_hosts_empty():
     assert _settings(ALLOWED_HOSTS="").cors_origin_regex is None
+
+
+def test_provider_registry_is_reused_within_process():
+    """CFG5：注册表只依赖静态配置，同一进程内应复用而非每次重建。"""
+    settings = get_settings()
+    assert settings.get_provider_registry() is settings.get_provider_registry()
+
+
+def test_settings_exposes_no_unwired_allowed_models_field():
+    """CFG2：ALLOWED_MODELS 为死配置，已移除；生效白名单唯一来源为 MODEL_REGISTRY。"""
+    assert not hasattr(get_settings(), "ALLOWED_MODELS")
