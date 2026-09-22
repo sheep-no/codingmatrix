@@ -113,6 +113,8 @@ if chunk.get("usage"):
 
 - **影响**：流式末尾 usage chunk 缺失（常见实现）→ usage={} → `_record_usage` 跳过 → **流式调用完全无成本记录**（即使 LC1 修复后）
 
+- **已修复（2026-09-22，根因修正）**：消费侧 `_consume_stream` 早已对 usage-only chunk 兜底（`if not choices: ... if chunk.get("usage"): last_meta = chunk`），真正的缺口在**请求侧**——流式请求从未携带 `stream_options.include_usage`，OpenAI 兼容服务端默认不在流中返回 usage，故末尾无 usage chunk 可捕。修复落在平台模型唯一适配器 `app/utils/aicloud/adapters/siliconflow.py`：流式 payload 追加 `stream_options = {"include_usage": True}`；新增 `_StreamRequestError(status_code, body)` 使非 200 流式响应带上状态码，`generate()` 包一层——若回包 400 且 body 提及 `stream_options`，置 `self._stream_usage_supported = False` 并去掉该键重试一次（此后不再发送），否则按 `HTTP {status}: {body}` 抛出。回归测试 `tests/unit/test_aicloud_adapter_regressions.py` 新增 2 项（流式请求带 `include_usage`、400 回退重试并记忆），`tests/unit/test_llm_client.py` 新增 1 项（usage-only chunk 经 `_record_usage` 计入 `CostTracker.total_cost_usd`，用 `prompt=1M`/`completion=1M` × 单价 1.0/2.0 断言 3.0）
+
 ### LC5 [P2] 信号量泄漏：第二个 acquire 被取消时第一个槽不释放
 
 - **Bug 代码**：

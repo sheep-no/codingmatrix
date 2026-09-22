@@ -23,6 +23,15 @@ from app.utils.aicloud.http_client import get_http_client, call_with_retry, _max
 logger = logging.getLogger(__name__)
 
 
+class _StreamRequestError(Exception):
+    """流式请求返回非 200 时抛出，携带状态码与响应体供上层按需降级重试。"""
+
+    def __init__(self, status_code: int, body: str):
+        super().__init__(f"HTTP {status_code}: {body[:500]}")
+        self.status_code = status_code
+        self.body = body
+
+
 class SiliconFlowAdapter(BaseProviderAdapter):
     """SiliconFlow 供应商适配器"""
 
@@ -40,6 +49,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         # 已知不支持 enable_thinking 的模型（首次遇到 400 后动态添加到此集合）
         # 实例级字段，每个 Adapter 独立持有，避免跨请求污染和单测不隔离
         self._unsupported_thinking: set = set()
+        # 已知不支持 stream_options 时置 False（首次 400 后回退并记忆）
+        self._stream_usage_supported: bool = True
         # 缓存 reasoning 模型集合（从统一配置加载一次）
         self._reasoning_models: Optional[set] = None
     
@@ -121,6 +132,11 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             if support_thinking:
                 data["enable_thinking"] = False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
 
+        # 流式请求末端返回 usage 统计，否则流式调用无法记录 token 与成本（LC4）；
+        # 供应商拒收该参数时在 generate() 中去掉后重试一次。
+        if stream and self._stream_usage_supported:
+            data["stream_options"] = {"include_usage": True}
+
         logger.info(
             "[SF-REQ] model=%s stream=%s keys=%s thinking_budget=%s enable_thinking=%s max_tokens=%s",
             model,
@@ -132,7 +148,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         )
         
         if stream:
-            async def generate():
+            async def _stream_once(payload):
                 async with _max_concurrent_calls:
                     client = await get_http_client()
                     started = time.monotonic()
@@ -142,7 +158,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                             "POST",
                             f"{self.base_url}/chat/completions",
                             headers=headers,
-                            json=data
+                            json=payload
                         ) as response:
                             if response.status_code != 200:
                                 error_body = ""
@@ -150,7 +166,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                                     error_body += chunk.decode(errors="replace")
                                     if len(error_body) > 2048:
                                         break
-                                raise Exception(f"HTTP {response.status_code}: {error_body[:500]}")
+                                raise _StreamRequestError(response.status_code, error_body)
                             logger.info(
                                 "[SF-STREAM] headers model=%s status=%s t=%.3fs",
                                 model,
@@ -216,7 +232,32 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                         if str(e):
                             raise
                         raise Exception(f"流式请求异常: {type(e).__name__}") from e
-            
+
+            async def generate():
+                payload = dict(data)
+                try:
+                    async for item in _stream_once(payload):
+                        yield item
+                    return
+                except _StreamRequestError as e:
+                    if (
+                        e.status_code == 400
+                        and "stream_options" in payload
+                        and "stream_options" in e.body
+                    ):
+                        self._stream_usage_supported = False
+                        logger.warning(
+                            "[SiliconFlowAdapter] 模型 %s 不支持 stream_options，去除后重试",
+                            model,
+                        )
+                        payload = {
+                            k: v for k, v in payload.items() if k != "stream_options"
+                        }
+                        async for item in _stream_once(payload):
+                            yield item
+                        return
+                    raise Exception(f"HTTP {e.status_code}: {e.body[:500]}")
+
             return generate()
         else:
             async with _max_concurrent_calls:

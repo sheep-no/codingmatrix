@@ -367,6 +367,43 @@ class TestLLMClientCall:
 
         assert peak == 1
 
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_usage_only_chunk_records_cost(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """LC4：末端 usage-only chunk 应被捕获并计入成本（此前流式成本恒 0）。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+            "cost_per_1m_input": 1.0,
+            "cost_per_1m_output": 2.0,
+        }
+        mock_get_router.return_value = AsyncMock()
+
+        async def stream_with_usage():
+            yield json.dumps({"choices": [{"delta": {"content": "Hello"}}]})
+            # OpenAI 兼容：include_usage 时最终发送 choices 为空、仅带 usage 的 chunk
+            yield json.dumps(
+                {
+                    "choices": [],
+                    "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+                }
+            )
+
+        mock_call_llm.side_effect = lambda *args, **kwargs: stream_with_usage()
+
+        from app.agent.orchestrator_progress import CostTracker
+
+        tracker = CostTracker()
+        client = LLMClient(model_name="test-model", cost_tracker=tracker)
+        content = await client.call_stream("Hi", on_chunk=AsyncMock())
+
+        assert content == "Hello"
+        assert tracker.total_cost_usd == pytest.approx(3.0)
+
 
 class TestLLMClientError:
     def test_is_exception(self):

@@ -50,6 +50,35 @@ class _FakeStreamContext:
         return False
 
 
+class _FakeErrorStreamResponse:
+    """非 200 流式响应：只提供 SiliconFlow 错误分支使用的 aiter_bytes。"""
+
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body.encode()
+
+    async def aiter_bytes(self):
+        yield self._body
+
+    async def aclose(self):
+        return None
+
+
+class _SequencedStreamClient:
+    """按调用次序返回预设流式响应，用于验证 stream_options 回退重试。"""
+
+    def __init__(self, responses):
+        self.calls = []
+        self._responses = list(responses)
+
+    async def post(self, url, **kwargs):  # pragma: no cover - 流式路径不应走此分支
+        raise AssertionError("流式路径不应调用 post")
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return _FakeStreamContext(self._responses.pop(0))
+
+
 class _FakeClient:
     def __init__(self, lines=None):
         self.calls = []
@@ -201,3 +230,50 @@ def test_request_body_only_injects_thinking_fields_for_supporting_providers():
         _openai_config(ModelProvider.SILICONFLOW)
     )._build_request_body(model="Qwen/Qwen3.5-4B", messages=messages)
     assert siliconflow["enable_thinking"] is False
+
+
+@pytest.mark.asyncio
+async def test_siliconflow_stream_requests_usage(monkeypatch):
+    """LC4：流式请求应带 stream_options.include_usage，末端才会返回 usage。"""
+    from app.utils.aicloud.adapters import siliconflow as siliconflow_module
+    from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+
+    client = _SequencedStreamClient([
+        _FakeStreamResponse([
+            'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            "data: [DONE]",
+        ]),
+    ])
+    _patch_client(monkeypatch, siliconflow_module, client)
+    adapter = SiliconFlowAdapter(_openai_config(ModelProvider.SILICONFLOW))
+
+    stream = await adapter.call_llm(model="Qwen/Qwen3.5-4B", prompt="hi", stream=True)
+    chunks = [chunk async for chunk in stream]
+
+    assert chunks == ['{"choices":[{"delta":{"content":"hi"}}]}\n']
+    assert client.calls[-1][2]["json"]["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_siliconflow_stream_retries_without_stream_options_on_400(monkeypatch):
+    """LC4：供应商拒收 stream_options 时去掉后重试一次，并记忆为不支持。"""
+    from app.utils.aicloud.adapters import siliconflow as siliconflow_module
+    from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+
+    client = _SequencedStreamClient([
+        _FakeErrorStreamResponse(400, '{"error":"unknown field stream_options"}'),
+        _FakeStreamResponse([
+            'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            "data: [DONE]",
+        ]),
+    ])
+    _patch_client(monkeypatch, siliconflow_module, client)
+    adapter = SiliconFlowAdapter(_openai_config(ModelProvider.SILICONFLOW))
+
+    stream = await adapter.call_llm(model="Qwen/Qwen3.5-4B", prompt="hi", stream=True)
+    chunks = [chunk async for chunk in stream]
+
+    assert any("ok" in chunk for chunk in chunks)
+    assert adapter._stream_usage_supported is False
+    assert "stream_options" in client.calls[0][2]["json"]
+    assert "stream_options" not in client.calls[1][2]["json"]
