@@ -41,8 +41,8 @@
 ### 提交与分支流程
 - Date: 2026-05-29 ~ 2026-09-19
 - Instructions:
-  - 每个 commit 单独切分支提交并推送，推完删除分支。
-  - 推送用 `git push -u origin HEAD`；需要 MR 时加 `-o merge_request.create -o merge_request.title="..." -o merge_request.description="..."`。
+  - 提交完成后在用户明确要求时推送；同一功能分支可累积多个提交后一次推送。
+  - 本仓 remote 是 GitHub，推送用 `git push origin <branch>`。GitHub 不支持 GitLab 的 `-o merge_request.*` push options：带这些选项会返回 `HTTP 500 ... sideband packet` 并使推送失败（且不产生远程变更），去掉后普通推送即可。
   - `.git/hooks/prepare-commit-msg` 会自动追加 `Co-authored-by: monkeycode-ai <monkeycode-ai@chaitin.com>`；手写同一条或 `--amend` / `rebase` 重放会重复。写提交信息时不要自带该 trailer（`-F` 的文件里只放正文），由钩子补一次即可；若已重复，用 `git commit --amend -F` 传一份去掉 trailer 的正文即可归一。
   - 拆分提交时，测试里对 UI 文案 / `Key` 的断言必须与引入该文案的源码同提交，否则中间提交失败、无法 bisect；中间提交也不能有悬空导入。
   - 未经用户明确要求不提交、不推送。
