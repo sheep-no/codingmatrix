@@ -282,6 +282,8 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 - **SPFG11 [P2] 已修复**：清理「不符合项目语言的文件」改走 `_select_language_mismatch_files`——断点续传复用的既有文件（`generated_by == "cached"`）不再被删；删除时调用 `dep_graph.remove_node` 同步依赖图，避免已删文件在 `validate_completeness` 里被当缺失文件。
 - **SPFG12 [P2] 已修复**：两类同名删除合并为 `_select_duplicate_files`——只有内容完全相同的同名文件才判为重复（保留优先级 `src/` > `app/` > `src/app/` > 根目录），内容不同则视为不同模块保留，cached 文件不删，删除时同步移除依赖图节点。
 - **SPFG15 [P3] 前提不成立**：`DependencyGraph.add_file` 明确拒绝含空格路径，带空格的旧路径不可能进入依赖图；rename 后 `ctx.files` 与磁盘改用无空格路径，反而与依赖图（来自 file_plan 的无空格路径）一致。真正需要同步的是删除场景，已随 SPFG11/12 补上 `dep_graph.remove_node`。
+- **SPFG5 [P1] 已修复**：`refactor_file` 的适配器改为 `LanguageAdapterRegistry.get_adapter_for_file(file_to_split)`（回退 python），拆分文件改由 `self._select_engineer(new_path)` 选工程师，`expected_language` 改用 `get_expected_language_for_file`，非 Python 项目不再用 python 适配器加载依赖图。
+- **SPFG6 [P2] 已修复**：`BackendEngineer`/`FrontendEngineer` 的 `generate_file` 均为 `async def`，调用方的 `asyncio.iscoroutine` 兜底不可达，6 处全部删除；契约由「全 async + 直接 await」保证，违规会以 `TypeError` 显式失败。
 
 ### 8.2 不可达（随「云端验证收敛」消解）
 
@@ -289,14 +291,12 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 
 ### 8.3 仍在
 
-- **SPFG5 [P1] 仍在**：`refactor_file` 仍硬编码 `detected_language = "python"`（:2501）。
-- **SPFG6 [P2] 仍在**：`generate_file` 返回契约漂移，两处 `asyncio.iscoroutine` 兜底仍在（:612、:1279）。
-- **SPFG7 [P2] 仍在**：普通分支层内 `asyncio.gather` 仍无显式并发上限（:586-590）。
+- **SPFG7 [P2] 仍在**：普通分支层内 `asyncio.gather` 仍无显式并发上限（:879-883）。
 - **SPFG8 [P2] 仍在**：缓存键仍按 requirement 原样，无复杂度/技术栈/版本维度。
-- **SPFG9 [P2] 仍在**：html/css 括号计数与 script 开闭计数启发式仍在（:1868-1882）。
-- **SPFG10 [P2] 仍在**：`old_file_action` 仍默认 `"delete"`（:2582）。
-- **SPFG17 [P3] 部分已修复**：`_infer_unknown_file_types` 那一路已消解（不再有 LLM 调用）；`_quick_llm_check`（:2465）、`_fix_sandbox_errors`（:2101，不可达）、`refactor_file`（:2550）三路仍直连 `call_llm`，未走 LLMClient/信号量/成本追踪。
+- **SPFG9 [P2] 仍在**：html/css 括号计数与 script 开闭计数启发式仍在（:1863-1884）。
+- **SPFG10 [P2] 仍在**：`old_file_action` 仍默认 `"delete"`（:2580）。
+- **SPFG17 [P3] 部分已修复**：`_infer_unknown_file_types` 那一路已消解（不再有 LLM 调用）；`_quick_llm_check`（:2460）、`_fix_sandbox_errors`（:2096，不可达）、`refactor_file`（:2548）三路仍直连 `call_llm`，未走 LLMClient/信号量/成本追踪。
 
 ### 8.4 测试状态（本次复核）
 
-§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。本次为收尾清理逻辑新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`），8.3 各条目仍无用例保护。
+§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。本次新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`）与 `tests/unit/test_spec_first_language_contract.py`（3 项：工程师 `generate_file` 全 async 契约、协程兜底已清除、`refactor_file` 按目标文件选适配器），8.3 各条目仍无用例保护。
