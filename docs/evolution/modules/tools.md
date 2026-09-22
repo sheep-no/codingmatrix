@@ -195,7 +195,7 @@ def set_allowed_file_paths(paths: set):
 按当前代码逐条复核（文件已从建档的 1292 行增长到 1352 行，原文行号整体偏移）：
 
 - **T4 [P1] 已修复**：`_execute_python_sandbox` 的 `error` 字段现为无条件 `result.stderr or None`（:573-577），两分支相同的三元表达式已消失（提交 `706a873a` 改写）。
-- **T5 [P2] 仍在**：`_allowed_file_paths` 仍为模块级全局可变状态（:20 定义、:34-43 `global` 整体覆盖、:914-922 `_tool_write_file` 消费）。
-- **T6 [P2] 仍在**：沙箱危险模式仍为静态正则黑名单（python :548-558、js :595-605），可字符串混淆绕过。
+- **T5 [P2] 已修复**：`_allowed_file_paths` 改为 `contextvars.ContextVar`，`set_allowed_file_paths` 只作用于当前任务及其派生子任务，`_tool_write_file` 读 `_allowed_file_paths.get()`，多项目并发不再互相覆盖。回归 `tests/unit/test_tools_whitelist.py`（6 项：默认未设、设/清、拷贝输入、并发任务隔离、子任务继承、子任务设置不回流父任务）。
+- **T6 [P2] 已按「标注为弱沙箱」处理**：`_tool_execute_code` / `_execute_python_sandbox` docstring 明确声明静态正则黑名单可被混淆绕过、**不构成安全边界**；未升级为真实隔离（进程级资源上限保留），属显式记录的纵深权衡。
 - **T1/T2/T3 复核确认已修复**：T1 函数内已有 `import os`（:544）；T2 cwd 校验改走 `_safe_join` + `PermissionError`（:716-719）；T3 stdout/stderr 重定向临时文件并按 `MAX_OUTPUT_BYTES + 1` 限读（:726-749）。
 - **Backlog 关联**：#6、#11、#12
