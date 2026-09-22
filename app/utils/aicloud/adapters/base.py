@@ -10,6 +10,8 @@ import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
+import httpx
+
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 logger = logging.getLogger(__name__)
@@ -148,6 +150,29 @@ class BaseProviderAdapter(abc.ABC):
         """判断是否为 reasoning 模型"""
         reasoning_keywords = ["r1", "reasoner", "thinking", "deepthink"]
         return any(kw in model.lower() for kw in reasoning_keywords)
+
+    @staticmethod
+    async def _raise_for_stream_status(response) -> None:
+        """流式响应非 200 时读取错误体并抛 HTTPStatusError。
+
+        否则 4xx/5xx 的错误 JSON 会被当作 SSE 行逐行 yield 给消费方，
+        调用方拿到的是「成功的空回复」而不是明确失败。
+        """
+        if response.status_code == 200:
+            return
+        error_body = ""
+        try:
+            async for chunk in response.aiter_bytes():
+                error_body += chunk.decode(errors="replace")
+                if len(error_body) > 2048:
+                    break
+        except Exception:
+            pass
+        raise httpx.HTTPStatusError(
+            f"HTTP {response.status_code}: {error_body[:500]}",
+            request=getattr(response, "request", None),
+            response=response,
+        )
 
     @abc.abstractmethod
     def _get_headers(self) -> dict:

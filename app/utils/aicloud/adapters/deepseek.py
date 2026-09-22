@@ -7,7 +7,6 @@ DeepSeek API 兼容 OpenAI 格式。
 import asyncio
 from typing import AsyncIterator, Optional, Union
 
-import httpx
 from httpx import Timeout
 from fastapi import HTTPException
 
@@ -68,6 +67,7 @@ class DeepSeekAdapter(BaseProviderAdapter):
                         json=data,
                         timeout=timeout,
                     ) as response:
+                        await self._raise_for_stream_status(response)
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
                                 await response.aclose()

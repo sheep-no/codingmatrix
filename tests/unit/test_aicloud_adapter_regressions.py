@@ -51,7 +51,8 @@ class _FakeStreamContext:
 
 
 class _FakeErrorStreamResponse:
-    """非 200 流式响应：只提供 SiliconFlow 错误分支使用的 aiter_bytes。"""
+    """非 200 流式响应：既提供 aiter_bytes（读错误体），也提供 aiter_lines
+    （模拟未做状态检查的适配器把错误体当作 SSE 行消费）。"""
 
     def __init__(self, status_code, body):
         self.status_code = status_code
@@ -59,6 +60,10 @@ class _FakeErrorStreamResponse:
 
     async def aiter_bytes(self):
         yield self._body
+
+    async def aiter_lines(self):
+        for line in self._body.decode(errors="replace").splitlines():
+            yield line
 
     async def aclose(self):
         return None
@@ -277,3 +282,57 @@ async def test_siliconflow_stream_retries_without_stream_options_on_400(monkeypa
     assert adapter._stream_usage_supported is False
     assert "stream_options" in client.calls[0][2]["json"]
     assert "stream_options" not in client.calls[1][2]["json"]
+
+
+@pytest.mark.parametrize(
+    "module_name,adapter_name,provider,model",
+    [
+        ("openai", "OpenAIAdapter", ModelProvider.OPENAI, "gpt-4o-mini"),
+        ("deepseek", "DeepSeekAdapter", ModelProvider.DEEPSEEK, "deepseek-chat"),
+        ("dashscope", "DashScopeAdapter", ModelProvider.DASHSCOPE, "qwen-plus"),
+        ("zhipu", "ZhipuAdapter", ModelProvider.ZHIPU, "glm-4-flash"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_official_adapter_stream_raises_on_non_200(
+    monkeypatch, module_name, adapter_name, provider, model
+):
+    """ADP11：非 200 流式响应必须抛错，而非把错误 JSON 当 SSE 逐行产出。"""
+    import importlib
+
+    import httpx
+
+    module = importlib.import_module(f"app.utils.aicloud.adapters.{module_name}")
+    adapter_cls = getattr(module, adapter_name)
+
+    client = _SequencedStreamClient(
+        [_FakeErrorStreamResponse(401, '{"error":"invalid api key"}')]
+    )
+    _patch_client(monkeypatch, module, client)
+    adapter = adapter_cls(_openai_config(provider))
+
+    stream = await adapter.call_llm(model=model, prompt="hi", stream=True)
+    with pytest.raises(httpx.HTTPStatusError, match="401"):
+        async for _ in stream:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_official_adapter_stream_200_still_yields(monkeypatch):
+    """非 200 检查不得误伤正常的 200 流式响应。"""
+    from app.utils.aicloud.adapters import openai as openai_module
+    from app.utils.aicloud.adapters.openai import OpenAIAdapter
+
+    client = _SequencedStreamClient([
+        _FakeStreamResponse([
+            'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            "data: [DONE]",
+        ]),
+    ])
+    _patch_client(monkeypatch, openai_module, client)
+    adapter = OpenAIAdapter(_openai_config(ModelProvider.OPENAI))
+
+    stream = await adapter.call_llm(model="gpt-4o-mini", prompt="hi", stream=True)
+    chunks = [chunk async for chunk in stream]
+
+    assert chunks == ['{"choices":[{"delta":{"content":"hi"}}]}\n']
