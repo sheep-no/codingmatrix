@@ -201,7 +201,7 @@ tar -czf "backups/data-${BACKUP_TIMESTAMP}.tar.gz" data/
 
 - 生产环境设置强随机 `SECRET_KEY`，不要将密钥写入仓库。
 - API 和 Redis 的 Compose 宿主机端口当前只绑定 `127.0.0.1`；公网入口是 Nginx 的 80 端口。
-- `CORS_ORIGINS` 被传入 CORS 精确来源列表；`ALLOWED_HOSTS` 当前被转换为 CORS origin 正则。应用没有注册 `TrustedHostMiddleware`，因此 `ALLOWED_HOSTS` 当前不提供独立的 Host 头校验。
+- `CORS_ORIGINS` 被传入 CORS 精确来源列表；`ALLOWED_HOSTS` 经 `Settings.cors_origin_regex` 逐项转义并锚定后作为 CORS origin 正则。应用没有注册 `TrustedHostMiddleware`，因此 `ALLOWED_HOSTS` 当前不提供独立的 Host 头校验。
 - Nginx 拒绝隐藏文件、`.env`、`.git` 和 README 路径，并设置 `X-Frame-Options`、`X-Content-Type-Options`、`X-XSS-Protection`。
 - 应用包含 Prompt 注入检测、速率限制、输入校验、CSRF 和敏感信息日志过滤实现，具体代码位于 `app/utils/guardrails.py`、`app/middleware/rate_limiter.py`、`app/middleware/input_validator.py`、`app/utils/csrf.py` 和 `app/core/logging_config.py`。
 
