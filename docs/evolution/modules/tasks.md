@@ -64,7 +64,7 @@
 
 - **TSK7 [P3]** `ProgressCallback.update()` 不校验 progress 范围，任意调用方可发送小于 0 或大于 100 的进度；消息仅发 WebSocket，不写 Task DB，刷新查询与实时通知两套进度来源分裂。
 - **TSK8 [P3]** `on_failure` 经 WebSocket 原样发送 `str(exc)`（`:64/:105-107`），内部异常信息可能进入用户通道；同时 Celery signal 侧再次写入错误，错误通知双轨。
-- **TSK9 [P3]** `on_retry` 把 Celery 状态写成 `RETRYING`（`:71-77`），DB signal `_sync_notify_retry` 写成小写 `retrying`（`celery_app.py:109-114`），状态大小写语义依赖消费入口。
+- **TSK9 [P3] 已修复**：`on_retry` 写 `RETRYING`、DB signal 写小写 `retrying` 的大小写分歧已由词表统一消除——`app/models/task.py` 新增 `TaskStatus.RETRYING = "retrying"`，并定义 `CELERY_STATE_TO_TASK_STATUS` 作为读写路径唯一映射源。**同源更严重缺陷一并修复（P1）**：`celery_app.py` 原把 Celery 原生 `state.lower()` 直接落库，写入 `failure`/`retry`/`revoked` 词表外取值，使 `task_queue.py` 的 retry/recover/cancel 端点在真实失败/重试路径上确定性返回 400；且 `task_prerun`/`task_failure`/`task_postrun` 均无终态守卫，`acks_late` 重投递会把终态任务改回 `running` 或 `failure`。现写路径统一经 `_sync_set_task_status` 归一化并在已落终态时拒绝覆盖，读路径 `_merge_task_runtime_state` 改用同一映射。回归测试 `tests/unit/test_celery_signal_status_mapping.py`（13 项）
 - **TSK10 [P3]** `handle_task_result()` 仅在结果大于 1MB 时落盘，却固定写 `/tmp/task_results/{task_id}.json`；相同 task_id 会覆盖文件，无过期清理、权限策略和读取 API，临时盘可持续增长。
 - **TSK11 [P3]** `handle_task_result()` 对大结果直接执行 `result.get('task_id')` 与 `json.dump(result)`，非 dict 结果会在大结果分支抛 `AttributeError` 或序列化失败；函数全库无生产消费，声明的结果治理能力未接线。
 - **TSK12 [P3]** `parse_priority()` 对 None、非字符串和未知值统一落 medium 或直接抛异常；API 当前由 Enum 限制，但 Celery 直接调用与重放消息没有同等输入契约。

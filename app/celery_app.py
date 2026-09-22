@@ -6,6 +6,7 @@ Task Queue System - Powered by Celery + Redis
 import os
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from celery import Celery
 from celery.signals import task_prerun, task_postrun, task_failure, task_retry, task_revoked
 
@@ -57,66 +58,68 @@ celery_app.conf.update(
 )
 
 
-def _sync_update_task_status(task_id: str, status: str):
-    """同步更新任务状态到数据库（Celery worker 中使用）"""
+def _sync_set_task_status(
+    task_id: str,
+    status: str,
+    error_message: Optional[str] = None,
+    increment_retry: bool = False,
+):
+    """将 Celery 状态归一化后写入任务表，并拒绝覆盖已落库的终态。
+
+    Celery 的 `state`（FAILURE/RETRY/REVOKED）与任务表词表不同，直接落库会写入
+    词表外取值，使 retry/recover/cancel 端点与终态判定失效；`acks_late` 重投递
+    及迟到的信号也会把终态任务改回运行中，因此终态任务只允许保持原状态。
+    """
     try:
-        from sqlalchemy import create_engine, select, update
+        from sqlalchemy import create_engine, select
         from sqlalchemy.orm import Session
-        from app.models.task import Task
-        from app.models.base import Base
+        from app.models.task import CELERY_STATE_TO_TASK_STATUS, TERMINAL_TASK_STATUSES, Task
+
+        normalized = CELERY_STATE_TO_TASK_STATUS.get(str(status or "").lower())
+        if normalized is None:
+            logger.warning(f"Skip unknown celery state | task_id={task_id} | state={status}")
+            return
 
         db_url = os.getenv("DATABASE_URL", "sqlite:///app.db").replace("+aiosqlite", "")
         engine = create_engine(db_url)
 
         with Session(engine) as session:
             task = session.execute(select(Task).where(Task.task_id == task_id)).scalar_one_or_none()
-            if task:
-                task.status = status
-                if status == "running":
-                    task.started_at = datetime.now(timezone.utc)
-                session.commit()
+            if not task:
+                return
+            if task.status in TERMINAL_TASK_STATUSES and normalized != task.status:
+                logger.info(
+                    f"Skip override on terminal task | task_id={task_id} "
+                    f"| {task.status} -> {normalized}"
+                )
+                return
+            task.status = normalized
+            if normalized == "running" and task.started_at is None:
+                task.started_at = datetime.now(timezone.utc)
+            if error_message is not None:
+                task.error_message = error_message
+            if increment_retry:
+                task.retry_count = (task.retry_count or 0) + 1
+            if normalized in TERMINAL_TASK_STATUSES:
+                task.completed_at = task.completed_at or datetime.now(timezone.utc)
+            session.commit()
     except Exception as e:
-        logger.error(f"Failed to update task status: {e}")
+        logger.error(f"Failed to sync task status: {e}")
+
+
+def _sync_update_task_status(task_id: str, status: str):
+    """同步更新任务状态到数据库（Celery worker 中使用）"""
+    _sync_set_task_status(task_id, status)
 
 
 def _sync_notify_failure(task_id: str, error: str):
     """同步发送失败通知"""
-    try:
-        from sqlalchemy import create_engine, select
-        from sqlalchemy.orm import Session
-        from app.models.task import Task
-
-        db_url = os.getenv("DATABASE_URL", "sqlite:///app.db").replace("+aiosqlite", "")
-        engine = create_engine(db_url)
-
-        with Session(engine) as session:
-            task = session.execute(select(Task).where(Task.task_id == task_id)).scalar_one_or_none()
-            if task:
-                task.status = "failed"
-                task.error_message = error
-                session.commit()
-    except Exception as e:
-        logger.error(f"Failed to notify failure: {e}")
+    _sync_set_task_status(task_id, "failure", error_message=error)
 
 
 def _sync_notify_retry(task_id: str, error: str):
     """同步发送重试通知"""
-    try:
-        from sqlalchemy import create_engine, select
-        from sqlalchemy.orm import Session
-        from app.models.task import Task
-
-        db_url = os.getenv("DATABASE_URL", "sqlite:///app.db").replace("+aiosqlite", "")
-        engine = create_engine(db_url)
-
-        with Session(engine) as session:
-            task = session.execute(select(Task).where(Task.task_id == task_id)).scalar_one_or_none()
-            if task:
-                task.status = "retrying"
-                task.retry_count = (task.retry_count or 0) + 1
-                session.commit()
-    except Exception as e:
-        logger.error(f"Failed to notify retry: {e}")
+    _sync_set_task_status(task_id, "retry", increment_retry=True)
 
 
 def setup_celery_signals():

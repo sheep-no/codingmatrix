@@ -8,11 +8,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.task import Task
+from app.models.task import TERMINAL_TASK_STATUSES, Task
 from app.models.unified_state import Artifact, Checkpoint, Message, Session, SessionEvent, TaskEvent
-
-
-TERMINAL_TASK_STATUSES = {"success", "failed", "cancelled"}
 
 
 class UnifiedStateError(Exception):
