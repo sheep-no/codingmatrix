@@ -43,6 +43,25 @@ class ProgressCallback:
         logger.debug(f"Task {self.task_id} progress: {progress}% - {message}")
 
 
+def _run_coroutine_sync(coro):
+    """在同步 Celery 回调中执行协程。
+
+    Celery 回调通常没有运行中的事件循环，此时直接 ``asyncio.run``。若调用方
+    本身处于异步上下文（异步 worker、内联测试），``asyncio.run`` 会抛
+    running-loop 错误并被回调吞掉，通知静默丢失；这种情况下改到独立线程
+    执行，让通知仍能送达。
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
 class BaseTask(Task):
     """Base task class with retry, timeout, and progress tracking"""
 
@@ -65,9 +84,8 @@ class BaseTask(Task):
         """Handle task failure"""
         logger.error(f"Task {task_id} failed: {exc}", exc_info=einfo)
         user_id = kwargs.get("user_id", 0) if kwargs else 0
-        # 使用 asyncio.run 在同步上下文中执行异步通知
         try:
-            asyncio.run(self._notify_failure(task_id, user_id, str(exc)))
+            _run_coroutine_sync(self._notify_failure(task_id, user_id, str(exc)))
         except Exception as e:
             logger.error(f"WebSocket 通知失败: {e}")
 
@@ -88,7 +106,7 @@ class BaseTask(Task):
         logger.info(f"Task {task_id} succeeded")
         user_id = kwargs.get("user_id", 0) if kwargs else 0
         try:
-            asyncio.run(self._notify_success(task_id, user_id, retval))
+            _run_coroutine_sync(self._notify_success(task_id, user_id, retval))
         except Exception as e:
             logger.error(f"WebSocket 通知失败: {e}")
 
@@ -97,7 +115,7 @@ class BaseTask(Task):
         task_id = self.request.id
         logger.warning(f"Task {task_id} timeout (soft={soft}, timeout={timeout})")
         try:
-            asyncio.run(self._notify_timeout(task_id))
+            _run_coroutine_sync(self._notify_timeout(task_id))
         except Exception as e:
             logger.error(f"WebSocket 通知失败: {e}")
 

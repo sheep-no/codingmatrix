@@ -118,5 +118,6 @@
 - **TSK12 修复（2026-09-21）**：`parse_priority` 对 `None`/非字符串输入返回默认档 `medium`(5)，不再抛 `AttributeError`；字符串语义不变。
 - **TSK21/TSK22 修复（2026-09-21）**：`project_tasks.py` 删除零消费的 `Task`、`parse_priority`、`parse_timeout` 与函数内 `async_session` 导入；`generate_project` 补 `except Exception` 带 `task_id` 的 `logger.exception` 再抛出，与 `code_tasks.py` 的粒度对齐。
 - **TSK23 失效**：`validate_project` 任务已随 TSK2/TSK3 一并删除，`project_tasks.py` 现仅剩 `generate_project`，其 `async_session` 未使用导入已在本轮清理。
-- **仍未处理**：TSK8–TSK10、TSK14–TSK20（`code_tasks.py`，属 Agent 子系统，不在本轮范围）、TSK24–TSK26（P3，`acks_late` 幂等 / `kwargs` 契约 / 双 `asyncio.run` 桥接）。
+- **TSK25 修复（2026-09-22）**：`app/tasks/base.py` 新增 `_run_coroutine_sync`，回调先探测运行中的事件循环：无循环走 `asyncio.run`，已有循环则改到独立线程执行，异步上下文下 WebSocket 通知不再因 running-loop 错误被静默吞掉；`on_failure`/`on_success`/`on_timeout` 三处统一改用该辅助函数。
+- **仍未处理**：TSK8–TSK10、TSK14–TSK20（`code_tasks.py`，属 Agent 子系统，不在本轮范围）、TSK24（`kwargs` 契约：`task_queue._build_task_kwargs` 已按任务类型白名单下发，接收侧静默忽略的残留风险低）、TSK26（`acks_late` 幂等，属架构设计项）。
 - **测试**：新增 `tests/unit/test_task_base_input_contracts.py`(4)；回退 `app/tasks/base.py` 后 4 项失败。
