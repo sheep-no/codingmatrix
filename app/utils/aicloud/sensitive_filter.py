@@ -12,12 +12,17 @@
 import re
 from typing import Dict, List
 
+# 需要脱敏的值可能是带引号的字符串（内部可含空格）或不带引号的连续串。
+# 旧写法 `[^\"'\\s]+` 在字符类中把反斜杠和字母 s 一起排除，导致以 s 开头的值
+# （如 password=secret123）整体漏检；带空格的引号值只会替换一半、残留明文（SF1）。
+_SECRET_VALUE = r'''(?:"[^"]*"|'[^']*'|[^\s"']+)'''
+
 SENSITIVE_PATTERNS: Dict[str, str] = {
     r"sk-[a-zA-Z0-9]{48}": "[OPENAI_KEY]",
     r"ghp_[a-zA-Z0-9]{36}": "[GITHUB_TOKEN]",
     r"glpat-[a-zA-Z0-9\-]{20}": "[GITLAB_TOKEN]",
-    r"password\s*[=:]\s*[\"']?[^\"'\\s]+[\"']?": "password=[REDACTED]",
-    r"api[_-]?key\s*[=:]\s*[\"']?[^\"'\\s]+[\"']?": "api_key=[REDACTED]",
+    rf"password\s*[=:]\s*{_SECRET_VALUE}": "password=[REDACTED]",
+    rf"api[_-]?key\s*[=:]\s*{_SECRET_VALUE}": "api_key=[REDACTED]",
     r"-----BEGIN.*PRIVATE KEY-----[\s\S]*?-----END.*PRIVATE KEY-----": "[PRIVATE_KEY]",
     r"mongodb://[^:]+:[^@]+@": "mongodb://[REDACTED]@[HOST]",
     r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*": "[JWT_TOKEN]",
@@ -63,7 +68,7 @@ def mask_api_keys(content: str) -> str:
         r"sk-[a-zA-Z0-9]{48}",
         r"ghp_[a-zA-Z0-9]{36}",
         r"glpat-[a-zA-Z0-9\-]{20}",
-        r"api[_-]?key\s*[=:]\s*[\"']?[^\"'\\s]+[\"']?",
+        rf"api[_-]?key\s*[=:]\s*{_SECRET_VALUE}",
     ]
 
     result = content
@@ -92,9 +97,9 @@ def mask_passwords(content: str) -> str:
         过滤后的内容
     """
     password_patterns = [
-        r"password\s*[=:]\s*.+?(?:\s|$)",
-        r"passwd\s*[=:]\s*.+?(?:\s|$)",
-        r"pwd\s*[=:]\s*.+?(?:\s|$)",
+        rf"password\s*[=:]\s*{_SECRET_VALUE}",
+        rf"passwd\s*[=:]\s*{_SECRET_VALUE}",
+        rf"pwd\s*[=:]\s*{_SECRET_VALUE}",
     ]
 
     result = content

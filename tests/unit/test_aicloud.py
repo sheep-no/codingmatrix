@@ -70,6 +70,27 @@ class TestSensitiveFilter:
         assert "[REDACTED]" in filtered or "password=" in filtered.lower()
         assert "mysecretpassword" not in filtered
 
+    def test_filter_password_value_starting_with_s(self):
+        """值以 s 开头的密码不能被漏检（旧字符类把字母 s 一起排除了）。"""
+        filtered = filter_sensitive_content("password=secret123")
+        assert "secret123" not in filtered
+
+    def test_filter_password_quoted_value_with_spaces(self):
+        """带空格的引号值必须整体替换，不能残留一半明文。"""
+        filtered = filter_sensitive_content('password: "my pass word"')
+        assert filtered == "password=[REDACTED]"
+
+    def test_detect_password_value_starting_with_s(self):
+        assert "Password" in detect_sensitive_info("password=secret123")
+
+    def test_mask_passwords_quoted_value_with_spaces(self):
+        masked = mask_passwords('password: "my pass word"')
+        assert "pass word" not in masked
+
+    def test_mask_api_keys_value_starting_with_s(self):
+        masked = mask_api_keys("api_key=secret")
+        assert "secret" not in masked
+
     def test_filter_api_key(self):
         """测试 API Key 过滤"""
         content = "api_key='AKIAIOSFODNN7EXAMPLE'"
