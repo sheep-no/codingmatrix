@@ -104,3 +104,13 @@
 - **CFG3（部分已修复）**：`WS_MAX_CONNECTIONS` 原在 `Settings` 中零消费——`WebSocketManager` 硬编码 `max_connections=50`。现全局实例改为 `WebSocketManager(max_connections=settings.WS_MAX_CONNECTIONS)`，上限真正可配。`ALLOWED_FILE_TYPES` 零消费（上传实际用 `file_upload.ALLOWED_EXTENSIONS`），已删除字段。
 - **CFG3 剩余三项未改**：`LOG_RETENTION_DAYS`/`LOG_COMPRESS_OLD_LOGS`/`LOG_CLEANUP_SCHEDULE` 需与日志子系统（现按大小轮转的 `RotatingFileHandler`、FV6 死类 `CompressedRotatingFileHandler`、LGC4 横幅谎报、`services.md` LC1 假开关）一并设计，改动日志落盘行为，留待日志批次。
 - **本批测试**：`tests/unit/test_config_security_defaults.py` 追加 1 项（`ALLOWED_FILE_TYPES` 已移除，共 18 项）；`tests/unit/test_websocket_manager.py` 追加 1 项（全局管理器上限取自 `settings.WS_MAX_CONNECTIONS`）。
+
+## 状态更新（2026-09-22 核实·日志子系统批次）
+
+- **CFG3 [P3] 全部修复（日志三项接线）**：
+  - `LOG_RETENTION_DAYS` → `log_archiver._build_log_archiver` 的 `retention_days`。原实现按 `LOG_LEVEL` 派生保留天数（DEBUG 3 / INFO 7 / WARNING 14 / ERROR 30），配置项零消费；现以 `LOG_RETENTION_DAYS`（默认 30）为唯一来源。
+  - `LOG_COMPRESS_OLD_LOGS` → 同函数的 `compression_enabled`（原硬编码 `True`）。
+  - `LOG_CLEANUP_SCHEDULE` → `app/db/scheduler.py` 的 `log_cleanup` 任务间隔。新增 `_log_cleanup_interval_days()` 映射 `daily→1`/`weekly→7`/`monthly→30`，未知值回退 7；原硬编码 `days=7`。
+- **FV6 [P3] 已修复（死类删除）**：删除 `logging_config.CompressedRotatingFileHandler`（零引用的死类）及其连带的未用导入 `RotatingFileHandler`/`TimedRotatingFileHandler`/`SQLAlchemyError`（LGC6 手抄异常清单随该类一并消失）。
+- **LGC4 [P3] 已修复（启动横幅谎报）**：原横幅声称「日志轮转：每天，保留 14 天」「安全日志：保留 90 天」，与实际（全部按 10MB/5MB 大小轮转 + 按份数保留）不符。现改为「日志轮转：按大小 10MB/5MB 轮转，按份数保留」「日志归档：保留 N 天（压缩归档：启用/关闭）」，数值取自 `settings`，与实际行为一致。
+- **本批测试**：新增 `tests/unit/test_log_subsystem_wiring.py`（9 项）覆盖归档器读数、调度映射与注册间隔、文件日志真实摘挂、死类已删；`services.md` LC1 见该文件对应更新。

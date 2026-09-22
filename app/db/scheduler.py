@@ -12,6 +12,7 @@ from app.db.database import async_session
 from app.db.chat_archiver import ChatArchiver
 from app.models.file import File
 from app.models.task import Task
+from app.core.config import settings
 from app.utils.task_manager import task_manager
 from app.services.worker_recovery_service import recover_expired_tasks
 from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
@@ -27,6 +28,16 @@ scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
 
 UPLOAD_ROOT = Path("./uploads").resolve()
+
+# LOG_CLEANUP_SCHEDULE 取值到清理间隔天数的映射（未知值回退每周）。
+_LOG_CLEANUP_SCHEDULE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
+
+
+def _log_cleanup_interval_days() -> int:
+    """将 settings.LOG_CLEANUP_SCHEDULE 解析为调度间隔天数。"""
+    return _LOG_CLEANUP_SCHEDULE_DAYS.get(
+        str(settings.LOG_CLEANUP_SCHEDULE).strip().lower(), 7
+    )
 
 
 def _deferred_start(seconds: int = 60) -> datetime:
@@ -304,10 +315,10 @@ scheduler.add_job(
     coalesce=True,
 )
 
-# 4. 日志清理 - 每 7 天执行一次
+# 4. 日志清理 - 周期由 LOG_CLEANUP_SCHEDULE 决定（daily/weekly/monthly）
 scheduler.add_job(
     cleanup_logs_task,
-    trigger=IntervalTrigger(days=7, start_date=_deferred_start()),
+    trigger=IntervalTrigger(days=_log_cleanup_interval_days(), start_date=_deferred_start()),
     id="log_cleanup",
     replace_existing=True,
     max_instances=1,
