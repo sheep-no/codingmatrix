@@ -112,8 +112,12 @@ def _generate_cache_key(
             parts.append(f"{k}={serialized}")
 
     key_str = ":".join(parts)
-    # 保留 key_prefix 作为可匹配前缀，供 invalidate_pattern/按前缀失效使用。
-    return f"{key_prefix}:{hashlib.md5(key_str.encode('utf-8')).hexdigest()}"
+    digest = hashlib.md5(key_str.encode("utf-8")).hexdigest()
+    # 保留 key_prefix 作为可匹配前缀，供 invalidate_pattern/按前缀失效使用；
+    # 身份另以明文段落前置，否则身份只参与 md5、无法被按用户失效的模式命中。
+    if identity is not None:
+        return f"{key_prefix}:u={identity}:{digest}"
+    return f"{key_prefix}:{digest}"
 
 
 def _should_cache_response(status_code: int, condition: Optional[Callable] = None) -> bool:

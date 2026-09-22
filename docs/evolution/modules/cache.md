@@ -63,6 +63,6 @@ cache_response 使用方（app/api/v1/auth.py）：`/history`（:289，ttl 60）
 - **新发现（原文档未列，已修）**：缓存键原为纯 md5 十六进制，不含 `key_prefix`，导致 `invalidate_pattern(f"{key_prefix}:*")`、`invalidate_cache_by_prefix`、`invalidate_on` 全部失配（失效是空操作）。现 `_generate_cache_key` 与 `cached` 均返回 `{prefix}:{md5}`，按前缀失效恢复可用。
 - **CA13 [P3] 判定为设计如此**：前缀失效与 `key_prefix` 对齐后，`invalidate_on` 清整个路由族前缀即其语义（同族不同用户一并失效属可接受的过度失效，非正确性缺陷）。
 - **CA2 [P2] 未修（架构级）**：跨进程 `MemoryCache` 失效仍不同步。当前 memory 仅在 Redis 不可用时的降级期参与读命中，且 `get` 回填后由 Redis 承载后续读；彻底解决需 Redis pub/sub 或内存层不参与写一致性，留待专项。
-- **`invalidate_user_cache` 仍为无效调用**：其 pattern 为 `user:{user_id}:*`/`profile:{user_id}:*`，与 `{prefix}:user=<identity>:<md5>` 键格式不匹配，且三个调用方传入的是 email 而键身份取自 `token.sub`（用户 id）。调用点均紧随其后调用 `invalidate_cache_by_prefix("profile")`，profile 失效实际由前缀路径兜住，故暂不改动。
+- **`invalidate_user_cache` 已修（原为恒空操作）**：旧 pattern `user:{user_id}:*`/`profile:{user_id}:*` 与键格式不匹配（身份只参与 md5 摘要，明文不可见），且三个调用方传入 email 而键身份取自 `token.sub`（用户 id），两重错位使其完全无效。现 `_generate_cache_key` 在键中前置明文身份段 `{prefix}:u={identity}:{md5}`，`invalidate_user_cache` 改用 `{prefix}:u={user_id}:*` 并对 `profile`/`user` 两个前缀失效，返回删除条数；`user_manage.py` 三个调用点改传 `user.id`。前缀失效 `{prefix}:*` 语义不变（仍匹配身份段键）。新增回归 `tests/unit/test_cache_identity_invalidation.py`（4 项）。
 
 新增回归 `tests/unit/test_cache_consistency.py`（10 项，覆盖 CA1/CA11/CA18/CA3/CA16/CA5/CA19/前缀失效）。
