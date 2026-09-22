@@ -36,6 +36,21 @@ from app.agent.validation_coordinator import ValidationCoordinator
 
 logger = logging.getLogger(__name__)
 
+# 普通分支层内并发生成上限。动态拓扑分支的 TopologyScheduler 用 5，这里对齐，
+# 避免层很大时同层所有文件的多级 LLM 流水线同时铺开。
+LAYER_CONCURRENCY_LIMIT = 5
+
+
+async def gather_with_limit(coros, limit: int):
+    """像 ``asyncio.gather(..., return_exceptions=True)`` 一样收集结果，但限制并发。"""
+    semaphore = asyncio.Semaphore(limit)
+
+    async def run(coro):
+        async with semaphore:
+            return await coro
+
+    return await asyncio.gather(*(run(coro) for coro in coros), return_exceptions=True)
+
 
 def sync_generation_architecture(project_context: Dict[str, Any], architecture: Dict[str, Any]) -> list:
     """Keep project_context.architecture pointing at the live architecture dict."""
@@ -876,11 +891,13 @@ class SpecFirstGenerateMixin:
                     callback=callback
                 )
 
+                # 同层内限制并发：每个文件都要跑生成→交叉验证→精炼多级 LLM，
+                # 层大时全部铺开会放大并发与内存。
                 tasks = [
                     generate_single_file(file_path, current_index + i)
                     for i, file_path in enumerate(layer)
                 ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                results = await gather_with_limit(tasks, LAYER_CONCURRENCY_LIMIT)
 
                 for i, result in enumerate(results):
                     file_path = layer[i]
@@ -2457,17 +2474,19 @@ class SpecFirstGenerateMixin:
 
     async def _quick_llm_check(self, prompt: str) -> str:
         """快速 LLM 检查（用于语言校验等轻量任务）"""
-        from app.utils import call_llm
+        from app.agent.llm_client import LLMClient
         backend_model = getattr(self.model_assignment, 'backend_model', None) if self.model_assignment else None
         if not backend_model:
             raise RuntimeError("model assignment is required for LLM check")
         try:
-            response = await call_llm(
-                model=backend_model,
-                prompt=prompt,
-                system_prompt="你是一个代码语言检测器。只回答 YES 或 NO。",
-                api_key_token=getattr(self, 'api_key_token', None)
+            # 走统一 LLM 层，复用全局/按模型信号量与降级链，避免绕过并发控制。
+            client = LLMClient(
+                model_name=backend_model,
+                task_type="review",
+                api_key_token=getattr(self, 'api_key_token', None),
+                cancel_event=getattr(self, 'cancel_event', None),
             )
+            response = await client.call(prompt, "你是一个代码语言检测器。只回答 YES 或 NO。")
             return response.strip() if response else ""
         except Exception as e:
             logger.debug(f"_quick_llm_check 失败: {e}")
@@ -2577,7 +2596,8 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
 
         new_files = split_plan.get("new_files", [])
         import_mapping = split_plan.get("import_mapping", {})
-        old_file_action = split_plan.get("old_file_action", "delete")
+        # 默认保留原文件：拆分方案未显式要求删除时，不做破坏性动作。
+        old_file_action = split_plan.get("old_file_action", "keep")
 
         if not new_files:
             return {"success": False, "errors": ["拆分方案中没有新文件"]}
