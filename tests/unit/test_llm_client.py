@@ -567,3 +567,50 @@ class TestLLMClientError:
     def test_is_exception(self):
         err = LLMClientError("test")
         assert isinstance(err, Exception)
+
+
+class TestCallStreamSemantics:
+    """LC6/LC7：call 的 stream 参数不再静默忽略；thinking_budget 访问契约统一。"""
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_call_rejects_stream_true(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """LC6：call(stream=True) 抛 ValueError，而非把流式结果当 dict 解析。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+
+        client = LLMClient(model_name="test-model")
+        with pytest.raises(ValueError, match="call_stream"):
+            await client.call("Hi", stream=True)
+        mock_call_llm.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_call_tolerates_missing_thinking_budget(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """LC7：模型配置缺 thinking_budget 键时按 0 处理，不抛 KeyError。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+        mock_call_llm.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+        }
+
+        client = LLMClient(model_name="test-model")
+        result = await client.call("Hi")
+
+        assert result == "ok"
+        assert mock_call_llm.call_args.kwargs["thinking_budget"] == 0

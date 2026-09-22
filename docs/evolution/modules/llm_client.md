@@ -143,13 +143,19 @@ finally:
 
 - **Bug 代码**：:121 `_call_internal(..., stream=stream, ...)`，docstring :314「stream 参数被接受但忽略」——调用方传 `stream=True` 拿到非流式结果，无告警
 
+- **已修复（2026-09-22）**：核实后缺陷比原文更重——`stream` 并非被忽略，而是原样透传给 `call_llm`，适配器会返回 `AsyncIterator[str]`，随后 `_call_internal` 按 dict 解析（`response.get("choices")`）必然失败。修法：`call()` 在 `stream=True` 时直接 `raise ValueError("call() 不支持流式，请改用 call_stream()")`；`_call_internal` 移除已无意义的 `stream` 形参，固定 `stream=False` 传给 `call_llm`。仓库内无 `stream=True` 调用 `LLMClient.call` 的位置（`specialist_base` 流式走 `call_stream`），无破坏面。回归 `tests/unit/test_llm_client.py::TestCallStreamSemantics::test_call_rejects_stream_true`（断言抛错且 `call_llm` 未被调用）。
+
 ### LC7 [P2] `thinking_budget` 直接下标 vs property 用 `.get` 不一致
 
 - **Bug 代码**：:199/:319 `self._model_config["thinking_budget"]` 直接下标（缺键 KeyError）；:397 property 用 `.get("thinking_budget", 0)`（有默认）——契约脆弱（当前 get_model_config 保证有键）
 
+- **已修复（2026-09-22）**：`_consume_stream` 与 `_call_internal` 两处下标访问统一为 `self._model_config.get("thinking_budget", 0)`，与 `thinking_budget` property 的默认值一致，`get_model_config` 不再必须保证该键存在。回归 `tests/unit/test_llm_client.py::TestCallStreamSemantics::test_call_tolerates_missing_thinking_budget`（配置缺键时按 0 传入且不抛 KeyError）。
+
 ### LC8 [P2] 模型信号量 dict 无界增长
 
 - **Bug 代码**：:44-46 `_model_semaphores[model_name] = asyncio.Semaphore(...)`——模块级 dict 每个新模型名永久加一个 Semaphore，无清理机制
+
+- **已修复（2026-09-22）**：新增 `MAX_CACHED_MODEL_SEMAPHORES = 64` 与 `_evict_idle_model_semaphores(keep)`。`get_model_semaphore` 在写入新条目后，若缓存超限则按插入序回收**空闲**条目（`_value >= 其上限`，表示无持有者也无等待者）；正在使用/排队的信号量保留，否则同一模型会拿到两个不同信号量导致并发上限失效。回归 `tests/unit/test_llm_client_concurrency.py` 新增 2 项：灌入 3 倍上限的动态模型名后缓存条目 ≤ 上限；被占用的信号量不被回收。
 
 ## 4. 潜在问题与未知点
 
@@ -167,11 +173,12 @@ finally:
 | 3 | P1 | ~~LC3：流式消费循环加 wait_for 超时~~ 已修 | 流式调用超时可控 | llm_client.py:292-298 | 新增 |
 | 4 | P2 | LC4：流式结束后用 usage-only chunk 补记 | 流式成本记录 | llm_client.py:258-260/:283 | 新增 |
 | 5 | P2 | ~~LC5：`async with` 或 try 包裹双 acquire~~ 经核实已由 `async with` 嵌套满足 | 杜绝信号量泄漏 | llm_client.py:193/:430 | 新增 |
-| 6 | P2 | LC6：call 的 stream 参数改为抛错或移除 | API 语义清晰 | llm_client.py:121 | 新增 |
-| 7 | P2 | LC7：统一下标访问方式 | 契约一致 | llm_client.py:199/:319/:397 | 新增 |
+| 6 | P2 | ~~LC6：call 的 stream 参数改为抛错或移除~~ 已修 | API 语义清晰 | llm_client.py:121 | 新增 |
+| 7 | P2 | ~~LC7：统一下标访问方式~~ 已修 | 契约一致 | llm_client.py:199/:319/:397 | 新增 |
+| 8 | P2 | ~~LC8：模型信号量缓存加上限与空闲回收~~ 已修 | 杜绝无界增长 | llm_client.py:44-46 | 新增 |
 
 ## 6. 演化方向关联
 
 - **§10.1（26 文件直连）**：LLMClient「统一层」名不副实——LC1-LC3 修复受益面有限，阶段二收敛时应扩大本层使用面（#12）
-- **B5 并发控制**：LC2 已修、LC5 经核实已满足；LC6/LC7 待评估
+- **B5 并发控制**：LC2/LC3/LC6/LC7/LC8 已修、LC5 经核实已满足
 - **Backlog 关联**：#12，新增 LC1-LC7
