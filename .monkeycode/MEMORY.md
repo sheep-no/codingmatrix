@@ -64,6 +64,9 @@
   - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
   - 门禁误报的高频模式是把「执行环境状态」当「代码缺陷」：未安装的第三方 import、依赖清单缺失包、node 被信号终止都属环境状态；只有项目内模块/符号缺失才算缺陷，修一处后要顺带核对同类检查。
   - 声明式 `FrameworkProfile` 的 `build_command` / `test_command` / `validation_steps` 是项目级验证统一来源（Go stdlib 用 `go build ./...` 与 `go test ./...`）；运行前确认生成目录可作为命令工作目录并保留输出。
+  - 本地起后端做联调无需 `.env`：`DATABASE_URL=sqlite+aiosqlite:////tmp/<name>.db ENV=development python3 -m uvicorn app.main:app --port 8000`，启动时 `create_all` 自动建表（`app/main.py:259`），SECRET_KEY 为空时开发环境用固定本地密钥。认证路由直接挂在 `/api/v1`（无 `/auth` 段）：`/api/v1/csrf-token`、`/api/v1/register`、`/api/v1/login`；注册需 CSRF（先取 `/csrf-token` 拿 cookie + token，再带 `X-CSRF-Token` 头），登录兼容明文 `email`+`password`。
+  - agent host 会话不在数据库：存 JSON 文件于 `data/agent_host_sessions/`（可用 `AGENT_HOST_SESSION_DIR` 覆盖，已被 `.gitignore` 忽略）加内存字典，排查会话状态要查这里而非 SQLite。
+  - VS Code 插件 e2e（`npm run e2e`）的后端会话段需 `CODINGMATRIX_E2E_API_URL` + `CODINGMATRIX_E2E_ACCESS_TOKEN`，缺任一个 `e2e/suite.mjs:36-38` 直接 `return` 且仍以退出码 0 结束——退出码 0 只证明扩展能加载与注册命令，不代表后端链路被覆盖。判定是否真跑了要查 `data/agent_host_sessions/` 是否新增 `workspace_id=fixtures` 记录及其 `control_status` 终态为 `cancelled`。
 
 ### Flutter 客户端验证约束
 - Date: 2026-09-08 / 2026-09-09
