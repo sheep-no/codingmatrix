@@ -37,6 +37,27 @@ ALLOWED_CONTENT_TYPES = {
     "text/event-stream",
 }
 
+
+def _mime_type(content_type: str) -> str:
+    """取 MIME 主类型，去掉 charset/boundary 等参数。"""
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _is_json_content_type(mime: str) -> bool:
+    """JSON 系类型：application/json 以及结构化后缀 +json（如 application/vnd.api+json）。
+
+    用 startswith("application/json") 判定会把 application/jsonp 误当 JSON，
+    进而对非 JSON body 返回 400；直接比较 MIME 主类型并识别后缀可同时消除
+    误判（jsonp）与漏判（vnd.api+json 被 415 拒绝）。
+    """
+    return mime == "application/json" or mime.endswith("+json")
+
+
+def _is_allowed_content_type(content_type: str) -> bool:
+    mime = _mime_type(content_type)
+    return mime in ALLOWED_CONTENT_TYPES or _is_json_content_type(mime)
+
+
 # 检测口径：只匹配「注入组合特征」，而非 SQL/JS 单词黑名单。
 # 本平台是 AI 代码生成平台，需求文本天然包含 select/create/delete/update/eval 等词，
 # 单词级黑名单会把正常业务文本判成攻击（IV1）。
@@ -131,7 +152,7 @@ def _size_limit_for(content_type: str) -> int:
 
     multipart 上传按文件上传配额放行，其余仍按 10MB 严格限制。
     """
-    if content_type.startswith("multipart/form-data"):
+    if _mime_type(content_type) == "multipart/form-data":
         return MAX_UPLOAD_BODY_SIZE
     return MAX_BODY_SIZE
 
@@ -220,9 +241,7 @@ class InputValidatorMiddleware:
         # 避免仅去掉一个 header 就绕过注入检测。
         content_type_declared = bool(content_type)
 
-        if content_type_declared and not any(
-            content_type.startswith(allowed) for allowed in ALLOWED_CONTENT_TYPES
-        ):
+        if content_type_declared and not _is_allowed_content_type(content_type):
             logger.warning(
                 f"拒绝不支持的内容类型 | path={path} | content_type={content_type}"
             )
@@ -258,7 +277,7 @@ class InputValidatorMiddleware:
 
         # 只有明确声明为 JSON 或未声明类型时才需要读取 body 做内容扫描；
         # 其它已声明的非 JSON 类型直接透传。
-        if content_type_declared and not content_type.startswith("application/json"):
+        if content_type_declared and not _is_json_content_type(_mime_type(content_type)):
             await self.app(scope, receive, send)
             return
 
