@@ -302,7 +302,7 @@ async def update_user(
         await db.refresh(user.permission)
     
     if body.email:
-        await invalidate_user_cache(body.email)
+        await invalidate_user_cache(user.id)
     
     try:
         await invalidate_cache_by_prefix("profile")
@@ -347,7 +347,7 @@ async def delete_user(
     await _purge_user_owned_data(db, user_id)
     await db.delete(user)
     await db.commit()
-    await invalidate_user_cache(user.email)
+    await invalidate_user_cache(user.id)
     
     try:
         await invalidate_cache_by_prefix("profile")
@@ -381,7 +381,7 @@ async def reset_password(
         )
     )
     await db.commit()
-    await invalidate_user_cache(user.email)
+    await invalidate_user_cache(user.id)
     
     try:
         await invalidate_cache_by_prefix("profile")

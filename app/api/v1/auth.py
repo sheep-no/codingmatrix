@@ -20,7 +20,6 @@ from app.models.Permission import Permission
 from app.models.user import User
 from app.models.history import History
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from app.utils.cache import invalidate_user_cache
 from app.utils.cache_decorator import cache_response, invalidate_cache_by_prefix
 from app.middleware.rate_limiter import check_login_rate_limit, record_login_failure, record_login_success
 from app.utils.csrf import get_csrf_token, csrf_protect

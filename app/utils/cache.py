@@ -317,10 +317,18 @@ async def get_cache(redis_url: Optional[str] = None):
     return await get_cache_manager(redis_url=redis_url)
 
 
-async def invalidate_user_cache(user_id: Union[int, str]) -> None:
+async def invalidate_user_cache(user_id: Union[int, str]) -> int:
+    """失效指定用户的缓存条目。
+
+    缓存键形如 ``{prefix}:u={identity}:{md5}``，因此身份可被模式匹配。
+    旧实现使用 ``user:{id}:*`` / ``profile:{id}:*``，与真实键格式不匹配，
+    是恒为空的无效调用。
+    """
     cache = await get_cache_manager()
-    await cache.invalidate_pattern(f"user:{user_id}:*")
-    await cache.invalidate_pattern(f"profile:{user_id}:*")
+    removed = 0
+    for prefix in ("profile", "user"):
+        removed += await cache.invalidate_pattern(f"{prefix}:u={user_id}:*")
+    return removed
 
 
 def cached(ttl: int = 3600, prefix: str = ""):
