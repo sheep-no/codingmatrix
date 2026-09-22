@@ -15,6 +15,33 @@ class TaskStatus(str, Enum):
     SUCCESS = "success"       # 成功
     FAILED = "failed"         # 失败
     CANCELLED = "cancelled"   # 已取消
+    RETRYING = "retrying"     # 重试中
+
+
+# Celery 原生状态（`AsyncResult.state` / signal `state`，取值如 FAILURE/RETRY/
+# REVOKED）小写化后与任务表词表的映射。写入 DB 前必须经此归一化，否则
+# "failure"/"retry"/"revoked" 会落库为词表外取值，使 retry/recover/cancel
+# 端点与终态判定 (`TERMINAL_TASK_STATUSES`) 全部失效。
+CELERY_STATE_TO_TASK_STATUS = {
+    "pending": TaskStatus.PENDING.value,
+    "received": TaskStatus.PENDING.value,
+    "started": TaskStatus.RUNNING.value,
+    "running": TaskStatus.RUNNING.value,
+    "retry": TaskStatus.RETRYING.value,
+    "retrying": TaskStatus.RETRYING.value,
+    "success": TaskStatus.SUCCESS.value,
+    "failure": TaskStatus.FAILED.value,
+    "failed": TaskStatus.FAILED.value,
+    "revoked": TaskStatus.CANCELLED.value,
+    "cancelled": TaskStatus.CANCELLED.value,
+}
+
+
+TERMINAL_TASK_STATUSES = {
+    TaskStatus.SUCCESS.value,
+    TaskStatus.FAILED.value,
+    TaskStatus.CANCELLED.value,
+}
 
 
 class TaskType(str, Enum):

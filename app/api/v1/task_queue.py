@@ -20,7 +20,7 @@ from app.schema.task_schema import (
     TaskListResponse,
     TaskPriorityEnum
 )
-from app.models.task import Task
+from app.models.task import CELERY_STATE_TO_TASK_STATUS, Task
 from app.celery_app import celery_app
 from app.services.websocket_manager import ws_manager
 from app.tasks.base import parse_priority, parse_timeout
@@ -65,17 +65,9 @@ def _build_task_kwargs(task_type: str, task_id: str, user_id: int, params: dict)
     return kwargs
 
 
-# Celery 运行时状态与任务表词表取值不同（FAILURE/RETRY/REVOKED）。直接 lower()
-# 会返回 API 未声明的 "failure"/"retry"/"revoked"，前端无法识别（TQ6）。
-_CELERY_STATE_TO_STATUS = {
-    "pending": "pending",
-    "received": "pending",
-    "started": "running",
-    "retry": "retrying",
-    "success": "success",
-    "failure": "failed",
-    "revoked": "cancelled",
-}
+# Celery 运行时状态与任务表词表取值不同（FAILURE/RETRY/REVOKED）。映射表与
+# worker 侧写路径共用同一来源，避免读写口径再次分叉（TQ6）。
+_CELERY_STATE_TO_STATUS = CELERY_STATE_TO_TASK_STATUS
 
 
 def _merge_task_runtime_state(task_record, celery_state, celery_info):
