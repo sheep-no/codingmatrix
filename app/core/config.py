@@ -11,6 +11,9 @@ BASE_DIR = Path(__file__).parent.parent.parent
 if TYPE_CHECKING:  # 仅用于类型注解，避免在核心配置中引入运行时依赖
     from app.utils.aicloud.providers import ProviderRegistry
 
+# 供应商注册表进程内缓存（CFG5）：只依赖 settings 中静态的 Key/Base URL
+_provider_registry_cache: Optional["ProviderRegistry"] = None
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -102,8 +105,6 @@ class Settings(BaseSettings):
     
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
-    ALLOWED_MODELS: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B,deepseek-ai/DeepSeek-OCR,Qwen/Qwen3.5-4B,Qwen/Qwen3-8B,Qwen/Qwen2.5-7B-Instruct,BAAI/bge-m3,BAAI/bge-reranker-v2-m3,Kwai-Kolors/Kolors,THUDM/GLM-4-9B-0414,THUDM/GLM-Z1-9B-0414,BAAI/bge-large-zh-v1.5,PaddlePaddle/PaddleOCR-VL-1.5,XingChenAGI/XingChenASR-V3.2-Ultra,XingChenAGI/XingChenGSR-V1.0,XingChenAGI/XingChenASR-Diarize-V3.0,FunAudioLLM/SenseVoiceSmall,TeleAI/TeleSpeechASR,tencent/Hunyuan-MT-7B"
-
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,0.0.0.0"
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
@@ -182,7 +183,16 @@ class Settings(BaseSettings):
         return rf"^(?:https?://)?(?:{alternatives})(?::\d+)?$"
     
     def get_provider_registry(self) -> "ProviderRegistry":
-        """从配置构建供应商注册表"""
+        """从配置构建供应商注册表（进程内复用）。
+
+        注册表只依赖 settings 中静态的 API Key / Base URL，而 settings 是
+        `lru_cache` 单例，因此可安全缓存；原实现每次调用新建一份，`llm_caller`
+        的 4 个消费点各建一份（CFG5）。
+        """
+        global _provider_registry_cache
+        if _provider_registry_cache is not None:
+            return _provider_registry_cache
+
         from app.utils.aicloud.providers import ModelProvider, ProviderConfig, ProviderRegistry
         
         registry = ProviderRegistry()
@@ -204,8 +214,9 @@ class Settings(BaseSettings):
                 base_url=base_url,
             )
             registry.register(config)
-        
-        return registry
+
+        _provider_registry_cache = registry
+        return _provider_registry_cache
 
 
 @lru_cache()
