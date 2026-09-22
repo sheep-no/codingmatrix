@@ -390,6 +390,17 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 改后端代码需重启 Uvicorn：用 `background_terminal_kill` 停旧终端后再 `background_terminal_create` 起新的，不要 `pkill`。
   - 重启 Uvicorn 时不要动 Vite（:3000）、Redis（:6379）、Celery（-Q ppt）这些常驻服务。
 
+### 容器内 Redis 卡死时的测试自救
+- Date: 2026-09-22
+- Context: Agent 跑全量回归时发现 Redis 进程被内核卡死，排查并绕过
+- Category: 环境配置
+- Instructions:
+  - 现象：某个 `redis-server` 进程接受 TCP 握手但永不回包；`redis-cli ping` 超时，该进程 `SigPnd` 挂着 SIGKILL 却仍为 `R` 状态，`kill -9`、`cgroup.kill` 都无法终止，6379 端口无法释放。
+  - 任何以 `redis.Redis(...)` 默认参数（无 `socket_timeout`）连接该端口的调用都会永久阻塞：`tests/unit/test_apikey_batch_import_sync.py` 会卡在 slowapi 限流 `storage.incr`，`tests/unit/test_conversation_store.py` 卡在 `ConversationStore`，`tests/integration/test_apikey_index_ttl.py` 的 `_redis_available()` 在 collection 阶段就挂起。
+  - 绕过：`redis-server --bind ::1 --port 6379`（`localhost` 在 `/etc/hosts` 同时映射 `::1`，`getaddrinfo` 优先返回 IPv6，卡死实例只绑 `127.0.0.1`），随后用 `REDIS_URL=redis://localhost:6379/0` 覆盖 `.env` 里的 `redis://127.0.0.1:6379/0`（环境变量优先级高于 `.env`）。
+  - 仍受影响的只有硬编码 `127.0.0.1:6379` 的两个集成文件（`test_apikey_index_ttl.py`、`test_state_recovery.py`），全量回归时需 `--ignore` 它们。
+  - 排查挂起用例：`python3 -u -m pytest ... > log 2>&1` 是块缓冲、不到结束看不到输出；用 `cat /proc/<pid>/task/<tid>/stack` 看主线程是否阻塞在 `tcp_recvmsg` 来确认是网络等待。
+
 ### 知识库上传的阻塞与死循环陷阱
 - Date: 2026-09-17
 - Context: Agent 在核查非 Agent 范围已建档缺陷（知识库上传同步阻塞）时总结
