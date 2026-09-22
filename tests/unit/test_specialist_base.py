@@ -111,6 +111,13 @@ class TestBuildToolsDescription:
         desc = Specialist._build_tools_description({})
         assert desc == ""
 
+    def test_tool_without_params_key(self):
+        """SB3：工具条目缺 params 键时不得 KeyError。"""
+        tools = {"plain_tool": {"description": "No params declared"}}
+        desc = Specialist._build_tools_description(tools)
+        assert "plain_tool" in desc
+        assert "plain_tool()" in desc
+
 
 class TestParseToolCall:
     def test_delegates_to_json_parser(self):
@@ -145,6 +152,23 @@ class TestEmitEvent:
         mock_cb = MagicMock(side_effect=async_cb)
         # should not raise (coroutine will be created as task)
         Specialist._emit_event(mock_cb, "test_event", {})
+
+    @pytest.mark.asyncio
+    async def test_emit_event_keeps_task_reference(self):
+        """SB6：fire-and-forget 任务需保留引用，完成后释放。"""
+        import app.agent.specialist_base as specialist_base
+
+        finished = asyncio.Event()
+
+        async def async_cb(data):
+            finished.set()
+
+        Specialist._emit_event(async_cb, "test_event", {})
+        assert len(specialist_base._background_tasks) == 1
+
+        await asyncio.wait_for(finished.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert len(specialist_base._background_tasks) == 0
 
 
 class TestCallLLM:

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 import asyncio
 
-from app.utils import call_llm
 from app.agent.dynamic_model_router import get_dynamic_router, LayeredModelRouter
 from app.agent.tracing import traced
 from app.agent.react_engine import ReActEngine
@@ -21,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 SpecialistCallError = LLMClientError
+
+# 事件推送里 fire-and-forget 的协程需保留引用，否则任务可能在完成前被 GC。
+_background_tasks: set = set()
 
 # ReAct 模式配置
 _REACT_MODE_BY_COMPLEXITY = {
@@ -116,7 +118,7 @@ class Specialist:
         """构建工具描述文本，注入 system prompt"""
         lines = []
         for name, info in tools.items():
-            params_desc = ", ".join(f"{k}: {v}" for k, v in info["params"].items())
+            params_desc = ", ".join(f"{k}: {v}" for k, v in info.get("params", {}).items())
             lines.append(f"- {name}({params_desc}): {info['description']}")
         return "\n".join(lines)
 
@@ -342,6 +344,8 @@ class Specialist:
             event = {"type": event_type, **data}
             result = callback(json.dumps(event, ensure_ascii=False))
             if asyncio.iscoroutine(result):
-                asyncio.create_task(result)
+                task = asyncio.create_task(result)
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
         except Exception as e:
             logger.debug(f"事件推送失败 ({event_type}): {e}")
