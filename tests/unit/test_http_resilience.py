@@ -35,9 +35,21 @@ async def _ok(value="ok"):
 def _open_breaker(name: str, **config_kwargs) -> CircuitBreaker:
     breaker = CircuitBreaker(
         name,
-        CircuitBreakerConfig(failure_threshold=1, timeout=0.05, **config_kwargs),
+        # 超时窗口取 0.3s：断言 OPEN 是紧随失败之后的同步操作，50ms 窗口在
+        # 高负载 CI 上会被跨过，导致「OPEN 断言读到 HALF_OPEN」的偶发失败。
+        CircuitBreakerConfig(failure_threshold=1, timeout=0.3, **config_kwargs),
     )
     return breaker
+
+
+def _wait_for_state(breaker: CircuitBreaker, state: CircuitState, timeout: float = 3.0) -> bool:
+    """轮询等待目标状态，避免用固定 sleep 与超时赛跑。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if breaker.state == state:
+            return True
+        time.sleep(0.005)
+    return breaker.state == state
 
 
 @pytest.mark.asyncio
@@ -48,8 +60,7 @@ async def test_breaker_recovers_from_open_to_closed_after_timeout():
         await breaker.call(_boom)
     assert breaker.state == CircuitState.OPEN
 
-    time.sleep(0.06)
-    assert breaker.state == CircuitState.HALF_OPEN
+    assert _wait_for_state(breaker, CircuitState.HALF_OPEN)
 
     assert await breaker.call(_ok) == "ok"
     assert await breaker.call(_ok) == "ok"
@@ -65,8 +76,8 @@ async def test_half_open_slot_is_released_between_probes():
 
     with pytest.raises(RuntimeError):
         await breaker.call(_boom)
-    time.sleep(0.06)
 
+    assert _wait_for_state(breaker, CircuitState.HALF_OPEN)
     for _ in range(5):
         assert await breaker.call(_ok) == "ok"
 
@@ -80,8 +91,7 @@ async def test_half_open_failure_reopens_and_rearms_timeout():
 
     with pytest.raises(RuntimeError):
         await breaker.call(_boom)
-    time.sleep(0.06)
-    assert breaker.state == CircuitState.HALF_OPEN
+    assert _wait_for_state(breaker, CircuitState.HALF_OPEN)
 
     with pytest.raises(RuntimeError):
         await breaker.call(_boom)
@@ -93,14 +103,13 @@ async def test_state_change_callback_is_invoked():
     events = []
     breaker = CircuitBreaker(
         "callback",
-        CircuitBreakerConfig(failure_threshold=1, success_threshold=1, timeout=0.05),
+        CircuitBreakerConfig(failure_threshold=1, success_threshold=1, timeout=0.3),
         callback=lambda name, old, new: events.append((name, old, new)),
     )
 
     with pytest.raises(RuntimeError):
         await breaker.call(_boom)
-    time.sleep(0.06)
-    assert breaker.state == CircuitState.HALF_OPEN
+    assert _wait_for_state(breaker, CircuitState.HALF_OPEN)
     await breaker.call(_ok)
 
     assert events == [
