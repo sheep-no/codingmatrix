@@ -284,3 +284,41 @@ async def test_json_body_over_10mb_still_rejected():
     assert reached is False
     assert messages[0]["status"] == 413
     assert messages[1]["body"] and b"10MB" in messages[1]["body"]
+
+
+@pytest.mark.asyncio
+async def test_structured_json_suffix_is_accepted_and_scanned():
+    """application/vnd.api+json 属 JSON 系类型，不应被 415 拒绝，且仍需扫描注入。"""
+    body = json.dumps({"name": "' OR 1=1 --"}).encode()
+
+    reached, messages = await _run(
+        "/api/v1/users", body, content_type="application/vnd.api+json"
+    )
+
+    assert reached is False
+    assert messages[0]["status"] == 400
+    assert "sql_injection" in json.loads(messages[1]["body"])["details"]["detected_issues"]
+
+
+@pytest.mark.asyncio
+async def test_structured_json_suffix_clean_body_passes_before_middleware():
+    """合法 body 的 +json 请求直接透传，不再被 415 拦截。"""
+    body = json.dumps({"name": "ok"}).encode()
+
+    reached, messages = await _run(
+        "/api/v1/users", body, content_type="application/vnd.api+json; charset=utf-8"
+    )
+
+    assert reached is True
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_jsonp_is_not_treated_as_json():
+    """application/jsonp 只以前缀相似，不应被当成 JSON 对非 JSON body 报 400。"""
+    reached, messages = await _run(
+        "/api/v1/users", b"plain text, not json", content_type="application/jsonp"
+    )
+
+    assert reached is False
+    assert messages[0]["status"] == 415
