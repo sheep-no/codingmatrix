@@ -65,6 +65,71 @@ def _is_adapter_owned_file(file_path: str, file_type: str, architecture: Dict[st
     return bool(LanguageAdapterRegistry.scaffold_file(file_path, file_type, architecture or {}))
 
 
+# 互斥语言族：一个文件扩展名落在这组里、而项目允许的扩展名集合里一个都不含，
+# 才说明它是「不符合项目语言」的产物。
+_LANGUAGE_EXCLUSIVE_EXTENSIONS = (
+    ('.py', '.pyw', '.pyi'),
+    ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'),
+)
+
+# 同名文件保留优先级：越靠前越优先，根目录最低。
+_DEDUP_PRIORITY_DIRS = ('src/', 'app/', 'src/app/')
+
+
+def _select_language_mismatch_files(files: Dict[str, Any], expected_extensions: set) -> list:
+    """挑出扩展名不属于项目允许集合的「本轮新生成」文件路径。
+
+    断点续传复用的既有文件（``generated_by == "cached"``）不参与清理：
+    它们在本次生成前就存在于 output_dir，语言判定不该成为删除既有产物的依据。
+    """
+    selected = []
+    for file_path, artifact in files.items():
+        if getattr(artifact, "generated_by", "") == "cached":
+            continue
+        ext = Path(file_path).suffix.lower()
+        for exclusive in _LANGUAGE_EXCLUSIVE_EXTENSIONS:
+            if ext in exclusive and not any(e in expected_extensions for e in exclusive):
+                selected.append(file_path)
+                break
+    return selected
+
+
+def _dedup_keep_rank(path: str) -> int:
+    for index, prefix in enumerate(_DEDUP_PRIORITY_DIRS):
+        if path.startswith(prefix):
+            return index
+    # 非优先目录按目录层级排序，根目录文件排最后。
+    return len(_DEDUP_PRIORITY_DIRS) + (1 if ("/" not in path and "\\" not in path) else 0)
+
+
+def _select_duplicate_files(files: Dict[str, Any], contents: Dict[str, str]) -> Dict[str, str]:
+    """按文件名聚合，返回 ``{待删路径: 保留路径}``。
+
+    只有内容完全相同的同名文件才判为重复——Django 根 ``manage.py`` 与
+    ``src/manage.py``、``app/main.py`` 与 ``config/main.py`` 是不同模块，
+    不能只凭同名删除。断点续传复用的既有文件同样不参与删除。
+    """
+    name_to_paths: Dict[str, list] = defaultdict(list)
+    for file_path in files:
+        name_to_paths[Path(file_path).name].append(file_path)
+
+    removals: Dict[str, str] = {}
+    for paths in name_to_paths.values():
+        if len(paths) <= 1:
+            continue
+        keep = min(paths, key=_dedup_keep_rank)
+        keep_content = contents.get(keep) or ""
+        for path in paths:
+            if path == keep:
+                continue
+            if getattr(files[path], "generated_by", "") == "cached":
+                continue
+            if (contents.get(path) or "") != keep_content:
+                continue
+            removals[path] = keep
+    return removals
+
+
 def _package_entry_content(
     missing_file: str,
     integrity_validator,
@@ -1574,20 +1639,10 @@ class SpecFirstGenerateMixin:
             
             # 语言适配器的扩展名 + file_plan 中的扩展名 = 项目实际允许的扩展名
             expected_extensions = set(language_adapter.extensions) | planned_extensions
-            
-            files_to_remove = []
-            for file_path in list(ctx.files.keys()):
-                ext = Path(file_path).suffix.lower()
 
-                # 检查是否是不符合项目语言的文件
-                if ext in ('.py', '.pyw', '.pyi') and not any(e in expected_extensions for e in ('.py', '.pyw', '.pyi')):
-                    files_to_remove.append(file_path)
-                    logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
-                elif ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs') and not any(e in expected_extensions for e in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')):
-                    files_to_remove.append(file_path)
-                    logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
-            
+            files_to_remove = _select_language_mismatch_files(ctx.files, expected_extensions)
             for file_path in files_to_remove:
+                logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
                 # 删除文件
                 full_path = self.output_dir / file_path
                 if full_path.exists():
@@ -1598,6 +1653,8 @@ class SpecFirstGenerateMixin:
                     del ctx.files[file_path]
                 if file_path in generated_files_dict:
                     del generated_files_dict[file_path]
+                # 依赖图同步移除，否则后续完整性检查会把已删文件当缺失文件
+                dep_graph.remove_node(file_path)
                 files_generated -= 1
 
         # ============ 清理文件名有问题的文件 ============
@@ -1637,68 +1694,22 @@ class SpecFirstGenerateMixin:
             callback=callback
         )
 
-        # ============ 清理根目录重复文件 ============
-        # 检查根目录是否有与 src/ 目录重复的文件
-        root_files = [f for f in ctx.files.keys() if '/' not in f and '\\' not in f]
-        src_files = [f for f in ctx.files.keys() if f.startswith('src/')]
-        
-        for root_file in root_files:
-            root_name = Path(root_file).name
-            # 检查是否有同名的 src/ 文件
-            for src_file in src_files:
-                src_name = Path(src_file).name
-                if root_name == src_name:
-                    # 根目录文件是重复的，删除它
-                    full_path = self.output_dir / root_file
-                    if full_path.exists():
-                        full_path.unlink()
-                        logger.info(f"删除根目录重复文件: {root_file} (与 {src_file} 重复)")
-                    if root_file in ctx.files:
-                        del ctx.files[root_file]
-                    if root_file in generated_files_dict:
-                        del generated_files_dict[root_file]
-                    files_generated -= 1
-                    break
-
-        # ============ 清理功能重复文件 ============
-        # 检查所有目录中同名的功能重复文件（如 main.py 出现在多个目录）
-        all_files = list(ctx.files.keys())
-        name_to_paths = defaultdict(list)
-        for f in all_files:
-            name = Path(f).name
-            name_to_paths[name].append(f)
-        
-        for name, paths in name_to_paths.items():
-            if len(paths) <= 1:
-                continue
-            
-            # 优先保留的目录顺序：src/ > app/ > 根目录
-            priority_dirs = ['src/', 'app/', 'src/app/']
-            best_path = None
-            for prefix in priority_dirs:
-                for p in paths:
-                    if p.startswith(prefix):
-                        best_path = p
-                        break
-                if best_path:
-                    break
-            
-            if not best_path:
-                best_path = paths[0]
-            
-            for p in paths:
-                if p == best_path:
-                    continue
-                # 删除重复文件
-                full_path = self.output_dir / p
-                if full_path.exists():
-                    full_path.unlink()
-                    logger.info(f"删除功能重复文件: {p} (保留 {best_path})")
-                if p in ctx.files:
-                    del ctx.files[p]
-                if p in generated_files_dict:
-                    del generated_files_dict[p]
-                files_generated -= 1
+        # ============ 清理同名重复文件 ============
+        # 只有内容完全相同的同名文件才判为重复（根目录与 src/ 同名亦然）；
+        # 内容不同说明是不同模块（如根 manage.py 与 src/manage.py），保留。
+        duplicate_removals = _select_duplicate_files(ctx.files, generated_files_dict)
+        for duplicated, kept in duplicate_removals.items():
+            full_path = self.output_dir / duplicated
+            if full_path.exists():
+                full_path.unlink()
+                logger.info(f"删除重复文件: {duplicated} (保留 {kept})")
+            if duplicated in ctx.files:
+                del ctx.files[duplicated]
+            if duplicated in generated_files_dict:
+                del generated_files_dict[duplicated]
+            # 依赖图同步移除，避免已删文件被后续完整性检查当成缺失文件
+            dep_graph.remove_node(duplicated)
+            files_generated -= 1
 
         # ============ 完整性验证（新增） ============
         generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}

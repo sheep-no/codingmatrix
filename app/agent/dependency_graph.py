@@ -704,6 +704,18 @@ class DependencyGraph:
 
         return new_paths
 
+    def remove_node(self, path: str) -> bool:
+        """从图中移除一个节点及其所有边，返回是否实际移除。
+
+        供文件生成收尾的清理逻辑使用：磁盘上删掉的文件必须同时从依赖图
+        移除，否则后续 `validate_completeness` 会把已删文件当作缺失文件，
+        触发补生成甚至直接报错。
+        """
+        if path not in self.nodes:
+            return False
+        self._remove_node(path)
+        return True
+
     def _remove_node(self, path: str):
         """从图中完全移除一个节点及其所有边"""
         if path in self.nodes:
