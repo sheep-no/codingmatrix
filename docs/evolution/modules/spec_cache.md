@@ -86,7 +86,9 @@
 - **SC1 [P2] 已修复**：`lookup`/`save` 同步路径开头调用新增的 `_ensure_index_loaded_sync()`，首次访问时 `_load_index_sync()` + `_build_indices()` 从磁盘 `index.json` 恢复；进程重启后缓存不再全丢。异步 `_ensure_index_loaded` 与同步加载共用 `_index_loaded` 标志，避免重复加载。
 - **SC2 [P2] 已修复**：`_save_entry` 的序列化 dict 补上 `"dependency_graph"`；`async_save` 补 `dependency_graph` 参数并透传。缓存命中路径的 `DependencyGraph.from_dict(cached.dependency_graph)` 不再恒为 `{}`。
 - **SPFG8 [P2] 已修复**：`save`/`lookup` 新增可选 `complexity_level`（显式 opt-in，默认空保持既有调用方行为）。级别参与 `_compute_requirement_hash`，并在 `lookup` 的候选过滤中按级别隔离；`_save_index` 持久化 `complexity: {"level": ...}` 供重启后过滤。spec_first 链 lookup/save 均传 `complexity_level`，同一需求文本在不同复杂度下命中不同条目。`traditional`/`orchestrator_utils` 未传该参数，键与行为保持原样。
-- **SC3 [P2] 仍在**：Jaccard 0.85 阈值恒不达、spec_first 未接 embedding。
-- **SC4 / SC5 / SC6 [P3] 仍在**：tech_keywords 双份拷贝、双 save 点 tech_stack 来源不一致、Jaccard 用截断 preview 计算。
+- **SC3 [P2] 关键词侧已修，embedding 侧未接**：`SIMILARITY_THRESHOLD=0.85` 改名为 `JACCARD_SIMILARITY_THRESHOLD=0.75`——0.85 对粗粒度小集合结构上不可达，0.75 意味着「关键词集合近乎相同」的可达且保守判据。另限定 `action_patterns` 捕获长度为 `\w{1,12}`，避免无限定 `\w+` 把整段中文连写吞成噪声词、进一步压低 Jaccard。spec_first 链仍未传 `requirement_vector`（embedding 分支在 spec_first 恒不触发），该项留待专项决策：接入 embedding 需同时评估缓存命中复用错误架构的风险（traditional 有 `_cache_review_gate` 兜底，spec_first 没有）。
+- **SC4 [P3] 已修复**：新增模块级 `TECH_KEYWORDS` 元组，`extract_keywords` 与 `_extract_tech_keywords` 共用同一份，消除两份拷贝各自演化导致的口径分裂。
+- **SC5 [P3] 已修复**：新增 `_normalize_tech_stack`，在 `save` 内合并 `architecture["tech_stack"]`、显式 `tech_stack`、`complexity["key_technologies"]` 三个来源并小写归一、保序去重。两个 save 调用点不再因写入路径不同建出不同 `tech_index` 分组；归一同时修好大写技术栈（如 `"Flask"`）永远匹配不到 `_extract_tech_keywords` 小写查询的问题。
+- **SC6 [P3] 已修复**：`CacheEntry` 新增 `requirement` 全文字段，`_save_entry`/`_save_index` 均持久化；`lookup` 的 Jaccard 降级改为按 `full_entry.requirement or full_entry.requirement_preview` 比较（旧条目回退预览）。长需求尾部关键词不再因 200 字符截断而漏命中。
 
-测试：`tests/unit/test_spec_cache.py` 扩展到 6 项（精确命中、miss、复杂度级别隔离/共存、dependency_graph 持久化、跨实例重启恢复）。
+测试：`tests/unit/test_spec_cache.py` 扩展到 10 项（精确命中、miss、复杂度级别隔离/共存、dependency_graph 持久化、跨实例重启恢复、关键词表单一来源与阈值可达、技术栈三源合并归一、按全文比较命中、近同关键词集模糊命中）。
