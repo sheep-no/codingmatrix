@@ -177,18 +177,30 @@ async def embed_chunks(
     
     Returns:
         (chunk, vector) 元组列表
+
+    向量化失败的块会被跳过，不再写入零向量占位：零向量与任何查询的余弦相似度
+    恒为 0.0，检索时仍会被当作有效结果返回，造成静默的垃圾检索且无失败标记（KP2）。
     """
     from app.utils.AiCodeUtil import get_embedding
     
     results = []
+    failed = 0
     for chunk in chunks:
         try:
             vector = await get_embedding(chunk.content, model=model)
-            results.append((chunk, vector))
         except Exception as e:
+            failed += 1
             logger.error(f"Embedding 失败: {e}, 内容: {chunk.content[:50]}...")
-            # 使用零向量作为占位
-            results.append((chunk, [0.0] * 768))
+            continue
+        # 空向量或非序列返回值在相似度计算中同样恒为 0，按失败处理（KP3）
+        if not isinstance(vector, (list, tuple)) or not vector:
+            failed += 1
+            logger.error(f"Embedding 返回空向量, 内容: {chunk.content[:50]}...")
+            continue
+        results.append((chunk, list(vector)))
+
+    if failed:
+        logger.warning(f"Embedding 跳过 {failed}/{len(chunks)} 个文本块")
     
     return results
 
@@ -225,11 +237,15 @@ def search_similar_chunks(
     
     Returns:
         (chunk, similarity_score) 列表
+
+    相似度非正的块（零向量、维度不匹配、与查询正交）不构成有效匹配，直接丢弃，
+    避免它们占用 top_k 名额后被当作检索结果返回（KP2）。
     """
     scores = []
     for chunk, vector in chunks_with_vectors:
         score = cosine_similarity(query_vector, vector)
-        scores.append((chunk, score))
+        if score > 0.0:
+            scores.append((chunk, score))
     
     # 按相似度降序排序
     scores.sort(key=lambda x: x[1], reverse=True)
