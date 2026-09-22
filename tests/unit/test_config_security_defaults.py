@@ -99,3 +99,8 @@ def test_provider_registry_is_reused_within_process():
 def test_settings_exposes_no_unwired_allowed_models_field():
     """CFG2：ALLOWED_MODELS 为死配置，已移除；生效白名单唯一来源为 MODEL_REGISTRY。"""
     assert not hasattr(get_settings(), "ALLOWED_MODELS")
+
+
+def test_settings_exposes_no_unwired_allowed_file_types_field():
+    """CFG3：ALLOWED_FILE_TYPES 零消费（上传实际用 file_upload.ALLOWED_EXTENSIONS），已移除。"""
+    assert not hasattr(get_settings(), "ALLOWED_FILE_TYPES")

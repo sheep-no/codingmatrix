@@ -97,5 +97,10 @@
 
 - **CFG2 [P3] 已修复（模型白名单双轨）**：`Settings.ALLOWED_MODELS` 全库零消费，生效白名单的唯一来源是 `MODEL_REGISTRY` → `codeRequest.ALLOWED_MODELS_LIST`。已删除该字段，并移除 `.env.example`/`.env.production.example` 中的 `ALLOWED_MODELS` 行（其示例值与注册表漂移，`.env.example` 还列着注册表中不存在的 `THUDM/GLM-4.1V-9B-Thinking`），改为指向 `MODEL_REGISTRY` 的说明。`codeRequest.GenerateRequest.ALLOWED_MODELS` 是 schema 字段（值来自 `ALLOWED_MODELS_LIST`），与本项无关。
 - **CFG5 [P3] 已修复（provider registry 重复构建）**：`get_provider_registry` 原每次调用新建 `ProviderRegistry`，`llm_caller` 的 4 个消费点各建一份。现以模块级缓存复用：注册表只依赖 `settings` 中静态的 API Key/Base URL，而 `settings` 本身是 `lru_cache` 单例。`ProviderRouter.get_instance` 首次即固化实例，后续传入被忽略，故复用无行为变化。
-- **CFG3 仍未改**：假配置五件套（`LOG_RETENTION_DAYS`/`LOG_COMPRESS_OLD_LOGS`/`LOG_CLEANUP_SCHEDULE`/`ALLOWED_FILE_TYPES`/`WS_MAX_CONNECTIONS` 零消费）需按字段分别接线或删除，涉及 `logging_config.py`、`file_upload.py`、`websocket_manager.py`，留待独立批次。
 - **本批测试**：`tests/unit/test_config_security_defaults.py` 追加 2 项（provider registry 进程内复用、`ALLOWED_MODELS` 死配置已移除），共 17 项。
+
+## 状态更新（2026-09-22 核实·CFG3 部分）
+
+- **CFG3（部分已修复）**：`WS_MAX_CONNECTIONS` 原在 `Settings` 中零消费——`WebSocketManager` 硬编码 `max_connections=50`。现全局实例改为 `WebSocketManager(max_connections=settings.WS_MAX_CONNECTIONS)`，上限真正可配。`ALLOWED_FILE_TYPES` 零消费（上传实际用 `file_upload.ALLOWED_EXTENSIONS`），已删除字段。
+- **CFG3 剩余三项未改**：`LOG_RETENTION_DAYS`/`LOG_COMPRESS_OLD_LOGS`/`LOG_CLEANUP_SCHEDULE` 需与日志子系统（现按大小轮转的 `RotatingFileHandler`、FV6 死类 `CompressedRotatingFileHandler`、LGC4 横幅谎报、`services.md` LC1 假开关）一并设计，改动日志落盘行为，留待日志批次。
+- **本批测试**：`tests/unit/test_config_security_defaults.py` 追加 1 项（`ALLOWED_FILE_TYPES` 已移除，共 18 项）；`tests/unit/test_websocket_manager.py` 追加 1 项（全局管理器上限取自 `settings.WS_MAX_CONNECTIONS`）。
