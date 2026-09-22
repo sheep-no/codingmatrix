@@ -80,3 +80,13 @@
 - **依赖图主线**：DG3（完整性三方法）+ DG1（多边）之上，SC2 使**缓存命中路径的依赖图恒空**——架构补缺的图驱动在缓存路径断供
 - **§5.6 支柱 4（检查点 Checkpointer）**：spec_cache 在概念上就是「阶段产物检查点」，但当前是 key-value 缓存而非显式状态流（无版本、无分支、无恢复点）；SC1/SC3 修复是把它从「近乎无效的缓存」拉回「可用的检查点」的第一步
 - **测试盲区**：tests/unit/test_spec_cache.py 2 用例全在同进程内（掩盖 SC1），且只测精确命中（掩盖 SC3），无 dependency_graph 断言（掩盖 SC2）——三个 P2 全在测试未覆盖路径
+
+## 状态校准（2026-09-22）
+
+- **SC1 [P2] 已修复**：`lookup`/`save` 同步路径开头调用新增的 `_ensure_index_loaded_sync()`，首次访问时 `_load_index_sync()` + `_build_indices()` 从磁盘 `index.json` 恢复；进程重启后缓存不再全丢。异步 `_ensure_index_loaded` 与同步加载共用 `_index_loaded` 标志，避免重复加载。
+- **SC2 [P2] 已修复**：`_save_entry` 的序列化 dict 补上 `"dependency_graph"`；`async_save` 补 `dependency_graph` 参数并透传。缓存命中路径的 `DependencyGraph.from_dict(cached.dependency_graph)` 不再恒为 `{}`。
+- **SPFG8 [P2] 已修复**：`save`/`lookup` 新增可选 `complexity_level`（显式 opt-in，默认空保持既有调用方行为）。级别参与 `_compute_requirement_hash`，并在 `lookup` 的候选过滤中按级别隔离；`_save_index` 持久化 `complexity: {"level": ...}` 供重启后过滤。spec_first 链 lookup/save 均传 `complexity_level`，同一需求文本在不同复杂度下命中不同条目。`traditional`/`orchestrator_utils` 未传该参数，键与行为保持原样。
+- **SC3 [P2] 仍在**：Jaccard 0.85 阈值恒不达、spec_first 未接 embedding。
+- **SC4 / SC5 / SC6 [P3] 仍在**：tech_keywords 双份拷贝、双 save 点 tech_stack 来源不一致、Jaccard 用截断 preview 计算。
+
+测试：`tests/unit/test_spec_cache.py` 扩展到 6 项（精确命中、miss、复杂度级别隔离/共存、dependency_graph 持久化、跨实例重启恢复）。

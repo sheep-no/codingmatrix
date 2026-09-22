@@ -216,7 +216,9 @@ class SpecFirstGenerateMixin:
         cached = None
         if self.spec_cache and not self.incremental:
             try:
-                cached = self.spec_cache.lookup(requirement)
+                cached = self.spec_cache.lookup(
+                    requirement, complexity_level=self.complexity.level.value
+                )
                 if cached:
                     logger.info(f"命中规范缓存: {cached.requirement_hash}")
                     self._report_progress(
@@ -1134,7 +1136,8 @@ class SpecFirstGenerateMixin:
                     file_plan=file_plan,
                     complexity=ctx.complexity,
                     tech_stack=tech_stack,
-                    dependency_graph=dep_graph.to_dict() if dep_graph else None
+                    dependency_graph=dep_graph.to_dict() if dep_graph else None,
+                    complexity_level=ctx.complexity.get("level", "") if isinstance(ctx.complexity, dict) else "",
                 )
                 logger.info(f"规范已缓存: {len(specs_to_cache)} 个规范, {len(file_plan)} 个文件")
             except Exception as e:

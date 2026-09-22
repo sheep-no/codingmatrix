@@ -180,7 +180,8 @@ class SpecCache:
                     "specs": {},
                     "architecture": {},
                     "file_plan": [],
-                    "complexity": {},
+                    # 索引只保留复杂度级别（其余大字段留空），供模糊匹配按级别过滤。
+                    "complexity": {"level": (v.complexity or {}).get("level", "")},
                     "tech_stack": v.tech_stack
                 }
                 for k, v in self._cache.items()
@@ -191,10 +192,36 @@ class SpecCache:
         except Exception as e:
             logger.error(f"保存缓存索引失败: {e}")
 
-    def _compute_requirement_hash(self, requirement: str) -> str:
-        """计算需求哈希（归一化后）"""
+    def _compute_requirement_hash(self, requirement: str, complexity_level: str = "") -> str:
+        """计算需求哈希（归一化后）。
+
+        复杂度级别参与哈希键：同一需求文本在不同复杂度下会命中不同的
+        架构/文件计划，共用一条缓存会把简单需求的产物错误复用到复杂需求上。
+        """
         normalized = self._normalize_requirement(requirement)
+        if complexity_level:
+            normalized = f"{normalized}|complexity={complexity_level}"
         return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]
+
+    @staticmethod
+    def _complexity_level_of(entry: "CacheEntry") -> str:
+        """读取条目的复杂度级别（索引条目只持久化 level 字段）。"""
+        complexity = entry.complexity or {}
+        if isinstance(complexity, dict):
+            return complexity.get("level", "") or ""
+        return ""
+
+    def _ensure_index_loaded_sync(self) -> None:
+        """同步路径首次访问时从磁盘索引恢复缓存（SC1）。
+
+        `lookup`/`save` 是同步接口，此前从不触发懒加载，导致进程重启后
+        磁盘上的 index.json 永不被读回，缓存只存活于单进程内存。
+        """
+        if self._index_loaded:
+            return
+        self._load_index_sync()
+        self._build_indices()
+        self._index_loaded = True
 
     @staticmethod
     def _normalize_requirement(requirement: str) -> str:
@@ -281,7 +308,8 @@ class SpecCache:
         self,
         requirement: str,
         min_similarity: float = SIMILARITY_THRESHOLD,
-        requirement_vector: Optional[List[float]] = None
+        requirement_vector: Optional[List[float]] = None,
+        complexity_level: str = "",
     ) -> Optional[CacheEntry]:
         """
         查找相似需求的缓存（带索引优化）
@@ -292,9 +320,10 @@ class SpecCache:
         3. 内存向量缓存 — 避免重复加载磁盘文件
         """
         self._stats["total_requests"] += 1
+        self._ensure_index_loaded_sync()
 
         # 1. 精确匹配
-        req_hash = self._compute_requirement_hash(requirement)
+        req_hash = self._compute_requirement_hash(requirement, complexity_level)
         if req_hash in self._cache:
             entry = self._cache[req_hash]
             if not entry.is_expired():
@@ -336,6 +365,10 @@ class SpecCache:
                 self._remove_cache_file(h)
                 if h in self._vector_cache:
                     del self._vector_cache[h]
+                continue
+            # 复杂度级别不同的条目语义上不可复用（简单需求的产物复用到复杂
+            # 需求会缺文件/缺表），模糊匹配也必须按级别隔离。
+            if complexity_level and self._complexity_level_of(entry) != complexity_level:
                 continue
             valid_candidates.append(h)
 
@@ -413,10 +446,12 @@ class SpecCache:
         complexity: Dict[str, Any],
         tech_stack: List[str],
         requirement_vector: Optional[List[float]] = None,
-        dependency_graph: Optional[Dict[str, Any]] = None
+        dependency_graph: Optional[Dict[str, Any]] = None,
+        complexity_level: str = "",
     ) -> str:
         """缓存规范"""
-        req_hash = self._compute_requirement_hash(requirement)
+        self._ensure_index_loaded_sync()
+        req_hash = self._compute_requirement_hash(requirement, complexity_level)
         keywords = self.extract_keywords(requirement)
 
         entry = CacheEntry(
@@ -545,6 +580,7 @@ class SpecCache:
                 "specs": entry.specs,
                 "architecture": entry.architecture,
                 "file_plan": entry.file_plan,
+                "dependency_graph": entry.dependency_graph,
                 "complexity": entry.complexity,
                 "tech_stack": entry.tech_stack,
                 "keywords": entry.keywords
@@ -580,13 +616,17 @@ class SpecCache:
         file_plan: List[Dict],
         complexity: Dict[str, Any],
         tech_stack: List[str],
-        requirement_vector: Optional[List[float]] = None
+        requirement_vector: Optional[List[float]] = None,
+        dependency_graph: Optional[Dict[str, Any]] = None,
+        complexity_level: str = "",
     ) -> str:
         """异步缓存规范（非阻塞事件循环）"""
         await self._ensure_index_loaded()
         return await asyncio.to_thread(
             self.save, requirement, specs, architecture, file_plan,
-            complexity, tech_stack, requirement_vector
+            complexity, tech_stack, requirement_vector,
+            dependency_graph=dependency_graph,
+            complexity_level=complexity_level,
         )
 
     async def async_clear_expired(self, min_age: Optional[timedelta] = None) -> int:

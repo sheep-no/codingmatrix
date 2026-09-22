@@ -288,6 +288,7 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 - **SPFG7 [P2] 已修复**：新增模块级 `gather_with_limit`（`LAYER_CONCURRENCY_LIMIT = 5`），普通分支层内 `asyncio.gather` 改为受信号量约束的收集，与动态拓扑分支 `TopologyScheduler` 的 `max_concurrent=5` 对齐。
 - **SPFG10 [P2] 已修复**：`old_file_action` 默认值改为 `"keep"`，拆分方案未显式要求删除时不再删原文件。
 - **SPFG17 [P3] 已修复**：`_quick_llm_check` 改走 `LLMClient`（`task_type="review"` + cancel_event），复用全局/按模型信号量与降级链；`_fix_sandbox_errors` 的直连路径不可达（§8.2），`refactor_file` 无调用方（死代码），两者直连不再构成运行期绕过。
+- **SPFG8 [P2] 已修复**：`SpecCache.save`/`lookup` 新增 `complexity_level`，级别参与需求哈希并在候选过滤中按级别隔离，`_save_index` 持久化 level；spec_first 的 lookup/save 均传入 `complexity.level.value`，同一需求文本在不同复杂度下不再共用缓存条目。详见 [spec_cache.md](spec_cache.md) 状态校准（同批修复 SC1/SC2）。
 
 ### 8.2 不可达（随「云端验证收敛」消解）
 
@@ -295,8 +296,8 @@ v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/
 
 ### 8.3 仍在
 
-- **SPFG8 [P2] 仍在**：缓存键仍按 requirement 原样，无复杂度/技术栈/版本维度。
+（无。原列 SPFG7/8/9/10/17 均已修复，见 §8.1。）
 
 ### 8.4 测试状态（本次复核）
 
-§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。已新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`）、`tests/unit/test_spec_first_language_contract.py`（3 项：工程师 `generate_file` 全 async 契约、协程兜底已清除、`refactor_file` 按目标文件选适配器）、`tests/unit/test_spec_first_llm_and_concurrency.py`（6 项：`gather_with_limit` 并发上限与异常收集、`_quick_llm_check` 走 LLMClient、`refactor_file` 默认 keep 与显式 delete）。8.3 仅剩 SPFG8 无用例保护。
+§7.4 的「零测试」结论对主编排方法仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。已新增 `tests/unit/test_spec_first_cleanup.py`（11 项：扩展名清理选择、同名去重选择、`DependencyGraph.remove_node`）、`tests/unit/test_spec_first_language_contract.py`（3 项：工程师 `generate_file` 全 async 契约、协程兜底已清除、`refactor_file` 按目标文件选适配器）、`tests/unit/test_spec_first_llm_and_concurrency.py`（6 项：`gather_with_limit` 并发上限与异常收集、`_quick_llm_check` 走 LLMClient、`refactor_file` 默认 keep 与显式 delete）；缓存维度回归由 `tests/unit/test_spec_cache.py`（6 项）覆盖。
