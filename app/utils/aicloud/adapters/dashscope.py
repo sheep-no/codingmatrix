@@ -8,7 +8,6 @@ import asyncio
 import logging
 from typing import AsyncIterator, Optional, Union
 
-import httpx
 from httpx import Timeout
 from fastapi import HTTPException
 
@@ -72,6 +71,7 @@ class DashScopeAdapter(BaseProviderAdapter):
                         json=data,
                         timeout=timeout,
                     ) as response:
+                        await self._raise_for_stream_status(response)
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
                                 await response.aclose()

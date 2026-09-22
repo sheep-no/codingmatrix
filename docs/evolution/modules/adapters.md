@@ -68,4 +68,8 @@
 - **ADP4 [P2] 已修**：`llm_caller._get_provider_base_url` 的 ANTHROPIC 由 `https://api.anthropic.com` 改为 `https://api.anthropic.com/v1`，与 `AnthropicAdapter.BASE_URL` 对齐，用户自带 Key 路径不再 404。
 - **ADP5 [P2] 已修（删除死方法）**：删除 `base._validate_api_key`（全库零调用），并修正抽象 `call_llm` docstring 中「子类应调用 `self._validate_api_key()`」的失效说明。子类仍各自 `raise RuntimeError`，空 Key 的 401 语义继续由 `llm_caller` 的 `ProviderAPIKeyNotConfiguredError` 兜底。
 - **新增回归**：`tests/unit/test_aicloud_adapter_regressions.py`（6 项：OpenAI timeout、Anthropic timeout+流式转换、Dynamic Anthropic 流式、SSE 转换函数、ANTHROPIC base_url、按供应商注入字段）。回退全部源文件后 6/6 失败。
-- **ADP6–ADP14 [P3] 未处理**：其中 ADP6（`_max_concurrent_calls` 误判修正）已在原文保留；ADP11（官方适配器流式路径无非 200 检查）本轮未改（`call_with_retry` 不覆盖流式，需单独设计）；ADP13（测试用 SiliconFlowAdapter 测基类方法）现状保留。
+- **ADP6–ADP14 [P3] 未处理**：其中 ADP6（`_max_concurrent_calls` 误判修正）已在原文保留；~~ADP11~~ 见下；ADP13（测试用 SiliconFlowAdapter 测基类方法）现状保留。
+
+## 六、状态更新（2026-09-22）
+
+- **ADP11 [P3] 已修（收敛为共享实现）**：原条目称「四官方适配器流式路径无非 200 检查」，核实后 `zhipu.py` 已有内联检查（本次改为共享），缺检查的实为 openai/deepseek/dashscope 三个。修法：在 `base.BaseProviderAdapter` 新增 `_raise_for_stream_status(response)`——非 200 时读错误体（上限 2048 字节）并抛 `httpx.HTTPStatusError`，四个官方适配器（openai/deepseek/dashscope/zhipu）统一 `await self._raise_for_stream_status(response)` 后进入 `aiter_lines()`，消除 zhipu 单份复制的隐患。`siliconflow.py` 保持自有分支（需据状态码与错误体决定是否去掉 `stream_options` 重试）。同时移除四个文件里已不再使用的 `import httpx`。回归 `tests/unit/test_aicloud_adapter_regressions.py` 新增 5 项：四个官方适配器非 200 抛错（参数化）+ 200 正常流式不被误伤；还原任一适配器检查即 `DID NOT RAISE` 失败。
