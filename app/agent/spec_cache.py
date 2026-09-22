@@ -30,10 +30,28 @@ CACHE_DIR = Path("./cache/spec_cache")
 CACHE_TTL = timedelta(days=7)
 # 缓存最大条目数（超出时按 LRU 淘汰）
 MAX_CACHE_ENTRIES = 200
-# 相似度阈值
-SIMILARITY_THRESHOLD = 0.85
+# 关键词 Jaccard 阈值：extract_keywords 产出的是 ~40 词表里的粗粒度词，
+# 集合规模很小，Jaccard 结构上到不了 0.85（旧默认值恒不达，模糊命中形同虚设）。
+# 0.75 对小集合意味着「关键词集合近乎相同」，是可达且保守的降级判据。
+JACCARD_SIMILARITY_THRESHOLD = 0.75
 # Embedding 相似度阈值（余弦相似度）
 EMBEDDING_SIMILARITY_THRESHOLD = 0.80
+
+# 技术关键词表：索引预过滤（_extract_tech_keywords）与关键词相似度
+# （extract_keywords）共用同一份，避免两份拷贝各自演化导致口径分裂。
+TECH_KEYWORDS = (
+    'vue', 'react', 'angular', 'html', 'css', 'javascript', 'typescript',
+    'python', 'fastapi', 'django', 'flask', 'spring', 'express', 'node',
+    'mysql', 'postgres', 'sqlite', 'mongo', 'redis', 'database',
+    'jwt', 'oauth', 'auth', 'login', 'register',
+    'api', 'rest', 'graphql',
+    'docker', 'k8s', 'deploy',
+    '游戏', 'chess', 'game',
+    '商城', 'shop', 'ecommerce',
+    '聊天', 'chat', 'im',
+    '博客', 'blog', 'cms',
+    '管理', 'admin', 'dashboard',
+)
 
 
 def batch_cosine_similarity(query: List[float], vectors: List[List[float]]) -> List[float]:
@@ -82,6 +100,9 @@ class CacheEntry:
 
     # 关键词索引（用于快速匹配 + embedding 缓存失败时的降级）
     keywords: List[str] = field(default_factory=list)
+
+    # 完整需求文本（关键词相似度按全文比较；requirement_preview 只有前 200 字符）
+    requirement: str = ""
 
     def is_expired(self) -> bool:
         """检查是否过期"""
@@ -172,6 +193,7 @@ class SpecCache:
                 k: {
                     "requirement_hash": v.requirement_hash,
                     "requirement_preview": v.requirement_preview,
+                    "requirement": v.requirement,
                     "created_at": v.created_at,
                     "last_accessed": v.last_accessed,
                     "access_count": v.access_count,
@@ -211,6 +233,36 @@ class SpecCache:
             return complexity.get("level", "") or ""
         return ""
 
+    @staticmethod
+    def _normalize_tech_stack(
+        architecture: Dict[str, Any],
+        tech_stack: List[str],
+        complexity: Dict[str, Any],
+    ) -> List[str]:
+        """统一技术栈口径（SC5）。
+
+        两个 save 调用点分别传 `architecture["tech_stack"]` 与
+        `complexity["key_technologies"]`，同一需求会因写入路径不同建出不同的
+        tech_index 分组。这里把三个来源合并、小写归一、保序去重。
+        `_extract_tech_keywords` 用小写词查索引，归一也修好了大写技术栈
+        （如 "Flask"）永远匹配不到预过滤的问题。
+        """
+        merged: List[str] = []
+        for source in (
+            (architecture or {}).get("tech_stack") if isinstance(architecture, dict) else None,
+            tech_stack,
+            (complexity or {}).get("key_technologies") if isinstance(complexity, dict) else None,
+        ):
+            if not source:
+                continue
+            for item in source:
+                if not isinstance(item, str):
+                    continue
+                normalized = item.strip().lower()
+                if normalized and normalized not in merged:
+                    merged.append(normalized)
+        return merged
+
     def _ensure_index_loaded_sync(self) -> None:
         """同步路径首次访问时从磁盘索引恢复缓存（SC1）。
 
@@ -236,27 +288,15 @@ class SpecCache:
         text = requirement.lower()
         keywords = []
 
-        tech_keywords = [
-            'vue', 'react', 'angular', 'html', 'css', 'javascript', 'typescript',
-            'python', 'fastapi', 'django', 'flask', 'spring', 'express', 'node',
-            'mysql', 'postgres', 'sqlite', 'mongo', 'redis', 'database',
-            'jwt', 'oauth', 'auth', 'login', 'register',
-            'api', 'rest', 'graphql',
-            'docker', 'k8s', 'deploy',
-            '游戏', 'chess', 'game',
-            '商城', 'shop', 'ecommerce',
-            '聊天', 'chat', 'im',
-            '博客', 'blog', 'cms',
-            '管理', 'admin', 'dashboard',
-        ]
-
-        for kw in tech_keywords:
+        for kw in TECH_KEYWORDS:
             if kw in text:
                 keywords.append(kw)
 
+        # 限定捕获长度：无限定的 \w+ 会把整段中文连写吞成一个词，
+        # 关键词集合被噪声撑大，Jaccard 被系统性压低。
         action_patterns = [
-            r'(\w+)(?:系统|平台|应用|app|app)',
-            r'(?:实现|开发|创建|制作)(\w+)',
+            r'(\w{1,12})(?:系统|平台|应用|app)',
+            r'(?:实现|开发|创建|制作)(\w{1,12})',
         ]
 
         for pattern in action_patterns:
@@ -289,25 +329,12 @@ class SpecCache:
     def _extract_tech_keywords(self, requirement: str) -> List[str]:
         """从需求中提取技术栈关键词（用于索引预过滤）"""
         text = requirement.lower()
-        tech_keywords = [
-            'vue', 'react', 'angular', 'html', 'css', 'javascript', 'typescript',
-            'python', 'fastapi', 'django', 'flask', 'spring', 'express', 'node',
-            'mysql', 'postgres', 'sqlite', 'mongo', 'redis', 'database',
-            'jwt', 'oauth', 'auth', 'login', 'register',
-            'api', 'rest', 'graphql',
-            'docker', 'k8s', 'deploy',
-            '游戏', 'chess', 'game',
-            '商城', 'shop', 'ecommerce',
-            '聊天', 'chat', 'im',
-            '博客', 'blog', 'cms',
-            '管理', 'admin', 'dashboard',
-        ]
-        return [kw for kw in tech_keywords if kw in text]
+        return [kw for kw in TECH_KEYWORDS if kw in text]
 
     def lookup(
         self,
         requirement: str,
-        min_similarity: float = SIMILARITY_THRESHOLD,
+        min_similarity: float = JACCARD_SIMILARITY_THRESHOLD,
         requirement_vector: Optional[List[float]] = None,
         complexity_level: str = "",
     ) -> Optional[CacheEntry]:
@@ -422,7 +449,10 @@ class SpecCache:
         for h in valid_candidates:
             entry = self._cache[h]
             full_entry = self._load_full_entry(entry)
-            similarity = self.compute_similarity(requirement, full_entry.requirement_preview)
+            # 按完整需求比较：requirement_preview 只有前 200 字符，
+            # 长需求的后半段关键词会被截断，相似度被系统性低估。
+            compare_text = full_entry.requirement or full_entry.requirement_preview
+            similarity = self.compute_similarity(requirement, compare_text)
 
             if similarity >= threshold and similarity > best_similarity:
                 best_similarity = similarity
@@ -453,10 +483,12 @@ class SpecCache:
         self._ensure_index_loaded_sync()
         req_hash = self._compute_requirement_hash(requirement, complexity_level)
         keywords = self.extract_keywords(requirement)
+        tech_stack = self._normalize_tech_stack(architecture, tech_stack, complexity)
 
         entry = CacheEntry(
             requirement_hash=req_hash,
             requirement_preview=requirement[:200],
+            requirement=requirement,
             created_at=datetime.now().isoformat(),
             last_accessed=datetime.now().isoformat(),
             requirement_vector=requirement_vector,
@@ -573,6 +605,7 @@ class SpecCache:
             data = {
                 "requirement_hash": entry.requirement_hash,
                 "requirement_preview": entry.requirement_preview,
+                "requirement": entry.requirement,
                 "created_at": entry.created_at,
                 "last_accessed": entry.last_accessed,
                 "access_count": entry.access_count,
