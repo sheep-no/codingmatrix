@@ -130,7 +130,7 @@ stdout, stderr = proc.communicate(timeout=timeout)   # ← 全量读入内存
 - **影响**：命令输出巨大时内存耗尽（注释声称防 OOM 实际未生效）
 - **触发条件**：run_command 执行产生 > 内存容量的输出（如 `find / -type f`）
 
-### T4 [P1] `_execute_python_sandbox` error 字段表达式冗余
+### T4 [P1] `_execute_python_sandbox` error 字段表达式冗余（已修复，见 §7）
 
 - **Bug 代码**：
 
@@ -189,4 +189,13 @@ def set_allowed_file_paths(paths: set):
 - **统一工具 Schema（§11.4 #6）**：tools.py 是工具返回结构三式（业务数据/error、success/error、success/result）的**源定义方**——统一 Schema 须从本文件 20 个工具开始
 - **两栈收敛（§13.2/#12）**：SPECIALIST_TOOLS 是 Specialist 栈工具源；executor.py（ToolRegistry 栈）漏注册 search_files 的能力差在本文件可补齐（executor.md B3）
 - **安全基线（§2.1/阶段四）**：沙箱/命令执行/HTTP 的安全纵深（T2/T3/T6）与「云端验证收敛」决策直接关联
+
+## 7. 状态校准（2026-09-22）
+
+按当前代码逐条复核（文件已从建档的 1292 行增长到 1352 行，原文行号整体偏移）：
+
+- **T4 [P1] 已修复**：`_execute_python_sandbox` 的 `error` 字段现为无条件 `result.stderr or None`（:573-577），两分支相同的三元表达式已消失（提交 `706a873a` 改写）。
+- **T5 [P2] 仍在**：`_allowed_file_paths` 仍为模块级全局可变状态（:20 定义、:34-43 `global` 整体覆盖、:914-922 `_tool_write_file` 消费）。
+- **T6 [P2] 仍在**：沙箱危险模式仍为静态正则黑名单（python :548-558、js :595-605），可字符串混淆绕过。
+- **T1/T2/T3 复核确认已修复**：T1 函数内已有 `import os`（:544）；T2 cwd 校验改走 `_safe_join` + `PermissionError`（:716-719）；T3 stdout/stderr 重定向临时文件并按 `MAX_OUTPUT_BYTES + 1` 限读（:726-749）。
 - **Backlog 关联**：#6、#11、#12
