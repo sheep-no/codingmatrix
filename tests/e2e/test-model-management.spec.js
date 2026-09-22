@@ -186,7 +186,7 @@ test.describe('模型管理功能测试', () => {
     }
 
     // 验证新增模型存在
-    const newModelIds = ['bge-m3', 'bge-reranker-v2-m3', 'bce-reranker', 'bge-large-zh', 'sense-voice', 'telespeech-asr', 'hunyuan-mt']
+    const newModelIds = ['bge-m3', 'bge-reranker', 'bge-large-zh', 'sense-voice', 'telespeech-asr', 'hunyuan-mt']
     for (const modelId of newModelIds) {
       const found = modelsData.models.find(m => m.id === modelId)
       expect(found).toBeTruthy()
