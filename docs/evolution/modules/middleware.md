@@ -142,3 +142,14 @@ app/middleware/ 是 FastAPI 应用的**HTTP 中间件层**——请求进入路�
 - **文档分支判定补段边界**：`/api/docs`、`/api/redoc`、`/api/openapi` 三个前缀改为 `_is_docs_path()` 的段边界/精确匹配。原 `path.startswith("/api/docs")` 会让 `/api/docsomething` 这类同前缀业务路径命中放宽策略（`unsafe-eval` + jsdelivr + 免 COEP），与 IV2 的 `startswith` 前缀碰撞同族；当前路由表暂无此类路径，属潜在放行面。`/api/openapi` 由前缀改为精确 `/api/openapi.json`，与 `app/main.py:186` 的 `openapi_url` 一致。
 - **FSW1 已修复（段边界 + 单一来源 + 清冗余）**：`FeatureSwitchMiddleware` 抽出 `_match_feature()` 按路径段边界匹配（`path == prefix or path.startswith(prefix + "/")`），`/api/v1/agentfoo`、`/api/v1/agent-evil`、`/api/v1/aicloudx`、`/api/v1/workflows`、`/api/v1/dockerfile` 这类同前缀路径不再被误判归属（原 `startswith` 会让它们因该功能关闭而收到 503）；功能中文名改用 `feature_switch_service.FEATURE_NAMES`（原为中间件内联复制的第二份中文名表，双轨隐患）；删除 `SKIP_PATHS`（五项 `/health`、`/ready`、`/docs`、`/openapi.json`、`/favicon.ico` 均不在 `PATH_FEATURE_MAP` 拦截范围内，属装饰性白名单），无归属路径直接放行、不再进入判断链；移除两个未使用的 fastapi 导入。`/api/v1/docker` 在路由表 0 条命中，映射项当前不生效但保留意图明确（docker 路由回归即接管），未删。
 - **测试**：新增 `tests/unit/test_security_headers_csp.py`(12)、`tests/unit/test_feature_switch_middleware.py`(17)；回退对应源文件后分别 6 项、6 项失败。
+
+## 十一、状态更新（2026-09-22 核实）
+
+以当前代码为准逐条核实并修复 `input_validator.py` 的输入校验健壮性缺陷：
+
+- **IV3 [P2] 已修复（缺失 Content-Type 绕过内容扫描）**：原实现 `if content_type and not any(...)` 与 `if not content_type.startswith("application/json")` 都以「header 存在」为前提——去掉 `Content-Type` 后白名单校验被跳过、body 既不读也不扫，仅删一个 header 即可让注入 payload 直达端点。现改为对未声明类型仍按 JSON 尝试解析并扫描，解析失败的非 JSON body 按原样透传（不误判为非法 JSON）。
+- **IV4 [P2] 已修复（分块传输先全量缓冲）**：`_read_body_safe` 原先读完所有 chunk 再比较 `MAX_BODY_SIZE`，无 `Content-Length` 的 `Transfer-Encoding: chunked` 可让服务端缓冲任意数据后才收到 413。现改为读取过程中累计大小、超限立即返回哨兵。
+- **IV5 [P2] 已修复（畸形输入触发 500 与键漏检）**：`int(content_length)` 未捕获 `ValueError`，`Content-Length: abc` 会抛 500，改用 `_parse_content_length` 容错（非数字返回 None，交由读取阶段兜底）；深层嵌套 JSON（远小于体积上限）令 `json.loads`/`_scan_value` 抛 `RecursionError` 逃出中间件，现按非法 JSON 返回 400；`_scan_value` 原只遍历 `value.values()`，JSON 键中的 XSS/SQL payload 漏检，现键与值一并扫描。
+- **仍存权衡（P3，未改）**：`application/vnd.api+json` 等 `+json` 子类型仍被 415 拒绝；`application/jsonp` 因 `startswith("application/json")` 被误当 JSON。收敛为按 MIME 主/子类型判断属独立小项。
+- **P2-3（未处理，留待下一批）**：中间件 10MB 体积上限与上传端点 100MB（`MAX_FILE_SIZE`/`app/core/config.py:108`）冲突——单请求上传 10-100MB 会在中间件被 413，而分片上传（`CHUNK_SIZE=5MB`）不受影响。修法需与上传配额口径统一，涉及配置接线，单独批次处理。
+- **测试**：`tests/unit/test_input_validator.py` 新增 6 项（缺 Content-Type 扫描、非 JSON 透传、JSON 键 XSS、畸形 Content-Length、深层嵌套 JSON、分块超限提前中断）；回退源码后 5 项失败（非 JSON 透传为行为保持项）。

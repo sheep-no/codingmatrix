@@ -110,6 +110,16 @@ def _check_xss(text: str) -> bool:
     return False
 
 
+def _parse_content_length(value) -> int:
+    """解析 Content-Length；缺失或非数字返回 None，交由读取阶段兜底限流。"""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _scan_value(value) -> list:
     issues = []
     if isinstance(value, str):
@@ -118,8 +128,11 @@ def _scan_value(value) -> list:
         if _check_xss(value):
             issues.append("xss")
     elif isinstance(value, dict):
-        for v in value.values():
-            issues.extend(_scan_value(v))
+        # 键同样参与扫描：仅检查 value 会让 `{"<script>...": "clean"}` 这类
+        # 键承载的 payload 漏检。
+        for key, item in value.items():
+            issues.extend(_scan_value(key))
+            issues.extend(_scan_value(item))
     elif isinstance(value, (list, tuple)):
         for item in value:
             issues.extend(_scan_value(item))
@@ -127,22 +140,27 @@ def _scan_value(value) -> list:
 
 
 async def _read_body_safe(receive) -> bytes:
-    """从 ASGI receive callable 读取完整 body"""
+    """从 ASGI receive callable 读取完整 body。
+
+    分块传输无 Content-Length，必须在读取过程中累计大小并及时中断，
+    否则客户端可先让服务端缓冲任意数据再收到 413。
+    """
     body_chunks = []
+    total = 0
     while True:
         message = await receive()
         if message["type"] == "http.request":
             body = message.get("body", b"")
             if body:
+                total += len(body)
+                if total > MAX_BODY_SIZE:
+                    return b"__TOO_LARGE__"
                 body_chunks.append(body)
             if not message.get("more_body", False):
                 break
         elif message["type"] == "http.disconnect":
             break
-    body = b"".join(body_chunks)
-    if len(body) > MAX_BODY_SIZE:
-        return b"__TOO_LARGE__"
-    return body
+    return b"".join(body_chunks)
 
 
 class InputValidatorMiddleware:
@@ -182,8 +200,11 @@ class InputValidatorMiddleware:
         raw_headers = scope.get("headers", [])
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in raw_headers}
         content_type = headers.get("content-type", "").lower()
+        # 缺失 Content-Type 时无法判定类型：白名单校验跳过，但仍按 JSON 尝试扫描，
+        # 避免仅去掉一个 header 就绕过注入检测。
+        content_type_declared = bool(content_type)
 
-        if content_type and not any(
+        if content_type_declared and not any(
             content_type.startswith(allowed) for allowed in ALLOWED_CONTENT_TYPES
         ):
             logger.warning(
@@ -202,7 +223,8 @@ class InputValidatorMiddleware:
 
         if method in ("POST", "PUT", "PATCH"):
             content_length = headers.get("content-length")
-            if content_length and int(content_length) > MAX_BODY_SIZE:
+            declared_length = _parse_content_length(content_length)
+            if declared_length is not None and declared_length > MAX_BODY_SIZE:
                 logger.warning(
                     f"请求体过大 | path={path} | size={content_length}"
                 )
@@ -217,7 +239,9 @@ class InputValidatorMiddleware:
                 )
                 return
 
-        if not content_type.startswith("application/json"):
+        # 只有明确声明为 JSON 或未声明类型时才需要读取 body 做内容扫描；
+        # 其它已声明的非 JSON 类型直接透传。
+        if content_type_declared and not content_type.startswith("application/json"):
             await self.app(scope, receive, send)
             return
 
@@ -238,7 +262,8 @@ class InputValidatorMiddleware:
         if body and not skip_content_scan:
             try:
                 data = json.loads(body)
-            except json.JSONDecodeError:
+            except RecursionError:
+                # 深层嵌套 JSON（远小于体积上限）会让解析栈溢出，需按非法 JSON 处理。
                 await _send_json_response(
                     send,
                     status.HTTP_400_BAD_REQUEST,
@@ -249,8 +274,34 @@ class InputValidatorMiddleware:
                     },
                 )
                 return
+            except json.JSONDecodeError:
+                if content_type_declared:
+                    await _send_json_response(
+                        send,
+                        status.HTTP_400_BAD_REQUEST,
+                        {
+                            "code": "INVALID_JSON",
+                            "message": "请求体 JSON 格式无效",
+                            "details": {},
+                        },
+                    )
+                    return
+                # 未声明 Content-Type 且不是 JSON：无法扫描，按原样透传。
+                data = None
 
-            issues = list(set(_scan_value(data)))
+            try:
+                issues = list(set(_scan_value(data))) if data is not None else []
+            except RecursionError:
+                await _send_json_response(
+                    send,
+                    status.HTTP_400_BAD_REQUEST,
+                    {
+                        "code": "INVALID_JSON",
+                        "message": "请求体 JSON 格式无效",
+                        "details": {},
+                    },
+                )
+                return
             if issues:
                 logger.warning(
                     f"输入验证失败 | path={path} | issues={issues}"
