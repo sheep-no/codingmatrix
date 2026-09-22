@@ -14,9 +14,15 @@ from typing import Set
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
+# 常规请求体（JSON/表单等）上限
 MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
+# 单请求上传上限：与上传端点（app/api/v1/file_upload.py）共用同一配置。
+# 若两者不一致，10MB~上传配额之间的整体上传会在中间件被 413 提前拦截（P2-3）。
+MAX_UPLOAD_BODY_SIZE = settings.max_upload_size_mb * 1024 * 1024
 
 ALLOWED_CONTENT_TYPES = {
     "application/json",
@@ -120,6 +126,16 @@ def _parse_content_length(value) -> int:
         return None
 
 
+def _size_limit_for(content_type: str) -> int:
+    """按内容类型选择请求体体积上限。
+
+    multipart 上传按文件上传配额放行，其余仍按 10MB 严格限制。
+    """
+    if content_type.startswith("multipart/form-data"):
+        return MAX_UPLOAD_BODY_SIZE
+    return MAX_BODY_SIZE
+
+
 def _scan_value(value) -> list:
     issues = []
     if isinstance(value, str):
@@ -139,7 +155,7 @@ def _scan_value(value) -> list:
     return issues
 
 
-async def _read_body_safe(receive) -> bytes:
+async def _read_body_safe(receive, limit: int) -> bytes:
     """从 ASGI receive callable 读取完整 body。
 
     分块传输无 Content-Length，必须在读取过程中累计大小并及时中断，
@@ -153,7 +169,7 @@ async def _read_body_safe(receive) -> bytes:
             body = message.get("body", b"")
             if body:
                 total += len(body)
-                if total > MAX_BODY_SIZE:
+                if total > limit:
                     return b"__TOO_LARGE__"
                 body_chunks.append(body)
             if not message.get("more_body", False):
@@ -222,9 +238,10 @@ class InputValidatorMiddleware:
             return
 
         if method in ("POST", "PUT", "PATCH"):
+            body_size_limit = _size_limit_for(content_type)
             content_length = headers.get("content-length")
             declared_length = _parse_content_length(content_length)
-            if declared_length is not None and declared_length > MAX_BODY_SIZE:
+            if declared_length is not None and declared_length > body_size_limit:
                 logger.warning(
                     f"请求体过大 | path={path} | size={content_length}"
                 )
@@ -233,8 +250,8 @@ class InputValidatorMiddleware:
                     status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     {
                         "code": "REQUEST_TOO_LARGE",
-                        "message": "请求体过大，最大允许 10MB",
-                        "details": {"max_size_bytes": MAX_BODY_SIZE},
+                        "message": f"请求体过大，最大允许 {body_size_limit // 1024 // 1024}MB",
+                        "details": {"max_size_bytes": body_size_limit},
                     },
                 )
                 return
@@ -245,7 +262,7 @@ class InputValidatorMiddleware:
             await self.app(scope, receive, send)
             return
 
-        body = await _read_body_safe(receive)
+        body = await _read_body_safe(receive, _size_limit_for(content_type))
         if body == b"__TOO_LARGE__":
             logger.warning(f"请求体过大 | path={path}")
             await _send_json_response(
@@ -253,8 +270,8 @@ class InputValidatorMiddleware:
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 {
                     "code": "REQUEST_TOO_LARGE",
-                    "message": "请求体过大，最大允许 10MB",
-                    "details": {"max_size_bytes": MAX_BODY_SIZE},
+                    "message": f"请求体过大，最大允许 {_size_limit_for(content_type) // 1024 // 1024}MB",
+                    "details": {"max_size_bytes": _size_limit_for(content_type)},
                 },
             )
             return
