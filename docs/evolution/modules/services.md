@@ -17,10 +17,10 @@
 | custom_skill_manager.py | 292 | 活跃 | skills.py:11 |
 | custom_provider_manager.py | 273 | 活跃 | apikey.py:53、dynamic_model_router.py:941、main.py:245 |
 | resource_config.py | 250 | 活跃 | feature_switch.py、guardian_router.py |
-| audit_logger.py（services 版） | 218 | **死文件** | 全库零 import；活跃版为 utils/aicloud/audit_logger.py（被 aicloud.py 消费）——ADT2 双轨家族第 17 处的被取代侧确认 |
+| audit_logger.py（services 版） | 218 | **已删除（2026-09-22）** | 全库零 import；活跃版为 utils/aicloud/audit_logger.py（被 aicloud.py 消费）——ADT2 双轨家族第 17 处的被取代侧确认 |
 | prometheus_metrics.py | 211 | 活跃 | performance_monitor.py:60 |
 | websocket_manager.py | 193 | 活跃 | 5（ws 路由、task 推送） |
-| user_preferences.py | 179 | **死文件** | 全库零 import（grep 命中均为其他文件局部变量）；agent/user_preference_learner.py 是另一独立模块 |
+| user_preferences.py | 179 | **已删除（2026-09-22）** | 全库零 import（grep 命中均为其他文件局部变量）；agent/user_preference_learner.py 是另一独立模块 |
 | provider_health.py | 173 | 活跃 | apikey.py:24/:242 |
 | log_config.py | 158 | 活跃 | guardian_router.py |
 | rate_limit_config.py | 140 | 活跃 | middleware/rate_limiter.py:125/:331、guardian_router.py:776 |
@@ -123,6 +123,8 @@
 
 ## 3. 死文件标注（不定活跃 P 级）
 
+> 已删除（2026-09-22，死代码清理批次）：`app/services/audit_logger.py`、`app/services/user_preferences.py` 及其测试文件已移除；`model_config_manager.export_config` 死方法亦已删除。下方记录保留为历史判定依据。
+
 **audit_logger.py（services 版，218 行）——死文件 + 4 个死代码点**
 - 全库零 import；活跃版为 utils/aicloud/audit_logger.py（ADT2 双轨家族第 17 处的被取代侧，本轮确认其死文件属性）。
 - 若未来误接线即踩坑：① :74 token（API Key）全文存入审计日志 Redis 30 天（:97 debug 日志倒是只打前 8 位——存储与日志脱节）；② :45-52 默认 Redis localhost 硬编码（TM9）；③ 同步 redis 客户端（接线即阻塞事件循环）；④ clear_logs :194-203 只清主 key 不清 date 索引（注释自认「需要定期清理任务」且未实现）。
@@ -157,7 +159,7 @@
 
 1. **立即**：AKM1（EXPIRE 改 max 逻辑，一处改动止损管理面 key 丢失）；CPM4（base_url 校验）；PM2（中间件传 route template）。
 2. **短期**：CSK1（author 接入 user_id + 归属校验）；HC1/RC1（to_thread/gather）；PH1（超时不标 invalid）；MCM1/CSK2（原子写 + 损坏告警不静默重置）。
-3. **中期**：删除两个死文件（audit_logger services 版、user_preferences）与 export_config 死方法；CPM1 持久化或明示易失；LC1 假开关移除或实现；AKM3 明文存储接入加密设施。
+3. **中期**：~~删除两个死文件（audit_logger services 版、user_preferences）与 export_config 死方法~~（2026-09-22 已完成）；~~LC1 假开关移除或实现~~（已修，PR #153）；~~AKM3 明文存储接入加密设施~~（已修，PR #155）；CPM1 持久化或明示易失。
 
 ## 7. 下轮候选
 
