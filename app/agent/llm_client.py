@@ -28,6 +28,9 @@ StreamChunkCallback = Callable[[str, str], Awaitable[None]]
 
 MAX_CONCURRENT_LLM_CALLS = 6
 MAX_CONCURRENT_PER_MODEL = 2  # 同一模型最多 2 个并发请求，避免 503 过载
+# 按模型信号量缓存的条目上限。超出后回收空闲条目，避免动态模型名令模块级
+# dict 无界增长（LC8）。
+MAX_CACHED_MODEL_SEMAPHORES = 64
 _global_semaphore: Optional[asyncio.Semaphore] = None
 _model_semaphores: Dict[str, asyncio.Semaphore] = {}
 _model_semaphore_limits: Dict[str, int] = {}
@@ -74,9 +77,30 @@ def get_model_semaphore(model_name: str) -> asyncio.Semaphore:
     limit = concurrency_limit_for(model_name)
     existing = _model_semaphores.get(key)
     if existing is None or _model_semaphore_limits.get(key) != limit:
-        _model_semaphores[key] = asyncio.Semaphore(limit)
+        existing = asyncio.Semaphore(limit)
+        _model_semaphores[key] = existing
         _model_semaphore_limits[key] = limit
-    return _model_semaphores[key]
+        _evict_idle_model_semaphores(keep=key)
+    return existing
+
+
+def _evict_idle_model_semaphores(keep: str) -> None:
+    """缓存超过上限时回收空闲信号量（LC8）。
+
+    只回收当前无持有者的条目（`_value` 等于其上限）。回收仍在使用/排队的信号量
+    会让同一模型拿到两个不同信号量，并发上限失效，因此必须保留。
+    """
+    if len(_model_semaphores) <= MAX_CACHED_MODEL_SEMAPHORES:
+        return
+    for key in list(_model_semaphores):
+        if len(_model_semaphores) <= MAX_CACHED_MODEL_SEMAPHORES:
+            break
+        if key == keep:
+            continue
+        limit = _model_semaphore_limits.get(key, MAX_CONCURRENT_PER_MODEL)
+        if _model_semaphores[key]._value >= limit:
+            _model_semaphores.pop(key, None)
+            _model_semaphore_limits.pop(key, None)
 
 
 class LLMClientError(Exception):
@@ -142,16 +166,18 @@ class LLMClient:
         Args:
             prompt: 用户 prompt
             system_prompt: 系统 prompt
-            stream: 是否流式（仅当配合 on_chunk 才有意义，否则按非流式处理）
             thinking_budget: 覆盖模型默认的 thinking budget（None=使用默认，0=禁用思考）
 
         Returns:
             LLM 输出文本
 
         Raises:
+            ValueError: 传入 stream=True（流式必须用 call_stream）
             LLMClientError: 不可恢复错误（401/403）
         """
-        return await self._call_internal(prompt, system_prompt, stream=stream, on_chunk=None, thinking_budget=thinking_budget)
+        if stream:
+            raise ValueError("call() 不支持流式，请改用 call_stream()")
+        return await self._call_internal(prompt, system_prompt, thinking_budget=thinking_budget)
 
     async def call_stream(
         self,
@@ -250,7 +276,7 @@ class LLMClient:
 
         适配器在 stream=True 时返回 AsyncIterator[str]，每行是 OpenAI 兼容格式的 JSON chunk 字符串。
         """
-        effective_thinking_budget = thinking_budget if thinking_budget is not None else self._model_config["thinking_budget"]
+        effective_thinking_budget = thinking_budget if thinking_budget is not None else self._model_config.get("thinking_budget", 0)
 
         async def _do_call_stream():
             return await call_llm(
@@ -389,18 +415,17 @@ class LLMClient:
         self,
         prompt: str,
         system_prompt: str = "",
-        stream: bool = False,
         on_chunk: Optional[StreamChunkCallback] = None,
         thinking_budget: Optional[int] = None,
     ) -> str:
         """非流式调用 LLM（call() 走此路径）
 
-        保持向后兼容：stream 参数被接受但忽略（流式必须用 call_stream）。
+        流式必须用 call_stream；call() 对 stream=True 直接抛错，不再静默忽略。
         """
         start_time = time.time()
         await (await get_dynamic_router()).start_call(self.model_name)
 
-        effective_thinking_budget = thinking_budget if thinking_budget is not None else self._model_config["thinking_budget"]
+        effective_thinking_budget = thinking_budget if thinking_budget is not None else self._model_config.get("thinking_budget", 0)
 
         try:
             async def _do_call():
@@ -408,7 +433,7 @@ class LLMClient:
                     model=self.model_name,
                     prompt=prompt,
                     system_prompt=system_prompt,
-                    stream=stream,
+                    stream=False,
                     max_tokens=self._model_config["max_tokens"],
                     thinking_budget=effective_thinking_budget,
                     temperature=self._model_config["temperature"],
