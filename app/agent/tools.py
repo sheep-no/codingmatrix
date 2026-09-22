@@ -10,6 +10,7 @@ import json
 import glob
 import shlex
 import logging
+import contextvars
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -17,7 +18,13 @@ logger = logging.getLogger(__name__)
 
 # 依赖图白名单：只有在此集合中的文件才允许 write_file/create_file 写入
 # 由 TopologyScheduler.build_from_dependency_graph() 设置
-_allowed_file_paths: Optional[set] = None
+#
+# 用 ContextVar 而非模块级全局：多项目同进程交替/并发生成时，全局变量会被
+# 后一个项目的白名单整体覆盖（T5）。ContextVar 让设置只作用于当前任务及其
+# 派生子任务，互不干扰。
+_allowed_file_paths: contextvars.ContextVar[Optional[frozenset]] = contextvars.ContextVar(
+    "allowed_file_paths", default=None
+)
 
 
 def _resource_limits(timeout: int, *, limit_address_space: bool = False):
@@ -33,12 +40,12 @@ def _resource_limits(timeout: int, *, limit_address_space: bool = False):
 
 def set_allowed_file_paths(paths: set):
     """设置允许写入的文件路径集合（由依赖图提供）"""
-    global _allowed_file_paths
-    _allowed_file_paths = set(paths) if paths else None
+    allowed = frozenset(paths) if paths else None
+    _allowed_file_paths.set(allowed)
     import logging
     logger = logging.getLogger(__name__)
     if paths:
-        logger.info(f"[白名单] 设置允许写入路径: {sorted(_allowed_file_paths)}")
+        logger.info(f"[白名单] 设置允许写入路径: {sorted(allowed)}")
     else:
         logger.info("[白名单] 清除允许写入路径")
 
@@ -518,7 +525,13 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
 
 def _tool_execute_code(project_path: str, code: str, language: str = "python",
                        timeout: int = 30) -> Dict:
-    """沙箱执行代码验证（支持 Python 和 JavaScript）"""
+    """沙箱执行代码验证（支持 Python 和 JavaScript）。
+
+    注意：这是**弱沙箱**——危险操作靠静态正则黑名单拦截，字符串拼接、
+    unicode 转义、`getattr` 动态取属性等都能绕过；进程级资源上限也只是纵深
+    防御。它用于拦下明显的破坏性代码，**不构成安全边界**，勿用于执行不可信
+    的第三方代码（T6）。
+    """
     from app.core.config import settings
 
     if not settings.ENABLE_CODE_SANDBOX:
@@ -540,7 +553,10 @@ def _tool_execute_code(project_path: str, code: str, language: str = "python",
 
 
 def _execute_python_sandbox(code: str, timeout: int) -> Dict:
-    """Python 沙箱执行（通过子进程隔离）"""
+    """Python 沙箱执行（子进程隔离 + 静态正则黑名单）。
+
+    黑名单是尽力而为的拦截、可被混淆绕过，非安全边界（T6）。
+    """
     import os
     import subprocess
     import tempfile
@@ -911,15 +927,15 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
             return {"success": False, "error": f"检测到占位符代码，拒绝写入。{ph_reason}。请提供完整的实现代码"}
 
         # 依赖图白名单校验：只允许写入依赖图中的文件
-        global _allowed_file_paths
-        if _allowed_file_paths is not None:
+        allowed_file_paths = _allowed_file_paths.get()
+        if allowed_file_paths is not None:
             # 规范化路径：仅剥离开头的 "./" 与前导 "/"。不能直接 lstrip('./')，
             # 那会把 .gitignore 这类点号文件名吞成 gitignore 而与白名单失配。
             normalized = re.sub(r'^(?:\./)+', '', path.replace('\\', '/')).lstrip('/')
-            if normalized not in _allowed_file_paths:
+            if normalized not in allowed_file_paths:
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.warning(f"[白名单] 拒绝写入: path={path}, normalized={normalized}, allowed={sorted(_allowed_file_paths)[:5]}...")
+                logger.warning(f"[白名单] 拒绝写入: path={path}, normalized={normalized}, allowed={sorted(allowed_file_paths)[:5]}...")
                 return {"success": False, "error": f"文件 '{path}' 不在依赖图中，拒绝写入。只允许生成依赖图中定义的文件"}
 
         # 文件名验证：拒绝无效文件名
