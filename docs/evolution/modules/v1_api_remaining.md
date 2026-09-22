@@ -138,7 +138,7 @@
 
 ## 状态更新（2026-09-21 核实）
 
-- **AJP4 已核实（功能缺口，非安全缺陷）**：`material_file_ids` 查 DB 后仅把 `filename` 列表拼进 prompt，素材正文确未读入 LLM，「绑定上传的素材未被消费」属实。是否把正文读入受 token 预算与产品口径约束，本次未改。
+- **AJP4 本次修复**：新增 `_read_material_text`（优先 `File.parsed_content` 缓存、未命中 `asyncio.to_thread(parse_document)` 解析并回填、失败降级为空）与 `_build_material_context`，`run_ppt_generation` 改为把素材正文以 `[素材：文件名]\n正文` 拼进 prompt，单文件上限 12000 字符（与 `ppt_state_service._load_materials` 对齐）。同时修正 session 过滤：`File.conversation_id` 是 Integer 而 `req.session_id` 是 str，原 `!=` 比较恒为 True，只要传了 `session_id` 素材会被全部丢弃，现按字符串比较。
 - **AJP6 本次修复**：新增 `_extract_json_payload`，围栏代码块优先，否则从首个 `{`/`[` 起用 `json.JSONDecoder().raw_decode` 解析第一个完整 JSON 值，消除贪婪正则跨块拼接导致的静默回退。页数回退此前已按 `content_slide_count` 生成（非固定 4 页）。
 - **AJP9 已修复（随 AJP7）**：`update_ppt_task` 入口已调用 `_verify_ppt_owner(task_id, user_id)`，外层 `task_id` 读他人中间状态被拦；全文件共 10 处归属校验。
 - **AJP10 本次修复**：`PPT_OUTPUT_DIR`、`uploads/ppt_uploads`、`configs/ppt/custom_templates` 由相对路径改为锚定 `BASE_DIR`；`generated_asset_retention.DEFAULT_PPT_OUTPUT_DIR` 同步锚定，保证「生成写哪里、清理扫哪里」一致。清理机制本就存在（`app/db/scheduler.py` 定时调用 `cleanup_generated_assets`，按 `GENERATED_ASSET_RETENTION_DAYS` 回收），原「无清理机制」描述已过时。
