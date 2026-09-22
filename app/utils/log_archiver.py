@@ -252,25 +252,18 @@ def get_log_archiver() -> LogArchiver:
 
 
 def _build_log_archiver() -> LogArchiver:
-    """按日志级别构造归档器"""
+    """按配置构造归档器
+
+    保留天数与压缩开关均由 Settings 决定；此前按 LOG_LEVEL 派生保留天数导致
+    LOG_RETENTION_DAYS / LOG_COMPRESS_OLD_LOGS 两项配置零消费（CFG3）。
+    """
     from app.core.config import settings
 
     log_dir = getattr(settings, 'LOG_DIR', 'logs')
-    log_level = getattr(settings, 'LOG_LEVEL', 'INFO')
-
-    if log_level == 'DEBUG':
-        retention_days = 3
-    elif log_level == 'WARNING':
-        retention_days = 14
-    elif log_level == 'ERROR':
-        retention_days = 30
-    else:
-        retention_days = 7
-
     return LogArchiver(
         log_dir=log_dir,
-        retention_days=retention_days,
-        compression_enabled=True
+        retention_days=settings.LOG_RETENTION_DAYS,
+        compression_enabled=settings.LOG_COMPRESS_OLD_LOGS,
     )
 
 

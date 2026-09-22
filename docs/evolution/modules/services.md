@@ -112,6 +112,8 @@
 **log_config.py**
 - **LC1 [P3]** set_file_logging :129-141 只改内存布尔、无任何 handler 操作 → **假开关**：接口返回成功、文件日志行为不变；get_config :143-155 返回的 log_to_file 状态与真实行为脱节。
 
+  - **已修复（2026-09-22，日志子系统批次）**：`set_file_logging` 现真正摘挂文件 handler——禁用时经 `_iter_file_handlers()` 遍历 root 与全部具名 logger，摘除所有 `logging.FileHandler` 子类实例并暂存；启用时原样挂回。`is_file_logging_enabled()` 与 `get_config()["log_to_file"]` 因此与实际落盘行为一致。回归：`tests/unit/test_log_subsystem_wiring.py::TestFileLoggingToggle`。
+
 **rate_limit_config.py**
 - **RLC1 [P3]** 纯内存配置无持久化 → 管理端（guardian_router.py:776）调整的限流规则重启即丢（与 resource_config 的 DB 持久化双轨并存——同是配置，一持久一易失）。
 - **RLC2 [P3-待交叉]** get_endpoint_rule :59-64 精确匹配端点名；middleware/rate_limiter.py:125/:331 传入的 endpoint 格式待下轮（app/middleware）确认——若传 raw path 则 :28-39 的规则表全部失配空转。

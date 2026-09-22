@@ -4,7 +4,7 @@
 提供动态日志级别控制
 """
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,22 @@ class LogConfigService:
         self._initialized = True
         self._current_level: Dict[str, str] = {}
         self._log_to_file: bool = True
+        # 禁用文件日志时摘下的 handler，用于重新启用时原样挂回
+        self._detached_file_handlers: List[Tuple[logging.Logger, logging.Handler]] = []
+
+    def _iter_file_handlers(self):
+        """遍历所有已挂载的文件类 handler（含 root 与全部具名 logger）。"""
+        seen = set()
+        loggers = [logging.getLogger()]
+        loggers += [
+            obj for obj in logging.root.manager.loggerDict.values()
+            if isinstance(obj, logging.Logger)
+        ]
+        for target in loggers:
+            for handler in target.handlers:
+                if isinstance(handler, logging.FileHandler) and id(handler) not in seen:
+                    seen.add(id(handler))
+                    yield target, handler
 
     def get_log_level(self, logger_name: str = "app") -> str:
         """
@@ -130,15 +146,33 @@ class LogConfigService:
         """
         启用/禁用文件日志
 
+        禁用时摘除所有文件类 handler，启用时挂回此前摘除的 handler，
+        使该开关真正作用于落盘行为，而非只改内存布尔。
+
         Args:
             enabled: 是否启用
 
         Returns:
             是否成功
         """
-        self._log_to_file = enabled
-        logger.info(f"文件日志已{'启用' if enabled else '禁用'}")
-        return True
+        try:
+            if enabled:
+                for target, handler in self._detached_file_handlers:
+                    target.addHandler(handler)
+                self._detached_file_handlers = []
+            else:
+                detached = []
+                for target, handler in list(self._iter_file_handlers()):
+                    target.removeHandler(handler)
+                    detached.append((target, handler))
+                self._detached_file_handlers = detached
+
+            self._log_to_file = enabled
+            logger.info(f"文件日志已{'启用' if enabled else '禁用'}")
+            return True
+        except (ValueError, TypeError, RuntimeError, OSError) as e:
+            logger.error(f"切换文件日志失败 | enabled={enabled} | error={e}")
+            return False
 
     def get_config(self) -> dict:
         """

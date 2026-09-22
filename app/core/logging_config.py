@@ -4,8 +4,6 @@ import sys
 import re
 from pathlib import Path
 from pythonjsonlogger import jsonlogger
-from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
-from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 
 LOG_DIR = Path("logs")
@@ -73,31 +71,6 @@ class SensitiveDataFilter(logging.Filter):
             sanitized = pattern.sub(replacement, sanitized)
         
         return sanitized
-
-
-class CompressedRotatingFileHandler(RotatingFileHandler):
-    """支持压缩的日志轮转处理器"""
-    
-    def doRollover(self):
-        """重写轮转方法，添加压缩支持"""
-        super().doRollover()
-        
-        # 压缩旧日志文件（可选）
-        import gzip
-        import shutil
-        
-        try:
-            old_log = self.baseFilename + ".1"
-            if Path(old_log).exists():
-                compressed = old_log + ".gz"
-                with open(old_log, 'rb') as f_in:
-                    with gzip.open(compressed, 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                # 删除未压缩的旧文件
-                Path(old_log).unlink()
-        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-            # 压缩失败不影响日志
-            logging.warning(f"日志压缩失败：{e}")
 
 
 LOGGING_CONFIG = {
@@ -241,8 +214,12 @@ def setup_logging():
     logger.info("=" * 60)
     logger.info("应用启动 - 日志系统初始化完成")
     logger.info("日志目录：%s", LOG_DIR.absolute())
-    logger.info("日志轮转：每天，保留 14 天")
-    logger.info("安全日志：保留 90 天")
+    logger.info("日志轮转：按大小 10MB/5MB 轮转，按份数保留")
+    logger.info(
+        "日志归档：保留 %s 天（压缩归档：%s）",
+        settings.LOG_RETENTION_DAYS,
+        "启用" if settings.LOG_COMPRESS_OLD_LOGS else "关闭",
+    )
     logger.info("=" * 60)
 
     return logger
