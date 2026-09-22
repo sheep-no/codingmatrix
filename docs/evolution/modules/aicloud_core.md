@@ -85,3 +85,14 @@
 - **HC2 [P3] 判定为误判**：`http_client._max_concurrent_calls` 被 6 个适配器真实消费（`async with _max_concurrent_calls`），非死常量。
 - **PERM1 [P3] 已核实为零消费，保留**：`require_aicloud_permission` 全库仅 `permission.py` 自身定义与 docstring 示例出现，确为未接线依赖项。因是模块公开导出（可能作为 FastAPI `Depends` 预留），本轮不删除，仅核实结论。
 - **新增回归**：`tests/unit/test_aicloud_core_regressions.py`（3 项：details JSON 序列化、未知模型不再前缀误路由、fetch 内网 base_url 被拒）。回退三个源文件后 3/3 失败。
+
+## 六、状态校准（2026-09-22）
+
+对 §五 之后再度漂移的条目逐条复核：
+
+- **ADT2 [P2] 已消解（文档滞后）**：`app/services/audit_logger.py` 已随零引用死代码清理删除（提交 `c4ed30d`），审计双轨不再存在，仅保留 `app/utils/aicloud/audit_logger.py`；全库仅 `app/api/v1/aicloud.py:55` 引用该模块。
+- **MR5 [P3] 已修复（文档滞后）**：`model_registry.py` docstring 现声明「当前内置模型共 18 个」，与 `ModelInfo` 实际 18 条一致；paddleocr-vl-1.5 已在注册表中，`glm-4.1v-9b` 不存在。
+- **HC1 [P3] 部分已修复**：`http_client.py:78-79` 已对 429 调 `raise_for_status()`；400/401 仍落到 `:91 return result` 静默返回，原「只判 200」断言现仅适用于这两类状态码。
+- **MR4 [P3] 仍在（子项更正）**：sense-voice、telespeech-asr、bge-m3、bge-reranker、bge-large-zh 仍标 `[ModelCapability.TEXT]`；原文提及的 `bce-embedding` 在当前注册表中不存在，该子项不成立。
+- **PAPI1 / PR1 现状确认**：`app/api/v1/providers.py:76` admin 门禁与 `dynamic_provider.py` owner 过滤仍在，`provider_router.py:116` 传 `get_user_id()`。残余：`app/utils/logging.py:40-42 get_user_id()` 可返回 None，`provider_router.py:116 get_user_id() or ""` 在 owner 为空时退化为全局搜索。
+- **仍在（未处理）**：PR2、DP1、DP3、DP4、DP5、PR3、PR4、PR5、PRV1、PAPI4、PERM1、ADT3、ADT4、HC4。

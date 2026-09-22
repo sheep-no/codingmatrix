@@ -266,3 +266,37 @@ for file_path in files_to_remove:
 ### 7.4 测试状态（重扫确认）
 
 v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/ 下仍无任何 SpecFirstGenerate/generate_with_spec_first 引用；SPFG11-SPFG14 四个 P2 项均全库确认（静态可证明）但零用例保护，动态拓扑分支的删除性逻辑（SPFG11/12）无任何测试约束其行为。
+
+## 8. 状态校准（2026-09-22）
+
+文件已增长到 2688 行，§8 前各节行号整体漂移。按当前代码逐条复核 §3 与 §7 的发现：
+
+### 8.1 已修复（文档滞后）
+
+- **SPFG1 [P1] 已修复**：断点续传跳过前改走 `reusable_existing_file_content` 校验（普通分支 :542、动态拓扑 :1210），占位/垃圾内容不再被直接标记成功。
+- **SPFG2 / SPFG2b [P1/P2] 已修复**：`_validate_content_syntax` 改为调用 `app/agent/js_syntax.py` 的共享解析器（:1848-1866），`import`/`class`/`from` 指示符启发式已删除，`.jsx`/`.tsx` 已进入校验分支，不再兜底 `return True`。
+- **SPFG13 [P2] 已修复**：`is_complete` 已纳入 `empty_files`（:2455-2460），空文件不再判项目完整。
+- **SPFG14 [P2] 已修复**：动态拓扑分支跳过已有文件前先做 `reusable_existing_file_content` 校验，通过后才 `update_file_validation(..., True, [])`（:1210-1217）。
+- **SPFG16 [P3] 已修复**：`_infer_unknown_file_types` 已移除 LLM + `json.loads` 贪婪解析，改为路径规则/反向依赖推断，无法推断时抛 `RuntimeError`（:1939-1960）。
+- **SPFG18 [P3] 已修复**：原 :1135 `"Qwen/Qwen3-8B"`、:1584 `"glm-z1-9b"` 两处硬编码模型名已不存在。
+
+### 8.2 不可达（随「云端验证收敛」消解）
+
+- **SPFG3 / SPFG4 [P1] 不可达**：`_fix_sandbox_errors` 仅在 `validate_in_sandbox` 返回非空错误列表时调用（:996/:1785），而云端对该级别（`run`/`import`/`contract`）恒定返回 `(True, [])`（`app/agent/utils.py:767-773`）——运行验证已移交 VS Code Agent Host，故「只认 `.py` 错误」与「修复 prompt 硬编码 python」的代码路径在云端不可达。
+
+### 8.3 仍在
+
+- **SPFG5 [P1] 仍在**：`refactor_file` 仍硬编码 `detected_language = "python"`（:2501）。
+- **SPFG6 [P2] 仍在**：`generate_file` 返回契约漂移，两处 `asyncio.iscoroutine` 兜底仍在（:612、:1279）。
+- **SPFG7 [P2] 仍在**：普通分支层内 `asyncio.gather` 仍无显式并发上限（:586-590）。
+- **SPFG8 [P2] 仍在**：缓存键仍按 requirement 原样，无复杂度/技术栈/版本维度。
+- **SPFG9 [P2] 仍在**：html/css 括号计数与 script 开闭计数启发式仍在（:1868-1882）。
+- **SPFG10 [P2] 仍在**：`old_file_action` 仍默认 `"delete"`（:2582）。
+- **SPFG11 [P2] 仍在**：动态拓扑收尾仍按扩展名白名单静默 `unlink` 生成产物（:1578-1601）。
+- **SPFG12 [P2] 仍在**：根目录与 `src/` 同名删除（:1642-1661）、功能重复按同名聚合删除（:1663-1701）仍不看内容与依赖。
+- **SPFG15 [P3] 仍在**：文件名含空格时 `rename` 仍只更新 `ctx.files` 与 `generated_files_dict`（:1616-1630），`dep_graph` 节点路径不更新。
+- **SPFG17 [P3] 部分已修复**：`_infer_unknown_file_types` 那一路已消解（不再有 LLM 调用）；`_quick_llm_check`（:2465）、`_fix_sandbox_errors`（:2101，不可达）、`refactor_file`（:2550）三路仍直连 `call_llm`，未走 LLMClient/信号量/成本追踪。
+
+### 8.4 测试状态（本次复核）
+
+§7.4 的「零测试」结论仍成立：tests/ 下无任何 SpecFirstGenerate/generate_with_spec_first 引用。8.3 各条目无用例保护。

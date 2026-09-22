@@ -94,10 +94,10 @@
 
 ### 仍存在、留待后续
 
-- **RQ1**：`get_reviews` 未按 `requested_by` 过滤；`approve_review_endpoint` 不校验归属且用 `open()` 直写 `review.file_path`。留待审查队列专项 PR。
-- **SO1/CA5**：`analyze_content` 对 write 恒追加 “File write requires review”，`deep_content_analysis` 恒返回 `require_human_review`，`write_with_review` 的 `auto_approve` 分支仍不可达。
+- **RQ1**：~~`get_reviews` 未按 `requested_by` 过滤；`approve_review_endpoint` 不校验归属且用 `open()` 直写 `review.file_path`。留待审查队列专项 PR。~~ → **已修复（PR #27，见下）**
+- **SO1/CA5**：~~`analyze_content` 对 write 恒追加 “File write requires review”，`deep_content_analysis` 恒返回 `require_human_review`，`write_with_review` 的 `auto_approve` 分支仍不可达。~~ → **已修复（删死分支，PR #27，见下）**
 - **SO2**：`raw_content` 仍原样入库与写回。
-- **SO4**：`SandboxFileOperator.PROTECTED_PATHS` 仍为基类不消费的死字段（基类用自身清单）。
+- **SO4**：~~`SandboxFileOperator.PROTECTED_PATHS` 仍为基类不消费的死字段（基类用自身清单）。~~ → **判断不成立（PR #27 更正，见下）**
 - **SB2**：`ensure_user_sandbox` 仍声明 `async` 但仅同步 `os.makedirs`（P3）。
 - **CE5/CE7**：Python AST 仍不拦 attribute 链逃逸；执行脚本仍明文落盘（P3）。
 - **AE2/AE3/AE5**：`CodeExecutor` 默认落 `/tmp`；循环记录截断无标记；`conversation_history` 收集后无消费（P3）。
@@ -115,3 +115,13 @@
 - 新增 `tests/unit/test_aicloud_review_isolation.py`（5 项），回退源码后 4 项失败。
 
 > **SO2 未处理**：`raw_content` 仍原样入库与写回。review 需要原文才能审阅与回写，改动涉及产品口径，暂保留现状。
+
+## 六、状态校准（2026-09-22）
+
+对 §五 各节的复核结论：
+
+- **CE2 [P0] 部分已修复（原「已修复」标注过宽）**：文件系统逃逸修复只覆盖 Python 侧——`code_executor.py:37-44 BANNED_PYTHON_MODULES` 已含 `pathlib` 等，:219-221 在 AST `ImportFrom` 阶段拦截。Go 侧 :300 仍只禁 `["net","os/exec","syscall","unsafe"]`，`import "os"` 合法，`os.ReadFile`/`os.WriteFile` 仍可任意读写。
+- **CA6 [P3] 部分仍在（子断言更正）**：`content_analyzer.py:21` 仅匹配 `subprocess\.call`，漏 `subprocess.run`；:22 仅匹配 `os\.system\s*\(`，漏 `os .system` 变体；:26 `base64\.b64decode\s*\(` 仍误伤正常解码。原文「`rm -rf /etc` 只禁 `rm -rf /`」子断言不成立——:15 `rm\s+-rf\s+/` 能匹配 `rm -rf /etc`。
+- **SF1 [P3] 部分仍在（子断言更正）**：`sensitive_filter.py:19` 要求分隔符为 `=` 或 `:`，空格分隔的 `PASSWORD xxx` 仍漏检；原文「大小写变体漏检」不成立——:26-29 编译时使用 `re.IGNORECASE`。
+- **仍在（未处理）**：SO2、SB2、CE5、CE7、AE2、AE3、AE5、CI1、CA7、CI3、KP2、KP3、KP4。
+- **已修复（PR #27）**：RQ1、SO1/CA5、RQ2 已删死分支/隔离到位，SO4 判断不成立；详见 §五 末节。
