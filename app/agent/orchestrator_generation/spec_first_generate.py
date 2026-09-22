@@ -674,9 +674,6 @@ class SpecFirstGenerateMixin:
                     project_path=str(self.output_dir), callback=callback,
                     is_existing_file=(self.output_dir / normalized).exists()
                 )
-                if asyncio.iscoroutine(initial_content):
-                    logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
-                    initial_content = await initial_content
 
                 # 统一提取工程师生成的内容（内置有效性检测 + LLM 语言检测）
                 # 注意：extract_engineer_content 会检查工程师是否通过工具直接写入了文件
@@ -747,9 +744,6 @@ class SpecFirstGenerateMixin:
                             project_path=str(self.output_dir), callback=callback,
                             is_existing_file=(self.output_dir / normalized).exists()
                          )
-                        if asyncio.iscoroutine(alt_content):
-                            logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                            alt_content = await alt_content
                         if alt_content:
                             target_language = project_context.get("architecture", {}).get("language", "")
                             from app.agent.utils import get_expected_language_for_file
@@ -829,8 +823,6 @@ class SpecFirstGenerateMixin:
                         project_path=str(self.output_dir), callback=callback,
                         is_existing_file=False
                     )
-                    if asyncio.iscoroutine(retry_content):
-                        retry_content = await retry_content
                     if retry_content:
                         target_language = project_context.get("architecture", {}).get("language", "")
                         from app.agent.utils import get_expected_language_for_file
@@ -1341,9 +1333,6 @@ class SpecFirstGenerateMixin:
                 is_existing_file=(self.output_dir / normalized).exists(),
                 heartbeat_tracker=tracker
             )
-            if asyncio.iscoroutine(initial_content):
-                logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
-                initial_content = await initial_content
 
             # 统一提取工程师生成的内容（内置有效性检测 + LLM 语言检测）
             # 注意：extract_engineer_content 会检查工程师是否通过工具直接写入了文件
@@ -1413,9 +1402,6 @@ class SpecFirstGenerateMixin:
                     )
                     if tracker:
                         tracker.touch()
-                    if asyncio.iscoroutine(alt_content):
-                        logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                        alt_content = await alt_content
                     if alt_content:
                         # 检查替代工程师是否已通过工具直接编辑了文件
                         if alt_engineer.get_edited_files():
@@ -1494,8 +1480,6 @@ class SpecFirstGenerateMixin:
                     project_path=str(self.output_dir), callback=callback,
                     is_existing_file=False
                 )
-                if asyncio.iscoroutine(retry_content):
-                    retry_content = await retry_content
                 if retry_content:
                     target_language = project_context.get("architecture", {}).get("language", "")
                     from app.agent.utils import get_expected_language_for_file
@@ -2509,8 +2493,11 @@ class SpecFirstGenerateMixin:
 
         # 1. 加载已有依赖图
         dep_graph_path = self.output_dir / ".dep_graph.json"
-        detected_language = "python"
-        language_adapter = LanguageAdapterRegistry.get_adapter(detected_language)
+        # 按待拆分文件的语言选择适配器：非 Python 项目用 python 适配器加载
+        # 依赖图会导致节点解析与 get_context_for_file 出错。
+        language_adapter = LanguageAdapterRegistry.get_adapter_for_file(file_to_split)
+        if language_adapter is None:
+            language_adapter = LanguageAdapterRegistry.get_adapter("python")
         dep_graph = DependencyGraph.load(str(dep_graph_path), language_adapter=language_adapter)
 
         if dep_graph is None:
@@ -2640,11 +2627,8 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
 
             # 调用工程师生成
             try:
-                from app.agent.backend_engineer import BackendEngineer
-                engineer = BackendEngineer(
-                    model_name=self.model_assignment.backend_model if self.model_assignment else None,
-                    api_key_token=self.api_key_token,
-                )
+                # 按目标文件后缀选择工程师，拆分出的前端文件不再交给后端工程师
+                engineer = self._select_engineer(new_path)
                 content = await engineer.generate_file(
                     new_path, description, context, "",
                     project_path=str(self.output_dir),
@@ -2653,10 +2637,12 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
                 )
 
                 # 提取内容
-                from app.agent.utils import extract_engineer_content
+                from app.agent.utils import extract_engineer_content, get_expected_language_for_file
                 content = await extract_engineer_content(
                     content, engineer, self.output_dir, new_path,
-                    expected_language="Python",
+                    expected_language=get_expected_language_for_file(
+                        new_path, language_adapter.language if language_adapter else ""
+                    ),
                     llm_caller=self._quick_llm_check,
                 )
 
