@@ -110,7 +110,6 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_SIZE_MB: int = 100
     MAX_ACTIVE_REQUESTS: int = 100
-    ALLOWED_FILE_TYPES: str = "image,document,code,archive"
 
     WS_MAX_CONNECTIONS: int = 50
 

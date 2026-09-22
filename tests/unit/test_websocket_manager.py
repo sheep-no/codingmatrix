@@ -6,6 +6,14 @@ from fastapi import WebSocketDisconnect
 from app.services.websocket_manager import WebSocketManager
 
 
+def test_global_manager_uses_configured_limit():
+    """CFG3：全局管理器上限取自 settings.WS_MAX_CONNECTIONS，而非硬编码默认。"""
+    from app.core.config import settings
+    from app.services.websocket_manager import ws_manager
+
+    assert ws_manager._max_connections == settings.WS_MAX_CONNECTIONS
+
+
 class _FakeWebSocket:
     def __init__(self, fail_send: bool = False):
         self.accepted = False

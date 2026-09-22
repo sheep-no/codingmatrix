@@ -11,6 +11,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -213,7 +215,7 @@ class WebSocketManager:
 
 
 # Global WebSocket manager instance
-ws_manager = WebSocketManager()
+ws_manager = WebSocketManager(max_connections=settings.WS_MAX_CONNECTIONS)
 
 
 def get_ws_manager() -> WebSocketManager:
