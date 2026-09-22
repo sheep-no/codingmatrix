@@ -9,6 +9,7 @@
 
 import fnmatch
 import os
+import threading
 from typing import Dict, Optional
 
 PROTECTED_PATHS = [
@@ -117,13 +118,21 @@ class ContextIsolator:
 
 
 _isolator_instance: Optional[ContextIsolator] = None
+_isolator_lock = threading.Lock()
 
 
 def get_isolator() -> ContextIsolator:
-    """获取全局上下文隔离器实例"""
+    """获取全局上下文隔离器实例。
+
+    隔离器持有 `sandbox_env`/`main_project_env` 可变状态，无锁的单例在多线程
+    并发下会各建一份实例，`setup_sandbox` 写入的实例与后续读取的实例可能不是
+    同一个，导致沙箱环境读不到。此处按项目既有单例范式加双检锁（CI3）。
+    """
     global _isolator_instance
     if _isolator_instance is None:
-        _isolator_instance = ContextIsolator()
+        with _isolator_lock:
+            if _isolator_instance is None:
+                _isolator_instance = ContextIsolator()
     return _isolator_instance
 
 
