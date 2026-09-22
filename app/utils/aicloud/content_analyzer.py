@@ -12,18 +12,21 @@ import re
 from typing import Dict, Any, List, Optional, Tuple
 
 MALICIOUS_PATTERNS = [
-    r"rm\s+-rf\s+/",
+    # 删除类：目标含根、家目录、通配与变量展开；只匹配 "/" 会漏掉 ~/*/$HOME/.
+    r"rm\s+-[a-z]*r[a-z]*f\s+[~/*$.]",
+    r"rm\s+-[a-z]*f[a-z]*r\s+[~/*$.]",
     r":\(\)\{:\|:&\};:",
     r"fork\s*\(\s*\)\s*\{[^}]*:\s*\|[^}]*:\s*&[^}]*\}",
     r"exec\s*\(\s*['\"].*;.*['\"]\s*\)",
     r"eval\s*\(\s*['\"]",
     r"__import__\s*\(\s*['\"](?:os|subprocess|pty|socket)",
-    r"subprocess\.call\s*\(",
-    r"os\.system\s*\(",
-    r"os\.popen\s*\(",
-    r"socket\.socket\s*\([^)]*\)\.connect\s*\(",
-    r"pty\.spawn\s*\(",
-    r"base64\.b64decode\s*\(",
+    # subprocess 各执行入口与 .call 同级危险，只禁 .call 会漏掉 run/Popen/check_*
+    r"subprocess\s*\.\s*(?:call|run|Popen|check_call|check_output)\s*\(",
+    # 点号两侧的空白是合法 Python（os .system），原正则只认紧邻写法
+    r"os\s*\.\s*system\s*\(",
+    r"os\s*\.\s*popen\s*\(",
+    r"socket\s*\.\s*socket\s*\([^)]*\)\s*\.\s*connect\s*\(",
+    r"pty\s*\.\s*spawn\s*\(",
 ]
 
 DANGEROUS_FILE_EXTENSIONS = [

@@ -213,6 +213,47 @@ class TestContextIsolator:
         assert is_protected_file(".env")
         assert not is_protected_file("readme.md")
 
+    def test_get_isolator_is_single_instance_under_concurrency(self, monkeypatch):
+        """并发获取隔离器只能构造一次（CI3）。
+
+        用带 sleep 的假类放大竞态窗口：无锁实现下每个线程都会各建一份实例，
+        双检锁下只有一个线程真正构造。
+        """
+        import threading
+        import time
+
+        import app.utils.aicloud.context_isolator as isolator_module
+
+        created = []
+        created_lock = threading.Lock()
+
+        class SlowIsolator:
+            def __init__(self):
+                with created_lock:
+                    created.append(1)
+                time.sleep(0.05)
+
+        monkeypatch.setattr(isolator_module, "ContextIsolator", SlowIsolator)
+        monkeypatch.setattr(isolator_module, "_isolator_instance", None)
+
+        results = []
+        results_lock = threading.Lock()
+
+        def worker():
+            instance = isolator_module.get_isolator()
+            with results_lock:
+                results.append(instance)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(created) == 1
+        assert len(results) == 8
+        assert all(instance is results[0] for instance in results)
+
 
 class TestSandbox:
     """沙箱管理测试"""
@@ -309,6 +350,41 @@ class TestContentAnalyzer:
         content = "Hello, this is a normal message."
         has_malicious, found = check_malicious_pattern(content)
         assert not has_malicious
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "os .system('ls')",
+            "os.  system('ls')",
+            "os. popen('ls')",
+            "subprocess.run(['ls'])",
+            "subprocess.Popen('ls', shell=True)",
+            "subprocess.check_output(['ls'])",
+            "subprocess.check_call(['ls'])",
+            "rm -rf ~",
+            "rm -rf *",
+            "rm -rf $HOME",
+            "rm -fr /",
+        ],
+    )
+    def test_check_malicious_pattern_evasion_variants(self, content):
+        """点号空白、subprocess 其它入口与 rm 的其它目标都算恶意（CA6）。"""
+        has_malicious, found = check_malicious_pattern(content)
+        assert has_malicious, content
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "data = base64.b64decode(png_b64)  # 正常解码图片",
+            "import base64; base64.b64decode(payload)",
+            "os.path.join('a', 'b')",
+            "rm file.txt",
+        ],
+    )
+    def test_benign_content_is_not_flagged(self, content):
+        """正常用途不应被误报为恶意模式（CA6）。"""
+        has_malicious, found = check_malicious_pattern(content)
+        assert not has_malicious, content
 
     def test_check_dangerous_extensions_exe(self):
         """测试检测危险扩展名 .exe"""
