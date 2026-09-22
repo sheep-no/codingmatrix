@@ -1077,12 +1077,21 @@ def get_model_config(model_name: str, task_type: str = "generate", api_key_token
     if not model_cfg:
         model_cfg = models_config.get(model_key, {})
 
+    # 成本单价：MODEL_REGISTRY 是唯一数据源（YAML 无 cost 字段），供
+    # LLMClient._record_usage 计算 cost_usd；原实现缺该键使成本恒 0（LC1）。
+    from app.utils.aicloud.model_registry import MODEL_REGISTRY
+    registry_entry = MODEL_REGISTRY.get(model_id)
+    cost_per_1m_input = registry_entry.cost_per_1m_input if registry_entry else 0.0
+    cost_per_1m_output = registry_entry.cost_per_1m_output if registry_entry else 0.0
+
     return {
         "temperature": model_cfg.get("temperature", 0.7),
         "max_tokens": model_cfg.get("max_tokens", dynamic_max_tokens),
         "thinking_budget": model_cfg.get("thinking_budget", dynamic_thinking_budget),
         "context_length": ctx_len,
         "timeout": model_cfg.get("timeout", 300),
+        "cost_per_1m_input": cost_per_1m_input,
+        "cost_per_1m_output": cost_per_1m_output,
     }
 
 

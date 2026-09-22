@@ -218,6 +218,35 @@ class TestLLMClientCall:
         assert result == "response"
         mock_tracker.add_usage.assert_called_once()
 
+    def test_model_config_exposes_cost_rates(self):
+        """LC1: get_model_config 必须暴露成本单价，否则成本追踪恒为 0。"""
+        client = LLMClient(model_name="deepseek-r1")
+        assert client.model_config["cost_per_1m_input"] > 0
+        assert client.model_config["cost_per_1m_output"] > 0
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_record_usage_uses_registry_cost(self, mock_call_llm, mock_get_router):
+        """LC1: 真实模型配置下 cost_usd 应按注册表单价计算，不再恒为 0。"""
+        from app.agent.orchestrator_progress import CostTracker
+
+        mock_get_router.return_value = AsyncMock()
+        mock_call_llm.return_value = {
+            "choices": [{"message": {"content": "response"}}],
+            "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+        }
+
+        tracker = CostTracker()
+        client = LLMClient(model_name="deepseek-r1", cost_tracker=tracker)
+        await client.call("Hi")
+
+        expected = (
+            client.model_config["cost_per_1m_input"]
+            + client.model_config["cost_per_1m_output"]
+        )
+        assert tracker.total_cost_usd == pytest.approx(expected)
+
     @pytest.mark.asyncio
     @patch("app.agent.llm_client.LayeredModelRouter")
     @patch("app.agent.llm_client.get_dynamic_router")

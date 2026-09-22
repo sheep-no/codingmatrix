@@ -67,6 +67,9 @@ return {
 - **交叉回注（2026-08-09，orchestrator_progress.md OP1 实测确认）**：实测 `get_model_config("Qwen/Qwen3.5-4B")` 返回 dict 无成本键、`CostTracker.add_usage(1000+2000 token)` 后 `total_cost_usd` 恒 0.0（token 计数正确、金额恒零）。**新信息**：model_registry.py 的 `ln`（每百万输入 token 成本，元）字段存在但从未接入 llm_client，是现成的修复数据源。
 - **触发条件**：任何带 cost_tracker 的 LLMClient 调用（test_call_with_cost_tracker :188 未断言 cost>0，故 14 passed 未暴露）
 
+- **已修复（2026-09-22，含 LC1 与题面所述 `ln` 字段）**：`app/agent/dynamic_model_router.py` 的 `get_model_config` 末尾新增成本单价解析——按解析后的 `model_id` 从 `MODEL_REGISTRY`（唯一数据源，YAML 无 cost 字段）读取 `cost_per_1m_input`/`cost_per_1m_output`，并在返回 dict 追加同名字段（注册表缺失时兜底 `0.0`，动态/自定义供应商模型仍为 0）。`LLMClient._record_usage` 无需改动，`.get(..., 0.0)` 现在能取到真实单价 → `cost_usd` 与 `CostTracker.total_cost_usd` 正确累计。
+- **测试**：`tests/unit/test_llm_client.py` 新增 2 项——`test_model_config_exposes_cost_rates`（真实模型配置暴露非零单价）、`test_record_usage_uses_registry_cost`（以 `deepseek-r1` 百万输入/输出 token 断言 `total_cost_usd == cost_in + cost_out`）；原文件 17 → 19 passed。
+
 ### LC2 [P1] 信号量获取顺序「全局→按模型」：全局槽被等待者占用 → 跨模型饿死
 
 - **Bug 代码**：
