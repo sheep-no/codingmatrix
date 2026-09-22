@@ -405,6 +405,164 @@ class TestLLMClientCall:
         assert tracker.total_cost_usd == pytest.approx(3.0)
 
 
+async def _wait_until(predicate, timeout: float = 1.0) -> None:
+    """事件循环内轮询直到条件成立，超时即失败（避免用例挂死）。"""
+
+    async def _poll():
+        while not predicate():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_poll(), timeout=timeout)
+
+
+class TestConcurrencyOrdering:
+    """LC2：等待模型额度不得占用全局额度；LC3：流式消费需有空闲超时。"""
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_model_waiter_does_not_consume_global_slot(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """某个模型排队时，其它模型仍能用剩余全局额度开工。"""
+        import app.agent.llm_client as llm_client
+
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+        llm_client._global_semaphore = asyncio.Semaphore(2)
+
+        started = []
+        release = asyncio.Event()
+
+        async def blocking_call(model=None, **kwargs):
+            started.append(model)
+            await release.wait()
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        mock_call_llm.side_effect = blocking_call
+
+        # glm-4.7-flash 的按模型额度为 1
+        first = asyncio.create_task(LLMClient(model_name="glm-4.7-flash").call("a"))
+        await _wait_until(lambda: bool(started))
+
+        # 同模型第二个请求只能排队等模型额度
+        second = asyncio.create_task(LLMClient(model_name="glm-4.7-flash").call("b"))
+        await asyncio.sleep(0.05)
+
+        # first 占 1 个全局槽；second 若在等模型额度时也占全局槽，这里会是 0
+        assert get_global_semaphore()._value == 1
+
+        # 另一个模型不应被 first 队列牵连，能立刻用剩下的全局槽开工
+        other = asyncio.create_task(LLMClient(model_name="other-model").call("c"))
+        await _wait_until(lambda: "other-model" in started)
+
+        release.set()
+        await asyncio.gather(first, second, other)
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_model_waiter_does_not_consume_global_slot(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """流式路径同样：排队等模型额度时不占用全局额度。"""
+        import app.agent.llm_client as llm_client
+
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+        llm_client._global_semaphore = asyncio.Semaphore(2)
+
+        started = []
+        release = asyncio.Event()
+
+        async def blocking_stream(**kwargs):
+            started.append(kwargs.get("model"))
+            await release.wait()
+            yield json.dumps({"choices": [{"delta": {"content": "x"}}]})
+
+        mock_call_llm.side_effect = lambda *args, **kwargs: blocking_stream(**kwargs)
+
+        first = asyncio.create_task(
+            LLMClient(model_name="glm-4.7-flash").call_stream("a", on_chunk=AsyncMock())
+        )
+        await _wait_until(lambda: bool(started))
+
+        second = asyncio.create_task(
+            LLMClient(model_name="glm-4.7-flash").call_stream("b", on_chunk=AsyncMock())
+        )
+        await asyncio.sleep(0.05)
+
+        assert get_global_semaphore()._value == 1
+
+        other = asyncio.create_task(
+            LLMClient(model_name="other-model").call_stream("c", on_chunk=AsyncMock())
+        )
+        await _wait_until(lambda: "other-model" in started)
+
+        release.set()
+        await asyncio.gather(first, second, other)
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_stalled_consume_times_out(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """流中途挂起必须超时，而不是无限等待。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 0.1,
+        }
+        mock_get_router.return_value = AsyncMock()
+
+        async def stalling_stream(**kwargs):
+            yield json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+            await asyncio.Future()  # 中途挂起，永不返回
+
+        mock_call_llm.side_effect = lambda *args, **kwargs: stalling_stream(**kwargs)
+
+        client = LLMClient(model_name="test-model")
+        with pytest.raises(LLMClientError, match="超时"):
+            await client.call_stream("Hi", on_chunk=AsyncMock())
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_slow_but_progressing_not_aborted(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """逐块空闲超时：总时长超过 timeout 但持续有数据的长生成不得被截断。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 0.1,
+        }
+        mock_get_router.return_value = AsyncMock()
+
+        async def slow_stream(**kwargs):
+            for index in range(4):
+                await asyncio.sleep(0.05)  # 每块间隔 < timeout，总时长 > timeout
+                yield json.dumps(
+                    {"choices": [{"delta": {"content": f"c{index}"}}]}
+                )
+
+        mock_call_llm.side_effect = lambda *args, **kwargs: slow_stream(**kwargs)
+
+        client = LLMClient(model_name="test-model")
+        content = await client.call_stream("Hi", on_chunk=AsyncMock())
+
+        assert content == "c0c1c2c3"
+
+
 class TestLLMClientError:
     def test_is_exception(self):
         err = LLMClientError("test")

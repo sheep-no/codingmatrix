@@ -83,6 +83,8 @@ await self._model_semaphore.acquire()  # 按模型（2）
 - **根因**：先占全局槽再等模型槽——模型 X 信号量满时，X 的等待任务**持有全局槽**等待模型信号量 → 全局 6 槽被 X 的等待者占满 → 其它模型请求全部饿死（优先级倒置）
 - **建议**：先按模型后全局（`await model_sem.acquire()` → `await global_sem.acquire()`），等待模型槽时不占全局槽
 
+- **已修复（2026-09-22）**：`call_stream` 与 `_call_internal` 两处嵌套顺序改为「先按模型后全局」——`async with self._model_semaphore: async with self._semaphore:`。等待模型额度时不再占用全局槽，某模型队列积压不再饿死其它模型。两处顺序一致，不存在反向加锁死锁。回归测试 `tests/unit/test_llm_client.py::TestConcurrencyOrdering` 的 2 项（非流式 + 流式）：全局 2 槽下同一模型排队时断言全局 `_value == 1`（还原旧顺序即失败为 0），并断言另一模型仍能立即开工。
+
 ### LC3 [P1] 流式消费循环无超时：wait_for 只覆盖获取迭代器阶段
 
 - **Bug 代码**：
@@ -98,6 +100,8 @@ async for chunk_str in stream_iter:
 
 - **根因**：`call_timeout` 仅覆盖首包获取（:226）；`async for` 消费循环（:241）在 LLM 流中途挂起时**无限等待**
 - **影响**：流式调用（call_stream）在长生成或连接半开时无超时兜底
+
+- **已修复（2026-09-22）**：`_consume_stream` 的消费循环由 `async for` 改为显式 `iterator.__anext__()` 并用 `asyncio.wait_for(..., timeout=call_timeout)` 逐块施加**空闲超时**。用逐块而非整体超时：连接半开/上游无响应会在「无下一个 chunk」时超时抛 `asyncio.TimeoutError`，由 `call_stream` 既有分支转成 `LLMClientError("LLM 流式调用超时...")`；而持续产出数据的长文本生成即使总时长超过 `timeout` 也不会被截断。回归测试 `tests/unit/test_llm_client.py::TestConcurrencyOrdering` 的 2 项（中途挂起超时、慢速但有进展不被截断）。
 
 ### LC4 [P2] 流式 usage 依赖末尾 chunk：cost 记录常缺失（叠加 LC1）
 
@@ -133,6 +137,8 @@ finally:
 - **根因**：两个 acquire 均在 try 外；第二个 acquire 抛 CancelledError 时第一个已获取的槽永不释放（re-act 循环取消场景）
 - **建议**：`async with` 或 try 包裹两组 acquire
 
+- **已核实为已修复（2026-09-22）**：原 Bug 代码片段（try 外手工 `acquire`）已不存在于当前实现。`call_stream`（llm_client.py:193）与 `_call_internal`（:430）均使用 `async with` 嵌套上下文，等待内层额度时被取消会由 `async with` 正常释放外层额度，不存在槽泄漏。本条为文档滞后，非新增改动。
+
 ### LC6 [P2] `call(stream=True)` 参数被静默忽略
 
 - **Bug 代码**：:121 `_call_internal(..., stream=stream, ...)`，docstring :314「stream 参数被接受但忽略」——调用方传 `stream=True` 拿到非流式结果，无告警
@@ -157,15 +163,15 @@ finally:
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |
 |---|--------|---------|---------|---------|-------------|
 | 1 | P1 | LC1：get_model_config 补 cost_per_1m_input/output 字段（或 _record_usage 从全局成本表查） | 成本追踪真实有效 | dynamic_model_router.py:1022 / llm_client.py:295 | 新增 |
-| 2 | P1 | LC2：信号量获取顺序改为「先按模型后全局」 | 消除跨模型饿死 | llm_client.py:223-224/:344-345 | 新增 |
-| 3 | P1 | LC3：流式消费循环加 wait_for 超时 | 流式调用超时可控 | llm_client.py:241 | 新增 |
+| 2 | P1 | ~~LC2：信号量获取顺序改为「先按模型后全局」~~ 已修 | 消除跨模型饿死 | llm_client.py:193/:430 | 新增 |
+| 3 | P1 | ~~LC3：流式消费循环加 wait_for 超时~~ 已修 | 流式调用超时可控 | llm_client.py:292-298 | 新增 |
 | 4 | P2 | LC4：流式结束后用 usage-only chunk 补记 | 流式成本记录 | llm_client.py:258-260/:283 | 新增 |
-| 5 | P2 | LC5：`async with` 或 try 包裹双 acquire | 杜绝信号量泄漏 | llm_client.py:219-231 | 新增 |
+| 5 | P2 | ~~LC5：`async with` 或 try 包裹双 acquire~~ 经核实已由 `async with` 嵌套满足 | 杜绝信号量泄漏 | llm_client.py:193/:430 | 新增 |
 | 6 | P2 | LC6：call 的 stream 参数改为抛错或移除 | API 语义清晰 | llm_client.py:121 | 新增 |
 | 7 | P2 | LC7：统一下标访问方式 | 契约一致 | llm_client.py:199/:319/:397 | 新增 |
 
 ## 6. 演化方向关联
 
 - **§10.1（26 文件直连）**：LLMClient「统一层」名不副实——LC1-LC3 修复受益面有限，阶段二收敛时应扩大本层使用面（#12）
-- **B5 并发控制**：LC2/LC5 是并发安全的关键节点
+- **B5 并发控制**：LC2 已修、LC5 经核实已满足；LC6/LC7 待评估
 - **Backlog 关联**：#12，新增 LC1-LC7
