@@ -18,7 +18,13 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.agent.react_engine import ReActEngine, ReActStep, ReActResult
+from app.agent.react_engine import (
+    ReActEngine,
+    ReActStep,
+    ReActResult,
+    _GENERATION_SYSTEM_PROMPT,
+    _count_tool_results,
+)
 from app.agent.topology_scheduler import HeartbeatTracker
 
 
@@ -540,3 +546,80 @@ class TestStream:
         engine = ReActEngine(tools={}, call_llm_fn=AsyncMock())
         # should not raise
         await engine._stream("hello")
+
+
+class TestToolResultCount:
+    """RE4：各工具返回的列表字段名不同，统计不得恒为 0。"""
+
+    def test_counts_tool_specific_list_fields(self):
+        assert _count_tool_results({"success": True, "matches": [1, 2, 3]}, True) == 3
+        assert _count_tool_results({"directory": "/x", "entries": ["a"]}, True) == 1
+        assert _count_tool_results({"success": True, "results": [1, 2]}, True) == 2
+
+    def test_sums_multiple_list_fields(self):
+        result = {"functions": [1, 2], "classes": [1], "total_lines": 10}
+        assert _count_tool_results(result, True) == 3
+
+    def test_excludes_error_list_and_failed_calls(self):
+        assert _count_tool_results({"files": [1, 2], "errors": ["boom"]}, True) == 2
+        assert _count_tool_results({"matches": [1, 2]}, False) == 0
+        assert _count_tool_results("not-a-dict", True) == 0
+
+    @pytest.mark.asyncio
+    async def test_emit_event_reports_real_count(self):
+        events = []
+        llm_calls = 0
+
+        async def mock_llm(prompt, system_prompt):
+            nonlocal llm_calls
+            llm_calls += 1
+            if llm_calls == 1:
+                return '{"tool": "search_files", "params": {"query": "x"}}'
+            return "final answer"
+
+        def mock_search(project_path="", **kwargs):
+            return {"success": True, "matches": [{"path": "a"}, {"path": "b"}]}
+
+        engine = ReActEngine(
+            tools={
+                "search_files": {
+                    "fn": mock_search, "description": "search", "params": {"query": "string"}
+                }
+            },
+            call_llm_fn=mock_llm,
+            project_path="/tmp",
+            max_rounds=3,
+            callback=object(),
+            emit_event_fn=lambda cb, event_type, data: events.append((event_type, data)),
+        )
+
+        await engine.run("task", "sys")
+
+        result_events = [data for event_type, data in events if event_type == "react_tool_result"]
+        assert result_events
+        assert result_events[0]["result_count"] == 2
+        assert "找到 2 条结果" in result_events[0]["message"]
+
+
+class TestGenerationSystemPrompt:
+    """RE7：最终答案生成路径共用同一份干净 system prompt。"""
+
+    @pytest.mark.asyncio
+    async def test_safety_valve_uses_shared_prompt(self):
+        captured = {}
+
+        async def mock_llm(prompt, system_prompt):
+            captured["system_prompt"] = system_prompt
+            return "generated code"
+
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=mock_llm,
+            project_path="/tmp",
+            max_rounds=1,
+        )
+
+        result = await engine.run("task", "sys")
+
+        assert result == "generated code"
+        assert captured["system_prompt"] == _GENERATION_SYSTEM_PROMPT

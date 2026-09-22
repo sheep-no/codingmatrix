@@ -162,10 +162,17 @@ return ""
 | 1 | P0 | RE1：ReActAgent.process 消费 context 的 project_path 传入引擎（不短路） | 修复闭环恢复 ReAct 循环 | react_agent.py:149 / error_recovery.py:26 | #14 |
 | 2 | P0 | RE2：统一工具 fn 签名（wrapper 接受 project_path，或引擎按 wrapper 约定调用） | 消除工具契约断裂 | react_engine.py:209 / executor.py:204 | #6、#13 |
 | 3 | P1 | RE3：同步 fn 用 `asyncio.wait_for(asyncio.to_thread(...))` 包裹 | 同步工具真正超时可控 | react_engine.py:207-213 | 新增 |
-| 4 | P1 | RE4：result_count 兼容 `matches`/`results`/业务长度 | 事件统计真实 | react_engine.py:504 | §12、新增 |
-| 5 | P2 | RE5：full 异常路径返回 None 继续 | 单次抖动不丢全部步骤 | react_engine.py:634/:654 | 新增 |
+| 4 | P1 | ~~RE4：result_count 兼容 `matches`/`results`/业务长度~~ 已修 | 事件统计真实 | react_engine.py:573 | §12、新增 |
+| 5 | P2 | ~~RE5：full 异常路径返回 None 继续~~ 经核实已改为抛错（文档滞后） | 单次抖动不丢全部步骤 | react_engine.py:700-728 | 新增 |
 | 6 | P2 | RE6：反射解析失败改保守终止或可配置 | 控制 full 模式成本 | react_engine.py:283-289 | 新增 |
-| 7 | P2 | RE7：提取 `_GENERATION_SYSTEM` 常量统一最终答案生成路径 | simple/full 行为一致 | react_engine.py:311-321/:435-445 | 新增 |
+| 7 | P2 | ~~RE7：提取 `_GENERATION_SYSTEM` 常量统一最终答案生成路径~~ 已修 | simple/full 行为一致 | react_engine.py:320/:476 | 新增 |
+
+## 7. 状态更新（2026-09-22）
+
+- **RE4 [P1] 已修**：`result_count` 原先只读 `tool_result.get("results", [])`，而各工具返回字段名不统一（`search_files`→`matches`、`list_files`→`entries`、`web_search`→`results`、`read_symbols`→`functions`/`classes`），导致事件里恒报「找到 0 条结果」。新增模块级 `_count_tool_results(tool_result, success)`：汇总所有列表字段的长度，排除 `errors`（错误列表不是「找到的结果」），非 dict 或失败调用返回 0。回归 `tests/unit/test_react_engine.py::TestToolResultCount` 4 项（含事件层断言 `result_count == 2`）；回退为旧表达式后事件断言失败。
+- **RE7 [P2] 已修（去重）**：`_generate_final_answer` 与 `_run_simple` 安全阀各内联一份逐字节相同的干净 system prompt，提取为模块级 `_GENERATION_SYSTEM_PROMPT` 常量，两处共用。回归 `TestGenerationSystemPrompt`（安全阀传入的 system prompt 等于该常量）。
+- **RE5 [P2] 已核实为文档滞后，未改码**：原条目称 `_run_full_iteration` 异常时 `return ""`（:634/:654），`run` 层把 `""` 当正常终止而丢弃全部步骤。当前实现中这两处已不存在——Thought/Action/Reflection 的 LLM 异常均 `raise RuntimeError`（:700-728/:289-298），会向上抛出而非静默返回空串。剩余 `return ""` 仅在取消路径（:455/:606），语义为取消，符合预期。是否把「单次 LLM 抖动」改为继续下一轮属设计取舍（当前选择显式失败），本轮未改。
+- **RE6 [P2] 未改**：`_reflect` 解析失败仍默认 `{"continue": True}`。改为保守终止会改变 full 模式的成本/完成度权衡，且需产品侧确认，暂缓。
 
 ## 6. 演化方向关联
 
