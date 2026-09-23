@@ -130,3 +130,17 @@ if connected > 0:
 - **阶段二（统一收敛）**：executor 是 §4.2「消除新旧路径并存」的收敛节点——ReActAgent 栈（ToolRegistry/EnhancedExecutor）与 Specialist 栈（SPECIALIST_TOOLS/ReActEngine）的工具注册表收敛（§13.2/#12）
 - **统一工具 Schema**：B2/B3 均并入 §11.4 #6（统一工具返回 Schema），executor 的 `_wrap_*` 是判定层收敛点之一
 - **Backlog 关联**：#6、#11、#12
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码（executor.py 462 行）逐条复核 §3 缺陷：
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| B1 | 已修（早于本批） | wrapper 现接受 `project_path` 关键字（:205/:211），`execute_tool` 按签名注入 `self.project_path`（:387-388），`__init__` 在 `project_path` 变化时重注册（:153）。首个实例路径不再被永久复用；`test_agent.py` 原 2 项失败已转绿。 |
+| B2 | 已修 | `_wrap_sync`/`_wrap_async` 原先只按 `result.get("success", True)` 判定，read 系列返回 `{"error": ...}`（无 success 键）时被判成功。抽出 `_interpret_tool_result`（:52）统一归一化：含 error 且无显式 success 即失败。 |
+| B3 | 已修 | 补齐 `_tool_search_files` 导入与 `search_files` 注册（schema 对齐 SPECIALIST_TOOLS 的 param 定义），修复闭环工具表恢复搜索能力。`create_file` 为 `write_file` 别名，影响小，未重复注册。 |
+| B4 | **仍在** | MCP 工具仍注册进全局单例 `ToolRegistry`（:172-177），跨项目工具可见性泄漏。修复需按实例/会话隔离注册表或废弃全局单例，属结构性改动，保留。 |
+| B5 | 保留 | `execute_tool` 的 `iscoroutinefunction` else 分支（:391-392）对内置工具不可达，但 `register` 是公开入口、允许注册同步函数，该分支作为兜底保留；无功能影响。 |
+
+配套测试：`tests/unit/test_agent.py::TestEnhancedExecutor` 新增 2 项（缺失文件读取判失败、search_files 注册并返回匹配）。

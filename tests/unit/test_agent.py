@@ -52,6 +52,32 @@ class TestEnhancedExecutor:
         assert result is not None
         assert result.success
 
+    @pytest.mark.asyncio
+    async def test_read_missing_file_is_reported_as_failure(self, tmp_path):
+        """read 系列业务失败返回 {"error": ...}（无 success 键），必须判为失败。"""
+        executor = EnhancedExecutor(project_path=str(tmp_path))
+
+        result = await executor.execute_tool("read_file", {"file_path": "not_there.py"})
+
+        assert result.success is False
+        assert result.error
+
+    @pytest.mark.asyncio
+    async def test_search_files_tool_is_registered_and_runs(self, tmp_path):
+        """executor 工具表此前漏注册 search_files，修复闭环拿不到该能力。"""
+        executor = EnhancedExecutor(project_path=str(tmp_path))
+        (tmp_path / "sample.py").write_text(
+            "def hello_world():\n    return 1\n", encoding="utf-8"
+        )
+
+        assert executor.tool_registry.get("search_files") is not None
+        result = await executor.execute_tool(
+            "search_files", {"pattern": "hello_world", "file_pattern": "*.py"}
+        )
+
+        assert result.success is True
+        assert result.result.get("matches")
+
 
 class TestCodeValidator:
     """代码验证器测试"""
