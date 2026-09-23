@@ -432,6 +432,10 @@
     showToolkitMenu.value = !showToolkitMenu.value
   }
 
+  const closeToolkitMenu = () => {
+    showToolkitMenu.value = false
+  }
+
   const openWorkbenchPage = path => {
     showToolkitMenu.value = false
     if (!userStore.isLoggedIn) {
@@ -748,7 +752,8 @@
     updateHistoryItem,
     openLogin,
     toggleCollapse,
-    showSearchBox
+    showSearchBox,
+    closeToolkitMenu
   })
 </script>
 

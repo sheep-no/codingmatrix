@@ -60,6 +60,8 @@
 | P1 | 生产编排 api/celery/scheduler 因 `DATABASE_URL` 缺省不同而指向三个不同数据库，调度任务看不到 API 数据 | `docker-compose.prod.yml` | 已解决；三服务统一到共享卷上的 `sqlite+aiosqlite:////app/data/app.db`，PR #205 |
 | P1 | 镜像未预建上传/生成物挂载点，非 root 的 appuser 无法写入 | `Dockerfile` | 已解决；`mkdir -p` 补齐全量挂载点后再统一 chown，PR #205 |
 | P2 | `SystemConfigManager` 配置路径随进程 CWD 漂移 | `app/utils/system_config.py` | 已解决；改为 `BASE_DIR / "configs" / "system_config.json"`，PR #204 |
+| P2 | `?`（Shift+/）无法打开快捷键帮助面板，与帮助面板自身声明的快捷键不一致 | `src/composables/useKeyboardShortcuts.js` | 已解决；`?` 归一化为同一物理键 `/`，并新增归一化回归用例 |
+| P2 | `Escape` 无法关闭左侧工具集下拉菜单，与帮助面板「Esc 关闭工具面板/弹窗」声明不一致 | `src/components/index.vue`、`src/components/leftlist.vue` | 已解决；leftlist 暴露 `closeToolkitMenu`，escape 处理器调用之 |
 
 ### 仍需决策
 
@@ -73,10 +75,11 @@
 ## 当前验收基线
 
 - 后端 unit/integration 最近完整记录：`4455 passed, 3 skipped`（含 `--cov` 门禁运行，覆盖率 `61.98%`，门槛 `58%`；同批 `test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`）。
-- 前端全量 Vitest：`49 files / 248 passed`；`npm run build:budget` 四项预算全部通过。
+- 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 四项预算全部通过。
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
+- 前端 E2E：`01-auth`、`encrypted-login`、`02-core-navigation` 为可稳定复现的认证/导航子集（需 `TEST_ADMIN_PASSWORD`，并预置超管账号）。`11-theme-shortcuts` 等旧 spec 存在测试代码缺陷（选择器过期、等待不足、快捷键名与实现不符），失败不代表产品缺陷。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
 
 ## 历史修复记录
