@@ -42,6 +42,17 @@ _provider_map_cache: Optional[Dict[str, Any]] = None
 _model_id_key_cache: Optional[Dict[str, str]] = None
 
 
+def _dedupe_preserve_order(models: List[str]) -> List[str]:
+    """按首次出现顺序去重模型列表（降级链重复项会让实际降级深度小于声明）"""
+    seen: set = set()
+    deduped: List[str] = []
+    for model in models:
+        if model and model not in seen:
+            seen.add(model)
+            deduped.append(model)
+    return deduped
+
+
 def _build_provider_map() -> Dict[str, "ModelProvider"]:
     """从 Agent 运行时配置构建 model_name -> provider 映射。"""
     global _provider_map_cache
@@ -64,7 +75,12 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
                 provider_map[name] = provider
         _provider_map_cache = provider_map
         return provider_map
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "加载模型供应商映射失败，沿用缓存 %s: %s",
+            "（当前为空）" if not _provider_map_cache else f"({len(_provider_map_cache)} 项)",
+            e,
+        )
         return _provider_map_cache or {}
 
 
@@ -81,7 +97,12 @@ def _build_model_id_to_key() -> Dict[str, str]:
                 mapping[model_id] = name
         _model_id_key_cache = mapping
         return mapping
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "加载模型 ID 映射失败，沿用缓存 %s: %s",
+            "（当前为兜底映射）" if not _model_id_key_cache else f"({len(_model_id_key_cache)} 项)",
+            e,
+        )
         return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
 
 
@@ -486,12 +507,16 @@ class ModelMetrics:
         self.consecutive_failures = 0
         self.last_success_time = time.time()
 
-    def record_failure(self, error: str = ""):
+    def record_failure(self, error: str = "", latency_ms: Optional[float] = None):
         self.total_requests += 1
         self.failed_requests += 1
         self.active_requests = max(0, self.active_requests - 1)
         self.consecutive_failures += 1
         self.last_error_time = time.time()
+        # 失败请求同样有耗时，缺失会让 avg_latency_ms 只反映成功样本
+        if latency_ms is not None:
+            self.total_latency_ms += latency_ms
+            self.recent_latencies.append(latency_ms)
         logger.warning(f"模型 {self.model_name} 请求失败: {error}")
 
     def start_request(self):
@@ -530,19 +555,21 @@ class DynamicModelRouter:
             if "fallback_chain" in config:
                 chain = config["fallback_chain"]
                 if chain:
-                    resolved = [resolve_model_key(m) for m in chain]
+                    resolved = _dedupe_preserve_order([resolve_model_key(m) for m in chain])
                     logger.info(f"已从配置加载降级链: {resolved}")
                     return resolved
             # v2.0 兼容：fallback_chains.default
             if "fallback_chains" in config:
                 chain = config["fallback_chains"].get(chain_name, [])
                 if chain:
-                    resolved = [resolve_model_key(m) for m in chain]
+                    resolved = _dedupe_preserve_order([resolve_model_key(m) for m in chain])
                     logger.info(f"已从配置加载降级链 '{chain_name}': {resolved}")
                     return resolved
 
-        logger.info(f"使用默认降级链 '{chain_name}': {self.DEFAULT_FALLBACK_ORDER}")
-        return self.DEFAULT_FALLBACK_ORDER.copy()
+        # DEFAULT_FALLBACK_ORDER 中 architect 与 fast 可能是同一模型，去重避免降级链首尾重复
+        deduped = _dedupe_preserve_order(self.DEFAULT_FALLBACK_ORDER)
+        logger.info(f"使用默认降级链 '{chain_name}': {deduped}")
+        return deduped
 
     def reload_fallback_chain(self, chain_name: str = "default"):
         """重新加载降级链"""
@@ -561,7 +588,7 @@ class DynamicModelRouter:
             if success:
                 metrics.record_success(latency_ms)
             else:
-                metrics.record_failure(error)
+                metrics.record_failure(error, latency_ms)
 
     async def start_call(self, model_name: str):
         """标记模型开始处理请求"""
@@ -847,7 +874,7 @@ async def get_best_model_with_health_awareness(
     """
     带健康感知的模型选择
 
-    Callers should set RoutingConfig(enable_health_awareness=True) to activate.
+    Callers should set RoutingConfig(enable_health_aware_routing=True) to activate.
     """
     if not candidate_models:
         return DEFAULT_FAST_MODEL

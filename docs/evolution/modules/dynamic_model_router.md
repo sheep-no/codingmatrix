@@ -54,3 +54,15 @@ MODEL_CONTEXT_LENGTHS（:853-883）注释自述「手动维护静态映射，API
 ## 5. 测试状态
 
 ModelPerformanceTracker/ModelMetrics 有独立可测性（sqlite 可注入 db_path），但生产链路 llm_client→DynamicModelRouter 无集成测试；学习路由与健康感知两个死代码路径无测试（未被测试覆盖也未暴露其死亡状态）。
+
+## 6. 状态校准（2026-09-23 复核）
+
+逐条读码复核本清单，结论如下（正文既有标注保留，本条为准）：
+
+- **DMR1 已修**：`_build_provider_map` / `_build_model_id_to_key` 的 `except Exception` 改为 `logger.warning`，并区分「无缓存」与「沿用缓存 N 项」，配置损坏不再静默；返回契约不变（空映射 / `_FALLBACK_MODEL_ID_TO_KEY`）。「首启缓存不自动恢复」属缓存策略，保留。
+- **DMR6 已消解（文档滞后）+ 补去重防御**：现 `DEFAULT_FALLBACK_ORDER = [DEFAULT_FAST_MODEL, "THUDM/GLM-4-9B-0414", DEFAULT_ARCHITECT_MODEL]`，实测解析为 `["Qwen/Qwen2.5-7B-Instruct", "THUDM/GLM-4-9B-0414", "Qwen/Qwen3-8B"]`，三项互异，文档描述的「首尾重复」已不存在。真正风险转为**别名收敛**：多个注册 ID（如 `qwen3-8b` 与 `qwen2.5-7b`）经 `resolve_model_key` 后指向同一模型 Key，会让声明降级深度大于实际。新增 `_dedupe_preserve_order`，配置链与默认链解析后均按首次出现顺序去重。
+- **DMR14 部分已修**：docstring 的 `enable_health_awareness=True` 更正为真实字段名 `enable_health_aware_routing`；`get_best_model_with_health_awareness` 仍无生产调用方、`RoutingConfig` 仍默认关闭，属激活路径缺失，保留。
+- **DMR18 已修**：`ModelMetrics.record_failure` 增加可选 `latency_ms` 并在 `record_call` 失败分支传入，失败样本计入 `recent_latencies` / `total_latency_ms`，避免 `health_score` 延迟项只反映成功样本。参数保持可选以兼容既有调用方。
+- **DMR15 / DMR16 / DMR17 / DMR19 保留**：数据通道断裂、无数据探索噪声、每次调用全量读配置、同步/异步双路径无锁，均未在本批改动范围内。
+
+新增回归 `tests/unit/test_dynamic_model_router_fixes.py`（8 项）：去重助手、默认链/配置链去重（含别名收敛）、失败延迟记录与向后兼容、两处映射失败的日志断言。回退源码后 7 项失败，确认测试可捕获缺陷。
