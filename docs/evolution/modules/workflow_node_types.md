@@ -101,4 +101,12 @@
 - **HA1 审批回调恒未注册**——`app/api/v1/workflow.py` 两处构造 `WorkflowExecutor` 仍未传 `approval_callback`（构造默认 None），HUMAN_APPROVAL 节点恒走 auto_reject。落地需新增审批端点 + 会话态审批存储 + 恢复执行，属功能开发，暂缓。
 - **CE1 无沙箱**——当前环境无 docker_runner，接入容器/进程隔离属能力建设，仅先纠正文档误导。
 - **CE4 / FP1 / FP3 / HRQ5 / HRQ6**——临时代码明文落 /tmp 无资源限额、`FileOperator()` 无 base_path、delete recursive 可删目录树、每请求新建 `httpx.AsyncClient`、`_replace_variables` 遍历全 context——均维持原判定，风险与改造成本需专项评估。
-- **DT2 / DT3 / CH1 / CH2 / CH3**——两套 `safe_eval`（ALLOWED_NODES 不一致）、`_extract_path` 列表展平产生 None、matplotlib 全局态与 `_temp_files`/字体锁——双轨与低危并发问题，暂缓。
+- **DT2 / DT3**——两套 `safe_eval`（ALLOWED_NODES 不一致）、`_extract_path` 列表展平产生 None——双轨与低危问题，暂缓。
+
+### 后续修复（CH1 / CH2 / CH3）
+
+- **CH1 matplotlib 全局态保存错图**——`_generate_chart` 在 `plt.subplots` 与保存之间 `await`，并发协程会替换 pyplot 的「当前图形」，`plt.savefig`/`plt.tight_layout` 因此作用于其他节点的图形。改为 `fig.tight_layout()`/`fig.savefig()` 的图形对象 API，保存目标恒为本节点图形。
+- **CH2 `_temp_files` 无锁且异常路径泄漏**——新增 `_temp_files_lock` 保护注册；`cleanup_all_temp_files` 改为锁内快照并清空、锁外删除，避免「遍历中集合被修改」；`savefig` 抛异常时立即 `discard` 并 `unlink` 半成品，不再把残留文件留在磁盘与集合中。
+- **CH3 `_configure_fonts` 首调竞态**——`_fonts_configured` 原为 check-then-act，多线程首调会重复 `addfont` 并向 `font.sans-serif` 反复追加。新增 `_fonts_lock` 双检锁，字体只注册一次。
+
+测试：`tests/unit/test_chart_generation_concurrency.py` 4 项（保存本节点图形、失败回收半成品、清理期并发注册、8 线程字体只注册一次）。回退 `chart_generation.py` 后 4 项全部失败（分别表现为保存到 400x300 的错图、临时文件残留、`RuntimeError: Set changed size during iteration`、`addfont` 被调 8 次）。

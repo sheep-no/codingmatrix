@@ -8,6 +8,7 @@ import logging
 import asyncio
 import tempfile
 import os
+import threading
 from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
 
@@ -22,45 +23,59 @@ logger = logging.getLogger(__name__)
 
 _temp_files: Set[str] = set()
 
+# 保护 _temp_files：节点可在同一事件循环内并发执行，注册与清理可能交错
+_temp_files_lock = threading.Lock()
+
 _fonts_configured = False
+
+# 保护 _fonts_configured：多线程首调时避免重复注册字体
+_fonts_lock = threading.Lock()
 
 
 def _configure_fonts():
-    """配置 matplotlib 中文字体支持"""
+    """配置 matplotlib 中文字体支持（双检锁，避免并发首调重复注册）"""
     global _fonts_configured
     if _fonts_configured:
         return
 
-    try:
-        font_path = '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'
-        if not os.path.exists(font_path):
-            font_path = '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'
+    with _fonts_lock:
+        if _fonts_configured:
+            return
 
-        if os.path.exists(font_path):
-            import matplotlib.font_manager as fm
-            fm.fontManager.addfont(font_path)
-            font_prop = fm.FontProperties(fname=font_path)
-            plt.rcParams['font.family'] = 'sans-serif'
-            plt.rcParams['font.sans-serif'] = [font_prop.get_name()] + plt.rcParams['font.sans-serif']
-            logger.info(f"配置中文字体: {font_path}")
+        try:
+            font_path = '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'
+            if not os.path.exists(font_path):
+                font_path = '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'
 
-        plt.rcParams['axes.unicode_minus'] = False
-        _fonts_configured = True
-    except Exception as e:
-        logger.warning(f"字体配置失败: {e}")
-        _fonts_configured = True
+            if os.path.exists(font_path):
+                import matplotlib.font_manager as fm
+                fm.fontManager.addfont(font_path)
+                font_prop = fm.FontProperties(fname=font_path)
+                plt.rcParams['font.family'] = 'sans-serif'
+                plt.rcParams['font.sans-serif'] = [font_prop.get_name()] + plt.rcParams['font.sans-serif']
+                logger.info(f"配置中文字体: {font_path}")
+
+            plt.rcParams['axes.unicode_minus'] = False
+            _fonts_configured = True
+        except Exception as e:
+            logger.warning(f"字体配置失败: {e}")
+            _fonts_configured = True
 
 
 def cleanup_all_temp_files() -> None:
     """清理所有临时图表文件"""
-    for path in _temp_files:
+    # 先在锁内快照并清空，再在锁外删除：避免遍历时被并发注册打断
+    with _temp_files_lock:
+        pending = list(_temp_files)
+        _temp_files.clear()
+
+    for path in pending:
         try:
             if os.path.exists(path):
                 os.unlink(path)
                 logger.debug(f"清理临时文件: {path}")
         except Exception as e:
             logger.warning(f"清理临时文件失败 {path}: {e}")
-    _temp_files.clear()
 
 
 class ChartGenerationNode(TaskNodeBase):
@@ -227,7 +242,9 @@ class ChartGenerationNode(TaskNodeBase):
         if y_label and chart_type != "pie":
             ax.set_ylabel(y_label, fontsize=12)
 
-        plt.tight_layout()
+        # 使用图形对象而非 pyplot 全局状态：并发执行时 pyplot 的"当前图形"
+        # 可能已被其他协程替换，全局 API 会保存错图或作用于错图。
+        fig.tight_layout()
 
         temp_file = tempfile.NamedTemporaryFile(
             suffix=f'.{output_format}',
@@ -236,10 +253,22 @@ class ChartGenerationNode(TaskNodeBase):
         chart_path = temp_file.name
         temp_file.close()
 
-        _temp_files.add(chart_path)
+        with _temp_files_lock:
+            _temp_files.add(chart_path)
 
-        plt.savefig(chart_path, format=output_format, dpi=dpi)
-        plt.close(fig)
+        try:
+            fig.savefig(chart_path, format=output_format, dpi=dpi)
+        except Exception:
+            # 保存失败时立即回收半成品，避免异常路径把临时文件留在磁盘与集合中
+            with _temp_files_lock:
+                _temp_files.discard(chart_path)
+            try:
+                os.unlink(chart_path)
+            except OSError:
+                pass
+            raise
+        finally:
+            plt.close(fig)
 
         return chart_path
 
