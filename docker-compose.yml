@@ -21,11 +21,19 @@ services:
       - WS_MAX_CONNECTIONS=50
       - LOG_LEVEL=WARNING
       - ENABLE_SCHEDULER=true
+      # 与 celery 共用同一 SQLite 文件；缺省会落到容器内 /app/app.db，
+      # 各容器各自独立，celery 看不到 API 写入的数据
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
     volumes:
       - ./app:/app/app
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./pptx_output:/app/pptx_output
+      - ./generated_images:/app/generated_images
+      - ./projects:/app/projects
     depends_on:
       - redis
     networks:
@@ -46,9 +54,16 @@ services:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=WARNING
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
     volumes:
       - ./app:/app/app
       - ./logs:/app/logs
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./pptx_output:/app/pptx_output
+      - ./generated_images:/app/generated_images
+      - ./projects:/app/projects
     depends_on:
       - redis
     networks:

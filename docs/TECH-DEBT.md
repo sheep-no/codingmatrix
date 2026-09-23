@@ -62,6 +62,8 @@
 | P2 | `SystemConfigManager` 配置路径随进程 CWD 漂移 | `app/utils/system_config.py` | 已解决；改为 `BASE_DIR / "configs" / "system_config.json"`，PR #204 |
 | P2 | `?`（Shift+/）无法打开快捷键帮助面板，与帮助面板自身声明的快捷键不一致 | `src/composables/useKeyboardShortcuts.js` | 已解决；`?` 归一化为同一物理键 `/`，并新增归一化回归用例 |
 | P2 | `Escape` 无法关闭左侧工具集下拉菜单，与帮助面板「Esc 关闭工具面板/弹窗」声明不一致 | `src/components/index.vue`、`src/components/leftlist.vue` | 已解决；leftlist 暴露 `closeToolkitMenu`，escape 处理器调用之 |
+| P2 | 本地 compose 以 `ENV=production` 启动却不提供 `SECRET_KEY`，celery 也未挂载数据卷与生成物目录 | `docker-compose.yml` | 已解决；补齐 `SECRET_KEY=${SECRET_KEY:?}` 与统一 `DATABASE_URL`，api/celery 共享 data 与四个生成物挂载，新增守卫用例 |
+| P3 | 前端 E2E 的 `core`、`11-theme-shortcuts` 存在测试代码缺陷（选择器过期、等待不足、快捷键名与实现不符） | `tests/e2e/core.spec.js`、`tests/e2e/11-theme-shortcuts.spec.js` | 已解决；按真实控件与产品声明的快捷键重写，改用轮询等待，PR #210 |
 
 ### 仍需决策
 
@@ -69,8 +71,8 @@
 |---|---|---|---|
 | P1 | RSA 私钥被 git 跟踪，而该密钥用于登录凭据传输的解密 | `keys/rsa_private.pem`、`app/utils/encryption.py`、`app/utils/crypto.py` | 仍在；需轮换密钥并 `git rm --cached` + 加入 `.gitignore`，属运维决策 |
 | P1 | 生产镜像与编排未提供模型/系统配置，运行期静默回退硬编码默认值 | `Dockerfile`、`docker-compose.prod.yml`、`app/utils/model_defaults.py`、`app/utils/system_config.py` | 仍在；镜像未 COPY `data/unified_model_config.yaml` 与 `configs/system_config.json`，且 `api-data` 首次挂载为空 |
-| P3 | 本地 compose 以 `ENV=production` 启动却未提供 `SECRET_KEY`，且 celery 未挂载数据卷 | `docker-compose.yml` | 仍在；`ENV=production` 下 config 强制要求 `SECRET_KEY`，缺省直接启动失败 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
+| P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动，API 实际以 root 运行 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 仍在；镜像设计以 appuser 运行 API，但两个编排都用 `command` 覆盖，需决策是否补 `user:`（本地 compose 的 bind mount 属主需一并处理） |
 
 ## 当前验收基线
 
@@ -79,7 +81,7 @@
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
-- 前端 E2E：`01-auth`、`encrypted-login`、`02-core-navigation` 为可稳定复现的认证/导航子集（需 `TEST_ADMIN_PASSWORD`，并预置超管账号）。`11-theme-shortcuts` 等旧 spec 存在测试代码缺陷（选择器过期、等待不足、快捷键名与实现不符），失败不代表产品缺陷。
+- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，`core`（7）、`11-theme-shortcuts`（12）、`encrypted-login`（3）共 `22 passed`；`01-auth`、`02-core-navigation` 亦可稳定通过。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
 
 ## 历史修复记录
