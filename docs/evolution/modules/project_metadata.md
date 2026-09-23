@@ -63,3 +63,10 @@
 ## 5. 测试状态
 
 **仅 CRUD 无行为覆盖**——test_v5_1_requirement_deep.py:85-120 三用例（load_empty/add_and_count/get_projects_by_domain）只验证基本持久化与计数，`_parse_feature_response` 三种失败形态（null/dict/多块）、`_fallback_feature_list` 伪功能生成、`extract_and_save` 的 LLM 降级链全部零用例。PM1（TypeError 逃逸导致功能清单静默丢失）、PM2（回退污染）实测可复现但无任何用例保护——测试固化「元数据可存取」而非「元数据内容正确/不被降级路径污染」。
+
+## 6. 状态校准（2026-09-23）
+
+- **prompt f-string 修复（TG1）**：`_extract_feature_list` 的 JSON 示例花括号此前未转义，函数每次调用即抛 `ValueError: Invalid format specifier`（详见 `traditional_generate.md`）。本次已转义（:110-116），`_extract_feature_list` 具备可运行条件。
+- **PM6 部分缓解**：新增 `tests/unit/test_traditional_generate_feature_extraction.py` 覆盖 `_extract_feature_list` 的 prompt 渲染与特征解析；`_parse_feature_response`（null/dict/多块）、`_fallback_feature_list`、`extract_and_save` 降级链仍零用例。
+- **PM1 仍成立**：`:156` `parsed.get("features", [])` 返回 None/dict 时的 TypeError/静默空未处理，`:157` 仅捕 `json.JSONDecodeError`。
+- **PM2/PM3/PM4/PM5 仍成立**：降级伪功能无标记、`_save` 无锁非原子、截断无标记、阈值硬编码本次均未触及。
