@@ -75,7 +75,7 @@ pytest tests/integration/ -v
 | `src/` | 前端 (Vue 3) | ~71K 行源码（不含 `src/node_modules`） |
 | `src/views/` | 页面组件 | 9 个主视图 |
 | `src/components/` | 组件库 | 54 个组件 |
-| `flutter_client/` | Flutter Agent 客户端 | 70 个 Dart 文件 / 12,217 行 |
+| `flutter_client/` | Flutter Agent 客户端 | 70 个 Dart 文件 / 12,226 行 |
 | `vscode-extension/` | VS Code 本地验证扩展 | 协议包 + E2E |
 | `tests/` | 测试 | 后端单元 144 文件 + 浏览器 E2E 77 spec |
 | `docs/` | 项目文档 | 50+ 文档 |

@@ -67,6 +67,8 @@
   - 本地起后端做联调无需 `.env`：`DATABASE_URL=sqlite+aiosqlite:////tmp/<name>.db ENV=development python3 -m uvicorn app.main:app --port 8000`，启动时 `create_all` 自动建表（`app/main.py:259`），SECRET_KEY 为空时开发环境用固定本地密钥。认证路由直接挂在 `/api/v1`（无 `/auth` 段）：`/api/v1/csrf-token`、`/api/v1/register`、`/api/v1/login`；注册需 CSRF（先取 `/csrf-token` 拿 cookie + token，再带 `X-CSRF-Token` 头），登录兼容明文 `email`+`password`。
   - agent host 会话不在数据库：存 JSON 文件于 `data/agent_host_sessions/`（可用 `AGENT_HOST_SESSION_DIR` 覆盖，已被 `.gitignore` 忽略）加内存字典，排查会话状态要查这里而非 SQLite。
   - VS Code 插件 e2e（`npm run e2e`）的后端会话段需 `CODINGMATRIX_E2E_API_URL` + `CODINGMATRIX_E2E_ACCESS_TOKEN`，缺任一个 `e2e/suite.mjs:36-38` 直接 `return` 且仍以退出码 0 结束——退出码 0 只证明扩展能加载与注册命令，不代表后端链路被覆盖。判定是否真跑了要查 `data/agent_host_sessions/` 是否新增 `workspace_id=fixtures` 记录及其 `control_status` 终态为 `cancelled`。
+  - 插件 e2e 断言命令注册不要手写命令名清单，直接从 `package.json` 的 `contributes.commands` 读出来再和 `vscode.commands.getCommands(true)` 比对，否则 `package.json` 与 `activate()` 漂移（面板显示有、点了报错）不会被发现。
+  - webview 面板打开后不会立刻出现在 `vscode.window.tabGroups.all` 里：`executeCommand` 返回时标签页可能尚未创建，直接断言会得到 0 个标签。要轮询等待（实测约 250ms 内出现），否则会把时序问题误判成「面板没打开」。
 
 ### Flutter 客户端验证约束
 - Date: 2026-09-08 / 2026-09-09
@@ -78,12 +80,18 @@
   - 区分度测试只用默认参数构造被测对象；使用新增命名参数会让旧代码编译失败而非干净失败，掩盖真实断言。
   - 测试坑：`Stream.timeout` 在响应体阻塞于永不完成的 await 且从未 yield 时不触发；流超时测试必须用真实 `StreamController` 作为响应体，否则测试永久挂起。
   - 测试坑：`flutter test` 默认 Ahem 字体每个字符等宽且宽度等于字号，窄屏溢出像素数会被显著放大，不能直接用该数值推断真机行为；判断窄屏风险要看布局结构（无弹性的 `Row` 配可变长文本）并按真实字体宽度估算。反向也成立：空数据下页面多为空态，其窄屏冒烟通过不能代表真机安全（GirlAI 状态行就是空态通过、有数据时溢出的例子），修法是改用 `Wrap`。
+  - `AlertDialog` 溢出只发生在 `content` 是 `Column` 的时候（固定高度子项无法压缩）。`content` 为单个 `SelectableText`/`Text`/`TextField` 时它们内部自带滚动，超长内容会被裁切但可滚动查看，不会报溢出——所以排查完 `Column` 就可以停手，不必把每个对话框都包 `SingleChildScrollView`。要证明「长内容真的看得到」而不是「只是没报错」，断言对话框子树里 `Scrollable` 的 `maxScrollExtent > 0`，只断言无异常会漏掉内容被裁掉的情况。
   - Android 打包受环境限制：`flutter build apk` 由 AGP 触发 NDK 下载（需 strip native 库），NDK 27 解压约 2.9G；本机根分区 20G 无法容纳，构建会把磁盘压到 0 可用并在中断时留下 `$ANDROID_SDK/.temp` 残留。移除 `jni`（例如 pin `path_provider_android: 2.2.20`）不能免除该需求，已回滚该覆盖。
   - 不依赖 NDK 的 Android 验证用 `flutter build bundle --target-platform android-arm64`（验证 Android 目标 Dart 编译），产物在 `build/flutter_assets`。环境无 Android 设备或模拟器，真机联调不在此环境进行。
   - Android 原生/Kotlin/Manifest 改动在本环境无法编译验证：`:app` 在配置阶段即报 `NDK not configured`，`flutter build bundle` 只编译 Dart 资产、不触发 Kotlin。安全探测用 `./gradlew :app:compileDebugKotlin --offline`，会快速失败而不下载 2.9G NDK；这类改动只能靠静态一致性核对（namespace == Kotlin `package` == 源码目录路径，Manifest 用 `.MainActivity` 相对 namespace 解析）。
   - Android SDK 不入库且 `/tmp` 会被清理：`android/local.properties` 的 `sdk.dir` 指向 `/tmp/opencode/android-sdk`，重建需 cmdline-tools 11076708 加 `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`，并设 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`。
   - Linux 桌面产物验证：`flutter build linux --debug`（工具链 clang/cmake/ninja/gtk+-3.0 齐全）产出 `build/linux/x64/debug/bundle/flutter_client`；无 GPU 时用 `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe` 加自建 `Xvfb :99 -screen 0 1280x800x24` 启动，用 `xwininfo -root -tree` 确认 1280x720 窗口已映射、进程存活、日志无 Dart 异常即为通过。注意 shell 里 `cmd &` 会绑定整个 `&&` 链导致工作目录错乱，后台任务用 `( cmd & )` 分组。
-  - 无 keyring 的环境启动 Linux 桌面端会打印 `libsecret_error: Failed to unlock the keyring`，属环境噪声：`AuthController.restore()` 已捕获存储失败并降级为「会话恢复失败，请重新登录」，不崩溃；只有需要持久化登录态时才受影响。
+  - 无 keyring 的环境（容器/WSL/纯 WM）会打印 `libsecret_error: Failed to unlock the keyring`：安全存储读写失败会让登录与服务会话全链路不可用（`CloudAuthClient._accept` 里 `saveSession` 抛错即 `logout()`），所以这不是能忽略的噪声。凭据层已把它归类为 `SecureStorageUnavailableException` 并给出对应提示。要在本环境实跑登录，需先 `apt-get install -y gnome-keyring libsecret-1-0 libsecret-tools dbus-x11`，用 `eval "$(dbus-launch --sh-syntax)"` 建立会话总线，`printf 'testpass' | gnome-keyring-daemon --unlock --replace --components=secrets` 解锁，再在同一 DBUS 会话里启动客户端。注意 `dbus-launch` 会把总线地址写进 X11 根窗口属性，同一 DISPLAY 上后续启动的进程仍能找到该总线并弹出「解锁密钥环」对话框；密钥环处于锁定态时该读取会一直挂起，应用停在启动加载态。
+  - headless UI 实测：`apt-get install -y xdotool`。截图用 `python3 -c "from PIL import ImageGrab; ImageGrab.grab(xdisplay=':99').save(p)"`（无需 ImageMagick/xwd），点击与输入用 `xdotool mousemove X Y click 1` / `xdotool type`。无窗口管理器时 `xdotool windowactivate` 因缺 `_NET_ACTIVE_WINDOW` 报错，坐标点击仍有效。
+  - 验证内置字体是否真的生效：临时用 `FONTCONFIG_FILE` 指向只含 Latin 目录（dejavu/liberation）的自定义 fonts.conf 启动，`fc-list` 确认看不到任何 CJK 字体后再截图。这样不必卸载系统字体。字体族在 `app.dart` 里按 `Platform.isLinux` 选择，Android 渲染行为不变；但 pubspec 声明的字体资源会打进所有平台产物，Android APK 同样 +3.1MB。`flutter build bundle` 可单独校验资源打包（比整包构建快得多，磁盘紧张时优先用）。
+  - 侧栏导航坐标会随滚动或窗口尺寸偏移：点击后要以后端请求日志（如 `GET /api/v1/github/config`）或标题截图确认真正落到了哪一项，不能按截图顺序推断，否则会漏测页面且不自知。
+  - 真机实测依赖的后端与 Redis 必须在受管后台终端里启动（`timeout` 上限 1 小时）：超时被杀后客户端每个页面都显示「网络请求失败，请重试」，此时先看后端日志尾部时间戳，不要先怀疑客户端。`GET /api/v1/tasks` 依赖 Redis，无 Redis 会被静默降级成同一个通用网络错误，重启 `redis-server --port 6379 --save '' --appendonly no --maxmemory 128mb` 即恢复。
+  - 写后端冒烟脚本要自己登录：客户端登录路径是 `/api/v1/login`（CSRF 双提交，先 `GET /api/v1/csrf-token` 取 cookie 与 `csrf_token`，再带 `X-CSRF-Token` 头 POST），`/api/v1/auth/login` 返回 405。客户端重启后只靠 keyring 里的 refresh token 免登录，不会再发登录请求。
 
 ### Flutter 与后端契约坑位
 - Date: 2026-09-06 ~ 2026-09-19

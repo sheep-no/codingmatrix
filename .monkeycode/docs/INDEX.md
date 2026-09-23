@@ -26,6 +26,7 @@
 - 游戏 AI PPT 真实生成 E2E：`tests/e2e/test_ppt_game_ai.e2e.spec.js`，覆盖临时用户注册、真实生成接口、领域化内容断言和 PPTX 下载。
 - [项目规格](../specs/)：按功能保存的需求、设计和实施记录。
 - [运行诊断与有界重试实测](CORE_REPAIR_EVALUATION_2026-09-08.md)：Core 候选诊断投影、rollback 证据保留和自动 repair 实测结果。
+- [待环境验收清单](PENDING-VERIFICATION.md)：Flutter 双端与 VS Code 扩展已验证项、待环境验收项（Android APK 与真机、Windows、真实 Provider 与 LLM）、跨边界发现存档，以及本地后端联调方法。
 - `../specs/2026-08-28-stategraph-rag-orchestration/`：StateGraph RAG 编排的目标设计、迁移记录和任务清单；其中本地验证与完整多阶段生产接线仍待运行环境验收。
 - `../specs/2026-08-29-vscode-local-validation-extension/`：Web 与 VS Code 双工作台 Agent Host SSD，包含需求、技术设计和实施任务清单。
 - `../specs/2026-08-30-user-scoped-skills/`：系统、用户和工作区 Skills 的命名空间、用户隔离与跨工作台同步设计。

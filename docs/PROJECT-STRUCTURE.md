@@ -104,7 +104,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `flutter_client/lib/application/`：页面状态与编排。
 - `flutter_client/lib/infrastructure/`：`AuthenticatedClient`、SSE、文件上传、GitHub/MCP/管理 API。
 - `flutter_client/lib/presentation/`：18 个页面，含工作台、对话、管理后台和 MCP 管理。
-- 2026-09-20 清点：70 个 `lib/**/*.dart` / 12,217 行。能力与边界见 [Flutter 客户端](features/FLUTTER-CLIENT.md)。
+- 2026-09-22 清点：70 个 `lib/**/*.dart` / 12,226 行。能力与边界见 [Flutter 客户端](features/FLUTTER-CLIENT.md)。
 
 ## 测试结构
 
@@ -113,7 +113,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `tests/e2e/`：浏览器端到端测试，根目录 `playwright.config.js` 是默认兼容入口。
 - `src/**/*.test.js`：Vitest 前端单元测试，共 15 个文件，配置位于 `src/vite.config.js`。
 - `vscode-extension/test/`、`vscode-extension/e2e/`：Node 原生测试和真实 Extension Host E2E。
-- `flutter_client/test/`：Flutter widget 与 HTTP Mock 测试，33 个 `*_test.dart`。
+- `flutter_client/test/`：Flutter widget 与 HTTP Mock 测试，34 个 `*_test.dart`。
 - `tests/performance/`：性能和资源相关测试。
 - `tests/manual/`：手工调用真实服务的流程脚本。脚本通过 `TEST_BASE_URL`、`TEST_ADMIN_EMAIL`、`TEST_ADMIN_PASSWORD` 和 `TEST_API_KEY` 读取运行参数。
 - `examples/`：独立示例代码，不参与应用启动和自动化测试。

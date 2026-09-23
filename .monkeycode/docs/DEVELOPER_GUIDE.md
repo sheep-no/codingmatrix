@@ -134,7 +134,7 @@ Android release 当前使用 debug 签名，产物路径为 `flutter_client/buil
 
 认证层使用 `CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，路径由 `app/main.py` 的 `/api/v1` 挂载决定。访问令牌和 Cookie 写入 `CredentialStore` 注入的设备安全存储，领域层使用 `AuthSession.accessTokenRef`。`AuthenticatedClient` 负责后续业务请求；生成等副作用请求遇到失败后需要用户核对状态，自动重发被禁用。单一活动会话记录包含服务 origin 和账号，切换登录会清除旧凭据；服务地址只接受不含路径、用户信息、查询或片段的 HTTP(S) origin。生产环境 Cookie 带 Secure，客户端应使用 HTTPS。
 
-测试通过 `SessionStorage` 注入隔离内存实现，并单独验证设备存储适配器的插件 mock。真实 Android KeyStore、Windows Credential Manager 和 Linux Secret Service 尚未验收；Linux 构建需要 `libsecret-1-dev`、`libjsoncpp-dev` 及运行时 Secret Service。应用启动恢复需要网络验证 refresh，失败会清理本地会话并提示重新登录。存储清除失败时，登录页提供“清除本地会话”重试入口。当前静态分析、469 项 Flutter 测试已通过；设备运行与桌面平台验收仍待完成，Android release APK 构建记录见 `TESTING.md`。
+测试通过 `SessionStorage` 注入隔离内存实现，并单独验证设备存储适配器的插件 mock。真实 Android KeyStore、Windows Credential Manager 和 Linux Secret Service 尚未验收；Linux 构建需要 `libsecret-1-dev`、`libjsoncpp-dev` 及运行时 Secret Service。应用启动恢复需要网络验证 refresh，失败会清理本地会话并提示重新登录。存储清除失败时，登录页提供“清除本地会话”重试入口。当前静态分析、485 项 Flutter 测试已通过；设备运行与桌面平台验收仍待完成，Android release APK 构建记录见 `TESTING.md`。
 
 ### 图表编辑器验证
 

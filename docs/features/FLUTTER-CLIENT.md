@@ -1,6 +1,6 @@
 # Flutter 客户端
 
-> 最后更新：2026-09-22 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,217 行 | 页面：18 | 测试：33 个文件
+> 最后更新：2026-09-22 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,226 行 | 页面：18 | 测试：34 个文件
 
 `flutter_client` 是 CodingMatrix 的 Agent 工作台客户端，目标平台为 Android 与 Linux/Windows 桌面（`android/`、`linux/`、`windows/` 三个平台目录，无 iOS/macOS/Web），Dart 包名为 `codingmatrix_desktop`，应用标识为 `com.codingmatrix.agent`（Android `namespace`/`applicationId`、Linux `APPLICATION_ID`，窗口与产品名为 `CodingMatrix Agent`），版本 `1.0.0+1`，Dart SDK `^3.9.2`。客户端只调用现有 FastAPI 接口，使用 Cookie JWT、CSRF 和 RSA 加密登录，不单独实现业务引擎。Android 清单通过 `android:usesCleartextTraffic` 允许明文 HTTP，因为后端由用户自建、地址在登录页运行时填写。
 
@@ -81,7 +81,7 @@ flutter pub get
 # 静态分析
 flutter analyze --no-pub
 
-# 测试（当前环境记录：2026-09-22，469 passed）
+# 测试（当前环境记录：2026-09-22，485 passed）
 flutter test --no-pub --concurrency=1
 
 # 启动桌面端（需本机已配置 Flutter 桌面目标）
@@ -102,7 +102,18 @@ flutter build apk --debug
 flutter build bundle --target-platform android-arm64
 ```
 
-测试文件位于 `flutter_client/test/`，共 33 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。Linux 桌面已在本环境实际构建并完成窗口启动冒烟验证；Android 仅验证 Dart 目标编译（APK 构建受 NDK 体积与本机磁盘限制）。
+测试文件位于 `flutter_client/test/`，共 34 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。Linux 桌面已在本环境实际构建，接入本地后端跑通登录、会话恢复与 13 个功能页渲染；Android 仅验证 Dart 目标编译（APK 构建受 NDK 体积与本机磁盘限制）。
+
+### Linux 运行环境依赖
+
+中文字体已内置于应用，不再是环境依赖：
+
+- 应用随包携带 Noto Sans CJK SC 子集（ASCII + GB2312 + 常用中日韩标点，约 3.1 MB，SIL OFL 1.1）。字体选择由 `app.dart:13` 按平台决定：仅 Linux 使用该字体族，Android/Windows 保持系统字体，渲染行为不变。pubspec 中声明的字体资源会被打进所有平台产物，因此 Android APK 也会增加约 3.1 MB；若要拿掉这部分体积，需改用按平台分包的资源方案。源文件与许可证见 `flutter_client/assets/fonts/`，许可证同时注册为资源随产物分发。
+
+凭据存储仍是环境依赖：
+
+- 会话持久化依赖 Secret Service（libsecret + gnome-keyring）。缺失或未解锁时应用仍能启动并进入登录页，但会显示「系统安全存储不可用，登录状态无法在本机保存。请先安装并解锁系统密钥环，再重试。」，且登录不会成功（无法保存会话）。该失败在凭据层被归类为 `SecureStorageUnavailableException`，不会再被误报为「会话恢复失败」或「网络失败」。
+- 密钥环处于锁定状态时，系统会弹出解锁对话框等待用户输入；在无人值守的 headless 环境里该读取会一直挂起，应用停留在启动加载态。这是 Secret Service 的交互行为，部署时需预先解锁密钥环。
 
 ## 相关文档
 
