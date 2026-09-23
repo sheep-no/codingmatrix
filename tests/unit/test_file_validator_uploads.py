@@ -1,10 +1,15 @@
 """file_validator 文本/代码文件与二进制伪装的上传契约回归（FV1）。"""
 import io
+import tarfile
 import zipfile
 
 import pytest
 
-from app.core.file_validator import validate_file_content, validate_file_path
+from app.core.file_validator import (
+    detect_mime_type,
+    validate_file_content,
+    validate_file_path,
+)
 
 
 TEXT_CASES = {
@@ -82,3 +87,39 @@ def test_docx_zip_container_is_accepted():
 def test_svg_with_script_is_still_rejected():
     with pytest.raises(ValueError):
         validate_file_content(b"<svg onload=alert(1)></svg>", "evil.svg")
+
+
+def _make_tar() -> bytes:
+    buffer = io.BytesIO()
+    payload = b"hello\n"
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        info = tarfile.TarInfo("notes.txt")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def test_tar_magic_is_detected_at_offset_257():
+    """tar 魔数在偏移 257，不在文件头（FV4）。"""
+    data = _make_tar()
+
+    assert data[:16] != b"ustar"
+    assert data[257:262] == b"ustar"
+    assert detect_mime_type(data) == "application/x-tar"
+
+
+def test_tar_upload_is_accepted():
+    detected_mime, safe_filename = validate_file_content(_make_tar(), "notes.tar")
+
+    assert detected_mime == "application/x-tar"
+    assert safe_filename.endswith(".tar")
+
+
+def test_tar_upload_is_accepted_from_path(tmp_path):
+    path = tmp_path / "notes.tar"
+    path.write_bytes(_make_tar())
+
+    detected_mime, safe_filename = validate_file_path(path, "notes.tar")
+
+    assert detected_mime == "application/x-tar"
+    assert safe_filename.endswith(".tar")

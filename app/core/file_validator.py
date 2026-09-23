@@ -206,7 +206,6 @@ def detect_mime_type(content: bytes) -> str:
         b'%PDF': 'application/pdf',
         b'PK\x03\x04': 'application/zip',
         b'PK\x05\x06': 'application/zip',  # 空压缩包
-        b'ustar': 'application/x-tar',  # tar 文件包含此字符串
         b'\x1f\x8b\x08': 'application/x-gzip',
         b'7z\xbc\xaf\x27\x1c': 'application/x-7z-compressed',
         b'Rar!\x1a\x07': 'application/x-rar-compressed',
@@ -223,6 +222,13 @@ def detect_mime_type(content: bytes) -> str:
     for magic, mime in magic_signatures.items():
         if header.startswith(magic):
             return mime
+
+    # tar 的魔数不在文件头：POSIX/GNU tar 的 "ustar" 位于偏移 257，
+    # 前 257 字节是首个成员的文件名等元数据，因此不能按 header 前缀匹配。
+    # 原先把它放进 magic_signatures 用 startswith 比对，导致 .tar 恒判为
+    # application/octet-stream 被白名单拒绝（FV4）。
+    if content[257:262] == b'ustar':
+        return 'application/x-tar'
     
     # 检查是否包含特定字符串（对于文本文件）
     sample = content[:2048].decode('utf-8', errors='ignore')
