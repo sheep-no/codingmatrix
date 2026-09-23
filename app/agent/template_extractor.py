@@ -4,11 +4,37 @@ from typing import List, Dict, Optional
 
 from app.agent.orchestrator_requirements import DOMAIN_TEMPLATES_DIR
 from app.agent.models import DEFAULT_REASONING_MODEL
+from app.agent.json_parser import extract_first_json_object
 
 logger = logging.getLogger(__name__)
 
 TEMPLATE_REVIEW_MODEL = DEFAULT_REASONING_MODEL
 TEMPLATE_EXTRACT_MODEL = DEFAULT_REASONING_MODEL
+MAX_PROMPT_FEATURES = 200
+
+# JSON 输出示例用普通字符串保存，避免 f-string 把示例花括号当表达式求值
+_EXTRACT_OUTPUT_EXAMPLE = """{
+  "domain": "领域名",
+  "version": "auto_extracted",
+  "description": "基于历史项目自动萃取的领域模板",
+  "applicable_project_types": ["medium", "large"],
+  "core_modules": [
+    {"name": "模块名", "category": "core/optional", "impact": "影响说明", "options": ["选项A", "选项B"], "default": "默认选项"}
+  ],
+  "non_functional_requirements": [
+    {"category": "security/performance/compliance", "item": "需求描述", "priority": "high/medium"}
+  ],
+  "common_pitfalls": ["陷阱1", "陷阱2"],
+  "key_decisions": [
+    {"question": "决策问题", "impact": "architecture/data_model/storage", "options": ["选项A", "选项B"]}
+  ]
+}"""
+
+_REVIEW_OUTPUT_EXAMPLE = """{
+  "approved": true,
+  "reason": "审核理由",
+  "suggestions": ["改进建议1", "改进建议2"]
+}"""
 
 
 class TemplateExtractor:
@@ -30,28 +56,19 @@ class TemplateExtractor:
         for fl in feature_lists:
             all_features.extend(fl)
 
+        selected_features = all_features[:MAX_PROMPT_FEATURES]
+        truncation_note = (
+            f"（共 {len(all_features)} 条，仅展示前 {MAX_PROMPT_FEATURES} 条，频率统计基于该子集）"
+            if len(all_features) > MAX_PROMPT_FEATURES else ""
+        )
+
         prompt = f"""基于以下 {len(feature_lists)} 个 {domain} 领域项目的功能清单，萃取出该领域的通用模板。
 
-项目功能清单汇总：
-{json.dumps(all_features[:200], ensure_ascii=False)}
+项目功能清单汇总{truncation_note}：
+{json.dumps(selected_features, ensure_ascii=False)}
 
 请严格按照以下 JSON 格式输出领域模板，不要输出任何其他内容：
-{
-  "domain": "{domain}",
-  "version": "auto_extracted",
-  "description": "基于历史项目自动萃取的{domain}领域模板",
-  "applicable_project_types": ["medium", "large"],
-  "core_modules": [
-    {"name": "模块名", "category": "core/optional", "impact": "影响说明", "options": ["选项A", "选项B"], "default": "默认选项"}
-  ],
-  "non_functional_requirements": [
-    {"category": "security/performance/compliance", "item": "需求描述", "priority": "high/medium"}
-  ],
-  "common_pitfalls": ["陷阱1", "陷阱2"],
-  "key_decisions": [
-    {"question": "决策问题", "impact": "architecture/data_model/storage", "options": ["选项A", "选项B"]}
-  ]
-}
+{_EXTRACT_OUTPUT_EXAMPLE}
 
 萃取要求：
 1. core_modules 只提取出现频率 >=40% 的功能模块
@@ -88,18 +105,13 @@ class TemplateExtractor:
     def _parse_template_response(
         self, response: str, domain: str
     ) -> Optional[Dict]:
-        import re
-        try:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                template = json.loads(json_match.group())
-                template["domain"] = domain
-                template["version"] = "auto_extracted"
-                if not template.get("core_modules"):
-                    return None
-                return template
-        except json.JSONDecodeError:
-            pass
+        template = extract_first_json_object(response)
+        if template:
+            template["domain"] = domain
+            template["version"] = "auto_extracted"
+            if not template.get("core_modules"):
+                return None
+            return template
 
         logger.warning(f"模板萃取输出非 JSON: {response[:100]}")
         return None
@@ -118,11 +130,7 @@ class TemplateExtractor:
 5. 无明显错误或荒谬内容
 
 请严格按照以下 JSON 格式输出审核结果：
-{
-  "approved": true/false,
-  "reason": "审核理由",
-  "suggestions": ["改进建议1", "改进建议2"]
-}"""
+{_REVIEW_OUTPUT_EXAMPLE}"""
 
         try:
             from app.utils import call_llm
@@ -130,10 +138,9 @@ class TemplateExtractor:
                 model=TEMPLATE_REVIEW_MODEL,
                 prompt=prompt,
             )
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group())
+            result = extract_first_json_object(response)
+            if result is not None:
+                return result
         except Exception as e:
             logger.warning(f"模板审核失败: {e}")
 
@@ -142,12 +149,18 @@ class TemplateExtractor:
     def _save_template(self, template: Dict, domain: str):
         existing_path = DOMAIN_TEMPLATES_DIR / f"{domain}.json"
         if existing_path.exists():
-            backup_path = DOMAIN_TEMPLATES_DIR / f"{domain}_manual.json"
             with open(existing_path, "r", encoding="utf-8") as f:
                 existing = json.load(f)
-            with open(backup_path, "w", encoding="utf-8") as f:
-                json.dump(existing, f, ensure_ascii=False, indent=2)
-            logger.info(f"原手工模板已备份为 {backup_path}")
+            # 手工维护的模板（layer1 消费 {domain}.json）优先，自动萃取结果另存，
+            # 避免程序生成数据覆盖人工模板。
+            if existing.get("version") != "auto_extracted":
+                auto_path = DOMAIN_TEMPLATES_DIR / f"{domain}_auto.json"
+                with open(auto_path, "w", encoding="utf-8") as f:
+                    json.dump(template, f, ensure_ascii=False, indent=2)
+                logger.info(
+                    f"领域 {domain} 存在手工模板，自动萃取结果另存为 {auto_path}"
+                )
+                return
 
         with open(existing_path, "w", encoding="utf-8") as f:
             json.dump(template, f, ensure_ascii=False, indent=2)
