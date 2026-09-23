@@ -96,6 +96,8 @@ class ProjectMetadataManager:
     ) -> List[str]:
         file_summary = self._summarize_files(generated_files)
 
+        # JSON 示例的字面花括号必须转义，否则会被 f-string 当作格式说明符求值并抛
+        # ValueError（此前该函数每次调用即失败，功能清单从未落库）。
         prompt = f"""分析以下项目需求描述和生成的代码文件列表，提取该项目实现的结构化功能清单。
 
 项目需求：
@@ -105,13 +107,13 @@ class ProjectMetadataManager:
 {file_summary}
 
 请严格按照以下 JSON 格式输出功能清单，不要输出任何其他内容：
-{
+{{
   "features": [
     "用户登录与认证",
     "商品浏览与搜索",
     "订单创建与管理"
   ]
-}
+}}
 
 功能清单要求：
 1. 每个功能点用一句话描述，从用户或系统视角

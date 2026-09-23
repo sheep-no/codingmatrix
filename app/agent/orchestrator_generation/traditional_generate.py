@@ -366,7 +366,7 @@ class TraditionalGenerateMixin:
         try:
             domain = self._association_result.domain_matched if hasattr(self, '_association_result') and self._association_result else ""
             await self._extract_and_save_feature_list(
-                requirement, self.generated_files, domain
+                requirement, generated_files_dict, domain
             )
         except Exception as e:
             logger.warning(f"功能清单提取失败(非阻塞): {e}")

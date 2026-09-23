@@ -141,7 +141,7 @@ class GenerationMixin(
 
     async def _extract_and_save_feature_list(
         self, requirement: str,
-        generated_files: List[Dict],
+        generated_files: Dict[str, str],
         domain: str = ""
     ) -> Optional[Dict]:
         return await extract_and_save_feature_list(

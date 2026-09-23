@@ -72,3 +72,21 @@
 ## 5. 测试状态
 
 **CRUD 单测、写入链零覆盖**——test_v5_1_requirement_deep.py:85-120 仅 3 用例测 `ProjectMetadataManager` CRUD（手工注入 `_projects` 后断言），`extract_and_save`/`_extract_feature_list` 全库零测试；`rg` 确认传统链（`_generate_traditional`/feature_extractor/coverage_checker）无任何测试文件引用。TG1 恒定 ValueError 可一次 `extract_and_save` 调用复现却无任何用例保护，历史数据写入链唯一行为的正确性完全依赖未被验证的实现。
+
+## 6. 状态校准（2026-09-23）
+
+### 已修
+
+- **TG1 已修**：`project_metadata.py:110-116` 的 JSON 示例花括号转义为 `{{` / `}}`，`_extract_feature_list` 的 prompt 现可正常渲染。回退该转义后新用例复现 `ValueError: Invalid format specifier ' [ ...'`（实测），证明用例能捕获原缺陷。
+- **TG2 已修**：`feature_extractor.py` 签名由 `generated_files: List[Dict]` 改为 `Dict[str, str]`（`{路径: 内容}` 映射），直接透传调用方读回的 `generated_files_dict`（`traditional_generate.py:264-272` 的 read_pattern）。原先按 `gf.get("content", gf.get("code"))` 解析 List 条目，而生成条目只有 `path/description/success/size` → `files_dict` 恒空；回退后新用例报 `'str' object has no attribute 'get'` 并静默返回 None（实测）。`mixin.py:142-148` 与 `traditional_generate.py:368` 调用点同步改为传映射。
+
+新增 `tests/unit/test_traditional_generate_feature_extraction.py` 2 用例（prompt 渲染 + 映射透传），回退源码后 2/2 失败，修复后与 `test_v5_1_requirement_deep.py` 共 33 项通过。此修复仅补齐「prompt 可渲染 + 文件内容可达」，下游写入是否成功仍取决于 TG3 前置（`project_metadata.json` 数据源激活）。
+
+### 仍成立
+
+- TG3：数据源恒空是 TG1/TG2 的下游后果，本次修复后 `extract_and_save` 具备首次成功写入的条件，但 `project_metadata.json` 尚未产出真实数据，模板萃取（≥15）/Layer 2 联想（≥50）触发前仍需实测确认。
+- TG4（`is_complete` 忽略空文件）、TG5（审查放行）、TG7、TG9、TG10：本次未触及，条目描述与当前代码一致。
+
+### 相关文档
+
+- PM6（`project_metadata.md`）：`_extract_feature_list` 已有行为用例，`_parse_feature_response`/`_fallback_feature_list` 仍零覆盖；PM1/PM2 仍成立。

@@ -1,24 +1,25 @@
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
 
 async def extract_and_save_feature_list(
     requirement: str,
-    generated_files: List[Dict],
+    generated_files: Dict[str, str],
     domain: str = ""
 ) -> Optional[Dict]:
     try:
         from app.agent.project_metadata import ProjectMetadataManager
         pm = ProjectMetadataManager()
 
-        files_dict = {}
-        for gf in generated_files:
-            path = gf.get("path", gf.get("file_path", ""))
-            content = gf.get("content", gf.get("code", ""))
-            if path and content:
-                files_dict[path] = content
+        # 调用方持有的是 {路径: 内容} 映射（从磁盘读回）；此前按 List[Dict] 解析
+        # 且只认 content/code 键，而生成条目只有 path/size，导致 files_dict 恒空。
+        files_dict = {
+            path: content
+            for path, content in (generated_files or {}).items()
+            if path and content
+        }
 
         result = await pm.extract_and_save(
             requirement, files_dict, domain=domain
