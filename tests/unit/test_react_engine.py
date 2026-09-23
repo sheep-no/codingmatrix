@@ -227,6 +227,20 @@ class TestBuildHistoryText:
         text = engine._build_history_text()
         assert len(text) <= engine.MAX_HISTORY_CHARS + 50  # some margin for suffix
 
+    def test_chinese_single_entry_respects_token_limit(self):
+        # 中文约 2 token/字符，6000 字符上限可对应 12000 token，必须再按 token 截断
+        engine = ReActEngine(tools={}, call_llm_fn=AsyncMock())
+        engine.tool_history = ["中" * engine.MAX_HISTORY_CHARS + "中" * 2000]
+        text = engine._build_history_text()
+        assert engine._estimate_tokens(text) <= engine.MAX_HISTORY_TOKENS
+
+    def test_large_recent_entries_respect_token_limit(self):
+        # 最近条目本身超限时，仅截断早期摘要无法压到上限，需整体兜底截断
+        engine = ReActEngine(tools={}, call_llm_fn=AsyncMock())
+        engine.tool_history = ["early tiny"] + ["x" * 20000] * engine.MAX_RECENT_ENTRIES
+        text = engine._build_history_text()
+        assert engine._estimate_tokens(text) <= engine.MAX_HISTORY_TOKENS
+
 
 class TestRunSimpleMode:
     @pytest.mark.asyncio
