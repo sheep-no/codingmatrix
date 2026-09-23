@@ -100,10 +100,12 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
             controller: name,
             decoration: const InputDecoration(labelText: '名称'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: url,
             decoration: const InputDecoration(labelText: 'Base URL'),
           ),
+          const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             // Keyed by the current protocol so resetting the draft on account
             // change actually moves the visible selection back to the default.
@@ -116,6 +118,7 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
             onChanged: loading ? null : (v) => setState(() => protocol = v!),
             decoration: const InputDecoration(labelText: '协议'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: key,
             obscureText: true,

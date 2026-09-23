@@ -119,6 +119,7 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
                   controller: roleController,
                   decoration: const InputDecoration(labelText: '角色'),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: limitController,
                   keyboardType: TextInputType.number,

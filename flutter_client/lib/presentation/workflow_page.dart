@@ -148,6 +148,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       validator: (s) =>
                           s == null || s.trim().isEmpty ? '请输入任务描述' : null,
                     ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: timeout,
                       enabled: !state.active && !state.refreshing,

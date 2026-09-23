@@ -180,11 +180,13 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                       validator: (v) =>
                           v == null || v.trim().isEmpty ? '请输入画面描述' : null,
                     ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: negative,
                       enabled: enabled,
                       decoration: const InputDecoration(labelText: '反向提示词（可选）'),
                     ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
                       initialValue: size,
                       decoration: const InputDecoration(labelText: '尺寸'),
@@ -200,6 +202,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                           ? (s) => setState(() => size = s!)
                           : null,
                     ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
                       initialValue: count,
                       decoration: const InputDecoration(labelText: '图片数量'),

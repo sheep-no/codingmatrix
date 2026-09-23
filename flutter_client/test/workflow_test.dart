@@ -252,6 +252,29 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
+  testWidgets('堆叠表单项之间保留间距，浮动标签不压住上方边框', (tester) async {
+    final source = StreamController<List<int>>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workflowControllerProvider.overrideWith(
+            (_) =>
+                WorkflowController(WorkflowClient(WorkflowApi(source.stream))),
+          ),
+        ],
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(2));
+    final rects = [for (var i = 0; i < 2; i++) tester.getRect(fields.at(i))]
+      ..sort((a, b) => a.top.compareTo(b.top));
+    expect(rects[1].top - rects[0].bottom, greaterThanOrEqualTo(8));
+    await tester.pumpWidget(const SizedBox());
+    unawaited(source.close());
+    await tester.pump();
+  });
+
   testWidgets('执行请求网络断开显示未知结果', (tester) async {
     final container = ProviderContainer(
       overrides: [

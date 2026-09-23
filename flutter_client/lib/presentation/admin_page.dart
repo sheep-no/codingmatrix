@@ -77,10 +77,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
                   controller: username,
                   decoration: const InputDecoration(labelText: '用户名'),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: email,
                   decoration: const InputDecoration(labelText: '邮箱'),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: password,
                   obscureText: true,
@@ -166,10 +168,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
                     controller: username,
                     decoration: const InputDecoration(labelText: '用户名'),
                   ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: email,
                     decoration: const InputDecoration(labelText: '邮箱'),
                   ),
+                  const SizedBox(height: 12),
                   DropdownButton<String>(
                     value: permission,
                     items: const [

@@ -641,18 +641,22 @@ class _CreateCharacterDialogState
             controller: name,
             decoration: const InputDecoration(labelText: '名称'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: description,
             decoration: const InputDecoration(labelText: '简介'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: personality,
             decoration: const InputDecoration(labelText: '性格'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: speakingStyle,
             decoration: const InputDecoration(labelText: '说话风格'),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: greeting,
             decoration: const InputDecoration(labelText: '开场白'),
