@@ -21,7 +21,7 @@
 - 注册密码至少 8 字符，并要求大写字母、小写字母、数字、特殊字符，同时拒绝内置常见密码列表。
 - Web 前端使用 AES-256-CBC 加密登录 JSON，并使用 RSA-2048 OAEP/SHA-256 加密 AES Key。
 - 后端登录端点当前兼容明文 `email` 与 `password` JSON。
-- RSA 登录密钥默认从工作目录的 `keys/` 文件加载，首次缺失时生成并保存；多 worker 需要共享同一密钥卷。
+- RSA 登录密钥默认从 `keys/` 文件加载，首次缺失时生成并保存；密钥文件不入库（`.gitignore` 忽略 `keys/*.pem`），部署时经密钥卷或密钥管理注入，多 worker 需共享同一密钥卷。
 
 详细流程见 [加密登录](ENCRYPTED-LOGIN.md)。
 
@@ -110,7 +110,7 @@ ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
 ## 当前部署重点
 
 - 生产环境使用 HTTPS，确保 Secure Cookie、登录兼容载荷和动态供应商 Key 传输得到 TLS 保护。
-- 多 worker 部署前共享 RSA 密钥文件，并处理进程内 CSRF Token 和动态供应商状态共享。
+- 多 worker 部署前通过共享密钥卷注入 RSA 密钥文件（`RSA_KEY_DIR` 指向挂载目录），并处理进程内 CSRF Token 和动态供应商状态共享。
 - CORS 仅配置明确来源，并统一 Nginx 与应用安全头。
 - Redis 作为用户 Key 和任务基础设施，应限制网络访问并启用认证。
 - 健康端点检查数据库与 Redis，Celery worker 状态需要单独监控。

@@ -176,3 +176,30 @@ class TestSharedKeyFile:
         )
         assert decrypted.decode("utf-8") == payload
         assert base64.b64encode(decrypted).decode("utf-8")
+
+
+class TestKeyFilesNotTracked:
+    """密钥文件必须留在 git 之外，避免私钥随仓库分发。"""
+
+    @staticmethod
+    def _repo_root() -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    def test_gitignore_excludes_key_material(self):
+        gitignore = (self._repo_root() / ".gitignore").read_text(encoding="utf-8")
+        rules = {line.strip() for line in gitignore.splitlines()}
+        assert "keys/*.pem" in rules
+
+    def test_key_files_are_ignored_by_git(self):
+        import subprocess
+
+        root = self._repo_root()
+        if not (root / ".git").exists():  # pragma: no cover - 源码归档场景
+            pytest.skip("非 git 工作区")
+        for name in ("rsa_private.pem", "rsa_public.pem"):
+            result = subprocess.run(
+                ["git", "check-ignore", "-q", f"keys/{name}"],
+                cwd=root,
+                capture_output=True,
+            )
+            assert result.returncode == 0, f"keys/{name} 未被 .gitignore 忽略"
