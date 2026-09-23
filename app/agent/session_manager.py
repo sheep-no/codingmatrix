@@ -14,6 +14,7 @@ import hashlib
 import logging
 import time
 import asyncio
+from uuid import uuid4
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -172,7 +173,8 @@ class SessionManager:
     ) -> SessionState:
         """创建新会话"""
         if not session_id:
-            session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 秒级时间戳同秒内并发创建会相互覆盖，追加随机后缀保证唯一
+            session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
         state = SessionState(
             session_id=session_id,
             requirement=requirement,
@@ -367,11 +369,15 @@ class SessionManager:
 
             # 联动清理：同步更新 DB 中的会话状态
             try:
-                from app.db.database import async_session
                 from app.db.models import ProjectSession
                 from sqlalchemy import select
 
-                async with async_session() as db:
+                # 优先使用注入的 factory，未注入时才回落到全局 async_session
+                session_factory = self._db_session_factory
+                if session_factory is None:
+                    from app.db.database import async_session as session_factory
+
+                async with session_factory() as db:
                     result = await db.execute(
                         select(ProjectSession).where(ProjectSession.session_id == sid)
                     )
@@ -438,7 +444,10 @@ class SessionManager:
                 path: {
                     "status": fs.status,
                     "last_modified": fs.last_modified,
-                    "error": fs.error
+                    "error": fs.error,
+                    # 暴露复用判定依据，但 embedding 向量过大（每文件数百维）不入响应
+                    "content_hash": fs.content_hash,
+                    "has_embedding": fs.content_embedding is not None
                 }
                 for path, fs in state.file_statuses.items()
             }
@@ -492,8 +501,14 @@ class SessionManager:
 
             full_path = output_dir / file_path
             if full_path.exists():
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except (OSError, UnicodeDecodeError) as e:
+                    # 单文件读取失败（权限/损坏/非 UTF-8）不应中断整个增量检测，按已变更处理
+                    logger.warning(f"增量检测读取文件失败，按已变更处理: {file_path} ({e})")
+                    changed.append(file_path)
+                    continue
                 current_hash = self._compute_hash(content)
 
                 fs = state.file_statuses.get(file_path)
@@ -522,7 +537,8 @@ class SessionManager:
                 changed.append(file_path)
 
         state.changed_files = changed
-        state.unchanged_files = unchanged + small_changes
+        # unchanged 已包含 small_changes（相似度高时两者都 append），再拼一次会重复
+        state.unchanged_files = unchanged
 
         logger.info(
             f"增量检测完成: {len(changed)} 个文件需要更新, "

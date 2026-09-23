@@ -171,3 +171,14 @@ from app.db.database import async_session
 - SM14 已实测（embedding 分支 `state.unchanged_files = ['a.py','a.py']` 重复）。
 - SM2/SM3 已实测（embedding 分支仅手工设字段可达；update_file_status 零消费为代码级确凿）。
 - SM10/SM4/SM1/SM9/SM8/SM11/SM13 为代码级结论。
+
+## 6. 状态更新（2026-09-23）
+
+- **SM14 [P2] 已修**：`detect_incremental_changes` 中小变更文件先 `unchanged.append`（:515）又 `small_changes.append`，末尾 `state.unchanged_files = unchanged + small_changes` 再拼一次，导致小变更文件在状态中重复。消费方 `incremental_generate._handle_incremental_generation` 会遍历 `state.unchanged_files` 追加 `reused=True` 的 `generated_files`，重复项会带入重复条目。现改为 `state.unchanged_files = unchanged`（`small_changes` 本就是 `unchanged` 的子集），与返回值的 `unchanged_files` 字段保持一致。
+- **SM4 [P3] 已修**：`detect_incremental_changes` 的 `open(...).read()` 无异常处理，权限/损坏/非 UTF-8 文件会让整个增量检测中断。现捕获 `OSError`/`UnicodeDecodeError`，记录 warning 并把该文件按「已变更」处理。
+- **SM9 [P3] 已修**：`create_session` 默认 `session_id` 用秒级时间戳，同秒并发创建互相覆盖（`_active_sessions` 键覆盖 + 磁盘文件覆盖）。现追加 `uuid4().hex[:8]` 后缀。生产调用方（traditional_generate、orchestrate_endpoints、helpers）均显式传入 `session_id`，不受影响。
+- **SM11 [P3] 已修**：`cleanup_expired` 原先直接 `from app.db.database import async_session`，绕过注入的 `_db_session_factory`。现优先使用注入 factory，未注入时才回落到全局。
+- **SM13 [P3] 部分已修**：`get_session_status` 的 `files` 补 `content_hash` 与 `has_embedding`（布尔），让复用判定依据对外可见；**embedding 向量本身不入响应**（每文件数百维，放进状态接口会显著放大 payload，故只暴露是否存在的布尔）。
+- **SM2/SM3 [P2]、SM10 [P2]、SM1/SM8 [P3] 保留**：`update_file_status` 零消费 / embedding 恒空是能力未接线（需产品决定复用口径）；「DB 唯一真相源」声明与实际同步面矛盾需扩展 DB 字段或修正声明；`approval_queue` 跨事件循环与 `SESSION_DIR` 相对 CWD 属结构性/配置项，均保留。
+
+回归：`tests/unit/test_session_manager.py` 由 2 项扩到 6 项（默认 ID 唯一、小变更不重复、读取失败按变更、状态含复用依据）；回退 `session_manager.py` 后新增 4 项失败。
