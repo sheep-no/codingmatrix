@@ -186,3 +186,20 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 - CV2（exec 任意代码）在修复循环（error_recovery_loop.md ERL 系列）与最终验证（traditional_generate.md）中每轮触发——是「修复→验证」闭环的性能/安全阻塞项，应先于 LCL1 收敛处理。
 - CV1 缓存失效与 orchestrator_files.py:702/754 绕过公共方法的直接访问并存，属「同一资源两套访问路径」——归入统一收敛主线。
 - SandboxValidator（utils.py:341）是「运行时验证」的既成方向（隔离沙箱），CV2 修复可复用其设计而非重造。
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码（code_validator.py 945 行）逐条复核 §3 缺陷，结论：
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| CV1 | 已修 | `run_full_validation` 此前用合成串键调 `get_cached_validation`（内部按文件路径 `open`），恒失败。新增 `get_cached_validation_by_key`（:270）直接按键查表（含 TTL/LRU 维护），写入改用已有的 `store_validation`（:939）。连续两次 `run_full_validation`，第二次 `cache_hit=True`。 |
+| CV2 | **仍在** | `spec.loader.exec_module(module)`（:436）依旧真实执行模块级代码，无超时、阻塞事件循环。修复方案（compile+AST 静态检查，或 subprocess 隔离沙箱）会改变 `validate_runtime_imports` 对项目内缺失模块的检测路径，需单独评估与配套测试，未并入本批。 |
+| CV3 | 已修（早于本批） | 原「root 只认 src/tests」的 `for _ in range(10)` 判定已不存在；`_import_search_paths`（:126）始终把 `project_path` 与 `src/` 纳入搜索路径，`_project_top_level_packages`（:134）另行识别常规包与 PEP 420 命名空间包。`app/` 主包布局不再误报。 |
+| CV4 | 已修 | `validate_cross_file_consistency` 中原「前端 API 一致性检查」段只 `pass`（连警告都没有），且按 `/api` 前缀直接比对后端路由会大量误报（后端前缀经 `include_router(prefix=...)` 挂载）。该空操作段整体删除，跨文件校验不再假装覆盖前端。 |
+| CV5 | 已修 | 规则方向反了：现代 FastAPI 用 camelCase `tokenUrl`，原代码要求 `token_url`。现从 `API_COMPATIBILITY_RULES`（:110）取 `token_url -> tokenUrl` 映射生成判定（:487），既修正方向又消除两处规则各说一套。 |
+| CV6 | 已修 | Pipfile 是 TOML，改由标准库 `tomllib` 解析，抽出 `_packages_from_pipfile`（:701）。第三方 `toml` 未在依赖中声明，此前缺包时异常被吞、`required=[]` 导致依赖校验静默通过。 |
+| CV7 | 部分修 | 删除未使用的 `MAX_CACHE_SIZE`（已无引用）。类级 `_lru_cache`/统计跨实例共享仍在，属结构性改动，需连同失效语义一并设计，保留。 |
+| CV8 | **仍在** | 四套验证器并存的归位是结构性演化项（§6 主线），非单点 bug。 |
+
+配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误），文件累计 48 项。

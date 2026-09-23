@@ -100,7 +100,6 @@ class CodeValidator:
     _cache_hits = 0
     _cache_misses = 0
     _validation_cache = _lru_cache
-    MAX_CACHE_SIZE = 100
     SUCCESS_CACHE_TTL = 3600
     FAILURE_CACHE_TTL = 300
 
@@ -266,6 +265,29 @@ class CodeValidator:
         cls._lru_cache.move_to_end(cache_key)
         cls._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
         cls._clear_old_cache()
+
+    @classmethod
+    def get_cached_validation_by_key(cls, cache_key: str) -> Optional[Dict]:
+        """按键读取校验结果（键由调用方构造，非文件路径）。
+
+        `get_cached_validation` 面向真实文件路径（先读盘、再按内容算键），而
+        `run_full_validation` 的键是「全项目内容 hash」合成串，无法作为文件
+        打开，因此需要这个直接按键查表的入口。
+        """
+        entry = cls._lru_cache.get(cache_key)
+        if entry is None:
+            cls._cache_misses += 1
+            return None
+        result, timestamp = entry
+        ttl = cls.SUCCESS_CACHE_TTL if result.get("is_valid", False) else cls.FAILURE_CACHE_TTL
+        if time.time() - timestamp <= ttl:
+            cls._lru_cache.move_to_end(cache_key)
+            cls._cache_hits += 1
+            return result
+        cls._lru_cache.pop(cache_key, None)
+        cls._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
+        cls._cache_misses += 1
+        return None
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, Any]:
@@ -462,9 +484,20 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 source = f.read()
 
-            # FastAPI OAuth2PasswordBearer token_url 参数名变更
-            if 'OAuth2PasswordBearer' in source and 'token_url=' not in source and 'tokenUrl=' in source:
-                errors.append("FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='")
+            # FastAPI OAuth2PasswordBearer 参数名：现代版本为 camelCase 的
+            # tokenUrl，snake_case 的 token_url 是早期写法。方向取自
+            # API_COMPATIBILITY_RULES 声明，避免两处规则各说一套。
+            oauth_rename = self.API_COMPATIBILITY_RULES["fastapi"]["OAuth2PasswordBearer"]
+            legacy_param, current_param = next(iter(oauth_rename.items()))
+            if (
+                'OAuth2PasswordBearer' in source
+                and f'{legacy_param}=' in source
+                and f'{current_param}=' not in source
+            ):
+                errors.append(
+                    f"FastAPI 兼容性: OAuth2PasswordBearer 参数应为 "
+                    f"'{current_param}=' 而非 '{legacy_param}='"
+                )
 
             # FastAPI Middleware 导入位置变更（只匹配精确符号：CORSMiddleware 等
             # 由 fastapi 顶层正常再导出，子串匹配会误判合法导入）
@@ -613,37 +646,6 @@ class CodeValidator:
             except Exception as e:
                 logger.debug(f"跨文件引用检查失败：{e}")
 
-        # 3. 检查前端 API 调用与后端路由是否匹配
-        js_files = [f for f in self.project_path.rglob('*.js') if 'node_modules' not in str(f)]
-        api_routes_defined = set()
-        for f in py_files:
-            if '__pycache__' in str(f):
-                continue
-            try:
-                with open(f, 'r', encoding='utf-8') as source:
-                    content = source.read()
-                # 提取 @router.get("/xxx") 或 @app.post("/xxx") 等路由定义
-                routes = re.findall(r'@(?:router|app)\.(?:get|post|put|delete|patch)\(["\'](/[^"\']+)["\']', content)
-                api_routes_defined.update(routes)
-            except Exception as e:
-                logger.debug(f"API 路由提取失败：{e}")
-
-        # 检查前端是否调用了不存在的 API
-        for js_file in js_files:
-            try:
-                with open(js_file, 'r', encoding='utf-8') as f:
-                    js_content = f.read()
-                # 提取 fetch('/api/xxx') 或 axios.get('/api/xxx') 等 API 调用
-                api_calls = re.findall(r'(?:fetch|axios\.(?:get|post|put|delete))\(["\'](/api/[^"\']+)["\']', js_content)
-                for call in api_calls:
-                    # 简化检查：如果后端定义了路由，前端调用应该匹配
-                    # 这里只做基本检查，不处理动态路由参数
-                    if api_routes_defined and not any(call.startswith(r) or r.startswith(call.split('?')[0]) for r in api_routes_defined):
-                        # 只警告，不报错，因为可能是动态路由
-                        pass
-            except Exception as e:
-                logger.debug(f"API 一致性检查失败：{e}")
-
         return len(errors) == 0, errors
 
     async def validate_single_file(self, file_path: Path) -> Dict[str, Any]:
@@ -695,6 +697,20 @@ class CodeValidator:
 
         return results
 
+    @staticmethod
+    def _packages_from_pipfile(pipfile: Path) -> List[str]:
+        """解析 Pipfile 依赖名。
+
+        Pipfile 是 TOML 格式，用标准库 `tomllib`（3.11+）解析。此前用第三方
+        `toml` 包，而它未在依赖中声明，环境缺包时异常被吞掉，依赖校验会静默
+        通过。
+        """
+        import tomllib
+        with open(pipfile, 'rb') as f:
+            pipdata = tomllib.load(f)
+        deps = list(pipdata.get('packages', {}).keys()) + list(pipdata.get('dev-packages', {}).keys())
+        return [d.lower().replace('-', '_').split('[')[0] for d in deps if not d.startswith(('.', '/'))]
+
     async def validate_requirements(self) -> Tuple[bool, List[str]]:
         """验证 requirements.txt / pyproject.toml / Pipfile 是否完整"""
         req_file = self.project_path / 'requirements.txt'
@@ -742,11 +758,7 @@ class CodeValidator:
         elif pipfile.exists():
             found_file = pipfile
             try:
-                import toml
-                with open(pipfile, 'r') as f:
-                    pipdata = toml.load(f)
-                deps = list(pipdata.get('packages', {}).keys()) + list(pipdata.get('dev-packages', {}).keys())
-                required = [d.lower().replace('-', '_').split('[')[0] for d in deps if not d.startswith(('.', '/'))]
+                required = self._packages_from_pipfile(pipfile)
             except Exception as e:
                 logger.debug(f"Pipfile 解析失败：{e}")
 
@@ -837,7 +849,7 @@ class CodeValidator:
                     all_contents += str(f)
             content_hash = self._compute_content_hash(all_contents)
             cache_key = f"full_validation:{content_hash}"
-            cached = self.get_cached_validation(cache_key)
+            cached = CodeValidator.get_cached_validation_by_key(cache_key)
             if cached:
                 results.update(cached)
                 results["cache_hit"] = True
@@ -918,7 +930,7 @@ class CodeValidator:
 
         # 缓存验证结果（成功和失败都缓存，但过期时间不同）
         if all_files:
-            self.cache_validation(cache_key, {
+            CodeValidator.store_validation(cache_key, {
                 "syntax_errors": results["syntax_errors"],
                 "import_errors": results["import_errors"],
                 "dependency_errors": results["dependency_errors"],

@@ -724,3 +724,93 @@ class TestCodeValidatorLRU:
             
             stats = validator.get_cache_stats()
             assert stats["size_bytes"] <= validator._max_cache_bytes * 1.1
+
+
+class TestCodeValidatorDefectFixes:
+    @pytest.mark.asyncio
+    async def test_full_validation_second_run_hits_cache(self, tmp_path):
+        """全项目校验键是内容 hash 合成串，不能当文件路径打开，否则恒 miss。"""
+        from app.agent.code_validator import CodeValidator
+
+        saved_cache = dict(CodeValidator._lru_cache)
+        saved_size = CodeValidator._cache_size_bytes
+        try:
+            CodeValidator._lru_cache.clear()
+            CodeValidator._cache_size_bytes = 0
+            (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+            validator = CodeValidator(tmp_path)
+
+            first = await validator.run_full_validation()
+            second = await validator.run_full_validation()
+
+            assert first["cache_hit"] is False
+            assert second["cache_hit"] is True
+            assert CodeValidator.get_cache_stats()["entries"] >= 1
+        finally:
+            CodeValidator._lru_cache.clear()
+            CodeValidator._lru_cache.update(saved_cache)
+            CodeValidator._cache_size_bytes = saved_size
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_accepts_modern_camel_case_token_url(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "security.py"
+        target.write_text(
+            "from fastapi.security import OAuth2PasswordBearer\n\n"
+            'oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_api_compatibility(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_flags_legacy_snake_case_token_url(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "security.py"
+        target.write_text(
+            "from fastapi.security import OAuth2PasswordBearer\n\n"
+            'oauth2_scheme = OAuth2PasswordBearer(token_url="token")\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_api_compatibility(target)
+
+        assert ok is False
+        assert any("tokenUrl" in err for err in errors)
+
+    def test_pipfile_manifest_does_not_require_third_party_toml(self, tmp_path, monkeypatch):
+        """Pipfile 用标准库 tomllib 解析，缺第三方 toml 时不能静默失败。"""
+        import sys
+
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "Pipfile").write_text('[packages]\nfastapi = "*"\n', encoding="utf-8")
+        # 模拟第三方 toml 未安装：`import toml` 会因此抛 ImportError
+        monkeypatch.setitem(sys.modules, "toml", None)
+
+        required = CodeValidator._packages_from_pipfile(tmp_path / "Pipfile")
+
+        assert required == ["fastapi"]
+
+    @pytest.mark.asyncio
+    async def test_cross_file_does_not_emit_bogus_frontend_api_errors(self, tmp_path):
+        """前端字面量 API 调用与后端路由前缀不同是常态，跨文件校验不应据此报错。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "main.py").write_text(
+            "def list_users():\n    return []\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "api.js").write_text(
+            "export const load = () => fetch('/api/v1/unknown');\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True
+        assert errors == []
