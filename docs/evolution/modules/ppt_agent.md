@@ -194,3 +194,20 @@
 - **「存在≠正确」页数语义**：PPT2/PPT4 使生成页数与请求页数在正常/降级两路径都不一致，与 OU1 估算失真、SM13 不可观测同属「声称 vs 实际」落差；`total_slides` 响应字段（aiGeneratorPptx.py:1604）如实反映错误页数反而暴露不一致。
 - **AJP1 认知修正**：PPT3 证实 architect_json_parser.md 对 ppt_agent 的「崩溃」断言过时（`_validate_outline` 有 except Exception 兜底）——「存在≠正确」在文档层面同样成立：AJP1 记录的行为与实际代码不符，需同步修正，避免后续按错误基线修复。
 - **静默降级家族**：PPT3（null→模板大纲）/ PPT7（截断无标记）与 DMR1/MEM1 的「降级语义不符」同源——用户看到成功结果但内容是占位/残缺。
+
+## 7. 状态校准（2026-09-23 复核）
+
+### 7.1 已修复
+
+- **PPT1 [P2] 已修**：`modify_outline` 原把 `len(existing_outline["slides"])` 当 `num_slides` 传给 `_parse_with_llm_fallback`，`_validate_outline` 据此把 LLM 修改结果强制裁剪/补齐回修改前页数——「加一页」时 `while len(slides) > 4: pop(-2)` 会优先删掉靠近结尾的内容页，新增页挤掉原有页。现改为传 `None`，只做 title/end/类型规范化与 `AUTO_SLIDE_MAX` 上限，修改后的真实页数生效。实测：5 页数据在 `num_slides=4` 下返回 `['封面','一','新增页','谢谢']`（删「二」），`num_slides=None` 下完整保留 5 页。回归 `tests/unit/test_ppt_agent.py`（新增 5 项：加页保留原页、删页不被补回、LLM 失败降级返回原大纲、`_fallback_outline` 1/2 页边界）。注：`modify_outline` 当前全库零调用方（孤儿 public 方法），本修复消除未来接线时复现该缺陷的风险。
+- **PPT2 [P2] 已修（早于本校准，文档滞后）**：`_validate_outline` 现有 `while len(slides) < num_slides` 分支（ppt_agent.py:532-543），按 `build_expanded_commercial_page_blueprint` 逐页补齐内容页并插在结束页前，「只收缩不补齐」已不成立，生成页数遵守 `num_slides`。
+- **PPT4 [P2] 已修（早于本校准，文档滞后）**：`_fallback_outline` 对 `num_slides == 1` 单独返回单页封面（ppt_agent.py:556-560），`num_slides == 2` 时 `range(1, 1)` 为空直接 title+end，实测 1/2 页分别返回 1/2 页，不再恒为 3 页。回归 `TestFallbackOutlineBounds` 锁定该边界。
+
+### 7.2 仍未处理
+
+- **PPT3 [P2] 文档认知修正待同步**：`architect_json_parser.md` AJP1 对 `ppt_agent.py` 的「AttributeError 未处理崩溃」断言在本模块不成立（`_validate_outline` 有 `except Exception` 兜底返回 None），随 architect_json_parser.md 校准批次一并修正；「`_parse_with_llm_fallback` 返回 None 时 generate_outline 提前 break 不重试」的优化未做。
+- **PPT5 [P2] / PPT6-PPT9 [P3] 维持**：`call_llm` 直连与模型名双份（LCL1 家族）、`quality` 参数空转、截断无日志、bullet 长度软约束、`raw_text[:3000]` 无标记，均未改动。
+
+### 7.3 测试状态
+
+此前 tests/ 全库无任何直接覆盖（`test_ppt_unified_generation.py` 走 pptx 引擎路径）。本轮新增 `tests/unit/test_ppt_agent.py`（5 项），建立 `modify_outline` 与 `_fallback_outline` 边界回归基线。
