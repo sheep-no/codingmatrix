@@ -29,12 +29,16 @@ class TestEstimateTokens:
         assert _estimate_tokens(None) == 0
 
     def test_english_text(self):
-        # "hello world" = 11 chars / 2 = 5
-        assert _estimate_tokens("hello world") == 5
+        # "hello world" = 11 字符，按英文约 4 字符/token → 11/4 = 2
+        assert _estimate_tokens("hello world") == 2
 
     def test_chinese_text(self):
-        # "你好世界" = 4 chars / 2 = 2
+        # "你好世界" = 4 字，按中文约 1.5 字/token → 4/1.5 = 2
         assert _estimate_tokens("你好世界") == 2
+
+    def test_mixed_text(self):
+        # 4 个中文字 + 8 个英文 = 4/1.5 + 8/4 = 2 + 2 = 4
+        assert _estimate_tokens("你好世界abcdefgh") == 4
 
 
 class TestConversationStoreBasic:
@@ -190,7 +194,7 @@ class TestTruncationStrategy:
     def test_truncate_by_tokens(self, store):
         """测试按 token 数截断"""
         # 创建长消息
-        long_content = "x" * 1000  # 约 500 token
+        long_content = "x" * 1000  # 英文口径约 250 token
         messages = [
             {"role": "user", "content": long_content},
             {"role": "assistant", "content": long_content},
@@ -198,10 +202,10 @@ class TestTruncationStrategy:
             {"role": "assistant", "content": "short"},
         ]
 
-        # 限制 400 token，应该丢弃前面的长消息
-        # 从后往前计算：short(2) + short(2) + long(500) = 504 > 400
+        # 限制 200 token，应该丢弃前面的长消息
+        # 从后往前计算：short(1) + short(1) + long(250) = 252 > 200
         # 所以从 index 2 开始保留，结果是 2 条
-        result = store.truncate_history(messages, max_tokens=400)
+        result = store.truncate_history(messages, max_tokens=200)
         assert len(result) == 2
         assert result[0]["content"] == "short"
         assert result[1]["content"] == "short"
@@ -235,7 +239,7 @@ class TestCompressionStrategy:
     async def test_compression_when_exceeded(self, store):
         """测试超限时压缩"""
         # 创建超长消息
-        long_content = "x" * 2000  # 约 1000 token
+        long_content = "x" * 2000  # 英文口径约 500 token
         messages = [
             {"role": "user", "content": long_content},
             {"role": "assistant", "content": long_content},
@@ -247,7 +251,7 @@ class TestCompressionStrategy:
 
         mock_llm = AsyncMock(return_value="这是摘要")
         result = await store.compress_history(
-            "test_comp", "user_001", messages, mock_llm, max_tokens=2000
+            "test_comp", "user_001", messages, mock_llm, max_tokens=1500
         )
 
         # 应该调用 LLM
@@ -258,6 +262,42 @@ class TestCompressionStrategy:
         assert result[-1]["content"] == "recent reply"
 
 
+class TestAppendIntegrity:
+    """CS1/CS2: Redis 缓存完整性与幽灵消息"""
+
+    @pytest.fixture
+    def store(self):
+        return ConversationStore("redis://localhost:6379/0")
+
+    @pytest.mark.asyncio
+    async def test_miss_seeds_history_from_db(self, store, test_db_setup):
+        """CS1: Redis 过期后 append 必须补齐数据库历史，而非只剩最新一条"""
+        session_id = "test_seed_hist"
+        await store.clear_history(session_id, "u1")
+
+        await store.append_message(session_id, "u1", "user", "消息1")
+        await store.append_message(session_id, "u1", "assistant", "回复1")
+        # 模拟 24h 过期后缓存丢失
+        store.redis.delete(store._key(session_id))
+        await store.append_message(session_id, "u1", "user", "消息2")
+
+        history = await store.get_history_async(session_id, "u1")
+        assert [m["content"] for m in history] == ["消息1", "回复1", "消息2"]
+        await store.clear_history(session_id, "u1")
+
+    @pytest.mark.asyncio
+    async def test_db_failure_does_not_write_redis(self, store, monkeypatch):
+        """CS2: DB 写失败时不得写 Redis，避免数据库不存在的幽灵消息"""
+        session_id = "test_ghost"
+        store.redis.delete(store._key(session_id))
+        monkeypatch.setattr(store, "_save_message_to_db", AsyncMock(return_value=False))
+
+        result = await store.append_message(session_id, "u1", "user", "ghost")
+
+        assert result is False
+        assert store.redis.get(store._key(session_id)) is None
+
+
 class TestEdgeCases:
     """边界情况测试"""
 
@@ -266,7 +306,7 @@ class TestEdgeCases:
         return ConversationStore("redis://localhost:6379/0")
 
     @pytest.mark.asyncio
-    async def test_concurrent_appends(self, store):
+    async def test_concurrent_appends(self, store, test_db_setup):
         """测试并发追加消息"""
         session_id = "test_concurrent"
 
@@ -285,7 +325,7 @@ class TestEdgeCases:
         await store.clear_history(session_id, "user_001")
 
     @pytest.mark.asyncio
-    async def test_special_characters_in_content(self, store):
+    async def test_special_characters_in_content(self, store, test_db_setup):
         """测试特殊字符内容"""
         special_content = '包含 "引号" 和 \n 换行 以及 emoji 🎉'
         await store.append_message("test_special", "user_001", "user", special_content)
@@ -296,7 +336,7 @@ class TestEdgeCases:
         await store.clear_history("test_special", "user_001")
 
     @pytest.mark.asyncio
-    async def test_very_long_content(self, store):
+    async def test_very_long_content(self, store, test_db_setup):
         """测试超长内容"""
         long_content = "x" * 100000  # 100KB
         await store.append_message("test_long", "user_001", "user", long_content)

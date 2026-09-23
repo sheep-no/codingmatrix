@@ -13,6 +13,7 @@
 - 无定时任务：实时同步，不需要后台同步进程
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -28,13 +29,39 @@ MAX_HISTORY_ROUNDS = 10  # 最多保留 10 轮
 MAX_HISTORY_TOKENS = 4000  # 历史消息最多 4000 token
 HISTORY_EXPIRE_SECONDS = 86400  # 24 小时过期
 
+# 原子「读-改-写」追加脚本：Redis 侧单线程执行，避免并发 append 的
+# last-write-wins 丢消息；key 不存在时用 ARGV[3]（数据库历史 seed）补齐，
+# key 已存在时忽略 seed，避免重复历史。
+_APPEND_SCRIPT = """
+local raw = redis.call('GET', KEYS[1])
+local list = {}
+if raw then
+  list = cjson.decode(raw)
+elseif ARGV[3] ~= '' then
+  list = cjson.decode(ARGV[3])
+end
+table.insert(list, cjson.decode(ARGV[1]))
+redis.call('SETEX', KEYS[1], ARGV[2], cjson.encode(list))
+return #list
+"""
+
 
 def _estimate_tokens(text: str) -> int:
-    """粗略估算 token 数（中文约 1.5 字/token，英文约 4 字符/token）"""
+    """粗略估算 token 数（中文约 1.5 字/token，英文约 4 字符/token）
+
+    此前实现为总字符数 / 2，对英文高估约 2 倍，导致历史被过早截断。
+    现按 CJK 与非 CJK 字符分别估算。
+    """
     if not text:
         return 0
-    # 简单估算：总字符数 / 2
-    return len(text) // 2
+    cjk = 0
+    for ch in text:
+        code = ord(ch)
+        # CJK 统一表意文字、日文假名、韩文音节
+        if 0x4E00 <= code <= 0x9FFF or 0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7A3:
+            cjk += 1
+    other = len(text) - cjk
+    return int(cjk / 1.5 + other / 4)
 
 
 class ConversationStore:
@@ -42,6 +69,9 @@ class ConversationStore:
 
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
         self.redis = redis.from_url(redis_url, decode_responses=True)
+        # 序列化 seed 读取 + 数据库写入 + 原子追加三步，避免同进程内
+        # 并发 append 时两次 seed 读到不同快照而重复历史。
+        self._append_lock = asyncio.Lock()
 
     def _key(self, session_id: str) -> str:
         """生成 Redis key"""
@@ -140,6 +170,28 @@ class ConversationStore:
         except Exception as e:
             logger.warning(f"Failed to save to Redis: {e}")
 
+    def _append_to_redis(
+        self,
+        session_id: str,
+        message: Dict[str, str],
+        seed: Optional[List[Dict[str, str]]] = None,
+    ) -> int:
+        """原子追加一条消息到 Redis，返回追加后的条数（失败返回 -1）"""
+        try:
+            script = self.redis.register_script(_APPEND_SCRIPT)
+            count = script(
+                keys=[self._key(session_id)],
+                args=[
+                    json.dumps(message, ensure_ascii=False),
+                    HISTORY_EXPIRE_SECONDS,
+                    json.dumps(seed, ensure_ascii=False) if seed else "",
+                ],
+            )
+            return int(count)
+        except Exception as e:
+            logger.warning(f"Failed to append to Redis: {e}")
+            return -1
+
     async def append_message(self, session_id: str, user_id: str, role: str, content: str):
         """
         追加一条消息（先写数据库，再写 Redis）
@@ -150,20 +202,31 @@ class ConversationStore:
         3. 如果 Redis 写入失败，下次读取会从数据库回填
         """
         timestamp = int(time.time())
+        message = {"role": role, "content": content, "timestamp": timestamp}
 
-        # 1. 先写数据库（source of truth）
-        db_success = await self._save_message_to_db(session_id, user_id, role, content, timestamp)
+        async with self._append_lock:
+            # Redis miss（如 24h 过期）时先取数据库历史作为 seed。必须在写 DB
+            # 之前取，否则 seed 会包含本次新消息；此前在 async 上下文调用同步
+            # get_history 会短路返回 []，使缓存被覆盖为仅最新一条、历史不可见。
+            seed: Optional[List[Dict[str, str]]] = None
+            try:
+                if not self.redis.exists(self._key(session_id)):
+                    seed = await self._load_from_db_async(session_id, user_id)
+            except Exception as e:
+                logger.warning(f"Failed to seed conversation cache: {e}")
 
-        # 2. 再写 Redis
-        try:
-            messages = self.get_history(session_id, user_id)
-            messages.append({"role": role, "content": content, "timestamp": timestamp})
-            self._save_to_redis(session_id, messages)
-        except Exception as e:
-            logger.warning(f"Failed to append to Redis: {e}")
-            # Redis 写入失败不影响数据库，下次读取会从数据库回填
+            # 1. 先写数据库（source of truth）
+            db_success = await self._save_message_to_db(
+                session_id, user_id, role, content, timestamp
+            )
+            if not db_success:
+                # DB 写失败时不再写 Redis，避免 Redis 出现数据库不存在的幽灵消息
+                logger.warning(f"DB 写入失败，跳过 Redis 追加 | session={session_id}")
+                return False
 
-        return db_success
+            # 2. 原子追加 Redis（key 已存在时 seed 被忽略，不会重复历史）
+            self._append_to_redis(session_id, message, seed)
+            return True
 
     async def _save_message_to_db(self, session_id: str, user_id: str, role: str, content: str, timestamp: int) -> bool:
         """保存单条消息到数据库"""
