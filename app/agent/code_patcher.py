@@ -379,14 +379,27 @@ class CodePatcher:
         return hunks
 
     def _apply_hunks(self, original_lines: List[str], hunks: List[Dict]) -> Optional[List[str]]:
-        """应用 hunks 到原始行（精确匹配）"""
+        """应用 hunks 到原始行（精确匹配）
+
+        hunk 行号基于原始文件：多 hunk 时从后向前应用，避免前一个 hunk 改变
+        行数后使后续 hunk 的行号漂移（CP12）。同时逐行校验上下文/删除行与
+        原文是否一致，不一致返回 None 交由模糊匹配处理（CP1）。
+        """
         result = list(original_lines)
 
-        for hunk in hunks:
+        for hunk in sorted(hunks, key=lambda h: h['old_start'], reverse=True):
             old_start = hunk['old_start'] - 1  # 转换为 0-based
             old_count = hunk.get('old_count', 0)
 
+            # 新文件创建 @@ -0,0 +1,N @@：old_start 0 → 插入到文件开头
+            if old_start == -1 and old_count == 0:
+                old_start = 0
+
             if old_start < 0 or old_start + old_count > len(result):
+                return None
+
+            expected = [line[1:] for line in hunk['lines'] if line[:1] in (' ', '-')]
+            if len(expected) != old_count or expected != result[old_start:old_start + old_count]:
                 return None
 
             # 应用变更：old_count 是原始文件中此 hunk 覆盖的行数（上下文 + 删除）
@@ -408,14 +421,18 @@ class CodePatcher:
         """应用 hunks 到原始行（模糊匹配，允许行号偏移）"""
         result = list(original_lines)
 
-        for hunk in hunks:
+        # 与精确路径一致：hunk 行号基于原始文件，从后向前应用避免漂移（CP12）
+        for hunk in sorted(hunks, key=lambda h: h['old_start'], reverse=True):
             old_start = hunk['old_start'] - 1
             old_count = hunk.get('old_count', 0)
+            if old_start == -1 and old_count == 0:
+                old_start = 0
             expected_context = [line[1:] for line in hunk['lines'] if line.startswith(' ')]
 
-            # 尝试在偏移范围内匹配上下文
+            # 尝试在偏移范围内匹配上下文；优先偏移 0（声明位置），
+            # 避免无上下文 hunk 被 -max_offset 处抢先匹配（CP3）
             best_match = None
-            for offset in range(-max_offset, max_offset + 1):
+            for offset in sorted(range(-max_offset, max_offset + 1), key=abs):
                 test_start = old_start + offset
                 if test_start < 0 or test_start + old_count > len(result):
                     continue

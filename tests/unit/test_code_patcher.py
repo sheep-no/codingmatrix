@@ -132,3 +132,105 @@ class TestCodePatcher:
                 asyncio.run(apply_incremental_change(target, "rename x", llm))
         finally:
             mod.CodePatcher.apply_patch = original
+
+
+class TestHunkApplicationFixes:
+    """CP1/CP2/CP3/CP12：hunk 应用的行号与上下文正确性。"""
+
+    @pytest.fixture
+    def patcher(self):
+        from app.agent.code_patcher import CodePatcher
+
+        return CodePatcher()
+
+    def test_multi_hunk_insertion_does_not_shift_later_hunks(self, patcher):
+        """CP12: 第一个 hunk 增行后，后续 hunk 必须仍作用于原始行号。"""
+        original = "\n".join(f"line{i}" for i in range(1, 9)) + "\n"
+        patch = (
+            "--- a/test.py\n"
+            "+++ b/test.py\n"
+            "@@ -2,2 +2,3 @@\n"
+            " line2\n"
+            "+inserted\n"
+            " line3\n"
+            "@@ -6,2 +7,2 @@\n"
+            "-line6\n"
+            "+modified_line6\n"
+            " line7\n"
+        )
+
+        result = asyncio.run(patcher.apply_patch("test.py", original, patch))
+
+        assert result.success is True
+        assert result.patched_content.splitlines() == [
+            "line1",
+            "line2",
+            "inserted",
+            "line3",
+            "line4",
+            "line5",
+            "modified_line6",
+            "line7",
+            "line8",
+        ]
+
+    def test_exact_hunks_reject_mismatched_context(self, patcher):
+        """CP1: 精确路径必须校验上下文行，不一致返回 None（交由模糊匹配）。"""
+        hunks = patcher._parse_patch(
+            "--- a/test.py\n"
+            "+++ b/test.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " AAA\n"
+            "-BBB\n"
+            " ZZZ\n"
+        )
+
+        assert patcher._apply_hunks(["AAA", "BBB", "CCC"], hunks) is None
+
+    def test_exact_hunks_apply_when_context_matches(self, patcher):
+        hunks = patcher._parse_patch(
+            "--- a/test.py\n"
+            "+++ b/test.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " AAA\n"
+            "-BBB\n"
+            " CCC\n"
+        )
+
+        assert patcher._apply_hunks(["AAA", "BBB", "CCC"], hunks) == ["AAA", "CCC"]
+
+    def test_new_file_patch_succeeds_without_errors(self, patcher):
+        """CP2: @@ -0,0 +1,N @@ 新文件创建不应依赖空上下文退化的模糊匹配。"""
+        patch = (
+            "--- /dev/null\n"
+            "+++ b/new.py\n"
+            "@@ -0,0 +1,3 @@\n"
+            "+a = 1\n"
+            "+b = 2\n"
+            "+c = 3\n"
+        )
+
+        result = asyncio.run(patcher.apply_patch("new.py", "", patch))
+
+        assert result.success is True
+        assert result.patched_content.splitlines() == ["a = 1", "b = 2", "c = 3"]
+        assert result.errors == []
+
+    def test_fuzzy_no_context_hunk_prefers_declared_position(self, patcher):
+        """CP3: 无上下文 hunk 应优先落在声明行号，而非 -max_offset。"""
+        hunks = patcher._parse_patch(
+            "--- a/test.py\n"
+            "+++ b/test.py\n"
+            "@@ -3,1 +3,1 @@\n"
+            "-l3\n"
+            "+new3\n"
+        )
+        original = ["l1", "l2", "l3", "l4", "l5"]
+
+        assert patcher._apply_hunks_fuzzy(original, hunks) == [
+            "l1",
+            "l2",
+            "new3",
+            "l4",
+            "l5",
+        ]

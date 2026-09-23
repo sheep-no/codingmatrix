@@ -181,3 +181,19 @@ def test_apply_patch_failure(self, patcher): ...
 - CP2 已实测（`@@ -0,0 +1,3 @@` → 精确失败走 fuzzy 碰巧成功，errors 与 success 并存）。
 - CP12 已实测（双 hunk 增行 → line7 重复，行号漂移）。
 - CP3/CP4/CP5/CP6/CP7/CP10/CP13 为代码级结论。
+
+## 6. 状态更新（2026-09-23 核实）
+
+本轮修复 hunk 应用的四个相关正确性缺陷（CP1/CP2/CP3/CP12），并补齐 CP13 测试：
+
+- **CP12 已修**：`_apply_hunks` 与 `_apply_hunks_fuzzy` 均改为按 `old_start` **降序**应用 hunk。hunk 行号基于原始文件，原先顺序应用时第一个 hunk 增/删行会让后续 hunk 的行号漂移（实测双 hunk 增行导致行重复且 `success=True`）。降序应用保证每个 hunk 的行号在其被处理时仍指向原始内容。
+- **CP1 已修**：`_apply_hunks` 精确路径新增逐行校验——由 hunk 中 `' '` 上下文与 `-` 删除行重建期望原文，要求 `len(expected) == old_count` 且与实际内容逐行相等，不一致返回 `None` 交给模糊匹配。原先只查行号边界、直接硬替换，LLM 幻觉上下文会被静默应用到错误位置。
+- **CP2 已修**：`@@ -0,0 +1,N @@` 新文件场景 `old_start` 为 `-1`，精确路径原恒失败、只能靠 fuzzy「空上下文恒真」碰巧成功且残留「行号不匹配」错误。现对 `old_start == -1 and old_count == 0` 特判为插入到文件开头，精确路径即可成功，`errors` 不再污染。
+- **CP3 已修**：`_apply_hunks_fuzzy` 的偏移搜索由 `range(-max_offset, max_offset+1)` 改为按绝对值排序，优先尝试偏移 0（声明位置）。原先无上下文 hunk 会被 `-max_offset` 处的空匹配抢先命中，退化为错误位置的纯行号替换。
+
+**仍未处理**：
+
+- **CP10 [P2]**：`CrossFilePatcher.primary_result` 多文件循环覆盖 + `_apply_patches_incremental` 无入口（OF10 死代码）。整链路不可达，属结构性/接线项，保留。
+- **CP4/CP5/CP6/CP7 [P3]**：`.bak` 残留、非原子写、裸空行截断 hunk、第三 fallback 过度提取，均为代码级结论，保留。
+
+**回归**：`tests/unit/test_code_patcher.py` 由 6 项扩到 13 项（新增多 hunk 漂移、上下文不匹配拒绝/匹配通过、新文件创建无残留错误、fuzzy 偏移优先级）；回退 `code_patcher.py` 后新增用例 4 项失败。全量 4600+ passed / 3 skipped / cov 62.7%。
