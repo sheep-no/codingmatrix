@@ -22,7 +22,7 @@
   - `traditional_generate.py:155` `generate_frontend_prompt_contract(backend_files)`——生成前端文件的 prompt 注入 API 契约表
   - `orchestrator_files.py:468` + `orchestrator_utils.py:224` `_check_and_report_api_issues`——FilesMixin 每次写前端/API 文件时触发单文件一致性检查（`_should_check_api_consistency` :209：.vue/.js/.jsx/.ts/.tsx 全触发，.py 仅路径含 api/route）
   - `mixin.py:91` 初始化 `self.api_contract_checker = APIContractChecker()`（GenerationMixin，主链继承）；`orchestrator.py:123` 声明 `Optional[...]=None` 被 mixin 覆盖
-- **测试覆盖**：`tests/unit/test_api_contract_checker.py` 仅 **1 个** test_check_consistency——单文件检查、跨行 fetch、prefix、模板字符串、契约生成、prompt 生成、归一化全零覆盖。
+- **测试覆盖**：`tests/unit/test_api_contract_checker.py` 原仅 **1 个** test_check_consistency；2026-09-23 扩充至 **35 个**（归一化、后端三框架提取、前端 fetch/axios 各形态、一致性判定、契约/prompt 生成）。
 
 ## 3. 已探明 Bug
 
@@ -187,3 +187,23 @@ r'(?:path|url)\(\s*["\']([^"\']+)["\']',
 - 与 IV3/IV4（integrity_validator 前缀误判/method 忽略）对照：api_contract_checker 有 method 维度与 `{id}`→`:id` 归一化，但 AC1/AC3/AC4 的误报说明「归一化不完整 + 提取行级」比缺失维度更隐蔽——**契约校验三件套（路径归一化 / method 提取 / prefix 拼接）缺一不可**。
 - `generate_frontend_prompt_contract`（traditional_generate.py:155 活跃注入）是「契约先验注入」方向的基础设施——修复 AC2 后注入的契约表才准确，属生成质量前置。
 - AC2 死常量 `API_PREFIXES` 与 IV7 死 issue_type（integrity_validator）、CV4 空操作同属「声明-实现不符」代码健康主线。
+
+## 7. 状态校准（2026-09-23 修复）
+
+以当前代码逐条复核并修复 §3 缺陷。除文档已记录的 AC1-AC5/AC8 外，复核中另发现两条**未被文档识别**的完全失效逻辑（下述 AC7 备注、AC8 备注）。
+
+| 编号 | 状态 | 结论 |
+|------|------|------|
+| AC1 | 已修 | `_normalize_path` 先处理 `${id}` 再处理 `{id}`，模板串不再变 `$:id`。 |
+| AC2 | 已修 | 提取时解析 `APIRouter(prefix=...)`（Flask 为 `Blueprint(url_prefix=...)`）并拼接；删除死常量 `API_PREFIXES`。 |
+| AC3 | 已修 | 前端提取加 `dynamic_tail`：尾部纯数字/UUID 归一为 `:param`；字面量后紧跟 `+` 拼接时补 `:param`。匹配键统一经 `_canonical_path` 把任意命名参数折叠为 `:param`，因此 `${userId}` 与 `{user_id}` 可对齐。 |
+| AC4 | 已修 | 前端提取由逐行 `re.search` 改为对整段代码 `finditer`，fetch/axios 的 options 对象允许跨行，method 从对象内提取。 |
+| AC5 | 已修 | 删除恒不触发的第 3 个 AXIOS 模式与死分支；按建议 4 的备选「删除并记录漏检范围」处理——独立 `.get/.post` 调用（如 `data.get('k')`）不纳入，避免把任意对象取值误判为 API 调用。 |
+| AC6 | 待处理 | 消费方 `orchestrator_utils._check_and_report_api_issues` 仍每次写文件 `rglob` 全量 `.py`；属性能/接线项，保留。 |
+| AC7 | 已修 | **原 `method_mismatch` 为完全死代码**：索引键为 `method:path`，组内方法集合恒相等，`fe_methods != be_methods` 永不成立。改为按**路径**分组（`_build_path_index`）：路径仅一侧存在 → `missing_backend`/`missing_frontend`；两侧都有而方法集合不同 → `method_mismatch`（前端多出为 error，后端多出为 warning）。`ConsistencyIssue.issue_type` 注释同步删去从未产出的 `param_mismatch`/`path_mismatch`。 |
+| AC8 | 已修 | **原 Django 分支完全失效**：`DJANGO_ROUTE_PATTERNS` 只有 1 个捕获组，而分派逻辑要求 `len(groups) == 2`，故 Django 路由从未被提取（文档所述「误报」实为「零提取」）。改为仅在 `urlpatterns = [...]` 块内匹配，并跳过 `include()` 子路由，view 内部 `path("static.txt")` 不再误报。`include()` 前缀拼接仍未做（保留）。 |
+| AC9 | 已修 | 测试由 1 项扩至 35 项，覆盖 AC1-AC5/AC7/AC8 全部修复点；回退源码后 21 项失败。 |
+
+本批改动范围：`app/agent/api_contract_checker.py`（提取/归一化/一致性判定重构）与 `tests/unit/test_api_contract_checker.py`。对外方法签名不变（`extract_backend_endpoints` / `extract_frontend_endpoints` / `check_consistency` / `check_single_file_consistency` / `generate_api_contract` / `generate_frontend_prompt_contract` / `check_api_consistency`）。
+
+**行为变化提示**：同一路径前后端方法不一致时，此前报 `missing_backend`（error）或 `missing_frontend`（warning），现改报 `method_mismatch`（前端多出为 error、后端多出为 warning）。`orchestrator_utils` 仅将 `issue_type` 透传到进度事件，无分支依赖，故兼容。

@@ -47,7 +47,7 @@ class APIEndpoint:
 class ConsistencyIssue:
     """一致性问题"""
     severity: str  # 'error', 'warning', 'info'
-    issue_type: str  # 'missing_backend', 'missing_frontend', 'method_mismatch', 'param_mismatch', 'path_mismatch'
+    issue_type: str  # 'missing_backend', 'missing_frontend', 'method_mismatch'
     message: str
     frontend_endpoint: Optional[APIEndpoint] = None
     backend_endpoint: Optional[APIEndpoint] = None
@@ -65,40 +65,52 @@ class APIContractChecker:
     4. 生成修复建议
     """
 
-    # FastAPI 路由模式
-    FASTAPI_ROUTE_PATTERNS = [
-        r'@router\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
-        r'@app\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
-        r'@(?:api_route|route)\(\s*["\']([^"\']+)["\'].*?methods=\[([^\]]+)\]',
-    ]
+    # FastAPI 路由（捕获 router 变量名，用于拼接 APIRouter(prefix=...)）
+    _FASTAPI_DECORATOR_RE = re.compile(
+        r'@(\w+)\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']'
+    )
+    _FASTAPI_API_ROUTE_RE = re.compile(
+        r'@(\w+)\.(?:api_route|route)\(\s*["\']([^"\']+)["\'][^)]*?methods\s*=\s*\[([^\]]+)\]'
+    )
+    # Flask 路由（捕获蓝图变量名，用于拼接 Blueprint(url_prefix=...)）
+    _FLASK_ROUTE_RE = re.compile(
+        r'@(\w+)\.route\(\s*["\']([^"\']+)["\'][^)]*?methods\s*=\s*\[([^\]]+)\]'
+    )
+    # Django 路由：只在 urlpatterns 块内匹配，且跳过 include() 子路由
+    _DJANGO_URLPATTERNS_RE = re.compile(r'urlpatterns\s*=\s*\[(?P<body>.*?)\]', re.DOTALL)
+    _DJANGO_ROUTE_RE = re.compile(r'(?:path|url)\(\s*["\']([^"\']+)["\']\s*,\s*(?!\s*include\()')
 
-    # Flask 路由模式
-    FLASK_ROUTE_PATTERNS = [
-        r'@app\.route\(\s*["\']([^"\']+)["\'].*?methods=\[([^\]]+)\]',
-        r'@blueprint\.route\(\s*["\']([^"\']+)["\'].*?methods=\[([^\]]+)\]',
-    ]
+    # APIRouter(prefix=...) / Blueprint(..., url_prefix=...)
+    _ROUTER_PREFIX_RE = re.compile(r'(\w+)\s*=\s*APIRouter\((?P<args>[^)]*)\)', re.DOTALL)
+    _BLUEPRINT_RE = re.compile(r'(\w+)\s*=\s*Blueprint\((?P<args>[^)]*)\)', re.DOTALL)
+    _PREFIX_KW_RE = re.compile(r'prefix\s*=\s*["\']([^"\']+)["\']')
+    _URL_PREFIX_KW_RE = re.compile(r'url_prefix\s*=\s*["\']([^"\']+)["\']')
 
-    # Django 路由模式
-    DJANGO_ROUTE_PATTERNS = [
-        r'(?:path|url)\(\s*["\']([^"\']+)["\']',
-    ]
+    # 前端调用（跨行；路径可为引号/反引号；拼接标记与 options 对象可选）
+    _FETCH_RE = re.compile(
+        r'fetch\(\s*(?P<path>`[^`]*`|"[^"]*"|\'[^\']*\')'
+        r'\s*(?P<concat>\+)?'
+        r'(?:\s*,\s*(?P<opts>\{(?:[^{}]|\{[^{}]*\})*\}))?',
+        re.DOTALL,
+    )
+    _FETCH_OBJ_RE = re.compile(
+        r'fetch\(\s*\{(?P<opts>(?:[^{}]|\{[^{}]*\})*)\}', re.DOTALL
+    )
+    _AXIOS_METHOD_RE = re.compile(
+        r'axios\.(get|post|put|delete|patch)\(\s*(?P<path>`[^`]*`|"[^"]*"|\'[^\']*\')',
+        re.DOTALL,
+    )
+    _AXIOS_CONFIG_RE = re.compile(
+        r'axios\(\s*\{(?P<opts>(?:[^{}]|\{[^{}]*\})*)\}', re.DOTALL
+    )
 
-    # 前端 fetch 调用模式
-    FETCH_PATTERNS = [
-        r'fetch\(\s*["\']([^"\']+)["\']',
-        r'fetch\(\s*`([^`]+)`',
-        r'fetch\(\s*\{?\s*url:\s*["\']([^"\']+)["\']',
-    ]
-
-    # 前端 axios 调用模式
-    AXIOS_PATTERNS = [
-        r'axios\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
-        r'axios\(\s*\{\s*method:\s*["\']([^"\']+)["\'].*?url:\s*["\']([^"\']+)["\']',
-        r'(?:get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
-    ]
-
-    # API 前缀模式（用于标准化路径）
-    API_PREFIXES = ['/api', '/api/v1', '/api/v2']
+    _METHOD_KW_RE = re.compile(r'method\s*:\s*["\'](\w+)["\']')
+    _URL_KW_RE = re.compile(r'url\s*:\s*(`[^`]*`|"[^"]*"|\'[^\']*\')')
+    # 路径参数（任意命名）折叠为 :param 用于键匹配
+    _CANONICAL_PARAM_RE = re.compile(r':[A-Za-z_]\w*')
+    _UUID_RE = re.compile(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    )
 
     def __init__(self):
         self.backend_endpoints: List[APIEndpoint] = []
@@ -117,52 +129,43 @@ class APIContractChecker:
         Returns:
             提取的端点列表
         """
-        endpoints = []
-        lines = code.split('\n')
+        endpoints: List[APIEndpoint] = []
 
-        # 自动检测框架
         if framework is None:
-            if 'fastapi' in code.lower() or 'from fastapi' in code.lower():
-                framework = 'fastapi'
-            elif 'flask' in code.lower() or 'from flask' in code.lower():
-                framework = 'flask'
-            elif 'django' in code.lower() or 'from django' in code.lower():
-                framework = 'django'
-            else:
-                framework = 'fastapi'  # 默认
+            framework = self._detect_framework(code)
 
-        # 根据框架选择模式
         if framework == 'fastapi':
-            patterns = self.FASTAPI_ROUTE_PATTERNS
+            prefixes = self._collect_prefixes(self._ROUTER_PREFIX_RE, code, self._PREFIX_KW_RE)
+            for match in self._FASTAPI_DECORATOR_RE.finditer(code):
+                prefix = prefixes.get(match.group(1), '')
+                self._add_backend_endpoint(
+                    endpoints, [match.group(2)], prefix + match.group(3),
+                    file_path, code, match.start(),
+                )
+            for match in self._FASTAPI_API_ROUTE_RE.finditer(code):
+                prefix = prefixes.get(match.group(1), '')
+                self._add_backend_endpoint(
+                    endpoints, match.group(3).split(','), prefix + match.group(2),
+                    file_path, code, match.start(),
+                )
         elif framework == 'flask':
-            patterns = self.FLASK_ROUTE_PATTERNS
+            prefixes = self._collect_prefixes(self._BLUEPRINT_RE, code, self._URL_PREFIX_KW_RE)
+            for match in self._FLASK_ROUTE_RE.finditer(code):
+                prefix = prefixes.get(match.group(1), '')
+                self._add_backend_endpoint(
+                    endpoints, match.group(3).split(','), prefix + match.group(2),
+                    file_path, code, match.start(),
+                )
         else:
-            patterns = self.DJANGO_ROUTE_PATTERNS
-
-        for line_num, line in enumerate(lines, 1):
-            for pattern in patterns:
-                match = re.search(pattern, line)
-                if match:
-                    groups = match.groups()
-                    if len(groups) == 2:
-                        method_str, path = groups
-                        if ',' in method_str:
-                            # methods=["GET", "POST"]
-                            methods = [m.strip().strip('"').strip("'").upper() for m in method_str.split(',')]
-                        else:
-                            methods = [method_str.upper()]
-
-                        for method in methods:
-                            try:
-                                endpoint = APIEndpoint(
-                                    path=self._normalize_path(path),
-                                    method=EndpointMethod(method),
-                                    file_path=file_path,
-                                    line_number=line_num
-                                )
-                                endpoints.append(endpoint)
-                            except ValueError:
-                                continue
+            # Django：仅在 urlpatterns 块内提取，避免 view 内部 path("...") 误报
+            for block in self._DJANGO_URLPATTERNS_RE.finditer(code):
+                body = block.group('body')
+                base = block.start('body')
+                for match in self._DJANGO_ROUTE_RE.finditer(body):
+                    self._add_backend_endpoint(
+                        endpoints, ['GET'], match.group(1),
+                        file_path, code, base + match.start(),
+                    )
 
         return endpoints
 
@@ -177,55 +180,52 @@ class APIContractChecker:
         Returns:
             提取的端点列表
         """
-        endpoints = []
-        lines = code.split('\n')
+        endpoints: List[APIEndpoint] = []
 
-        for line_num, line in enumerate(lines, 1):
-            # 提取 fetch 调用
-            for pattern in self.FETCH_PATTERNS:
-                match = re.search(pattern, line)
-                if match:
-                    path = match.group(1)
-                    # 推断方法（默认 GET）
-                    method = EndpointMethod.GET
-                    if 'method:' in line:
-                        method_match = re.search(r'method:\s*["\'](\w+)["\']', line)
-                        if method_match:
-                            try:
-                                method = EndpointMethod(method_match.group(1).upper())
-                            except ValueError:
-                                pass
+        # fetch('/path', {method: '...'}) / fetch(`/path/${id}`)
+        for match in self._FETCH_RE.finditer(code):
+            path = self._unquote(match.group('path'))
+            if match.group('concat') and path.endswith('/'):
+                path += ':param'
+            endpoints.append(APIEndpoint(
+                path=self._normalize_path(path, dynamic_tail=True),
+                method=self._method_from_text(match.group('opts')),
+                file_path=file_path,
+                line_number=self._line_number(code, match.start()),
+            ))
 
-                    endpoints.append(APIEndpoint(
-                        path=self._normalize_path(path),
-                        method=method,
-                        file_path=file_path,
-                        line_number=line_num
-                    ))
+        # fetch({url: '/path', method: '...'})
+        for match in self._FETCH_OBJ_RE.finditer(code):
+            url = self._URL_KW_RE.search(match.group('opts'))
+            if not url:
+                continue
+            endpoints.append(APIEndpoint(
+                path=self._normalize_path(self._unquote(url.group(1)), dynamic_tail=True),
+                method=self._method_from_text(match.group('opts')),
+                file_path=file_path,
+                line_number=self._line_number(code, match.start()),
+            ))
 
-            # 提取 axios 调用
-            for pattern in self.AXIOS_PATTERNS:
-                match = re.search(pattern, line)
-                if match:
-                    groups = match.groups()
-                    if len(groups) == 2:
-                        method_str, path = groups
-                        try:
-                            method = EndpointMethod(method_str.upper())
-                        except ValueError:
-                            method = EndpointMethod.GET
-                    elif len(groups) == 2 and groups[0] in ('get', 'post', 'put', 'delete', 'patch'):
-                        method = EndpointMethod(groups[0].upper())
-                        path = groups[1]
-                    else:
-                        continue
+        # axios.get('/path')
+        for match in self._AXIOS_METHOD_RE.finditer(code):
+            endpoints.append(APIEndpoint(
+                path=self._normalize_path(self._unquote(match.group('path')), dynamic_tail=True),
+                method=self._enum_method(match.group(1)),
+                file_path=file_path,
+                line_number=self._line_number(code, match.start()),
+            ))
 
-                    endpoints.append(APIEndpoint(
-                        path=self._normalize_path(path),
-                        method=method,
-                        file_path=file_path,
-                        line_number=line_num
-                    ))
+        # axios({url: '/path', method: '...'})
+        for match in self._AXIOS_CONFIG_RE.finditer(code):
+            url = self._URL_KW_RE.search(match.group('opts'))
+            if not url:
+                continue
+            endpoints.append(APIEndpoint(
+                path=self._normalize_path(self._unquote(url.group(1)), dynamic_tail=True),
+                method=self._method_from_text(match.group('opts')),
+                file_path=file_path,
+                line_number=self._line_number(code, match.start()),
+            ))
 
         return endpoints
 
@@ -258,52 +258,63 @@ class APIContractChecker:
             endpoints = self.extract_frontend_endpoints(code, file_path)
             self.frontend_endpoints.extend(endpoints)
 
-        # 构建后端端点索引
-        backend_index = self._build_endpoint_index(self.backend_endpoints)
-        frontend_index = self._build_endpoint_index(self.frontend_endpoints)
+        # 按「路径」分组（参数名折叠为 :param），方法维度在组内比较
+        backend_index = self._build_path_index(self.backend_endpoints)
+        frontend_index = self._build_path_index(self.frontend_endpoints)
 
-        # 检查前端调用但后端缺失的端点
-        for key, fe_endpoints in frontend_index.items():
-            if key not in backend_index:
-                for fe_ep in fe_endpoints:
-                    self.issues.append(ConsistencyIssue(
-                        severity='error',
-                        issue_type='missing_backend',
-                        message=f"前端调用了 {fe_ep.method.value} {fe_ep.path}，但后端未定义",
-                        frontend_endpoint=fe_ep,
-                        suggestion=f"在后端添加路由: @router.{fe_ep.method.value.lower()}(\"{fe_ep.path}\")"
-                    ))
+        # 前端调用了后端完全没有的路径
+        for path, fe_endpoints in frontend_index.items():
+            if path in backend_index:
+                continue
+            for fe_ep in fe_endpoints:
+                self.issues.append(ConsistencyIssue(
+                    severity='error',
+                    issue_type='missing_backend',
+                    message=f"前端调用了 {fe_ep.method.value} {fe_ep.path}，但后端未定义",
+                    frontend_endpoint=fe_ep,
+                    suggestion=f"在后端添加路由: @router.{fe_ep.method.value.lower()}(\"{fe_ep.path}\")"
+                ))
 
-        # 检查后端定义但前端未使用的端点
-        for key, be_endpoints in backend_index.items():
-            if key not in frontend_index:
-                for be_ep in be_endpoints:
-                    self.issues.append(ConsistencyIssue(
-                        severity='warning',
-                        issue_type='missing_frontend',
-                        message=f"后端定义了 {be_ep.method.value} {be_ep.path}，但前端未调用",
-                        backend_endpoint=be_ep,
-                        suggestion="确认是否需要此端点，或在前端添加调用"
-                    ))
+        # 后端定义了前端完全没有的路径
+        for path, be_endpoints in backend_index.items():
+            if path in frontend_index:
+                continue
+            for be_ep in be_endpoints:
+                self.issues.append(ConsistencyIssue(
+                    severity='warning',
+                    issue_type='missing_frontend',
+                    message=f"后端定义了 {be_ep.method.value} {be_ep.path}，但前端未调用",
+                    backend_endpoint=be_ep,
+                    suggestion="确认是否需要此端点，或在前端添加调用"
+                ))
 
-        # 检查方法不匹配
-        for key in frontend_index:
-            if key in backend_index:
-                fe_methods = set(ep.method.value for ep in frontend_index[key])
-                be_methods = set(ep.method.value for ep in backend_index[key])
+        # 路径两侧都有，但方法集合不一致
+        for path, be_endpoints in backend_index.items():
+            fe_endpoints = frontend_index.get(path)
+            if not fe_endpoints:
+                continue
+            be_methods = {ep.method.value for ep in be_endpoints}
+            fe_methods = {ep.method.value for ep in fe_endpoints}
 
-                if fe_methods != be_methods:
-                    extra_fe = fe_methods - be_methods
+            for method in sorted(fe_methods - be_methods):
+                fe_ep = next(ep for ep in fe_endpoints if ep.method.value == method)
+                self.issues.append(ConsistencyIssue(
+                    severity='error',
+                    issue_type='method_mismatch',
+                    message=f"前端使用 {method} {path}，但后端不支持此方法",
+                    frontend_endpoint=fe_ep,
+                    suggestion=f"在后端为 {path} 添加 {method} 方法支持"
+                ))
 
-                    for method in extra_fe:
-                        fe_ep = next(ep for ep in frontend_index[key] if ep.method.value == method)
-                        self.issues.append(ConsistencyIssue(
-                            severity='error',
-                            issue_type='method_mismatch',
-                            message=f"前端使用 {method} {key}，但后端不支持此方法",
-                            frontend_endpoint=fe_ep,
-                            suggestion=f"在后端添加 {method} 方法支持"
-                        ))
+            for method in sorted(be_methods - fe_methods):
+                be_ep = next(ep for ep in be_endpoints if ep.method.value == method)
+                self.issues.append(ConsistencyIssue(
+                    severity='warning',
+                    issue_type='method_mismatch',
+                    message=f"后端支持 {method} {path}，但前端未调用",
+                    backend_endpoint=be_ep,
+                    suggestion=f"确认是否需要保留 {method} {path}，或在前端补充调用"
+                ))
 
         return self.issues
 
@@ -339,11 +350,11 @@ class APIContractChecker:
             for fp, c in counterpart_files.items():
                 counterpart_endpoints.extend(self.extract_frontend_endpoints(c, fp))
 
-        counterpart_index = self._build_endpoint_index(counterpart_endpoints)
+        counterpart_index = self._build_path_index(counterpart_endpoints)
 
         for ep in current_endpoints:
-            key = f"{ep.method.value}:{ep.path}"
-            if key not in counterpart_index:
+            counterparts = counterpart_index.get(self._canonical_path(ep.path))
+            if not counterparts:
                 if is_frontend:
                     issues.append(ConsistencyIssue(
                         severity='error',
@@ -357,6 +368,26 @@ class APIContractChecker:
                         severity='warning',
                         issue_type='missing_frontend',
                         message=f"后端定义 {ep.method.value} {ep.path}，前端未调用",
+                        backend_endpoint=ep,
+                        suggestion="确认是否需要或在前端添加调用"
+                    ))
+                continue
+
+            counterpart_methods = {c.method.value for c in counterparts}
+            if ep.method.value not in counterpart_methods:
+                if is_frontend:
+                    issues.append(ConsistencyIssue(
+                        severity='error',
+                        issue_type='method_mismatch',
+                        message=f"前端调用 {ep.method.value} {ep.path}，后端不支持此方法",
+                        frontend_endpoint=ep,
+                        suggestion=f"后端需添加 {ep.method.value} 方法支持"
+                    ))
+                else:
+                    issues.append(ConsistencyIssue(
+                        severity='warning',
+                        issue_type='method_mismatch',
+                        message=f"后端定义 {ep.method.value} {ep.path}，前端未调用此方法",
                         backend_endpoint=ep,
                         suggestion="确认是否需要或在前端添加调用"
                     ))
@@ -424,16 +455,97 @@ class APIContractChecker:
 
     # ==================== 内部方法 ====================
 
-    def _normalize_path(self, path: str) -> str:
+    @staticmethod
+    def _detect_framework(code: str) -> str:
+        """按关键字自动检测后端框架"""
+        lowered = code.lower()
+        if 'fastapi' in lowered:
+            return 'fastapi'
+        if 'flask' in lowered:
+            return 'flask'
+        if 'django' in lowered:
+            return 'django'
+        return 'fastapi'
+
+    @staticmethod
+    def _collect_prefixes(assign_re, code: str, kw_re) -> Dict[str, str]:
+        """收集 APIRouter(prefix=...) / Blueprint(url_prefix=...) 变量到前缀的映射"""
+        prefixes: Dict[str, str] = {}
+        for match in assign_re.finditer(code):
+            kw = kw_re.search(match.group('args'))
+            if kw:
+                prefixes[match.group(1)] = kw.group(1)
+        return prefixes
+
+    @staticmethod
+    def _unquote(token: str) -> str:
+        """去掉包裹路径的引号/反引号"""
+        token = token.strip()
+        if len(token) >= 2 and token[0] in '"\'`' and token[-1] == token[0]:
+            return token[1:-1]
+        return token
+
+    @staticmethod
+    def _line_number(code: str, offset: int) -> int:
+        return code.count('\n', 0, offset) + 1
+
+    @staticmethod
+    def _enum_method(name: str) -> EndpointMethod:
+        try:
+            return EndpointMethod(name.upper())
+        except ValueError:
+            return EndpointMethod.GET
+
+    def _method_from_text(self, text: Optional[str]) -> EndpointMethod:
+        """从 options 对象文本中提取 method，缺省为 GET"""
+        if text:
+            match = self._METHOD_KW_RE.search(text)
+            if match:
+                try:
+                    return EndpointMethod(match.group(1).upper())
+                except ValueError:
+                    pass
+        return EndpointMethod.GET
+
+    def _add_backend_endpoint(
+        self,
+        endpoints: List[APIEndpoint],
+        methods: List[str],
+        path: str,
+        file_path: str,
+        code: str,
+        offset: int,
+    ) -> None:
+        """归一化并追加后端端点（忽略不支持的方法名）"""
+        normalized = self._normalize_path(path)
+        for method in methods:
+            try:
+                endpoints.append(APIEndpoint(
+                    path=normalized,
+                    method=EndpointMethod(method.strip().strip('"\'').upper()),
+                    file_path=file_path,
+                    line_number=self._line_number(code, offset),
+                ))
+            except ValueError:
+                continue
+
+    def _normalize_path(self, path: str, dynamic_tail: bool = False) -> str:
         """标准化 API 路径"""
         # 移除查询参数
         path = path.split('?')[0]
 
+        # 前端模板串 ${id} 与后端 {id} 统一为 :id
+        path = re.sub(r'\$\{(\w+)\}', r':\1', path)
+        path = re.sub(r'\{(\w+)\}', r':\1', path)
+
+        # 前端裸具体值（/api/users/123、UUID）视为路径参数
+        if dynamic_tail:
+            last = path.rsplit('/', 1)[-1]
+            if last and (last.isdigit() or self._UUID_RE.match(last)):
+                path = path[: -len(last)] + ':param'
+
         # 移除尾部斜杠
         path = path.rstrip('/')
-
-        # 替换路径参数 {id} -> :id
-        path = re.sub(r'\{(\w+)\}', r':\1', path)
 
         # 确保以 / 开头
         if not path.startswith('/'):
@@ -441,14 +553,15 @@ class APIContractChecker:
 
         return path
 
-    def _build_endpoint_index(self, endpoints: List[APIEndpoint]) -> Dict[str, List[APIEndpoint]]:
-        """构建端点索引：method:path -> [endpoints]"""
-        index = {}
+    def _canonical_path(self, path: str) -> str:
+        """把任意命名的路径参数折叠为 :param，用于前后端键匹配"""
+        return self._CANONICAL_PARAM_RE.sub(':param', path)
+
+    def _build_path_index(self, endpoints: List[APIEndpoint]) -> Dict[str, List[APIEndpoint]]:
+        """构建端点索引：canonical_path -> [endpoints]"""
+        index: Dict[str, List[APIEndpoint]] = {}
         for ep in endpoints:
-            key = f"{ep.method.value}:{ep.path}"
-            if key not in index:
-                index[key] = []
-            index[key].append(ep)
+            index.setdefault(self._canonical_path(ep.path), []).append(ep)
         return index
 
 
