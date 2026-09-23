@@ -52,7 +52,7 @@
 - **PMC8 [P2] 已修（在非 Agent 侧补齐 API）**：`MetricsCollector` 新增 `get_last_duration(module, metric_name="execution_time")`，从 `self.metrics` 逆序查找该指标最近一条记录并返回 `value`，无记录返回 `0.0`。调用方 `orchestrator_testing.py:73` 在 `finally` 的 `end_timer` 之前读取，因此返回的是上一次耗时，语义与调用位置自洽。调用不再抛 `AttributeError`，真实通过的测试不会被误报为失败。未改 `app/agent/orchestrator_testing.py`（Agent 范围）。
 - **PMC2 [P2] 已修**：新增 `_MAX_METRIC_POINTS_PER_MODULE = 1000`，`_record_metric` 超限时 `del points[:-N]` 仅保留最近 N 条，`self.metrics` 不再逐调用无限累积。`self.metrics` 全库无外部直接读取（仅 `performance_metrics.py` 内部），裁剪无消费方影响。
 - **PMC1 [P2] 判定不修**：`MetricsCollector` 的写入方法（`end_timer` / `record_cache_hit` / `record_cache_miss` / `_update_module_metrics`）均为同步、内部无 `await`，在单事件循环 asyncio 模型下协程不会被中途打断，不构成读改写竞态；多线程访问不是当前运行模型。
-- **PMC3 / PMC4 / PMC5 / PMC6 [P3] 未处理**：告警去重、metrics 文件轮转、阈值硬编码、相对路径保持原状。
+- **PMC4 / PMC5 / PMC6 [P3] 未处理**：metrics 文件轮转、阈值硬编码、相对路径保持原状。
 - **新增回归**：`tests/unit/test_performance_metrics.py`（2 项：`get_last_duration` 读取最近耗时、单模块指标点数量受上限约束）。回退 `app/utils/performance_metrics.py` 后 2/2 失败。
 
 ## 六、状态更新（2026-09-20 核实）
@@ -61,3 +61,7 @@
 - **PM2 [P2] 已修**：`request_id` 不再用 `datetime.utcnow().timestamp()` + IP + path 拼接（同秒同 IP 同路径必然碰撞），改为复用 `app.utils.logging.generate_request_id()` 并 `set_request_context()` 写入上下文；`RequestLoggingMiddleware` 改为 `get_request_id() or generate_request_id()`，两者共享同一个 id，响应头 `X-Request-ID` 与日志 `request_id` 一致。语义变化：`X-Process-Time` 在 `http.response.start` 时刻计算（流式响应为到首字节耗时，非流式近似总耗时）；该头全库无消费方。
 - **PM4 / PM5 / PM6 维持原状**：Prometheus 静默吞错、stats 键对动态路径建 key、裁剪 O(n) 全表扫描未改。
 - **测试**：新增 `tests/unit/test_middleware_rlm_and_request_id.py` 中 3 项 PM 相关用例（旧拼接 id 断裂、纯 ASGI 逐条转发 body、流式响应单值头）；`tests/unit/test_performance_monitor_metrics.py` 两处 `_metric_path` 调用签名同步更新。回退源码后相关断言失败。
+
+## 七、状态更新（2026-09-22 核实）
+
+- **PMC3 [P3] 已修**：`record_cache_miss` 原在命中率低于阈值时每次未命中都 `alerts.append` 并 `logger.warning`。命中率随每次采样变化，同一低命中率状态会持续产出不同文本的告警，`alerts` 无限增长、日志重复刷屏。现抽出 `_check_cache_hit_rate_alert`：以「该模块是否已处于告警态」（`_cache_alert_active`）判重，跌破阈值只告警一次，恢复到阈值以上后重新武装，下次再跌破才追加。`record_cache_hit`/`record_cache_miss` 共用该检查，恢复路径由命中侧触发。新增 `tests/unit/test_performance_metrics.py` 2 项（持续 miss 只 1 条告警、恢复后再次跌破重新告警），回退 `performance_metrics.py` 后 2 项失败。
