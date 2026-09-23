@@ -7,10 +7,17 @@ import 'credential_store.dart';
 import 'session_cookies.dart';
 
 class CloudAuthException implements Exception {
-  CloudAuthException(this.message, {this.statusCode});
+  CloudAuthException(
+    this.message, {
+    this.statusCode,
+    this.secureStorage = false,
+  });
 
   final String message;
   final int? statusCode;
+
+  /// The failure came from the platform secure storage backend.
+  final bool secureStorage;
 
   @override
   String toString() => message;
@@ -114,7 +121,16 @@ class CloudAuthClient {
     final nextUrl = normalizeBaseUrl(serviceUrl ?? baseUrl);
     final clearing = logout();
     final epoch = _epoch;
-    await clearing;
+    try {
+      await clearing;
+    } on SecureStorageUnavailableException {
+      // A session cannot be persisted on this host, so a login could not be
+      // kept either. Report the real cause instead of a network error.
+      throw CloudAuthException(
+        secureStorageUnavailableMessage,
+        secureStorage: true,
+      );
+    }
     _check(epoch);
     _baseUrl = nextUrl;
     _account = email.trim().toLowerCase();
@@ -177,10 +193,15 @@ class CloudAuthClient {
       session = next;
       onSessionChanged?.call(next);
       return next;
+    } on SecureStorageUnavailableException {
+      throw CloudAuthException(
+        secureStorageUnavailableMessage,
+        secureStorage: true,
+      );
     } on CloudAuthException {
       rethrow;
     } catch (_) {
-      throw CloudAuthException('认证响应或安全存储不可用，请重新登录');
+      throw CloudAuthException('认证响应不可用，请重新登录');
     }
   }
 
@@ -216,6 +237,9 @@ class CloudAuthClient {
       _expiresAt = DateTime.parse(saved['expires_at'] as String);
       // The server verifies the refresh cookie before a restored account is shown.
       return await refresh();
+    } on SecureStorageUnavailableException {
+      if (epoch == _epoch) detach();
+      rethrow;
     } catch (_) {
       if (epoch == _epoch) await logout();
       rethrow;
@@ -247,6 +271,13 @@ class CloudAuthClient {
       final response = await _request('POST', '/api/v1/refresh', cookies);
       _check(epoch);
       return await _accept(response, epoch);
+    } on CloudAuthException catch (error) {
+      if (error.secureStorage) {
+        if (epoch == _epoch) detach();
+        rethrow;
+      }
+      if (epoch == _epoch) await logout();
+      throw CloudAuthException('登录已过期或刷新失败，请重新登录');
     } catch (_) {
       if (epoch == _epoch) await logout();
       throw CloudAuthException('登录已过期或刷新失败，请重新登录');

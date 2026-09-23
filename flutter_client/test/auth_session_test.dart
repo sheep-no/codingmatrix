@@ -16,12 +16,17 @@ import 'package:http/testing.dart';
 
 class MemoryStorage implements SessionStorage {
   String? value;
+  bool failRead = false;
   bool failWrite = false;
   bool failDelete = false;
   Completer<void>? writeGate;
   bool writing = false;
   @override
-  Future<String?> read() async => value;
+  Future<String?> read() async {
+    if (failRead) throw StateError('secret-storage-error');
+    return value;
+  }
+
   @override
   Future<void> write(String value) async {
     if (failWrite) throw StateError('secret-storage-error');
@@ -279,7 +284,7 @@ void main() {
     f.storage.failDelete = true;
     await controller.logout();
     expect(controller.state.isAuthenticated, false);
-    expect(controller.state.errorMessage, contains('清除失败'));
+    expect(controller.state.errorMessage, contains('安全存储不可用'));
     expect(controller.state.errorMessage, isNot(contains('secret')));
     f.storage.failDelete = false;
     await controller.logout();
@@ -287,6 +292,58 @@ void main() {
     expect(controller.state.errorMessage, isNull);
     controller.dispose();
   });
+
+  test('secure storage failures are typed and expose no secrets', () async {
+    final storage = MemoryStorage();
+    final store = CredentialStore(storage: storage);
+    storage.failWrite = true;
+    await expectLater(
+      store.saveSession({'version': 1, 'access_token': 'test-only-secret'}),
+      throwsA(isA<SecureStorageUnavailableException>()),
+    );
+    storage.failWrite = false;
+    await store.saveSession({'version': 1, 'access_token': 'test-only-secret'});
+    storage.failRead = true;
+    await expectLater(
+      store.loadSession(),
+      throwsA(isA<SecureStorageUnavailableException>()),
+    );
+    storage.failRead = false;
+    storage.failDelete = true;
+    await expectLater(
+      store.clearSession(),
+      throwsA(isA<SecureStorageUnavailableException>()),
+    );
+  });
+
+  test(
+    'a host without secure storage reports the host cause, not a session error',
+    () async {
+      final f = Fixture()..storage.failRead = true;
+      final controller = AuthController(f.auth, f.store);
+      await controller.restore();
+      expect(controller.state.isAuthenticated, false);
+      expect(controller.state.errorMessage, secureStorageUnavailableMessage);
+      expect(controller.state.errorMessage, isNot(contains('会话恢复失败')));
+      controller.dispose();
+    },
+  );
+
+  test(
+    'login on a host without secure storage reports the host cause, not network',
+    () async {
+      final f = Fixture()..storage.failWrite = true;
+      final controller = AuthController(f.auth, f.store);
+      await controller.login(
+        email: 'alice@example.com',
+        password: 'password-secret',
+      );
+      expect(controller.state.isAuthenticated, false);
+      expect(controller.state.errorMessage, secureStorageUnavailableMessage);
+      expect(controller.state.errorMessage, isNot(contains('网络')));
+      controller.dispose();
+    },
+  );
 
   test(
     'restarts from device record and verifies refresh before restoring account',
