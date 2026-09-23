@@ -10,6 +10,7 @@ v4.8.0 新增：
 import json
 import re
 import logging
+import xml.etree.ElementTree as ET
 from typing import List
 from dataclasses import dataclass, field
 
@@ -88,10 +89,75 @@ class GenericTextParser:
         return result
 
 
+def _xml_localname(tag: str) -> str:
+    """去掉 XML 命名空间前缀，取标签本地名。"""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_child(element, name: str):
+    for child in element:
+        if _xml_localname(child.tag) == name:
+            return child
+    return None
+
+
+def _parse_junit_xml(raw_output: str) -> "ParsedTestResult | None":
+    """用 xml.etree 解析 JUnit XML；输入非 XML 或解析失败返回 None。
+
+    以 ``<testcase>`` 元素为准统计：skipped 不计入 passed，failure/error
+    计入 failed。相比正则，能正确处理属性顺序、多行内容与命名空间。
+    """
+    if not raw_output.lstrip().startswith("<"):
+        return None
+    try:
+        root = ET.fromstring(raw_output)
+    except ET.ParseError:
+        return None
+
+    if _xml_localname(root.tag) not in ("testsuite", "testsuites"):
+        return None
+
+    result = ParsedTestResult()
+    passed = failed = 0
+    for element in root.iter():
+        if _xml_localname(element.tag) != "testcase":
+            continue
+        name = element.get("name", "") or element.get("classname", "")
+        if _xml_child(element, "skipped") is not None:
+            continue
+        failure = _xml_child(element, "failure")
+        error = _xml_child(element, "error")
+        if failure is not None or error is not None:
+            node = failure if failure is not None else error
+            message = (node.get("message") or node.text or "").strip()
+            failed += 1
+            if message:
+                result.errors.append(message[:200])
+            result.test_cases.append(
+                TestCaseResult(name=name, passed=False, error_message=message)
+            )
+        else:
+            passed += 1
+            result.test_cases.append(TestCaseResult(name=name, passed=True))
+
+    result.passed = passed
+    result.failed = failed
+    return result
+
+
 class PytestXMLParser:
-    """pytest XML 输出解析器"""
+    """pytest 输出解析器
+
+    python_pytest preset 声明的 output_format 是 pytest_xml，但默认命令
+    （``pytest -xvs``）输出的是文本。因此先尝试真正的 JUnit XML（--junitxml
+    等场景），不是 XML 时回退到 pytest 文本正则。
+    """
 
     def parse(self, raw_output: str) -> ParsedTestResult:
+        xml_result = _parse_junit_xml(raw_output)
+        if xml_result is not None:
+            return xml_result
+
         result = ParsedTestResult()
 
         passed_match = re.search(r"(\d+)\s+passed", raw_output)
@@ -121,8 +187,21 @@ class JestJSONParser:
 
         try:
             data = json.loads(raw_output)
-            num_passed = data.get("numPassedTests", 0)
-            num_failed = data.get("numFailedTests", 0)
+            num_passed = data.get("numPassedTests")
+            num_failed = data.get("numFailedTests")
+
+            if num_passed is None or num_failed is None:
+                # vitest 等 JSON reporter 不保证 jest 的顶层计数字段，
+                # 按 assertionResults[].status 统计（skipped/pending 不计通过）。
+                # 原实现直接 .get(..., 0) → vitest 风格输出恒为 0（OP3）。
+                num_passed = num_failed = 0
+                for test_result in data.get("testResults", []):
+                    for assertion in test_result.get("assertionResults", []):
+                        status = assertion.get("status")
+                        if status == "passed":
+                            num_passed += 1
+                        elif status == "failed":
+                            num_failed += 1
 
             result.passed = num_passed
             result.failed = num_failed
@@ -151,20 +230,27 @@ class JestJSONParser:
 
 
 class JUnitXMLParser:
-    """JUnit XML 输出解析器（简化版 - 从文本中提取）"""
+    """JUnit XML 输出解析器（优先 xml.etree，非 XML 时回退文本正则）"""
 
     def parse(self, raw_output: str) -> ParsedTestResult:
+        xml_result = _parse_junit_xml(raw_output)
+        if xml_result is not None:
+            return xml_result
+
         result = ParsedTestResult()
 
         tests_match = re.search(r"tests\s*=\s*['\"](\d+)['\"]", raw_output)
         failures_match = re.search(r"failures\s*=\s*['\"](\d+)['\"]", raw_output)
         errors_match = re.search(r"errors\s*=\s*['\"](\d+)['\"]", raw_output)
+        skipped_match = re.search(r"skipped\s*=\s*['\"](\d+)['\"]", raw_output)
 
         total = int(tests_match.group(1)) if tests_match else 0
         failures = int(failures_match.group(1)) if failures_match else 0
         errors_count = int(errors_match.group(1)) if errors_match else 0
+        skipped = int(skipped_match.group(1)) if skipped_match else 0
 
-        result.passed = total - failures - errors_count
+        # JUnit 的 tests 包含 skipped，必须扣除，否则 passed 虚高（OP2）
+        result.passed = max(0, total - failures - errors_count - skipped)
         result.failed = failures + errors_count
 
         failure_matches = re.findall(r"<failure[^>]*>(.*?)</failure>", raw_output, re.DOTALL)

@@ -164,3 +164,19 @@ output = "test_api.py::test_login PASSED\n...\n2 passed, 1 failed"
 - OP3 已实测（vitest JSON → 0/0）。
 - OP4 已实测（Go panic → failed=0）。
 - OP5-OP9 为代码级结论。
+
+## 6. 状态更新（2026-09-23 核实）
+
+本轮修复 OP1/OP2/OP3，并补齐 OP9 的 XML/JSON 用例：
+
+- **OP1 已修**：新增模块级 `_parse_junit_xml`（`xml.etree.ElementTree`，按 `testcase` 元素统计，兼容命名空间与属性顺序）。`PytestXMLParser` 先尝试真 XML，非 XML 或解析失败再回退 pytest 文本正则。python_pytest preset 的 `output_format="pytest_xml"` 与默认文本命令的错配不再导致「真 XML → 0/0」。
+- **OP2 已修**：`JUnitXMLParser` 优先走 `_parse_junit_xml`（`<skipped>` 不计入 passed）；正则回退路径也读取 `skipped` 属性并从 passed 中扣除。原先 `passed = tests - failures - errors` 把 skipped 计入通过数（实测 10/2/1/3 → 7，正确 4）。
+- **OP3 已修**：`JestJSONParser` 在缺少 jest 顶层 `numPassedTests`/`numFailedTests` 时，按 `testResults[].assertionResults[].status` 统计（`passed`/`failed`，`pending`/`skipped` 不计通过）。原先 `.get(..., 0)` 使 vitest 风格 JSON 恒为 0/0；与 FD1（检测端给 vitest 打 jest_json 标签）的失效链被打破。
+- **OP9 已修（部分）**：新增 `tests/unit/test_output_parser.py`，覆盖真 JUnit XML（含 skipped/failure/命名空间）、文本回退、正则 skipped 扣除、jest/vitest JSON 与非 JSON 回退。
+
+**仍未处理**：
+
+- **OP4 [P3]**：`GoTestParser` 仍只数 `--- PASS:`/`--- FAIL:`，包级 `FAIL`（编译错误/panic）不计入 failed。
+- **OP5/OP6/OP7/OP8 [P3]**：Rust 摘要行噪声、GenericTextParser 措辞覆盖、CppTestParser 纯委托、参数名 `format` 遮蔽内置，均为代码级结论，保留。
+
+**回归**：`tests/unit/test_output_parser.py` 新增 11 项；回退 `output_parser.py` 后新增用例 7 项失败。
