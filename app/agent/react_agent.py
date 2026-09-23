@@ -195,11 +195,10 @@ class ReActAgent:
                 prompt=prompt,
                 stream=False,
                 max_tokens=self.default_model.max_tokens,
-                temperature=0.7,
+                temperature=self.default_model.temperature,
                 api_key_token=self.api_key_token,
             )
             return response.get("choices", [{}])[0].get("message", {}).get("content", "")
         except Exception as e:
             logger.error(f"ReActAgent LLM 调用失败: {e}")
             return ""
-
