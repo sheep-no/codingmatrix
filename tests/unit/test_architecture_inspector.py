@@ -162,3 +162,113 @@ class TestBoundaryRules:
 
         assert inspector._violates_boundary("SELECT * FROM users", "no_database_access") is True
         assert inspector._violates_boundary("SELECTED = 1", "no_database_access") is False
+
+
+class TestTechStackConsistency:
+    def test_filename_substring_is_not_backend_layer(self):
+        """`backend_utils.py` 不应因文件名含 backend 被当成后端层文件。"""
+        inspector = _make_inspector(
+            {"tech_stack": {"backend": "FastAPI"}},
+            {"backend_utils.py": "x = 1\n"},
+        )
+
+        result = inspector.inspect()
+
+        assert result.violations == []
+
+    def test_nested_backend_dir_is_not_top_level_layer(self):
+        inspector = _make_inspector(
+            {"tech_stack": {"backend": "FastAPI"}},
+            {"data/backend/x.py": "x = 1\n"},
+        )
+
+        result = inspector.inspect()
+
+        assert result.violations == []
+
+    def test_top_level_backend_without_framework_is_flagged(self):
+        inspector = _make_inspector(
+            {"tech_stack": {"backend": "FastAPI"}},
+            {"backend/app/main.py": "print('x')\n"},
+        )
+
+        result = inspector.inspect()
+
+        assert any(v.violation_type == "tech_stack" for v in result.violations)
+
+    def test_comment_mentioning_framework_is_not_usage(self):
+        """注释里提到框架名不等于使用了框架。"""
+        from app.agent.architecture_inspector import ArchitectureInspector
+
+        inspector = ArchitectureInspector()
+
+        assert inspector._check_framework_inconsistency("# not FastAPI code", "FastAPI") is True
+
+    def test_real_imports_count_as_framework_usage(self):
+        from app.agent.architecture_inspector import ArchitectureInspector
+
+        inspector = ArchitectureInspector()
+
+        assert inspector._check_framework_inconsistency(
+            "from fastapi import FastAPI\n\napp = FastAPI()\n", "FastAPI"
+        ) is False
+        assert inspector._check_framework_inconsistency(
+            "import { ref } from 'vue'\n", "Vue"
+        ) is False
+
+
+class TestApiStyleConsistency:
+    def test_no_decision_does_not_activate_check(self):
+        """api_style 未由决策链产出时，接口风格检查不应默认按 REST 激活。"""
+        inspector = _make_inspector({}, {"app/api/routes.py": "x = 1\n"})
+
+        result = inspector.inspect()
+
+        assert not any(v.violation_type == "interface_style" for v in result.violations)
+
+    def test_rest_without_any_route_definition_is_flagged(self):
+        inspector = _make_inspector(
+            {},
+            {"app/api/schemas.py": "class Item:\n    pass\n"},
+            decisions={"api_style": "REST"},
+        )
+
+        result = inspector.inspect()
+
+        assert any(
+            v.violation_type == "interface_style" and "REST" in v.description
+            for v in result.violations
+        )
+
+    def test_rest_with_route_definition_is_clean(self):
+        inspector = _make_inspector(
+            {},
+            {"app/api/routes.py": "@router.get('/items')\ndef items():\n    return []\n"},
+            decisions={"api_style": "REST"},
+        )
+
+        result = inspector.inspect()
+
+        assert result.violations == []
+
+    def test_rest_file_with_graphql_import_is_flagged(self):
+        inspector = _make_inspector(
+            {},
+            {"app/api/schema.py": "import graphene\n\nclass Query(graphene.ObjectType):\n    pass\n"},
+            decisions={"api_style": "REST"},
+        )
+
+        result = inspector.inspect()
+
+        assert any(v.violation_type == "interface_style" for v in result.violations)
+
+    def test_graphql_with_rest_route_is_flagged(self):
+        inspector = _make_inspector(
+            {},
+            {"app/api/routes.py": "@app.post('/items')\ndef create():\n    return {}\n"},
+            decisions={"api_style": "GraphQL"},
+        )
+
+        result = inspector.inspect()
+
+        assert any(v.violation_type == "interface_style" for v in result.violations)

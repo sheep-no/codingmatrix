@@ -11,6 +11,7 @@ ArchitectureInspector - 架构检查器
 4. 生成架构检查报告
 """
 
+import ast
 import logging
 import re
 from typing import Dict, Any, List, Optional
@@ -29,6 +30,41 @@ _BOUNDARY_RULES = {
 }
 
 _REGEX_META = set(".*+?[]{}()|^$\\")
+
+
+# 框架的包名与代码形态标记。判断「是否使用某框架」时优先看真实导入
+# （AST / import 语句），标记仅作为导入之外的补充，避免注释/文档误判。
+_FRAMEWORK_PACKAGES = {
+    "FastAPI": ("fastapi",),
+    "Flask": ("flask",),
+    "Django": ("django",),
+    "Vue": ("vue",),
+    "React": ("react",),
+    "Angular": ("@angular/core", "@angular/common", "@angular/platform-browser"),
+}
+
+_FRAMEWORK_CODE_MARKERS = {
+    "FastAPI": ("@app.get", "@app.post", "@app.put", "@app.patch", "@app.delete", "APIRouter("),
+    "Flask": ("@app.route", "Flask("),
+    "Django": ("models.Model", "django.db"),
+    "Vue": ("createApp(", "defineComponent(", "reactive(", "computed("),
+    "React": ("React.createElement", "useState(", "useEffect("),
+    "Angular": ("@Component(", "@Injectable(", "NgModule("),
+}
+
+# JS/TS 的 import/require 语句（只取模块说明符）
+_JS_IMPORT_RE = re.compile(r"""(?:from|require\s*\()\s*['"]([^'"]+)['"]""")
+
+# REST 路由声明：装饰器形态（FastAPI/Flask），注释与文档不会以 @ 开头命中
+_REST_ENDPOINT_RE = re.compile(
+    r"@\s*\w+\s*\.\s*(?:get|post|put|patch|delete|options|head|route|websocket|api_route)\s*\(",
+    re.IGNORECASE,
+)
+
+# GraphQL schema 声明：关键字形态（type Query {...}）
+_GRAPHQL_SCHEMA_RE = re.compile(r"\btype\s+(?:Query|Mutation|Subscription)\b")
+
+_GRAPHQL_PACKAGES = ("graphene", "strawberry", "graphql", "ariadne")
 
 
 @dataclass
@@ -266,17 +302,28 @@ class ArchitectureInspector:
         return None
 
     def _check_interface_style(self) -> List[ArchitectureViolation]:
-        """检查接口风格"""
+        """检查接口风格。
+
+        `api_style` 只在决策链显式产出时才检查（此前默认 "REST" 会在无决策
+        时静默激活检查）。检查分两层：
+        - 单文件反向检查：REST 项目文件出现 GraphQL schema、或 GraphQL 项目
+          文件出现 REST 路由装饰器即违规；
+        - 项目级正向检查：声明了风格却在所有 API 文件中找不到对应风格的
+          声明，说明「只做了对向反证、没验证正向语义」。
+        """
         violations = []
 
-        api_style = self.user_decisions.get("api_style", "REST")
+        api_style = self.user_decisions.get("api_style")
         if not api_style:
             return violations
 
-        for file_path, content in self.generated_files.items():
-            if "api" not in file_path.lower() and "router" not in file_path.lower():
-                continue
+        api_files = {
+            file_path: content
+            for file_path, content in self.generated_files.items()
+            if "api" in file_path.lower() or "router" in file_path.lower()
+        }
 
+        for file_path, content in api_files.items():
             style_violation = self._check_api_style(content, api_style)
             if style_violation:
                 violations.append(ArchitectureViolation(
@@ -287,23 +334,76 @@ class ArchitectureInspector:
                     suggestion=f"调整接口以符合 {api_style} 规范"
                 ))
 
+        if not api_files:
+            return violations
+
+        if api_style == "REST" and not any(
+            self._has_rest_endpoints(content) for content in api_files.values()
+        ):
+            violations.append(ArchitectureViolation(
+                file_path=next(iter(api_files)),
+                violation_type="interface_style",
+                description="声明 REST 风格但未发现任何 REST 路由定义",
+                severity="medium",
+                suggestion="使用 @app.get/@router.post 等声明 REST 接口",
+            ))
+        elif api_style == "GraphQL" and not any(
+            self._has_graphql_schema(content) for content in api_files.values()
+        ):
+            violations.append(ArchitectureViolation(
+                file_path=next(iter(api_files)),
+                violation_type="interface_style",
+                description="声明 GraphQL 风格但未发现任何 GraphQL schema 定义",
+                severity="medium",
+                suggestion="使用 type Query/Mutation 或 graphene/strawberry 定义 schema",
+            ))
+
         return violations
 
     def _check_api_style(self, content: str, api_style: str) -> Optional[str]:
-        """检查 API 风格"""
+        """单文件反向检查：风格与声明不符时返回原因。"""
         if api_style == "REST":
-            graphql_patterns = ["query {", "mutation {", "type Query", "type Mutation"]
-            for pattern in graphql_patterns:
-                if pattern in content:
-                    return "包含 GraphQL 语法"
-
+            if self._has_graphql_schema(content):
+                return "包含 GraphQL 语法"
         elif api_style == "GraphQL":
-            rest_patterns = ["@app.route", "@router.get", "@router.post", "HTTPMethod"]
-            for pattern in rest_patterns:
-                if pattern in content:
-                    return "包含 REST 路由定义"
-
+            if self._has_rest_endpoints(content):
+                return "包含 REST 路由定义"
         return None
+
+    @staticmethod
+    def _has_rest_endpoints(content: str) -> bool:
+        """是否存在 REST 路由声明（装饰器形态）。"""
+        return bool(_REST_ENDPOINT_RE.search(content))
+
+    def _has_graphql_schema(self, content: str) -> bool:
+        """是否存在 GraphQL schema：优先看导入，其次看 schema 关键字。"""
+        if self._file_imports_packages(content, _GRAPHQL_PACKAGES):
+            return True
+        return bool(_GRAPHQL_SCHEMA_RE.search(content))
+
+    @staticmethod
+    def _file_imports_packages(source: str, packages) -> bool:
+        """源码是否导入指定包（Python AST 或 JS/TS import 语句）。"""
+        try:
+            tree = ast.parse(source)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                for name in names:
+                    if any(name == pkg or name.startswith(pkg + ".") for pkg in packages):
+                        return True
+            return False
+        for module in _JS_IMPORT_RE.findall(source):
+            if any(module == pkg or module.startswith(pkg + "/") for pkg in packages):
+                return True
+        return False
 
     def _check_naming_conventions(self) -> List[ArchitectureViolation]:
         """检查命名规范"""
@@ -441,7 +541,8 @@ class ArchitectureInspector:
         frontend_framework = tech_stack.get("frontend") or self.user_decisions.get("frontend_framework")
 
         for file_path, content in self.generated_files.items():
-            if backend_framework and "backend" in file_path.lower():
+            layer = self._file_layer(file_path)
+            if backend_framework and layer == "backend":
                 if self._check_framework_inconsistency(content, backend_framework):
                     violations.append(ArchitectureViolation(
                         file_path=file_path,
@@ -451,7 +552,7 @@ class ArchitectureInspector:
                         suggestion=f"使用 {backend_framework} 框架语法"
                     ))
 
-            if frontend_framework and "frontend" in file_path.lower():
+            if frontend_framework and layer == "frontend":
                 if self._check_framework_inconsistency(content, frontend_framework):
                     violations.append(ArchitectureViolation(
                         file_path=file_path,
@@ -463,26 +564,40 @@ class ArchitectureInspector:
 
         return violations
 
+    @staticmethod
+    def _file_layer(file_path: str) -> Optional[str]:
+        """按目录结构判断文件归属层。
+
+        只看路径的目录段（去掉文件名）且只认顶层目录，`backend_utils.py`、
+        `app/frontend_config.py`、`data/backend/x.py` 不再被子串误归层。
+        """
+        dirs = [part.lower() for part in re.split(r"[\\/]+", file_path) if part][:-1]
+        if not dirs:
+            return None
+        if dirs[0] == "backend":
+            return "backend"
+        if dirs[0] == "frontend":
+            return "frontend"
+        return None
+
     def _check_framework_inconsistency(
         self,
         content: str,
         framework: str
     ) -> bool:
-        """检查框架不一致"""
-        framework_markers = {
-            "FastAPI": ["from fastapi", "@app.get", "@app.post", "FastAPI"],
-            "Flask": ["from flask", "@app.route", "Flask"],
-            "Django": ["from django", "models.Model", "django.db"],
-            "Vue": ["defineComponent", "ref(", "reactive(", "computed("],
-            "React": ["useState", "useEffect", "React.createElement", "jsx"],
-            "Angular": ["@Component", "@Injectable", "NgModule"]
-        }
+        """检查框架不一致：内容既未导入也未以代码形态使用指定框架时返回 True。
 
-        markers = framework_markers.get(framework, [])
-        if markers:
-            return not any(marker in content for marker in markers)
-
-        return False
+        原实现用 `"FastAPI" in content` 之类的裸词子串，注释/文档里提到框架名
+        即被当作「已使用」。现优先看真实导入（Python AST / JS import 语句），
+        再用装饰器等代码形态标记兜底。
+        """
+        packages = _FRAMEWORK_PACKAGES.get(framework, ())
+        markers = _FRAMEWORK_CODE_MARKERS.get(framework, ())
+        if not packages and not markers:
+            return False
+        if packages and self._file_imports_packages(content, packages):
+            return False
+        return not any(marker in content for marker in markers)
 
     def _llm_architecture_review(
         self,
