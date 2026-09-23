@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
+from app.core.version import APP_VERSION
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +39,7 @@ class HealthChecker:
     """
 
     def __init__(self):
-        self._version = "v3.0"
+        self._version = APP_VERSION
         self._start_time = datetime.utcnow()
 
     async def check_api(self) -> HealthCheckResult:

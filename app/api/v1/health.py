@@ -18,14 +18,13 @@ from fastapi import APIRouter, Response, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.core.version import APP_VERSION
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
 from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
-
-APP_VERSION = "v5.10.0"
 
 
 @router.get("", summary="基础健康检查")

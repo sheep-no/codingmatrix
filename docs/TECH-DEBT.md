@@ -20,7 +20,7 @@
 | 10 | `CHUNKS_DIR` 定义顺序 | 已解决 | `app/api/v1/file_upload.py` 在使用前定义常量 |
 | 11 | SQL LIKE 未转义 | 已解决 | `app/db/search_history.py` 使用 `escape_like_pattern` 和显式 escape |
 | 15 | login 限流标识不一致 | 已解决 | 检查、失败和成功记录统一使用 `identifier` |
-| 18 | health 版本来源分裂 | 仍在 | `app/api/v1/health.py` 为 `v5.10.0`，`app/services/health_checker.py` 为 `v3.0`，`CHANGELOG.md` 最新版本为 `5.15.0` |
+| 18 | health 版本来源分裂 | 已解决 | 统一到 `app/core/version.py` 的 `APP_VERSION = "v5.15.0"`，`app/api/v1/health.py` 与 `app/services/health_checker.py` 均引用该常量 |
 | 19 | cloudflared 遗留注释 | 仍在 | `app/main.py` 末尾仍有 Windows cloudflared 命令注释 |
 | 20 | 旧 Agent router 备份残留 | 已解决 | 备份残留已移除 |
 | 21 | FeatureSwitchMiddleware 路径 | 已解决 | `app/middleware/feature_switch.py` 使用 `/api/v1/agent` |
@@ -41,7 +41,7 @@
 | P2 | lifespan 与 startup hook 并存 | `app/main.py` | 仍在 |
 | P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 仍在 |
 | P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 仍在 |
-| P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 仍在；分别为 `v5.10.0`、`v3.0`、`5.15.0` |
+| P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 已解决；两处端点统一读 `app.core.version.APP_VERSION` |
 | P2 | StateGraph 生产入口仍以单节点 legacy wrapper 为主 | `app/agent/state/`、`app/agent/workflow_registry.py` | 仍在 |
 | P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 仍在 |
 | P2 | 跨工作台续跑与多 worker 恢复缺独立验收 | `app/api/v1/agent_host.py`、`app/agent/state/` | 仍在 |
@@ -93,7 +93,7 @@
 
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
-| 18 | health.py 版本号 | `app/api/v1/health.py` | 历史上更新为 `v5.10.0`；当前仍与 `health_checker.py` 的 `v3.0` 及 `CHANGELOG.md` 的 `5.15.0` 分裂 |
+| 18 | health.py 版本号 | `app/api/v1/health.py` | 提取 `app/core/version.py`，health 端点与 `health_checker.py` 共用同一常量 |
 | 19 | main.py 遗留注释 | `app/main.py` | 历史曾记录移除；当前注释仍存在 |
 | 20 | 旧 Agent router 备份残留 | 已移除 | 删除历史残留文件 |
 | 21 | FeatureSwitchMiddleware 路径 | `app/middleware/feature_switch.py` | `/api/v1/project` → `/api/v1/agent` |
