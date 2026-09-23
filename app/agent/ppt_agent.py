@@ -667,7 +667,10 @@ JSON Schema:
                 outline = await self._parse_with_llm_fallback(
                     content,
                     existing_outline.get("title", "PPT"),
-                    len(existing_outline.get("slides", [])),
+                    # 修改请求可能增删页（如「加一页」），传 None 让修改后的真实页数
+                    # 生效；若传原页数，_validate_outline 会把 LLM 结果强制裁剪/补齐
+                    # 回修改前页数，导致新增页挤掉原有内容页、改页请求空转。
+                    None,
                     api_key_token
                 )
                 if outline:
