@@ -25,12 +25,11 @@ async def extract_and_save_feature_list(
             requirement, files_dict, domain=domain
         )
 
-        domain_projects = pm.get_projects_by_domain(domain)
-        if len(domain_projects) >= 15:
-            try:
-                await pm.trigger_template_extraction(domain)
-            except Exception as e:
-                logger.warning(f"模板自动萃取失败: {e}")
+        # 阈值判定收敛到 trigger_template_extraction 内部，避免双处硬编码 15
+        try:
+            await pm.trigger_template_extraction(domain)
+        except Exception as e:
+            logger.warning(f"模板自动萃取失败: {e}")
 
         return result
     except Exception as e:

@@ -70,3 +70,20 @@
 - **PM6 部分缓解**：新增 `tests/unit/test_traditional_generate_feature_extraction.py` 覆盖 `_extract_feature_list` 的 prompt 渲染与特征解析；`_parse_feature_response`（null/dict/多块）、`_fallback_feature_list`、`extract_and_save` 降级链仍零用例。
 - **PM1 仍成立**：`:156` `parsed.get("features", [])` 返回 None/dict 时的 TypeError/静默空未处理，`:157` 仅捕 `json.JSONDecodeError`。
 - **PM2/PM3/PM4/PM5 仍成立**：降级伪功能无标记、`_save` 无锁非原子、截断无标记、阈值硬编码本次均未触及。
+
+## 7. 解析加固与来源标记（2026-09-23，第二批）
+
+### 已修
+
+- **PM1 已修**：`_parse_feature_response` 重写为 `_parse_features_with_source` + `_first_json_object` + `_coerce_feature_list`。以 `JSONDecoder.raw_decode` 从每个 `{` 位置尝试解析首个 JSON 对象，替代贪婪 `\{[\s\S]*\}`；`features` 缺失/为 null/dict/标量时显式判非法并回退文本解析，不再抛 `TypeError` 或静默返回空。回退源码后 `test_features_null_falls_back_to_text` 等复现失败。
+- **PM2a 已修**：多 JSON 块取首个有效对象（不再跨块贪婪导致 `json.loads` 失败）；文本回退新增 `_parse_text_features`，跳过含 `{}[]` 或 `"features"` 的 JSON 片段，不再把 `{"features": [...]}` 原文当功能项。
+- **PM2b 部分已修**：`_extract_feature_list` 返回 `(features, source)`，`extract_and_save` 写入 `feature_source`（`llm`/`llm_text`/`file_fallback`）；`count_with_features` 排除 `file_fallback`；`layer2_semantic.py` 的语义路径与关键词路径均跳过 `feature_source == "file_fallback"` 的伪功能。降级伪功能仍会生成（保留 `_fallback_feature_list` 行为），但已可被下游辨识与过滤。
+- **PM4 已修**：`_summarize_files` 对 `content > 200` 追加「（内容已截断）」，文件数 > 50 追加「共 N 个文件，仅展示前 50 个」。
+- **PM5 已修**：`feature_extractor` 移除 `>= 15` 硬编码，统一调用 `trigger_template_extraction` 由方法内部阈值判定。
+
+### 仍成立
+
+- **PM3**：`_save` 仍为全量 `json.dump` 无锁非原子写，实例化仍每次 load/mkdir；正确修复需文件锁 + `os.replace` 原子写，本次未触及。
+- **`feature_source` 未覆盖向量索引**：`vector_index.add_project` 仍会把 `file_fallback` 项目索引入库（其 `feature_list` 非空），语义检索命中后靠 `layer2_semantic` 兜底过滤；索引层过滤待后续。
+
+新增 `tests/unit/test_project_metadata_hardening.py` 14 用例（JSON 类型校验/多块提取/来源标记与计数/截断标记），回退源码后 11 项失败。

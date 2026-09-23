@@ -24,6 +24,7 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
                 items = []
                 for project_meta, score in results:
                     feature_list = project_meta.get("feature_list", [])
+                    feature_source = project_meta.get("feature_source")
                     if not feature_list:
                         try:
                             from app.agent.project_metadata import ProjectMetadataManager
@@ -35,8 +36,13 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
                             ]
                             if matching:
                                 feature_list = matching[0].get("feature_list", [])
+                                feature_source = matching[0].get("feature_source")
                         except Exception as e:
                             logger.debug(f"语义搜索失败：{e}")
+
+                    # file_fallback 为文件名生成的伪功能，不参与历史联想
+                    if feature_source == "file_fallback":
+                        feature_list = []
 
                     for feature in feature_list[:8]:
                         items.append(AssociationItem(
@@ -77,6 +83,8 @@ async def layer2_keyword_fallback(requirement: str) -> List[AssociationItem]:
 
     items = []
     for project in matched[:5]:
+        if project.get("feature_source") == "file_fallback":
+            continue
         for feature in project.get("feature_list", []):
             items.append(AssociationItem(
                 content=feature,
