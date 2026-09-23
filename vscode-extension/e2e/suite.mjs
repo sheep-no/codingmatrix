@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as vscode from "vscode";
 import { EXTENSION_VERSION, assertCompatible } from "../dist/compatibility.js";
 
@@ -79,8 +81,30 @@ export async function run() {
     schema_versions: [1],
     plugin_version: { min: EXTENSION_VERSION, max: "0.1.0" },
   }));
+  // Every command advertised in package.json must exist at runtime, otherwise
+  // the palette shows entries that fail when invoked.
+  const manifest = JSON.parse(readFileSync(join(extension.extensionPath, "package.json"), "utf8"));
+  const declaredCommands = (manifest.contributes?.commands ?? []).map((item) => item.command);
+  assert.ok(declaredCommands.length > 0, "package.json should declare commands");
   const commands = await vscode.commands.getCommands(true);
-  assert.ok(commands.includes("codingmatrix.openAgentWorkbench"), "Agent workbench command should be registered");
+  for (const command of declaredCommands) {
+    assert.ok(commands.includes(command), `declared command should be registered: ${command}`);
+  }
   await vscode.commands.executeCommand("codingmatrix.openAgentWorkbench");
+  let observedLabels = [];
+  let workbenchTabs = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    observedLabels = vscode.window.tabGroups.all
+      .flatMap((group) => group.tabs)
+      .map((tab) => tab.label);
+    workbenchTabs = observedLabels.filter((label) => label === "CodingMatrix Agent");
+    if (workbenchTabs.length > 0) break;
+    await sleep(250);
+  }
+  assert.equal(
+    workbenchTabs.length,
+    1,
+    `workbench webview panel should be open, observed tabs: ${JSON.stringify(observedLabels)}`,
+  );
   await runRealBackendChecks();
 }
