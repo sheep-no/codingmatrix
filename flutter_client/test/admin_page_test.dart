@@ -1347,4 +1347,40 @@ void main() {
     expect(find.textContaining('必须为正整数'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('创建用户弹层随退场动画关闭时不释放仍在使用的控制器', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('create_user')) {
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('创建用户'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'bob');
+    await tester.enterText(find.byType(TextField).at(1), 'bob@example.com');
+    await tester.enterText(find.byType(TextField).at(2), 'secret');
+    await tester.tap(find.text('创建'));
+    // Run the pop transition to completion: the dialog subtree rebuilds on
+    // every frame, so a controller released before it unmounts would be used
+    // after disposal here.
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('用户创建失败'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

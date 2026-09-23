@@ -6,6 +6,7 @@ import '../application/auth_controller.dart';
 import '../application/workbench_controller.dart';
 import '../infrastructure/agent/agent_session_client.dart';
 import 'account_overlays.dart';
+import 'dialog_controllers.dart';
 import 'project_files_page.dart';
 import 'shell_scaffold.dart';
 
@@ -108,20 +109,23 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('调整并发限制'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: roleController,
-                decoration: const InputDecoration(labelText: '角色'),
-              ),
-              TextField(
-                controller: limitController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '限制值'),
-              ),
-            ],
+        content: DialogControllers(
+          controllers: [roleController, limitController],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: roleController,
+                  decoration: const InputDecoration(labelText: '角色'),
+                ),
+                TextField(
+                  controller: limitController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '限制值'),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -138,8 +142,6 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
     );
     final role = roleController.text.trim();
     final limit = int.tryParse(limitController.text.trim());
-    roleController.dispose();
-    limitController.dispose();
     if (accepted != true || role.isEmpty || limit == null || !mounted) return;
     final epoch = _epoch;
     await ref

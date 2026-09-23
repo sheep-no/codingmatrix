@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/mcp/mcp_admin_client.dart';
 import 'account_overlays.dart';
+import 'dialog_controllers.dart';
 import 'shell_scaffold.dart';
 
 final mcpAdminClientProvider = Provider<McpAdminClient>((ref) {
@@ -153,26 +154,29 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text('编辑 ${server['name']}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile(
-                  title: const Text('启用'),
-                  value: enabled,
-                  onChanged: (value) => setDialogState(() => enabled = value),
-                ),
-                if (server['transport'] == 'stdio')
-                  TextField(
-                    controller: command,
-                    decoration: const InputDecoration(labelText: '命令路径'),
+          content: DialogControllers(
+            controllers: [command, url],
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    title: const Text('启用'),
+                    value: enabled,
+                    onChanged: (value) => setDialogState(() => enabled = value),
                   ),
-                if (server['transport'] == 'http')
-                  TextField(
-                    controller: url,
-                    decoration: const InputDecoration(labelText: '服务 URL'),
-                  ),
-              ],
+                  if (server['transport'] == 'stdio')
+                    TextField(
+                      controller: command,
+                      decoration: const InputDecoration(labelText: '命令路径'),
+                    ),
+                  if (server['transport'] == 'http')
+                    TextField(
+                      controller: url,
+                      decoration: const InputDecoration(labelText: '服务 URL'),
+                    ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -188,12 +192,8 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
         ),
       ),
     );
-    // Read the fields and release the controllers before the early return so a
-    // cancelled edit does not leak them.
     final commandText = command.text.trim();
     final urlText = url.text.trim();
-    command.dispose();
-    url.dispose();
     if (save != true) return;
     final body = <String, dynamic>{
       'enabled': enabled,

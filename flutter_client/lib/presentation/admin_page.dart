@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import 'account_overlays.dart';
+import 'dialog_controllers.dart';
 import 'shell_scaffold.dart';
 
 class AdminPage extends ConsumerStatefulWidget {
@@ -66,24 +67,27 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('创建用户'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: username,
-                decoration: const InputDecoration(labelText: '用户名'),
-              ),
-              TextField(
-                controller: email,
-                decoration: const InputDecoration(labelText: '邮箱'),
-              ),
-              TextField(
-                controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: '初始密码'),
-              ),
-            ],
+        content: DialogControllers(
+          controllers: [username, email, password],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: username,
+                  decoration: const InputDecoration(labelText: '用户名'),
+                ),
+                TextField(
+                  controller: email,
+                  decoration: const InputDecoration(labelText: '邮箱'),
+                ),
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '初始密码'),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -98,20 +102,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
         ],
       ),
     );
-    if (created != true) {
-      username.dispose();
-      email.dispose();
-      password.dispose();
-      return;
-    }
+    if (created != true) return;
     final body = {
       'username': username.text.trim(),
       'email': email.text.trim(),
       'password': password.text,
     };
-    username.dispose();
-    email.dispose();
-    password.dispose();
     await run('用户创建失败', () async {
       await ref
           .read(authenticatedClientProvider)
@@ -160,29 +156,35 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('编辑用户'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: username,
-                  decoration: const InputDecoration(labelText: '用户名'),
-                ),
-                TextField(
-                  controller: email,
-                  decoration: const InputDecoration(labelText: '邮箱'),
-                ),
-                DropdownButton<String>(
-                  value: permission,
-                  items: const [
-                    DropdownMenuItem(value: 'normal', child: Text('普通用户')),
-                    DropdownMenuItem(value: 'admin', child: Text('管理员')),
-                    DropdownMenuItem(value: 'superadmin', child: Text('超级管理员')),
-                  ],
-                  onChanged: (value) =>
-                      setDialogState(() => permission = value ?? 'normal'),
-                ),
-              ],
+          content: DialogControllers(
+            controllers: [username, email],
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: username,
+                    decoration: const InputDecoration(labelText: '用户名'),
+                  ),
+                  TextField(
+                    controller: email,
+                    decoration: const InputDecoration(labelText: '邮箱'),
+                  ),
+                  DropdownButton<String>(
+                    value: permission,
+                    items: const [
+                      DropdownMenuItem(value: 'normal', child: Text('普通用户')),
+                      DropdownMenuItem(value: 'admin', child: Text('管理员')),
+                      DropdownMenuItem(
+                        value: 'superadmin',
+                        child: Text('超级管理员'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => permission = value ?? 'normal'),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -203,8 +205,6 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       'email': email.text.trim(),
       'permission_level': permission,
     };
-    username.dispose();
-    email.dispose();
     if (saved != true || user['id'] is! int) return;
     await run('用户更新失败', () async {
       await ref
@@ -224,10 +224,13 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('重置 $username 的密码'),
-        content: TextField(
-          controller: password,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: '新密码'),
+        content: DialogControllers(
+          controllers: [password],
+          child: TextField(
+            controller: password,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: '新密码'),
+          ),
         ),
         actions: [
           TextButton(
@@ -242,7 +245,6 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       ),
     );
     final value = password.text;
-    password.dispose();
     if (confirmed != true) return;
     final epoch = _epoch;
     await run('密码重置失败', () async {
@@ -376,26 +378,29 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('沙箱配置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile(
-                  key: const Key('sandboxEnabledSwitch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('启用代码沙箱'),
-                  value: enabled,
-                  onChanged: (value) => setDialogState(() => enabled = value),
-                ),
-                TextField(
-                  key: const Key('sandboxLanguagesField'),
-                  controller: languagesController,
-                  decoration: const InputDecoration(
-                    labelText: '支持语言（逗号分隔）',
-                    hintText: 'python,javascript',
+          content: DialogControllers(
+            controllers: [languagesController],
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    key: const Key('sandboxEnabledSwitch'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('启用代码沙箱'),
+                    value: enabled,
+                    onChanged: (value) => setDialogState(() => enabled = value),
                   ),
-                ),
-              ],
+                  TextField(
+                    key: const Key('sandboxLanguagesField'),
+                    controller: languagesController,
+                    decoration: const InputDecoration(
+                      labelText: '支持语言（逗号分隔）',
+                      hintText: 'python,javascript',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -413,7 +418,6 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     );
     final enabledValue = enabled;
     final languagesValue = languagesController.text.trim();
-    languagesController.dispose();
     if (saved != true || !mounted) return;
     await run('沙箱配置更新失败', () async {
       await ref
@@ -513,66 +517,76 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('限流配置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile(
-                  key: const Key('rateLimitEnabledSwitch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('启用限流'),
-                  value: enabled,
-                  onChanged: (value) => setDialogState(() => enabled = value),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _numberField(
-                      '全局 limit',
-                      globalLimit,
-                      key: const Key('rateLimitGlobalLimit'),
-                    ),
-                    const SizedBox(width: 12),
-                    _numberField(
-                      'window(秒)',
-                      globalWindow,
-                      key: const Key('rateLimitGlobalWindow'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _numberField(
-                      'IP limit',
-                      ipLimit,
-                      key: const Key('rateLimitIpLimit'),
-                    ),
-                    const SizedBox(width: 12),
-                    _numberField(
-                      'window(秒)',
-                      ipWindow,
-                      key: const Key('rateLimitIpWindow'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _numberField(
-                      '用户 limit',
-                      userLimit,
-                      key: const Key('rateLimitUserLimit'),
-                    ),
-                    const SizedBox(width: 12),
-                    _numberField(
-                      'window(秒)',
-                      userWindow,
-                      key: const Key('rateLimitUserWindow'),
-                    ),
-                  ],
-                ),
-              ],
+          content: DialogControllers(
+            controllers: [
+              globalLimit,
+              globalWindow,
+              ipLimit,
+              ipWindow,
+              userLimit,
+              userWindow,
+            ],
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    key: const Key('rateLimitEnabledSwitch'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('启用限流'),
+                    value: enabled,
+                    onChanged: (value) => setDialogState(() => enabled = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _numberField(
+                        '全局 limit',
+                        globalLimit,
+                        key: const Key('rateLimitGlobalLimit'),
+                      ),
+                      const SizedBox(width: 12),
+                      _numberField(
+                        'window(秒)',
+                        globalWindow,
+                        key: const Key('rateLimitGlobalWindow'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _numberField(
+                        'IP limit',
+                        ipLimit,
+                        key: const Key('rateLimitIpLimit'),
+                      ),
+                      const SizedBox(width: 12),
+                      _numberField(
+                        'window(秒)',
+                        ipWindow,
+                        key: const Key('rateLimitIpWindow'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _numberField(
+                        '用户 limit',
+                        userLimit,
+                        key: const Key('rateLimitUserLimit'),
+                      ),
+                      const SizedBox(width: 12),
+                      _numberField(
+                        'window(秒)',
+                        userWindow,
+                        key: const Key('rateLimitUserWindow'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -595,16 +609,6 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     final globalRule = pair(globalLimit, globalWindow);
     final ipRule = pair(ipLimit, ipWindow);
     final userRule = pair(userLimit, userWindow);
-    for (final controller in [
-      globalLimit,
-      globalWindow,
-      ipLimit,
-      ipWindow,
-      userLimit,
-      userWindow,
-    ]) {
-      controller.dispose();
-    }
     if (saved != true || !mounted) return;
     if (globalRule.contains(null) ||
         ipRule.contains(null) ||
