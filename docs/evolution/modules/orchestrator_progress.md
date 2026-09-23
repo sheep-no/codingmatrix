@@ -9,7 +9,7 @@
 
 进度上报与成本追踪核心：面向前端流式 UI（`useAgentStreaming.js` 事件订阅）推送 progress/file/file_diff/model_info/thinking/test_results/validation_results/cost_update/warning/file_rejected/step_detail 等事件，附复杂度估算、文件大小/变更统计；`CostTracker` 累计 token 与成本。供整个 orchestrator 生成体系共用的事件出口。
 
-- **核心类**：`ProgressMixin`（:135 事件推送 Mixin）、`CostTracker`（:94 成本追踪）、`GenerationProgress`（:83 dataclass）。
+- **核心类**：`ProgressMixin`（事件推送 Mixin，含 `_track_task`/`_on_task_done` 任务池管理）、`CostTracker`（成本追踪，含 `llm_calls` 计数）。
 - **事件方法族**：`_report_progress`（:138）、`_report_file_event`（:196 全量 content 事件）、`_report_file_diff_event`（:224）、`_report_model_info`（:248）、`_report_done_event`（:267）、`_report_thinking`（:282）、`_report_test_results`（:301）、`_report_validation_results`（:318）、`_report_cost_update`（:335）、`_report_performance_metrics`（:352）、`_report_warning`（:369）、`_report_file_rejected`（:385）、`_report_step_detail`（:403）。
 - **统一出口**：`_emit_event`（:420 后加的共用推送入口，仅 3 个新方法使用）。
 - **辅助**：`_update_phase`（:437）、`_report_current_cost`（:440）、`_report_final_metrics`（:448）、`_estimate_complexity`（:472）、`_humanize_size`（:538）、`_calculate_changes`（:547）。
@@ -20,7 +20,7 @@
 - **导入依赖**：无第三方（os/time/json/asyncio/logging/dataclasses）。
 - **生产使用方**：orchestrator.py（:24 导入，:138 实例化 CostTracker）、orchestrator_files.py、orchestrator_testing.py、orchestrator_generation 全家（spec_first/incremental/traditional/mixin）。`MAX_CONTENT_FOR_CONTEXT` 被 spec_first_generate.py 用（:615/:934/:957/:1171 截断 generated_contents 传验证）。
 - **成本链路**：`specialist_base.LLMClient`（llm_client.py:82 注入 cost_tracker）→ `_record_usage`（:289 调 add_usage）→ `CostTracker`。`cost_per_1m_input/output` 键依赖 `dynamic_model_router.get_model_config` 返回的 dict。
-- **被依赖**：`build_progress_event`（:172）、`GenerationProgress`（:83）**全库无消费方（死代码）**。
+- **被依赖**：`build_progress_event`、`GenerationProgress` 原为全库无消费方死代码，已于 2026-09-23 删除（见 §6）。
 - **测试覆盖**：tests/unit/test_report_dead_methods.py —— 仅覆盖 3 个补丁方法（warning/file_rejected/step_detail）的事件形态；**成本/复杂度/变更统计/其余 10 个事件方法零测试**。
 
 ## 3. 已探明 Bug
@@ -171,3 +171,21 @@ if comment_ratio < 0.05:
 - OP1 已实测确认（成本恒零）。
 - OP3 已实测确认（类属性共享）。
 - 其余为代码级确定性结论，可随修复补测。
+
+## 6. 状态更新（2026-09-23 核实）
+
+按代码现状逐条复核，本轮修复 OP1 / OP3 / OP4 / OP6 / OP8：
+
+- **OP1 已修（由 llm_client LC1 批次）**：`dynamic_model_router.get_model_config` 现返回 `cost_per_1m_input`/`cost_per_1m_output`（dynamic_model_router.py:1084-1094，取 `registry_entry` 的成本字段），`_record_usage` 读取到的单价不再恒 0。
+- **OP3 已修**：删除类属性 `_pending_tasks`，新增 `_track_task`/`_on_task_done`，在实例上惰性创建 task 池并按实例隔离；done 回调改调 `_on_task_done`，内部消费 `task.exception()` 并记 error，不再出现「Task exception was never retrieved」告警与异常丢失。11 处 `_report_*` 的 task 登记统一改为 `self._track_task(asyncio.create_task(result))`。
+- **OP4 已修**：删除全库无消费方的 `build_progress_event` 与 `GenerationProgress`（同时清掉因此不再使用的 `List` 导入）。
+- **OP6 已修**：`_calculate_changes` 改用 `difflib.SequenceMatcher.get_opcodes()` 按真实行内容统计——`added`/`removed` 覆盖 insert/delete/replace 两侧，`modified` 仅计 replace 块的行数。纯替换（删 10 行同时新增 10 行）不再得出 `added=0/removed=0`，内容整体位移也不再误算 modified。
+- **OP8 部分已修**：`CostTracker` 新增 `llm_calls` 计数（`add_usage` 自增，`get_summary()` 输出），`_report_final_metrics` 的 `llm_calls` 改读 `cost_tracker.llm_calls`，前端「LLM 调用」不再恒 0。**`retry_count` 仍无维护点恒 0**（前端未消费该字段），需在重试层埋点，留待 llm_client/llm_caller 收敛批次。
+
+仍未处理：
+
+- **OP2（P2）**：`_report_file_event` 仍推全量 content。截断会破坏前端 `generatedFiles` 的文件内容预览（`useAgentStreaming.js:159` 直接取 `data.content`），属产品口径权衡，保留。
+- **OP5（P3）**：11 个 `_report_*` 的 callback 调用块仍未收敛到 `_emit_event`（本轮仅收敛 task 登记），属纯重构，与行为无关，保留。
+- **OP7（P3）**：`low_comments` factor 仍不计入 score。计入会改变所有「注释占比 <5%」文件的复杂度等级（前端展示与潜在决策依赖），需产品确认，保留。
+
+回归：`tests/unit/test_orchestrator_progress_fixes.py`（15 项，覆盖 OP3/OP4/OP6/OP8）；回退 `app/agent/orchestrator_progress.py` 后 11 项失败。
