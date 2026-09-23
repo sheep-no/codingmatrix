@@ -112,7 +112,8 @@
 未处理：
 
 - **V2N1 nginx_ai.py 未接入死文件**：仍未挂载（除 `tests/archive/legacy` 外全库零引用）。建议删除，待确认后执行。
-- **V2M1/V2M2/V2M3 仍存续**：model_admin 声明废弃仍挂载（双轨）、`/models/default` 改运行时全局、`fallback-chain` 的 `chain_name` 收而不用。均属设计收敛/配置结构决策，需架构口径。
+- **V2M1/V2M2 仍存续**：model_admin 声明废弃仍挂载（双轨）、`/models/default` 改运行时全局。均属设计收敛/配置结构决策，需架构口径。
+- **V2M3 复核细化（2026-09-22）**：`PUT /agent-config/fallback-chain` 接收并校验 `chain_name`（`default`/`error_recovery`/`code_generation`），但写入时固定落到单键 `config["fallback_chain"] = request.models`，三个链名共用一处存储、互相覆盖，`chain_name` 仅在日志与返回文案里出现。与之对应，读侧存在双轨：`app/agent/dynamic_model_router.py::_load_fallback_chain` 优先读 `fallback_chain`（单键）、回退 `fallback_chains[chain_name]`（字典）；`app/agent/error_recovery.py::_load_fallback_chain("error_recovery")` **只读** `fallback_chains` 字典。因此经管理端更新的降级链对 error_recovery 恒不可见（当前 `data/agent_model_config.yaml` 也只有单键 `fallback_chain`）。写入 `fallback_chains` 会让此前休眠的 Agent 降级链开始生效，属行为级变更，需架构口径确认目标结构后再改。
 - **V2A1 仍存续**：`/sandbox-config` 改 `os.environ` 非持久、多 worker 不同步，属设计债。
 - **V2N4 本次修复**：`/admin/backup/list` 返回的 `download_url` 原为 `/admin/backup/download/{filename}`，与实际路由 `/admin/backup/{timestamp}` 不匹配，按该字段请求必然 404；现抽出模块级 `BACKUP_DOWNLOAD_URL_BASE`，创建与列表共用，列表按 `config_backup_{timestamp}.json` 反推 timestamp 拼 URL。前端虽自行拼接（`src/utils/api/admin.js`）未消费该字段，但对外契约应与路由一致。同处一并修掉两个保留期缺陷：淘汰候选改为显式排除本次新建文件（文件系统 mtime 精度粗时同秒备份可能被自己挤出/删掉），`unlink` 加 `missing_ok=True`（并发创建下另一请求已删同一文件不再抛错）。
 

@@ -67,6 +67,6 @@
 - **RM5 已修**：`resume_manager.py` 中 `save_chunk_state`/`get_resume_state`/`validate_completed_chunks`/`clear_state` 内的同步文件 I/O（`read_text`/`write_text`/`read_bytes`/`unlink`）统一改用 `asyncio.to_thread` 执行，新增 `_load_state` 辅助方法，不再阻塞事件循环。
 - **TM3 基本消解 / TM4 为死方法**：生产调用方只用 `get_task_info_async`（`aiGeneratorPptx.py:2813/:3934`），其内部走 `_get_task_from_redis`，Redis 失败时回退同一内存快照，读写路径一致；且已叠加 SQL 双写（`_persist_sql_create`/`_persist_sql_update`）与 `reconcile_task` 对账。同步 `get_task_info` 全库零调用（仅 `_tasks` 在 Redis 失败时填充，正常路径恒 None），属死方法，未删。
 - **TM6 非缺陷**：`create_task` 由调用方直接传入 `func` 执行，`task_type` 仅作元数据/落库字段，不存在需要按类型分发的注册表。
-- **RM4/RM6/RM7 未改**：RM4（MD5 → 强哈希）会与存量状态文件中的 hash 不兼容；RM6（中断上传残留 `.json`）需生命周期/清理策略设计；RM7（默认 `Path("uploads/.resume")` 相对路径）需与全库路径配置统一收敛，均待口径。
+- **RM4/RM6/RM7 复核后不再单独处理（2026-09-22）**：`app/utils/resume_manager.py` 全模块零生产消费——除 `tests/unit/test_task_scheduling_utils.py`、`tests/unit/test_v4_8_features.py` 外，`rg "ResumeManager|resume_manager|ResumeState|compute_chunk_hash"` 在 `app/` 内除定义处无任何命中，`app/api/v1/file_upload.py` 的断点续传端点从未接入该管理器。RM3–RM7 全部落在这个死模块上，在原位修 MD5/路径/清理策略不产生任何生产收益。整体属「删除或接入」决策（与 TD1、SNT1/STA1 同族），删除需确认后执行。
 
 新增回归测试 `tests/unit/test_task_scheduling_utils.py`（8 项）：回退源码后 `test_invalid_upload_id_rejected`、`test_duplicate_chunk_index_not_appended_twice`、`test_cleanup_uses_scan_and_removes_old_tasks` 三项失败。

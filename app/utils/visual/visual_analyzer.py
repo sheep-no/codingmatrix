@@ -418,18 +418,8 @@ class VisualAnalyzer:
         # 移除尾随逗号（在 } 或 ] 前的逗号）
         content = re.sub(r',(\s*[}\]])', r'\1', content)
 
-        # 修复 Python 布尔值 (True/False -> true/false)
-        content = content.replace('True', 'true')
-        content = content.replace('False', 'false')
-
-        # 移除单引号改为双引号（字符串内部）
-        # 先保护已经正确的双引号字符串
-        content = re.sub(r'"[^"]*"', lambda m: m.group(0).replace("'", "\\'"), content)
-        content = content.replace("'", '"')
-
-        # 移除注释（如果 AI 返回了 JavaScript 风格注释）
-        content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+        # 修 Python 字面量、去注释、单引号字符串转双引号，全部避开字符串内容
+        content = self._normalize_json_text(content)
 
         # 移除多余的逗号（如 [1, 2, 3,,]）
         content = re.sub(r',+,', ',', content)
@@ -437,11 +427,88 @@ class VisualAnalyzer:
         # 修复键名没有引号的情况（如 {key: "value"}）
         content = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', content)
 
-        # 确保数字值正确（如 1. 而不是 1.0）
-        # 修复 null -> null（已经是标准）
-        content = content.replace('Null', 'null')
-
         return content.strip()
+
+    # Python 字面量 -> JSON 字面量，仅在字符串之外替换
+    _LITERAL_FIXES = (("True", "true"), ("False", "false"), ("Null", "null"))
+
+    @classmethod
+    def _normalize_json_text(cls, content: str) -> str:
+        """容错归一化：修 Python 字面量、去注释、单引号字符串转双引号。
+
+        所有改动都跳过字符串字面量，避免把 `"True story"`、`"https://x"`
+        之类的文本内容改写掉（VPX14）。原实现用全局 `str.replace` 与
+        `"..."` 先转义再全局替换，会破坏字符串内容且产生非法转义。
+        """
+        parts = []
+        index = 0
+        length = len(content)
+        while index < length:
+            char = content[index]
+
+            # 双引号字符串原样保留（跳过转义字符）
+            if char == '"':
+                parts.append(char)
+                index += 1
+                while index < length:
+                    inner = content[index]
+                    parts.append(inner)
+                    index += 1
+                    if inner == "\\" and index < length:
+                        parts.append(content[index])
+                        index += 1
+                    elif inner == '"':
+                        break
+                continue
+
+            # 单引号字符串转成等价的双引号 JSON 字符串
+            if char == "'":
+                parts.append('"')
+                index += 1
+                while index < length:
+                    inner = content[index]
+                    if inner == "\\" and index + 1 < length:
+                        escaped = content[index + 1]
+                        parts.append("'" if escaped == "'" else "\\" + escaped)
+                        index += 2
+                        continue
+                    if inner == "'":
+                        parts.append('"')
+                        index += 1
+                        break
+                    parts.append('\\"' if inner == '"' else inner)
+                    index += 1
+                continue
+
+            # 注释只在字符串之外移除
+            if content.startswith("//", index):
+                newline = content.find("\n", index)
+                if newline == -1:
+                    break
+                index = newline
+                continue
+            if content.startswith("/*", index):
+                end = content.find("*/", index + 2)
+                index = length if end == -1 else end + 2
+                continue
+
+            # Python 字面量按整词替换，避免命中 "True" 子串
+            for source, target in cls._LITERAL_FIXES:
+                if content.startswith(source, index):
+                    before = content[index - 1] if index > 0 else ""
+                    after_index = index + len(source)
+                    after = content[after_index] if after_index < length else ""
+                    if not (before.isalnum() or before == "_") and not (
+                        after.isalnum() or after == "_"
+                    ):
+                        parts.append(target)
+                        index = after_index
+                        break
+            else:
+                parts.append(char)
+                index += 1
+
+        return "".join(parts)
 
     def _extract_json_by_regex(self, content: str) -> Dict[str, Any]:
         """使用正则表达式提取关键 JSON 数据"""
