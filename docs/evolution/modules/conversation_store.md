@@ -78,3 +78,20 @@ Redis + 数据库混合会话历史存储。设计原则（docstring :4-14）：
 - **并发主线**：CS1 读改写竞态（MCP1 连接竞争、SM1 Queue、TR4 信号量家族）——Redis 客户端是共享全局单例，并发 append 是本模块最大风险面
 - **成本/上下文主线**：CS4 token 高估 → 历史窗口利用率低（memory MEM4 同款「字符当 token」）；compress_history 死代码使「LLM 摘要压缩」能力缺失（memory MEM2 压缩阈值颠倒同侧）
 - **「存在≠正确」主线**：CS1 Redis 覆盖为单条 + CS2 幽灵消息——存储层数据完整性与权威性在故障/并发路径失真
+
+## 状态校准（2026-09-23 复核）
+
+以当前代码（317 行，与建档时一致）逐条复核，并补齐回归（原文档称「零测试」，实际 `tests/unit/test_conversation_store.py` 已有 19 项，本批增至 22 项）。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| CS1 | 已修 | `append_message` 的「读-改-写」改为 Lua 原子追加（`_APPEND_SCRIPT`：GET → decode → append → SETEX），Redis 单线程内不再 last-write-wins；并用实例级 `asyncio.Lock` 串行化「seed 读取 + DB 写入 + 原子追加」。次生问题（async 上下文调同步 `get_history` → `_load_from_db_sync` 短路返回 `[]` → 缓存被覆盖为仅最新一条、旧历史在 24h TTL 内不可见）修复为：Redis miss 时**先**取数据库历史作 seed（在写 DB 之前取，避免含本次消息），Lua 仅在 key 不存在时使用 seed，故并发 append 不重复历史、不覆盖完整缓存。跨进程 seed 竞态（多 worker）仍存在，属 CA2 同族，未在本批处理。 |
+| CS2 | 已修 | `db_success` 为 False 时跳过 Redis 追加并记录 warning，不再产生「DB 没有、Redis 有」的幽灵消息；DB 失败返回 False 的语义保持。 |
+| CS4 | 已修 | `_estimate_tokens` 由「总字符 / 2」改为按 docstring 口径分别估算（CJK ≈1.5 字/token、非 CJK ≈4 字符/token），消除英文高估约 2 倍导致的历史过早截断；同步更新 `TestEstimateTokens` 与 `test_truncate_by_tokens`/`test_compression_when_exceeded` 的预算口径，并新增中英混排用例。 |
+| CS3 | **保留** | `compress_history` 仍全库零调用（未接线的历史压缩能力）且 clear + 逐条 re-append 非事务。事务化或删除该能力属独立决策，未在本批处理。 |
+| CS5 | **保留** | async 方法内仍用同步 `redis` 客户端（阻塞事件循环）。迁移 `redis.asyncio` 与 CS6 的双实现收敛是同一模块级重构，应合并专项处理。 |
+| CS6 | **保留** | `get_history` / `get_history_async` 双实现重复；收敛需先统一 sync/async 边界。 |
+| CS7 | **保留** | 模块级单例 `get_conversation_store` 仍无锁。 |
+| CS8 | **保留** | `truncate_history` 仍按 `max_rounds * 2` 假设每轮 user+assistant；tool/system 混入时轮次语义不准，属 P3。 |
+
+**复核中一并修正**：`TestEdgeCases` 中三项用例（并发追加、特殊字符、超长内容）未声明 `test_db_setup`，此前依赖「DB 写失败仍写 Redis」的幽灵路径而通过。CS2 修复后这些用例暴露为失败，已补 `test_db_setup` 使其在隔离运行下也真实落库。
