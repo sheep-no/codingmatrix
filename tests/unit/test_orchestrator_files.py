@@ -2802,17 +2802,6 @@ async def test_degrade_cross_validation_emits_event_and_refines():
     assert any("退化为单模型审查" in warning for warning in mixin.warnings)
 
 
-def test_create_validator_llm_caller_requires_model_assignment():
-    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
-
-    mixin = object.__new__(SpecFirstGenerateMixin)
-    mixin.model_assignment = None
-    mixin.api_key_token = None
-    mixin.cancel_event = None
-    with pytest.raises(RuntimeError, match="model assignment is required for dependency graph validation"):
-        mixin._create_validator_llm_caller()
-
-
 def test_validate_file_plan_raises_when_all_paths_filtered():
     helper = UtilsMixin()
     helper.warnings = []

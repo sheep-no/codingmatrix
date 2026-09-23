@@ -153,7 +153,6 @@ def _prepare_refactor(monkeypatch, tmp_path, old_path, plan, graph_factory=_Fake
     mixin.cancel_event = None
     mixin._select_engineer = lambda path: _FakeEngineer()
     mixin._select_model_for_file = lambda path: "backend-x"
-    mixin._create_validator_llm_caller = lambda: None
     mixin._report_progress = lambda *a, **k: None
     mixin._test_graph = graph
     return mixin, full_path

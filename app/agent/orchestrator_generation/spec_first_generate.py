@@ -472,7 +472,6 @@ class SpecFirstGenerateMixin:
             dep_graph.build_from_architecture(architecture)
 
             validator = DependencyGraphValidator(
-                llm_caller=self._create_validator_llm_caller(),
                 language_adapter=language_adapter,
             )
             validation_result = validator.validate_static(dep_graph, architecture=architecture)
@@ -521,7 +520,6 @@ class SpecFirstGenerateMixin:
             # 增量验证：只验证新增文件
             if new_files:
                 validator = DependencyGraphValidator(
-                    llm_caller=self._create_validator_llm_caller(),
                     language_adapter=language_adapter,
                 )
                 validation_result = await validator.validate(
@@ -1926,31 +1924,6 @@ class SpecFirstGenerateMixin:
                 pass
         return file_path
 
-    def _create_validator_llm_caller(self):
-        """创建验证器用的 LLM 调用函数"""
-        from app.agent.llm_client import LLMClient
-
-        assignment = getattr(self, "model_assignment", None)
-        if not assignment:
-            raise RuntimeError("model assignment is required for dependency graph validation")
-        model_name = assignment.reviewer_model or assignment.architect_model
-        if not model_name:
-            raise RuntimeError(
-                "reviewer or architect model is required for dependency graph validation"
-            )
-
-        client = LLMClient(
-            model_name=model_name,
-            task_type="review",
-            api_key_token=self.api_key_token,
-            cancel_event=self.cancel_event,
-        )
-
-        async def llm_caller(prompt: str, system_prompt: str) -> str:
-            return await client.call(prompt, system_prompt)
-
-        return llm_caller
-
     async def _infer_unknown_file_types(self, dep_graph, unknown_files: list, architecture: dict, language: str):
         """Infer unknown file_type from path rules and reverse dependents. No LLM."""
         updated = 0
@@ -2610,7 +2583,6 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
 
         # 6. 验证重构后的依赖图
         validator = DependencyGraphValidator(
-            llm_caller=self._create_validator_llm_caller(),
             language_adapter=language_adapter,
         )
         validation_result = await validator.validate(
