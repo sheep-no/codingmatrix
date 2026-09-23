@@ -1,6 +1,6 @@
 # Flutter 客户端
 
-> 最后更新：2026-09-22 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,226 行 | 页面：18 | 测试：34 个文件
+> 最后更新：2026-09-23 | 源码：`flutter_client/` | Dart：71 个 `lib/**/*.dart` / 12,358 行 | 页面：18 | 测试：34 个文件
 
 `flutter_client` 是 CodingMatrix 的 Agent 工作台客户端，目标平台为 Android 与 Linux/Windows 桌面（`android/`、`linux/`、`windows/` 三个平台目录，无 iOS/macOS/Web），Dart 包名为 `codingmatrix_desktop`，应用标识为 `com.codingmatrix.agent`（Android `namespace`/`applicationId`、Linux `APPLICATION_ID`，窗口与产品名为 `CodingMatrix Agent`），版本 `1.0.0+1`，Dart SDK `^3.9.2`。客户端只调用现有 FastAPI 接口，使用 Cookie JWT、CSRF 和 RSA 加密登录，不单独实现业务引擎。Android 清单通过 `android:usesCleartextTraffic` 允许明文 HTTP，因为后端由用户自建、地址在登录页运行时填写。
 
@@ -81,7 +81,7 @@ flutter pub get
 # 静态分析
 flutter analyze --no-pub
 
-# 测试（当前环境记录：2026-09-22，485 passed）
+# 测试（当前环境记录：2026-09-23，488 passed）
 flutter test --no-pub --concurrency=1
 
 # 启动桌面端（需本机已配置 Flutter 桌面目标）

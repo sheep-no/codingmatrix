@@ -4,15 +4,17 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test --no-pub --concurrency=1` → 485 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 103 passed / 0 fail）。构建产物类结果来自产出记录，未重复构建。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test --no-pub --concurrency=1` → 488 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 103 passed / 0 fail）。构建产物类结果来自产出记录，未重复构建。
 
 ## 已经完成的验证
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 485 passed | `flutter test --no-pub --concurrency=1` |
+| Flutter 全量测试 | 488 passed | `flutter test --no-pub --concurrency=1` |
 | Flutter 静态分析 | No issues found | `flutter analyze lib test` |
-| Flutter 规模 | 70 个 `lib/**/*.dart` / 12,226 行、18 个页面、34 个测试文件 | `flutter_client/` |
+| Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、34 个测试文件 | `flutter_client/` |
+| 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
+| 弹层控制器退场崩溃 | 已修并回归：管理员后台「创建用户」在提交失败（如后端 400）后关闭弹层会整屏红屏。根因是 `showDialog` 返回后立即 `dispose` 了 `TextEditingController`，退场动画期间 `TextField` 重建时 `addListener` 抛 `A TextEditingController was used after being disposed.`，级联为 `'_dependents.isEmpty': is not true.`。新增 `DialogControllers`（在子树的 `State.dispose()` 里释放，晚于退场动画），套用于 6 处弹层 | 回归测试 `test/admin_page_test.dart`「创建用户弹层随退场动画关闭时不释放仍在使用的控制器」；Linux 端实跑 400 场景不再红屏，显示「用户创建失败：请求失败（HTTP 400）…」，成功场景 `POST create_user` 200 且列表刷新 |
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
 | VS Code 插件单测 | 103 passed / 0 fail | `npm test` |
 | VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`assertCompatible` 通过、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `npm run e2e` |
@@ -22,6 +24,8 @@
 | 对话框窄屏 + 键盘溢出 | 新增复现测试 7 项全过；`创建用户` 44px、`编辑用户` 36px、`MCP 编辑` 52px 三处溢出已修 | `test/narrow_dialog_test.dart`；`admin_page.dart`、`agent_history_page.dart`、`mcp_admin_page.dart` 的 `content` 外包 `SingleChildScrollView` |
 | 对话框溢出全量排查（18 个对话框） | 仅 `content` 为 `Column` 的三处会溢出，已全部修复；其余 `content` 是单个 `SelectableText`/`Text`/`TextField`，这些控件自身可滚动，实测对话框内 `Scrollable.maxScrollExtent > 0`，长结果（60 行连接测试输出）完整可达，无需再改 | 审计依据：`AlertDialog` 的 `content` 处于 `Flexible` 内且文本类控件内部可滚动；断言见 `test/narrow_dialog_test.dart` 的「MCP 长连接测试结果」用例 |
 | 底部弹层空列表 | 4 处「列表为空则弹层无任何可见内容」已修（任务事件、PPT 历史、快照、工作流历史），各补 1 项空态测试 | 完整列表空态改用仓库既有写法 `if (list.isEmpty) const ListTile(...)`；对应 `test/{task_queue,ppt_generation,agent_history,workflow}_test.dart`；Linux 端实跑 `暂无事件` 已截图确认 |
+| 全部能力页多档视口布局 | 15 个能力页 × 5 档视口（1280x720、900x700、800x600、640x480、360x640）在完整工作台外壳内逐页打开，无布局溢出、无异常 | `test/workbench_shell_test.dart`「全部能力页在多档视口下渲染无溢出」；扫描经 `scrollUntilVisible` 覆盖抽屉内需滚动才构建的导航项 |
+| 堆叠表单项浮动标签压边框 | 已修并回归：`workflow_page`、`image_generation_page`、`dynamic_provider_page`、`virtual_girl_page`（新建角色弹层）、`admin_page`（创建/编辑用户弹层）、`agent_history_page`（并发限制弹层）中相邻的 outlined 输入框之间没有间距，下一条字段的浮动标签会压在上一条边框上并被裁切。按仓库既有写法（`login_page`、`provider_settings_page`）在字段间补 `SizedBox(height: 12)` | 回归测试 `test/workflow_test.dart`「堆叠表单项之间保留间距，浮动标签不压住上方边框」；移除间距后该用例失败、加回后通过。Linux 端对「图片生成」「工作流执行」「动态 Provider」实跑截图放大核对 |
 | Android 目标编译 | `flutter build bundle --target-platform android-arm64` 成功 | 产物 `build/flutter_assets` |
 | 应用标识统一 | 三端一致为 `com.codingmatrix.agent` | Android `namespace`/`applicationId`、Linux `APPLICATION_ID`、窗口标题与 Windows 产品名 |
 
