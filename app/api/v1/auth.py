@@ -251,7 +251,7 @@ async def login(
         "token_type": "bearer",
         "username": user.username,
         "permission_level": permission_level,
-        "encryption_enabled": encrypted_body is not None  # 告知前端是否使用了加密
+        "encryption_enabled": encrypted_mode  # 告知前端是否使用了加密
     })
     
     # 设置 HttpOnly Cookie - Refresh Token

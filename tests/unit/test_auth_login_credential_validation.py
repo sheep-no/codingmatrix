@@ -4,6 +4,7 @@
 email/password 会在 `email[:3]` 或查询环节抛 TypeError 逃逸为 500。这里锁定
 统一校验后的行为：非法类型/超长一律 400，合法形态继续走原有 401 流程。
 """
+import json
 import types
 
 import pytest
@@ -56,3 +57,42 @@ async def test_login_valid_shape_reaches_unknown_user_flow(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await _call_login({"email": "  user@example.com  ", "password": "Passw0rd!"})
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_success_plaintext_returns_token(monkeypatch):
+    """明文登录成功分支必须返回 200 与 token。
+
+    该分支此前引用未定义的 `encrypted_body`，任何明文登录成功都会在构造响应时
+    抛 NameError 逃逸为 500。既有用例只覆盖失败路径，故长期未被发现。
+    """
+    fake_user = types.SimpleNamespace(
+        id=1,
+        username="admin_test",
+        hashed_password="hashed",
+        permission=types.SimpleNamespace(permission_level="superadmin"),
+    )
+
+    async def _fake_user(db, email):
+        return fake_user
+
+    async def _fake_csrf():
+        return "csrf-token"
+
+    monkeypatch.setattr(auth_module, "check_login_rate_limit", lambda identifier: True)
+    monkeypatch.setattr(auth_module, "record_login_success", lambda identifier: None)
+    monkeypatch.setattr(auth_module, "get_user_by_email", _fake_user)
+    monkeypatch.setattr(auth_module, "verify_password", lambda password, hashed: True)
+    monkeypatch.setattr(auth_module, "create_access_token", lambda **kwargs: "access-token")
+    monkeypatch.setattr(auth_module, "create_refresh_token", lambda sub: "refresh-token")
+    monkeypatch.setattr(auth_module, "get_csrf_token", _fake_csrf)
+
+    response = await _call_login(
+        {"email": "admin_test@example.com", "password": "Passw0rd!"}
+    )
+
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["access_token"] == "access-token"
+    assert payload["permission_level"] == "superadmin"
+    assert payload["encryption_enabled"] is False
