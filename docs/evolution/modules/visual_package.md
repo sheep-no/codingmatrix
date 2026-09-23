@@ -92,7 +92,11 @@
 仍存续（本轮未改，需设计与合规口径）：
 
 - **VPX3/VPX4/VPX5**：`IMAGE_CACHE_DIR` 无容量上限与清理；`_search_gaopin` 伪装 UA/Referer 爬第三方私有接口（合规风险）；`_search_unsplash` 仍依赖 2023 年停服的 `source.unsplash.com`（恒走占位符）。收敛方向见「修复建议 5」（退役高品爬虫与 Unsplash 死链，统一走 `pptx/image_search.ImageSearchManager`）。
-- **VPX6/VPX7/VPX8/VPX12/VPX14**：`LayoutDecider` 内嵌实例死代码、多图/装饰透明度未消费、`content_summary` 摘要截断、`generate_icon` 未绘制符号、`_fix_json_format` 全局 `replace('True','true')` 可能误伤字符串内容。
+- **VPX6/VPX7/VPX8/VPX12**：`LayoutDecider` 内嵌实例死代码、多图/装饰透明度未消费、`content_summary` 摘要截断、`generate_icon` 未绘制符号。
+
+### 状态更新（2026-09-22 核实）
+
+- **VPX14 已修**：`visual_analyzer._fix_json_format` 原在三处用全局字符串替换/正则改写整段文本，会破坏字符串内容。① `content.replace('True', 'true')`（`False`/`Null` 同理）会把 `"True story"`、`{"TrueFlag": 1}` 改写；② 引号修复先把双引号串内的 `'` 转义成 `\'` 再全局把 `'` 换成 `"`，产生 JSON 非法转义，`{"name": "don't"}` 直接解析失败；③ `//.*$` 正则会把 `"https://x"` 截成 `"https:`。现以单次遍历（`_normalize_json_text`）统一处理：跳过字符串字面量修 Python 字面量（整词匹配，`isFalse`/`TrueFlag` 不受影响）、去行/块注释、把单引号串转成等价双引号 JSON 串（`\'` 还原为 `'`，串内 `"` 转义）。新增 `tests/unit/test_visual_analyzer_json_fix.py`（11 项），回退 `visual_analyzer.py` 后 6 项失败。
 
 测试：新增 `tests/unit/test_visual_image_manager.py`(3)；回退 `image_manager.py` 后 2 项失败。
 
