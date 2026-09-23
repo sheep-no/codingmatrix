@@ -241,3 +241,19 @@ return f"app/api/{'_'.join(parts)}.py"
 - 两套图来源（build_from_architecture 架构驱动 vs build_from_existing_project 项目扫描）与两套增量实现（IncrementalModify 依赖图驱动 vs IncrementalGenerate 会话驱动，incremental_modify.md）呼应——项目扫描侧当前零接线（DG1 印证），需归位。
 - 依赖完整性（DG3）与 IM9「依赖图缺失静默回退全量」、architect.py:803 补缺能力闭环——修复 DG3 即激活补缺主线。
 - 图构建侧（本模块）与校验侧（dependency_graph_validator，spec_first_generate.py:21）构成「构建-校验」对，符合四阶段中「验证闭环图形化」的拆分方向。
+
+## 7. 状态校准（2026-09-22）
+
+文件已增长到 1847 行，§3 各条行号整体漂移。按当前代码逐条复核并处理：
+
+- **DG1 [P2] 已修复（早于本校准）**：`_build_graph_from_project` 现于 `files_with_imports = set(py_imports) | set(js_requires) | set(generic_imports)` 之后调用 `self._auto_add_dependencies(files_with_imports)`，不再缺参。原 `:1022` 的 TypeError 已消失。
+- **DG2 [P2] 已修复（早于本校准）**：`extract_dependencies_from_content` 泛化分支改为两段：先收集命中 `stem`/`name` 的引用，再把每个命中映射回 `node_path` 完整路径后 append，`add_dependency` 不再因 stem 不在 nodes 而丢边。
+- **DG3 [P2] 已修复**：新增 `unresolved_dependencies: Dict[str, Set[str]]`。`add_dependency` 解析不到目标节点时，若引用看起来像项目文件（含 `/` 或已知源码后缀）则记入该表，外部包名（`fastapi`/`react`）不记录。`get_missing_files`/`validate_completeness` 一并消费该表，`add_missing_files` 补齐节点后调用 `_reprocess_unresolved_dependencies` 重建真实边。完整性三方法不再是死逻辑，architect.py:1416 的补缺路径恢复可用。
+- **DG4 [P2] 已修复**：`_break_cycles` 由递归 DFS 改为显式栈迭代（保留 `rec_stack` + `position` 还原环路径），1500 层依赖链不再 `RecursionError`。
+- **DG8 [P3] 已修复**：新增 `_resolve_dependency_reference`，把依赖引用按「精确节点键 → 文件名/模块名唯一匹配 → 路径段唯一匹配」解析为完整路径；`add_dependency` 先解析再加边。LLM 声明的 `models.py`、`models/user.py`（省略目录）等文件名式依赖不再静默丢失；歧义引用（多个同名候选）不猜测，按 DG3 记为缺失。
+- **DG5 [P3] 仍在**：Kahn 仍每轮全量 `sort`，未换 heapq（纯性能项，无正确性影响）。
+- **DG6 [P3] 仍在**：`deduplicate` 仍为启发式评分，无内容比对。
+- **DG7 [P3] 仍在**：`get_context_for_file` 未传 `model_context_length` 时仍走 32768 兜底。
+- **DG9 / DG10 [P3] 仍在**：`_parse_js_requires` 不解析 `@/` 别名；`_path_to_api_file` 多段路径仍平铺拼接。
+
+测试：既有 `tests/unit/test_dependency_graph.py`（59 项）全部通过；新增 `tests/unit/test_dependency_graph_integrity.py`（11 项：缺失项目文件上报、外部包不误报、update/remove 清理未解析表、补缺后重建边、文件名/路径段解析、歧义不猜测、1500 层长链不崩、环被打破）。

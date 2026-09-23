@@ -62,6 +62,16 @@ _DOCUMENTATION_PROJECT_NAMES = frozenset({
     "codeowners",
 })
 
+# 认定为「项目文件」的源码扩展名。未解析的依赖引用只有看起来像项目文件时
+# 才会被完整性地检查（get_missing_files），外部包名（fastapi/react）不受影响。
+_PROJECT_FILE_SUFFIXES = frozenset({
+    ".py", ".pyi", ".pyw",
+    ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue",
+    ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs",
+    ".css", ".html", ".json", ".yaml", ".yml", ".toml",
+    ".sh", ".sql", ".md",
+})
+
 
 def _normalize_extensionless_name(name: str) -> str:
     """归一化无扩展名文件名，使 `Dockerfile.dev` 也能命中已知规则。"""
@@ -129,6 +139,8 @@ class DependencyGraph:
         self.nodes: Dict[str, FileNode] = {}
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
         self.reverse_adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files that depend on it
+        # 被引用但尚未在图中的依赖引用（DG3）：不再静默丢弃，供完整性检查使用。
+        self.unresolved_dependencies: Dict[str, Set[str]] = defaultdict(set)
         self.language_adapter = language_adapter  # 语言适配器（可选）
         self.generation_plan = None
 
@@ -176,16 +188,73 @@ class DependencyGraph:
         if file_path not in self.nodes:
             self.add_file(file_path)
 
-        # 只有当依赖目标也在图中时，才添加边（避免引入外部库作为节点）
-        if depends_on in self.nodes and depends_on != file_path:
-            # 预防性环检测：检查 depends_on 是否已依赖 file_path
-            if self._would_create_cycle(file_path, depends_on):
-                logger.warning(f"忽略循环依赖: {file_path} -> {depends_on}")
-                return
-            if depends_on not in self.adjacency[file_path]:
-                self.nodes[file_path].dependencies.append(depends_on)
-                self.adjacency[file_path].add(depends_on)
-                self.reverse_adjacency[depends_on].add(file_path)
+        # 不要把外部库（如 "fastapi"）建成节点；但项目文件的依赖引用即使当前
+        # 不在图中也要记录，否则 get_missing_files/validate_completeness 永远
+        # 看不到缺失（DG3），LLM 声明的文件名式依赖会被静默丢弃（DG8）。
+        resolved = self._resolve_dependency_reference(file_path, depends_on)
+        if resolved is None:
+            if depends_on and self._looks_like_project_file(depends_on):
+                self.unresolved_dependencies[file_path].add(depends_on)
+            return
+        # 预防性环检测：检查 depends_on 是否已依赖 file_path
+        if self._would_create_cycle(file_path, resolved):
+            logger.warning(f"忽略循环依赖: {file_path} -> {resolved}")
+            return
+        if resolved not in self.adjacency[file_path]:
+            self.nodes[file_path].dependencies.append(resolved)
+            self.adjacency[file_path].add(resolved)
+            self.reverse_adjacency[resolved].add(file_path)
+
+    @staticmethod
+    def _looks_like_project_file(reference: str) -> bool:
+        """判断未解析的依赖引用是否像项目内文件（而非外部包名）。"""
+        if not reference:
+            return False
+        normalized = reference.replace("\\", "/").strip()
+        if not normalized:
+            return False
+        if "/" in normalized:
+            return True
+        return Path(normalized).suffix.lower() in _PROJECT_FILE_SUFFIXES
+
+    def _resolve_dependency_reference(self, file_path: str, reference: str) -> Optional[str]:
+        """把依赖引用解析为图中的完整路径，无法唯一确定时返回 None。
+
+        LLM 常声明文件名（`models.py`）或省略目录（`models/user.py`）而非完整
+        路径；旧实现直接按节点键匹配，这些引用全部丢失（DG8）。
+        """
+        if not reference or reference == file_path:
+            return None
+        normalized = reference.replace("\\", "/").lstrip("./")
+        if normalized == file_path:
+            return None
+        if normalized in self.nodes:
+            return normalized
+        if reference in self.nodes:
+            return reference
+
+        # 文件名 / 模块名唯一匹配
+        target_name = Path(normalized).name
+        target_stem = Path(normalized).stem
+        by_name = {
+            node_path for node_path in self.nodes
+            if node_path != file_path
+            and (Path(node_path).name == target_name or Path(node_path).stem == target_stem)
+        }
+        if len(by_name) == 1:
+            return next(iter(by_name))
+
+        # 路径段唯一匹配（models -> models/user.py）
+        parts = {p for p in re.split(r"[./\\]", normalized) if p}
+        if parts:
+            by_segment = {
+                node_path for node_path in self.nodes
+                if node_path != file_path
+                and parts <= set(re.split(r"[./\\]", node_path))
+            }
+            if len(by_segment) == 1:
+                return next(iter(by_segment))
+        return None
 
     def _would_create_cycle(self, file_path: str, depends_on: str) -> bool:
         """检查添加 file_path -> depends_on 是否会创建环
@@ -730,6 +799,7 @@ class DependencyGraph:
                 if dependent in self.nodes and path in self.nodes[dependent].dependencies:
                     self.nodes[dependent].dependencies.remove(path)
             del self.reverse_adjacency[path]
+        self.unresolved_dependencies.pop(path, None)
 
     def _is_external_plan_path(self, path: str) -> bool:
         """判断 file_plan 路径是否是外部库源码，而非本项目要生成的文件。
@@ -956,28 +1026,43 @@ class DependencyGraph:
         visited = set()
         rec_stack = set()
         cycles = []
+        # 显式栈迭代 DFS：旧实现是纯递归，深度超过 Python 默认递归上限
+        # （约 1000 层依赖链）会抛 RecursionError（DG4）。
+        path: List[str] = []
+        position: Dict[str, int] = {}
 
-        def dfs(node: str, path: List[str]):
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
+        for start in self.nodes:
+            if start in visited:
+                continue
+            visited.add(start)
+            rec_stack.add(start)
+            position[start] = len(path)
+            path.append(start)
+            stack = [(start, iter(self.adjacency.get(start, set())))]
 
-            for neighbor in self.adjacency.get(node, set()):
-                if neighbor not in self.nodes:
+            while stack:
+                node, neighbors = stack[-1]
+                pushed = False
+                for neighbor in neighbors:
+                    if neighbor not in self.nodes:
+                        continue
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        rec_stack.add(neighbor)
+                        position[neighbor] = len(path)
+                        path.append(neighbor)
+                        stack.append((neighbor, iter(self.adjacency.get(neighbor, set()))))
+                        pushed = True
+                        break
+                    if neighbor in rec_stack:
+                        cycle_start = position[neighbor]
+                        cycles.append(path[cycle_start:] + [neighbor])
+                if pushed:
                     continue
-                if neighbor not in visited:
-                    dfs(neighbor, path)
-                elif neighbor in rec_stack:
-                    cycle_start = path.index(neighbor)
-                    cycle = path[cycle_start:] + [neighbor]
-                    cycles.append(cycle)
-
-            path.pop()
-            rec_stack.discard(node)
-
-        for node in self.nodes:
-            if node not in visited:
-                dfs(node, [])
+                stack.pop()
+                finished = path.pop()
+                position.pop(finished, None)
+                rec_stack.discard(finished)
 
         # 打破检测到的循环
         for cycle in cycles:
@@ -1704,6 +1789,8 @@ class DependencyGraph:
         """
         # 清除该文件的旧依赖
         self.adjacency[file_path].clear()
+        # 旧的未解析引用属于被替换掉的依赖集合
+        self.unresolved_dependencies.pop(file_path, None)
         if file_path in self.nodes:
             self.nodes[file_path].dependencies = []
 
@@ -1742,6 +1829,14 @@ class DependencyGraph:
                         "message": f"依赖的文件不在依赖图中: {dep}",
                         "suggestion": f"将 {dep} 添加到 file_plan"
                     })
+            # 未能解析到图中节点的依赖引用（DG3：不再静默丢弃）
+            for dep in self.unresolved_dependencies.get(path, set()):
+                issues.append({
+                    "type": "missing_dependency",
+                    "file": path,
+                    "message": f"依赖的文件不在依赖图中: {dep}",
+                    "suggestion": f"将 {dep} 添加到 file_plan"
+                })
 
         return issues
 
@@ -1753,6 +1848,7 @@ class DependencyGraph:
             for dep in self.adjacency.get(path, set()):
                 if dep not in self.nodes:
                     missing.add(dep)
+            missing.update(self.unresolved_dependencies.get(path, set()))
 
         return list(missing)
 
@@ -1798,9 +1894,34 @@ class DependencyGraph:
 
         if added_count > 0:
             architecture["file_plan"] = file_plan
+            # 新补的节点可能让此前的未解析引用（文件名/省略目录）变得可解析，
+            # 重新建边，否则依赖图仍缺这些边、完整性检查会重复报同一缺失。
+            self._reprocess_unresolved_dependencies()
             logger.info(f"共补充 {added_count} 个缺失文件")
 
         return architecture
+
+    def _reprocess_unresolved_dependencies(self):
+        """把因目标节点出现而变得可解析的未解析引用转成真实边。"""
+        for dependent in list(self.unresolved_dependencies.keys()):
+            remaining = set()
+            for reference in self.unresolved_dependencies.get(dependent, set()):
+                resolved = self._resolve_dependency_reference(dependent, reference)
+                if resolved is None:
+                    remaining.add(reference)
+                    continue
+                if dependent not in self.nodes:
+                    continue
+                if resolved not in self.adjacency[dependent] and not self._would_create_cycle(
+                    dependent, resolved
+                ):
+                    self.nodes[dependent].dependencies.append(resolved)
+                    self.adjacency[dependent].add(resolved)
+                    self.reverse_adjacency[resolved].add(dependent)
+            if remaining and dependent in self.nodes:
+                self.unresolved_dependencies[dependent] = remaining
+            else:
+                self.unresolved_dependencies.pop(dependent, None)
 
     def _infer_file_description(self, file_path: str) -> str:
         """推断文件描述"""
