@@ -31,7 +31,7 @@
 
 ### 2.3 测试覆盖
 
-- **活跃且较完整**：test_mcp_client.py 33 个测试方法（连接/发送/闭包/管理器）+ test_mcp_admin_api.py——**模块深扫以来测试覆盖最佳**
+- **活跃且较完整**：test_mcp_client.py 40 个测试方法（连接/发送/闭包/管理器/单例与重复加载，2026-09-23 由 33 增至 40）+ test_mcp_admin_api.py——**模块深扫以来测试覆盖最佳**
 
 ## 3. 已探明 Bug（含 bug 代码）
 
@@ -54,6 +54,8 @@ manager = MCPClientManager()
 - **根因**：`_instance` 是类属性单例，但 executor.py:166 与 mixin.py:105 都直接 `MCPClientManager()` 构造——每次构造替换单例并**后台断开旧实例全部连接**。executor 与 mixin 加载交错时，先加载的 server 连接被后 new 者断开
 - **影响**：已注册工具的闭包（见 MCP2）运行时取到新 _instance，若新实例未 load_servers → 所有 MCP 工具返回「MCP Server 不存在」；连接反复断开重连
 
+- **已修复（2026-09-23）**：`MCPClientManager` 改为真正的进程内单例——新增 `__new__`（`_instance` 为空才创建）与 `__init__` 复用守卫，删去原「替换单例并后台断开旧实例」逻辑；新增 `get_or_create_instance()` 作为统一入口。`executor.py` 与 `orchestrator_generation/mixin.py` 两处直接 `MCPClientManager()` 改为 `get_or_create_instance()`。回归：`test_repeated_construction_reuses_singleton`（二次构造同一对象且不断开既有连接）、`test_get_or_create_instance`；回退源码即失败。
+
 ### MCP2 [P1] 工具闭包运行时依赖全局 _instance，不持有 server 引用
 
 - **Bug 代码**：
@@ -70,6 +72,8 @@ async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, *
 ```
 
 - **根因**：闭包只捕获 server/tool 名（_sn/_tn），不捕获连接对象——工具注册后可用性完全取决于 `_instance` 是否仍是加载时的实例且 server 未断开（叠加 MCP1 必现）
+
+- **已修复（2026-09-23）**：`get_tools_as_specialist_format` 生成的闭包改为直接捕获本连接对象（`_server=self`），运行时不再查全局 `_instance`；单例被清空/替换后已注册工具仍指向原连接。失败路径由 `call_tool` 的 `MCPError` 统一转成 `{"success": False, "error": ...}`（未连接时即「MCP Server xxx 未连接」）。回归：`test_mcp_tool_fn_uses_captured_server` / `test_mcp_tool_fn_survives_manager_replacement` / `test_mcp_tool_fn_without_connection_returns_error` / `test_mcp_tool_fn_propagates_mcp_error`（原两个「依赖全局单例」的用例已按新契约重写）。
 
 ### MCP3 [P2] HTTP 传输无初始化握手（非标准 MCP）
 
@@ -88,6 +92,8 @@ async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, *
 ### MCP6 [P2] 重复 load_servers 不清旧连接、_all_tools 累积
 
 - **Bug 代码**：:446-458 同名 server 直接覆盖 `self._servers[name]`（旧进程未 disconnect）；:458 `self._all_tools.update(...)` 与旧工具残留
+
+- **已修复（2026-09-23）**：`load_servers` 改为幂等——先断开并从 `_servers` 摘除新配置中已禁用/移除的 server，已连接的同名 server 直接复用（不重复 `connect`），最后由存活 server 重建 `_all_tools`（而非 `update` 累积），返回值改为存活 server 总数。MCP1 单例化后，`_init_mcp_tools` 每个 orchestrator 实例都会在同名单例上重复 load，本项是防止子进程泄漏与工具累积的必要配套。回归：`test_load_servers_reuses_connected_server` / `test_load_servers_drops_disabled_server` / `test_load_servers_rebuilds_tools_without_accumulation`。
 
 ### MCP7 [P2] 工具参数无 schema 校验，值全为字符串
 
@@ -108,8 +114,8 @@ async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, *
 
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |
 |---|--------|---------|---------|---------|-------------|
-| 1 | P1 | MCP1：使用方统一走 `get_instance()`（不存在才 new）；new 时若已有实例则复用而非替换 | 消除单例竞争，工具引用稳定 | mcp_client.py:405 + executor.py:166 + mixin.py:105 | 新增（关联 #5 B4） |
-| 2 | P1 | MCP2：闭包改为捕获 `server` 对象（弱引用），不依赖全局 _instance | 工具调用与实例生命周期解耦 | mcp_client.py:372-383 | 新增 |
+| 1 | P1 | ~~MCP1：使用方统一走 `get_or_create_instance()`；构造复用已有实例~~ 已修 | 消除单例竞争，工具引用稳定 | mcp_client.py:401 + executor.py + mixin.py | 新增（关联 #5 B4） |
+| 2 | P1 | ~~MCP2：闭包改为捕获 `server` 对象，不依赖全局 _instance~~ 已修 | 工具调用与实例生命周期解耦 | mcp_client.py:372-383 | 新增 |
 | 3 | P2 | MCP3：HTTP 分支补 initialize/initialized 握手 + SSE 支持 | 兼容标准 MCP HTTP server | mcp_client.py:132-142 | 新增 |
 | 4 | P2 | MCP4：读取 config headers 传入 AsyncClient | 支持受保护 HTTP server | mcp_client.py:139 | 新增 |
 | 5 | P2 | MCP7：按 inputSchema 做参数类型转换/校验 | 参数类型正确 | mcp_client.py:360-364 | 新增 |
@@ -119,3 +125,18 @@ async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, *
 - **executor.md B4 印证**：「MCP 工具污染全局单例」在本模块确认根因——MCPClientManager 本身是全局单例且被 2 处 new 竞争，收敛时与 executor 的 ToolRegistry 单例（§9.1 B1）一起治理
 - **工具返回契约**：MCP 返回 `{"success": bool, "result": str}`（tools.md/write 契约、react_engine.md :504 result_count）——MCP 层与内置工具返回结构一致，但 result 文本化（MCP8）可能截断结构化数据
 - **Backlog 关联**：#5（executor B4）、#7、#12，新增 MCP1-MCP5
+
+## 7. 状态校准（2026-09-23 复核 + 修复）
+
+| 编号 | 状态 | 结论 |
+|------|------|------|
+| MCP1 | 已修 | 见 §3 MCP1。`MCPClientManager` 单例化（`__new__` + `__init__` 复用守卫）+ `get_or_create_instance()`；删去构造时的「后台断开旧实例」。两处 `new` 调用点已改为统一入口。 |
+| MCP2 | 已修 | 见 §3 MCP2。闭包捕获连接对象，与全局单例解耦。 |
+| MCP3 | 待处理 | HTTP 分支仍无 initialize/initialized 握手，兼容标准 MCP HTTP server 需另立项。 |
+| MCP4 | 待处理 | HTTP 未读取 config 的 headers/auth。 |
+| MCP5 | 待处理 | 空工具集 server 仍被断开（保留原状，避免本批扩大改动面）。 |
+| MCP6 | 已修 | 见 §3 MCP6。`load_servers` 幂等：断开陈旧 server、复用已连接 server、重建工具表。与 MCP1 配套（单例复用后必须防止重复 load 泄漏子进程/累积工具）。 |
+| MCP7 | 待处理 | 工具参数仍全字符串透传，无 schema 类型转换。 |
+| MCP8 | 待处理 | `call_tool` 非 text 内容仍 `str(content)` 退化。 |
+
+本批测试：`tests/unit/test_mcp_client.py` 33 → 40，新增 9 项（MCP1 2 项、MCP2 4 项、MCP6 3 项，其中 2 项为按新契约重写的原用例）。回退 `app/agent/mcp_client.py` 后 9 项全部失败，验证测试可捕获缺陷。

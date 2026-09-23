@@ -102,7 +102,7 @@ class GenerationMixin(
         """初始化 MCP 工具（如果配置了 MCP Server）"""
         try:
             from app.agent.mcp_client import MCPClientManager
-            manager = MCPClientManager()
+            manager = MCPClientManager.get_or_create_instance()
             connected = await manager.load_servers()
             if connected > 0:
                 tool_names = manager.get_tool_names()
