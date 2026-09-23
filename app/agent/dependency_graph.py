@@ -14,6 +14,8 @@ DependencyGraph - 依赖图驱动生成
 
 import logging
 import re
+import heapq
+import itertools
 from typing import Optional, Dict, Any, List, Set
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -134,6 +136,8 @@ class DependencyGraph:
         ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs",
     })
     _MAX_ENRICH_BYTES = 256 * 1024
+    # JS/TS 导入解析时依次尝试的扩展名与目录入口
+    _JS_IMPORT_EXTENSIONS = ('', '.js', '.ts', '.jsx', '.tsx', '.vue', '/index.js', '/index.ts')
 
     def __init__(self, language_adapter=None):
         self.nodes: Dict[str, FileNode] = {}
@@ -988,20 +992,20 @@ class DependencyGraph:
                 if dep in self.nodes:  # 只计算存在的节点
                     in_degree[node_path] += 1
 
-        # 初始化队列（入度为 0 的节点）
-        queue = []
+        # 用最小堆替代「每轮全量 sort + pop(0)」（DG5）：每轮 O(log V) 而非 O(V log V)。
+        # 堆元素带单调递增序号，保证同优先级节点仍按入队顺序出队（与旧稳定排序一致）。
+        counter = itertools.count()
+        queue: List = []
         for node_path in self.nodes:
             if in_degree[node_path] == 0:
-                queue.append(node_path)
-
-        # 按优先级排序
-        queue.sort(key=lambda x: self.nodes[x].priority if x in self.nodes else 99)
+                heapq.heappush(
+                    queue, (self.nodes[node_path].priority, next(counter), node_path)
+                )
 
         result = []
         while queue:
             # 选择优先级最高的节点
-            queue.sort(key=lambda x: self.nodes[x].priority if x in self.nodes else 99)
-            node = queue.pop(0)
+            _, _, node = heapq.heappop(queue)
             result.append(node)
 
             # 更新依赖该节点的节点的入度
@@ -1009,7 +1013,10 @@ class DependencyGraph:
                 if dependent in self.nodes:
                     in_degree[dependent] -= 1
                     if in_degree[dependent] == 0:
-                        queue.append(dependent)
+                        heapq.heappush(
+                            queue,
+                            (self.nodes[dependent].priority, next(counter), dependent),
+                        )
 
         # 检查是否有循环依赖
         if len(result) != len(self.nodes):
@@ -1145,7 +1152,12 @@ class DependencyGraph:
     ) -> Dict[str, Any]:
         """构建目标文件的可序列化依赖上下文包。"""
         if max_context_bytes <= 0:
-            ctx_len = model_context_length if model_context_length > 0 else 32768
+            # 未显式给出模型窗口时走集中式解析器（DG7），避免在本地硬编码窗口常量。
+            if model_context_length <= 0:
+                from app.agent.dynamic_model_router import get_context_length
+
+                model_context_length = get_context_length("")
+            ctx_len = model_context_length
             max_context_bytes = get_context_budget(ctx_len)
 
         package: Dict[str, Any] = {
@@ -1679,32 +1691,57 @@ class DependencyGraph:
             logger.debug(f"读取文件失败 {file_path}：{e}")
             return deps
 
+        # 相对路径、别名（@/、~/）与项目根相对裸路径（src/）均需识别（DG9）。
         patterns = [
             r'import\s+.*?\s+from\s+["\'](\./[^"\']+)["\']',
             r'import\s+.*?\s+from\s+["\'](\.\./[^"\']+)["\']',
             r'require\s*\(\s*["\'](\./[^"\']+)["\']\s*\)',
             r'require\s*\(\s*["\'](\.\./[^"\']+)["\']\s*\)',
+            r'import\s+.*?\s+from\s+["\'](@/[^"\']+)["\']',
+            r'import\s+.*?\s+from\s+["\'](~/[^"\']+)["\']',
+            r'require\s*\(\s*["\'](@/[^"\']+)["\']\s*\)',
+            r'require\s*\(\s*["\'](~/[^"\']+)["\']\s*\)',
+            r'import\s+.*?\s+from\s+["\'](src/[^"\']+)["\']',
+            r'require\s*\(\s*["\'](src/[^"\']+)["\']\s*\)',
         ]
 
         seen = set()
         for pattern in patterns:
             for match in re.finditer(pattern, content):
-                import_path = match.group(1)
-                resolved = str((file_path.parent / import_path).resolve())
-
-                try:
-                    rel = resolved.replace(str(project_path.resolve()) + "/", "")
-                except ValueError:
-                    continue
-
-                for ext in ['', '.js', '.ts', '.jsx', '.tsx', '.vue', '/index.js', '/index.ts']:
-                    candidate = rel + ext
-                    if (project_path / candidate).exists() and candidate not in seen:
-                        deps.append(candidate)
-                        seen.add(candidate)
-                        break
+                candidate = self._resolve_js_import(match.group(1), file_path, project_path)
+                if candidate and candidate not in seen:
+                    deps.append(candidate)
+                    seen.add(candidate)
 
         return deps
+
+    def _resolve_js_import(
+        self, import_path: str, file_path: Path, project_path: Path
+    ) -> Optional[str]:
+        """把 JS/TS 导入路径解析为项目内相对文件路径，解析不到返回 None"""
+        if import_path.startswith(('./', '../')):
+            bases = [file_path.parent]
+            target = import_path
+        elif import_path.startswith(('@/', '~/')):
+            # 常见别名映射：@ / ~ 指向 src/（Vite/Vue 默认）或项目根
+            bases = [project_path / 'src', project_path]
+            target = import_path[2:]
+        else:
+            # 项目根相对裸路径，如 src/components/User
+            bases = [project_path]
+            target = import_path
+
+        project_root = project_path.resolve()
+        for base in bases:
+            try:
+                rel = str((base / target).resolve().relative_to(project_root))
+            except (ValueError, OSError):
+                continue
+            for ext in self._JS_IMPORT_EXTENSIONS:
+                candidate = rel + ext
+                if (project_root / candidate).exists():
+                    return candidate
+        return None
 
     def extract_dependencies_from_content(self, file_path: str, content: str) -> List[str]:
         """

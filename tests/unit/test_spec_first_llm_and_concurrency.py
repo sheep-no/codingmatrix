@@ -95,6 +95,20 @@ class _FakeGraph:
         pass
 
 
+class _CapturingGraph(_FakeGraph):
+    """记录 get_context_for_file 的调用实参，用于校验 DG7 的接线。"""
+
+    def __init__(self, old_path):
+        super().__init__(old_path)
+        self.context_calls = []
+
+    def get_context_for_file(self, file_path, generated_files, **kwargs):
+        self.context_calls.append(
+            {"file_path": file_path, "generated_files": dict(generated_files), **kwargs}
+        )
+        return ""
+
+
 class _FakeValidator:
     def __init__(self, **_kwargs):
         pass
@@ -108,12 +122,12 @@ class _FakeEngineer:
         return "const a = 1;\n"
 
 
-def _prepare_refactor(monkeypatch, tmp_path, old_path, plan):
+def _prepare_refactor(monkeypatch, tmp_path, old_path, plan, graph_factory=_FakeGraph):
     full_path = tmp_path / old_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
     full_path.write_text("export const a = 1;\n", encoding="utf-8")
 
-    graph = _FakeGraph(old_path)
+    graph = graph_factory(old_path)
     monkeypatch.setattr(
         module.DependencyGraph, "load", classmethod(lambda cls, path, language_adapter=None: graph)
     )
@@ -138,9 +152,37 @@ def _prepare_refactor(monkeypatch, tmp_path, old_path, plan):
     mixin.model_assignment = SimpleNamespace(backend_model="backend-x")
     mixin.cancel_event = None
     mixin._select_engineer = lambda path: _FakeEngineer()
+    mixin._select_model_for_file = lambda path: "backend-x"
     mixin._create_validator_llm_caller = lambda: None
     mixin._report_progress = lambda *a, **k: None
+    mixin._test_graph = graph
     return mixin, full_path
+
+
+class TestRefactorDependencyContext:
+    @pytest.mark.asyncio
+    async def test_context_uses_path_content_map_and_model_window(self, monkeypatch, tmp_path):
+        old_path = "web/app.js"
+        plan = {
+            "new_files": [
+                {"path": "web/a.js", "file_type": "frontend_component", "description": "a"},
+                {"path": "web/b.js", "file_type": "frontend_component", "description": "b"},
+            ],
+            "import_mapping": {},
+        }
+        mixin, _ = _prepare_refactor(
+            monkeypatch, tmp_path, old_path, plan, graph_factory=_CapturingGraph
+        )
+
+        result = await mixin.refactor_file(old_path, "拆分")
+
+        assert result["success"] is True
+        calls = mixin._test_graph.context_calls
+        # 第一份文件生成前没有已生成内容，第二份应带上第一份的路径 -> 内容
+        assert calls[0]["generated_files"] == {}
+        assert calls[1]["generated_files"] == {"web/a.js": "const a = 1;\n"}
+        # 必须传入模型窗口，否则预算退回固定兜底（DG7）
+        assert all(call.get("model_context_length", 0) > 0 for call in calls)
 
 
 class TestRefactorOldFileAction:

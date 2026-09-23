@@ -2634,6 +2634,8 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
         )
 
         generated = []
+        # 依赖上下文需要「已生成文件的路径 -> 内容」，与返回给调用方的路径列表分开维护。
+        generated_contents: Dict[str, str] = {}
         errors = []
         for i, new_path in enumerate(added_paths):
             node = dep_graph.nodes.get(new_path)
@@ -2641,7 +2643,11 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
 
             # 构建上下文
             upstream_context = dep_graph.get_context_for_file(
-                new_path, generated, str(self.output_dir)
+                new_path,
+                generated_contents,
+                model_context_length=get_context_length(
+                    self._select_model_for_file(new_path)
+                ),
             )
             context = f"这是从 {file_to_split} 拆分出来的文件。\n\n需求：{requirement}\n\n"
             context += f"原始文件内容（参考）：\n```\n{original_content[:4000]}\n```\n\n"
@@ -2673,6 +2679,7 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
                     # 写入文件
                     write_file_atomic(self.output_dir, new_path, content)
                     generated.append(new_path)
+                    generated_contents[new_path] = content
                     self._report_progress(
                         "refactor_file_generated", i + 1, len(added_paths),
                         callback=callback,
