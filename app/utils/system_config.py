@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
+from app.core.config import BASE_DIR
+
 logger = logging.getLogger(__name__)
 
 class SystemConfigManager:
@@ -21,7 +23,8 @@ class SystemConfigManager:
     # save_config 可能在多线程（管理员热更新）并发触发
     _config_lock = threading.RLock()
     _config: Dict[str, Any] = {}
-    _config_file: Path = Path("./configs/system_config.json")
+    # 锚定仓库根而非进程 CWD：否则从不同工作目录启动会读写不同配置文件
+    _config_file: Path = BASE_DIR / "configs" / "system_config.json"
     
     def __new__(cls):
         if cls._instance is None:
