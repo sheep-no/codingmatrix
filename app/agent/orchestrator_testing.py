@@ -110,11 +110,14 @@ class TestingMixin:
 
         try:
             # 分析变更
-            analyzer = ImpactAnalyzer()
+            # ImpactAnalyzer/TestSelector 均要求 project_root；原先无参构造会抛
+            # TypeError 被下方 except 吞掉，智能测试选择恒回退全量。
+            project_root = str(self.output_dir)
+            analyzer = ImpactAnalyzer(project_root)
             changes = analyzer.analyze(modified_files)
 
             # 选择测试
-            selector = TestSelector()
+            selector = TestSelector(project_root)
             test_files = selector.select_tests(changes, project_profile)
 
             logger.info(f"智能测试选择：{len(test_files)}/{len(self._collect_all_tests())} 个测试")

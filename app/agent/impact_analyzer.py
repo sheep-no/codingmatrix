@@ -63,30 +63,30 @@ class ImpactAnalyzer:
                 continue
 
             try:
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    new_content = f.read()
+                new_content = full_path.read_text(encoding='utf-8')
 
                 # 提取新版本的符号
                 new_symbols = self._extract_symbols(new_content, file_path)
-                all_new_symbols.extend(new_symbols)
 
                 # 如果有旧版本，对比差异
                 if old_versions and file_path in old_versions:
                     old_content = old_versions[file_path]
                     old_symbols = self._extract_symbols(old_content, file_path)
 
-                    # 计算差异
                     new_symbol_names = {s['name'] for s in new_symbols}
                     old_symbol_names = {s['name'] for s in old_symbols}
 
-                    added = new_symbol_names - old_symbol_names
-                    removed = old_symbol_names - new_symbol_names
-                    modified = new_symbol_names & old_symbol_names
-
-                    all_new_symbols = [s for s in all_new_symbols if s['name'] not in added or s['file'] != file_path]
-                    all_new_symbols.extend([s for s in new_symbols if s['name'] in added])
-                    all_removed_symbols.extend([s for s in old_symbols if s['name'] in removed])
-                    all_modified_symbols.extend([s for s in new_symbols if s['name'] in modified])
+                    all_new_symbols.extend(
+                        s for s in new_symbols if s['name'] not in old_symbol_names
+                    )
+                    all_removed_symbols.extend(
+                        s for s in old_symbols if s['name'] not in new_symbol_names
+                    )
+                    all_modified_symbols.extend(
+                        s for s in new_symbols if s['name'] in old_symbol_names
+                    )
+                # 无基线时不做新增/修改归类：无从对比的符号不应被声称为「新增」，
+                # 也不该与「修改」重叠（IA1/IA7）。
 
                 # 检测动态导入
                 if self._has_dynamic_imports(new_content):
@@ -136,7 +136,7 @@ class ImpactAnalyzer:
             return symbols
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 symbols.append({
                     'name': node.name,
                     'type': 'function',
@@ -163,14 +163,19 @@ class ImpactAnalyzer:
         Returns:
             是否包含动态导入
         """
-        dynamic_patterns = [
-            'importlib.import_module',
-            '__import__',
-            'getattr(',
-        ]
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            # 非 Python 内容（JS/TS/Go 等）不做动态导入判定
+            return False
 
-        for pattern in dynamic_patterns:
-            if pattern in content:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "__import__":
+                return True
+            if isinstance(func, ast.Attribute) and func.attr == "import_module":
                 return True
 
         return False
