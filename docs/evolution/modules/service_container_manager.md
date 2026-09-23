@@ -126,3 +126,22 @@ return container_id
 
 - **零单元测试**：tests/ 下无任何 ServiceContainerManager/detect_project_services 引用（docker 依赖需 mock，但 detect_project_services 纯文件解析可测）
 - SCM1-SCM3 三个 P2 项全部全库确认，零用例保护——容器泄漏/健康放行/启动失败返回 id 均无测试约束
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码（522 行）逐条复核并修复。新增 `tests/unit/test_service_container_manager.py`（16 项），回退源码后 11 项失败（SCM1/2/3/4/6/7/9 与端口映射、端口替换误伤全部覆盖）。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| SCM1 | 已修 | 核实「缓存命中即 `continue`」使清理**零容器被停止**：`_start_and_register` 每次启动都写健康缓存，缓存条目与运行容器一一对应，条件恒真。`cleanup_containers` 改为停止 `_running_containers` 中全部容器（抽出 `_stop_container` 复用），并清除 `_health_cache`/`_allocated_ports`/`_container_ports`，状态自洽。核实该管理器为**每次测试运行新建实例**（`test_runner.py:351`），跨运行复用缓存从未生效，故「停止全部」不会破坏复用语义。 |
+| SCM2 | 已修 | exec 健康命令持续失败时由 `return True`（「TCP 已通视为基本可用」）改为 `return False`；TCP 已通仅代表端口监听，不再覆盖应用层未就绪。 |
+| SCM3 | 已修 | `_start_container` 健康检查失败时不再返回 container_id，改为回滚停止容器并返回 `None`（`_start_and_register` 随之不注册、不写缓存），调用方不再把未就绪服务当作已启动。 |
+| SCM7 | 已修 | TCP 探测窗口由 `min(startup_timeout, 15)` 改为直接使用 `startup_timeout`，ES 的 45s 冷启动预算恢复；新增用假时钟断言 45s 窗口产生 ≥40 次重试（回退后仅 15 次）。 |
+| SCM5 | 已修 | `_port_is_open_async` 由同步 `socket.connect_ex` 改为 `asyncio.wait_for(asyncio.open_connection(...), timeout=1)`，不再在事件循环内阻塞（新增 listener/closed-port 两项真实端口用例）。 |
+| SCM6 | 已修（含未记录缺陷） | `_find_available_port` 绑定失败后循环向后探测（原为盲目 `return port + 1`，不验证、不重试）。**复核另发现并修复更严重的重复分配**：`_start_container` 已分配端口并写入 `_container_ports` 且加入 `_allocated_ports`，`_start_and_register` 又重算一次，第二次必然跳过刚分配端口而得到 +1 的值，导致返回的 `info["port"]`/`env_vars` 与实际绑定端口相差一位（实测 6379 绑定、返回 6380/6381）。现改为复用 `_start_container` 的映射，不再二次分配。 |
+| SCM4 | 已修 | `detect_project_services` 三源改精确判定：`.env.example` 按行跳过注释、取 `=` 前键名精确匹配（原 `var_name in content` 把注释里的变量名当依赖）；`docker-compose.yml/.yaml` 逐行只匹配 `image:` 定义行的镜像仓库名（原 `image_key in content` 命中服务名/注释），按行而非 YAML 结构解析以兼容缩进不规范/旧版 compose；requirements.txt 原实现已按包名精确匹配，保持不变。`pyproject.toml` 源扩展未做（新增检测面，非缺陷）。 |
+| SCM9 | 已修 | `_generate_test_env_vars` 的 `except Exception: return {}` 补 `logger.warning`，降级可观测。 |
+| SCM8 | 已消解 | `wait_for_health` 对缓存条目跳过检查，在 SCM3 修复后其语义变为「缓存写入的容器已通过健康检查」，跳过合理；未通过健康检查的容器不写缓存、不进入 `service_containers`，`wait_for_health` 也不会对其空转。 |
+| SCT4 | 已修（跨模块） | `_generate_test_env_vars` 端口替换由全局 `str.replace` 改为边界正则 `(?<![0-9A-Za-z])<port>(?![0-9A-Za-z])`，仅替换独立出现的端口数字；`pass5672word:5672` 映射后密码部分保持原样、端口正确替换。 |
+
+**未做**：`SERVICE_CONTAINER_CONFIGS` 与 `SERVICE_TEMPLATES` 双份配置收敛（SCT6）、`detect_project_services` 增补 `pyproject.toml`/`package.json` 源，均属新增能力/结构收敛项，不在缺陷修复范围。
