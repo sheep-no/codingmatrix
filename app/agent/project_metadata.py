@@ -40,9 +40,11 @@ class ProjectMetadataManager:
         return len(self._projects)
 
     def count_with_features(self) -> int:
+        # file_fallback 是文件名生成的伪功能，供历史匹配使用前需与真实提取区分
         return sum(
             1 for p in self._projects
-            if p.get("feature_list") and len(p.get("feature_list")) > 0
+            if p.get("feature_source") != "file_fallback"
+            and p.get("feature_list") and len(p.get("feature_list")) > 0
         )
 
     def get_projects_by_domain(self, domain: str) -> List[Dict]:
@@ -60,7 +62,7 @@ class ProjectMetadataManager:
         domain: str = "",
         project_id: Optional[str] = None,
     ) -> Dict:
-        feature_list = await self._extract_feature_list(
+        feature_list, feature_source = await self._extract_feature_list(
             requirement, generated_files
         )
 
@@ -69,6 +71,7 @@ class ProjectMetadataManager:
             "requirement": requirement,
             "domain": domain,
             "feature_list": feature_list,
+            "feature_source": feature_source,
             "file_count": len(generated_files),
             "created_at": time.time(),
         }
@@ -93,7 +96,7 @@ class ProjectMetadataManager:
     async def _extract_feature_list(
         self, requirement: str,
         generated_files: Dict[str, str]
-    ) -> List[str]:
+    ) -> "tuple[List[str], str]":
         file_summary = self._summarize_files(generated_files)
 
         # JSON 示例的字面花括号必须转义，否则会被 f-string 当作格式说明符求值并抛
@@ -137,34 +140,73 @@ class ProjectMetadataManager:
                 )
             except Exception as e2:
                 logger.warning(f"功能清单提取降级模型也失败: {e2}")
-                return self._fallback_feature_list(requirement, generated_files)
+                return (
+                    self._fallback_feature_list(requirement, generated_files),
+                    "file_fallback",
+                )
 
-        return self._parse_feature_response(response)
+        return self._parse_features_with_source(response)
 
     def _summarize_files(self, generated_files: Dict[str, str]) -> str:
+        total = len(generated_files)
         lines = []
         for filepath, content in list(generated_files.items())[:50]:
             content_preview = content[:200].replace("\n", " ").strip()
-            lines.append(f"  {filepath}: {content_preview}")
+            truncated = "（内容已截断）" if len(content) > 200 else ""
+            lines.append(f"  {filepath}: {content_preview}{truncated}")
+        if total > 50:
+            lines.append(f"  ...（共 {total} 个文件，仅展示前 50 个）")
         return "\n".join(lines)
 
     def _parse_feature_response(self, response: str) -> List[str]:
-        import re
-        try:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                features = parsed.get("features", [])
-                return [f for f in features if isinstance(f, str) and len(f) > 3][:30]
-        except json.JSONDecodeError:
-            pass
+        features, _ = self._parse_features_with_source(response)
+        return features
 
+    def _parse_features_with_source(self, response: str) -> "tuple[List[str], str]":
+        # 逐「{」尝试解析首个 JSON 对象；贪婪 \{[\s\S]*\} 在多 JSON 块时会跨块匹配
+        # 导致 json.loads 失败，进而把整段 JSON 原文当成功能项。
+        parsed = self._first_json_object(response)
+        if parsed is not None:
+            features = self._coerce_feature_list(parsed)
+            if features is not None:
+                return features, "llm"
+            logger.warning("功能清单响应 features 非字符串列表，回退文本解析")
+        return self._parse_text_features(response), "llm_text"
+
+    @staticmethod
+    def _first_json_object(response: str) -> Optional[Dict]:
+        decoder = json.JSONDecoder()
+        idx = response.find("{")
+        while idx != -1:
+            try:
+                parsed, _ = decoder.raw_decode(response, idx)
+            except json.JSONDecodeError:
+                idx = response.find("{", idx + 1)
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+            idx = response.find("{", idx + 1)
+        return None
+
+    @staticmethod
+    def _coerce_feature_list(parsed: Dict) -> Optional[List[str]]:
+        # features 缺失/为 null/dict 时显式判非法，避免 TypeError 逃逸或静默空
+        features = parsed.get("features")
+        if not isinstance(features, list):
+            return None
+        return [f for f in features if isinstance(f, str) and len(f) > 3][:30]
+
+    @staticmethod
+    def _parse_text_features(response: str) -> List[str]:
         features = []
         for line in response.strip().split("\n"):
             line = line.strip().lstrip("- ").lstrip("0123456789. ")
-            if line and len(line) > 3 and not line.startswith("#"):
-                features.append(line)
-
+            if not line or len(line) <= 3 or line.startswith("#"):
+                continue
+            # 跳过 JSON 片段，避免把 {"features": [...]} 原文当功能项
+            if any(ch in line for ch in "{}[]") or '"features"' in line:
+                continue
+            features.append(line)
         return features[:30]
 
     def _fallback_feature_list(

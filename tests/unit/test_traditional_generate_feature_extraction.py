@@ -19,9 +19,12 @@ class TestFeaturePromptRendering:
         monkeypatch.setattr(utils_mod, "call_llm", fake_call_llm)
 
         pm = pm_mod.ProjectMetadataManager()
-        features = await pm._extract_feature_list("电商系统", {"a.py": "print(1)"})
+        features, source = await pm._extract_feature_list(
+            "电商系统", {"a.py": "print(1)"}
+        )
 
         assert features == ["用户登录", "订单管理"]
+        assert source == "llm"
         assert calls, "应调用一次 LLM"
         prompt = calls[0]
         # 示例 JSON 应渲染为单个花括号，且文件摘要来自传入内容
@@ -43,8 +46,8 @@ class TestFeatureExtractorFileMapping:
                 captured["domain"] = domain
                 return {"feature_list": ["x"]}
 
-            def get_projects_by_domain(self, domain):
-                return []
+            async def trigger_template_extraction(self, domain, min_projects=15):
+                return None
 
         monkeypatch.setattr(
             "app.agent.project_metadata.ProjectMetadataManager", FakeManager
