@@ -178,3 +178,19 @@
 - **阶段判定**：该模块是「拆分解耦」阶段遗留的独立模板库，尚未进入「统一收敛」——`SERVICE_TEMPLATES` 与 `SERVICE_CONTAINER_CONFIGS` 双份配置是收敛对象（SCT6 + §4 端口三处重复）。
 - **「能力未接线」家族第八例**：UPL1+SL1+FPC1+SHS1+CC1+MDL2+MAR1+SCT5——本模块 6/7 公开函数死代码，且模板数据本身质量缺陷（SCT1/SCT2/SCT3）全部隐而不发。接线与修模板缺陷需同时进行，否则「接线即崩」（SCT1）或「接线即误报」（SCT2）。
 - **服务配置生成方向的参考**：docker-compose 生成是 H 大系统（服务与工具层）的确定性替代方向；修复 SCT1/SCT7 后可作为 spec_first_generator config_hint（LLM 提示）的确定性 fallback，与 global_constraint 的约束注入模式（spec_first:208-209）同源——配置生成从「LLM 自由发挥」走向「模板确定性 + 约束校验」。
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码（461 行）逐条复核，模板缺陷四项已修，接线与双份配置两项保留。回归在原 `tests/unit/test_service_dependency.py::TestServiceConfigTemplates`（9 项）基础上新增 7 项，该文件 39 passed。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| SCT1 | 已修 | `generate_docker_compose` 的 `depends_on` 由 `list[dict]` 改为 `{svc: {"condition": "service_healthy"}}` 映射；渲染整体交 `yaml.safe_dump`（`sort_keys=False`），嵌套映射/列表（depends_on、healthcheck.test）自动缩进，不再把内层 dict 的 Python repr 泄漏进 YAML。实测 `yaml.safe_load` 后 `depends_on == {"redis": {"condition": "service_healthy"}, "postgres": {...}}`，可被 docker compose 解析。顺带移除废弃的 `version: '3.8'`（compose v2 忽略并告警）。 |
+| SCT2 | 已修 | 关键词匹配由裸 `in` 子串改为 `_keyword_matches`：ASCII 关键词按非标识符字符边界（`(?<![A-Za-z0-9_])kw(?![A-Za-z0-9_])`）匹配，中文关键词仍按子串。并移除纯误报源短词/泛词 `es` / `pg` / `mq` / `queue` / `session store`，`search engine` 保留。三条文档实测误报（`Users need these services`、`The user session stores tokens`、`business analysis report`）现均返回 `[]`；`Redis cache` / `Elasticsearch` / `RabbitMQ message queue` 等真实信号仍命中。注：`cache` 保留为整词匹配（非文档建议的移除），因其在词边界下不产生误报且是 redis 的真实信号。 |
+| SCT3 | 已修 | 6 个 `connection_code` 模板统一在首行补 `import os`（redis/postgresql/mysql/mongodb/rabbitmq/elasticsearch），复制即用，不再 `NameError: name 'os' is not defined`。新增用 `ast` 断言各模板均导入 `os`。 |
+| SCT7 | 部分已修 | `generate_env_example` 对空默认值（如 `REDIS_PASSWORD: ""`）改输出注释行 `# REDIS_PASSWORD=`，`generate_docker_compose` 解析时按 `#` 跳过，空字符串不再注入 app 容器 `environment`（空串 ≠ 未设置的语义问题消除）。**SECRET_KEY 仍为 `change-me-in-production` 静态弱口令**：改为强随机占位需要产品侧确定生成/下发流程（`.env.example` 与 compose 插值 `\${SECRET_KEY}` 的取值来源），保留。 |
+| SCT4 | **待处理（他模块）** | 位于 `app/utils/service_container_manager.py:399-402` 的全局子串端口替换（密码含端口数字被误改）属容器管理器，未在本批处理。 |
+| SCT5 | **保留** | 6/7 公开函数仍生产零消费方。接线需与 `spec_first_generator` 的 `config_hint` LLM 提示路径做替换决策，属生成链专项。 |
+| SCT6 | **保留** | `SERVICE_TEMPLATES` 与 `SERVICE_CONTAINER_CONFIGS` 双份 image/端口/健康检查手工副本仍并存（当前值一致），收敛为单向派生属结构性改动，保留。 |
+
+**未纳入本批**：§4 的 `default_port`/`ports`/env URL 三处重复、`app_service` 固定 8000 与容器管理器动态端口脱节、`get_service_template` 别名（`postgres`/`mongo`/`es`）不统一、YAML 标量引号歧义，均为整洁性/收敛项，无当前接线面。

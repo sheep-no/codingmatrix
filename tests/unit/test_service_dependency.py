@@ -81,6 +81,78 @@ class TestServiceConfigTemplates:
         snippets = get_connection_snippets(["redis"])
         assert "redis_client" in snippets["redis"]
 
+    def test_generate_docker_compose_depends_on_is_valid_map(self):
+        """depends_on 必须是服务名->条件的映射，而非 list[dict]"""
+        import yaml
+        from app.agent.service_config_templates import generate_docker_compose
+
+        data = yaml.safe_load(generate_docker_compose(["redis", "postgresql"]))
+        assert data["services"]["app"]["depends_on"] == {
+            "redis": {"condition": "service_healthy"},
+            "postgres": {"condition": "service_healthy"},
+        }
+
+    def test_generate_docker_compose_is_parseable_without_deprecated_version(self):
+        """生成结果可被 YAML 解析，且不再带废弃的 version 字段"""
+        import yaml
+        from app.agent.service_config_templates import generate_docker_compose
+
+        compose = generate_docker_compose(
+            ["mysql", "mongodb", "rabbitmq", "elasticsearch"]
+        )
+        yaml.safe_load(compose)
+        assert "version:" not in compose
+
+    def test_detect_services_ignores_common_english_substrings(self):
+        """通用英文词中的子串（es/cache/queue 等）不再导致误报"""
+        from app.agent.service_config_templates import detect_services_from_requirements
+
+        assert detect_services_from_requirements("Users need these services") == []
+        assert detect_services_from_requirements("The user session stores tokens") == []
+        assert detect_services_from_requirements("business analysis report") == []
+
+    def test_detect_services_matches_real_keywords(self):
+        """真实服务关键词仍按词边界/子串命中"""
+        from app.agent.service_config_templates import detect_services_from_requirements
+
+        assert detect_services_from_requirements("Add a Redis cache") == ["redis"]
+        assert detect_services_from_requirements(
+            "use Elasticsearch for full text"
+        ) == ["elasticsearch"]
+        assert detect_services_from_requirements("RabbitMQ message queue") == ["rabbitmq"]
+
+    def test_connection_snippets_import_os(self):
+        """6 个连接代码模板都必须先 import os 再使用 os.getenv"""
+        import ast
+        from app.agent.service_config_templates import SERVICE_TEMPLATES
+
+        for name, template in SERVICE_TEMPLATES.items():
+            tree = ast.parse(template.connection_code)
+            imported = {
+                alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Import)
+                for alias in node.names
+            }
+            assert "os" in imported, name
+
+    def test_generate_env_example_comments_empty_defaults(self):
+        """空默认值以注释形式保留，不作为有效赋值输出"""
+        from app.agent.service_config_templates import generate_env_example
+
+        env = generate_env_example(["redis"])
+        assert "# REDIS_PASSWORD=" in env
+        assert "\nREDIS_PASSWORD=" not in env
+
+    def test_generate_docker_compose_excludes_empty_env(self):
+        """空值环境变量不注入 app 容器的 environment"""
+        import yaml
+        from app.agent.service_config_templates import generate_docker_compose
+
+        data = yaml.safe_load(generate_docker_compose(["redis"]))
+        environment = data["services"]["app"]["environment"]
+        assert not any(item.startswith("REDIS_PASSWORD=") for item in environment)
+
 
 class TestDynamicPackageManager:
     """动态包管理器测试"""
