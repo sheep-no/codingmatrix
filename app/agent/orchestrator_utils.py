@@ -352,7 +352,7 @@ class UtilsMixin:
             if snapshot:
                 logger.info(f"Git 快照已保存 (SnapshotManager): {snapshot.tag}")
                 return
-            logger.info("SnapshotManager 保存失败，回退到原始逻辑")
+            logger.info("SnapshotManager 未产生快照（无变更或失败），回退到原始逻辑")
 
         GITIGNORE_CONTENT = """*.env
 *.key
@@ -397,12 +397,19 @@ test_sandbox.db*
                 cwd=str(self.output_dir),
                 capture_output=True, timeout=30, check=True
             )
-            sp.run(
-                ['git', 'commit', '-m', message, '--allow-empty'],
+            commit = sp.run(
+                ['git', 'commit', '-m', message],
                 cwd=str(self.output_dir),
                 capture_output=True, timeout=30
             )
-            logger.info(f"Git 快照已保存: {message[:80]}")
+            if commit.returncode == 0:
+                logger.info(f"Git 快照已保存: {message[:80]}")
+            else:
+                stderr = commit.stderr.decode(errors='replace')[:200] if commit.stderr else ''
+                if 'nothing to commit' in stderr:
+                    logger.info("Git: 无变更需提交")
+                else:
+                    logger.warning(f"git commit 失败: {stderr}")
         except sp.TimeoutExpired:
             logger.warning("git commit 超时")
         except sp.CalledProcessError as e:

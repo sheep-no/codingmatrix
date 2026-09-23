@@ -1890,7 +1890,13 @@ async def rollback_to_snapshot(
     if result is None:
         raise HTTPException(status_code=404, detail=f"快照不存在: {target_tag}")
 
-    return {"success": result.success, "previous_tag": result.previous_tag, "current_tag": result.current_tag, "files_restored": result.files_restored}
+    return {
+        "success": result.success,
+        "previous_tag": result.previous_tag,
+        "current_tag": result.current_tag,
+        "files_restored": result.files_restored,
+        "branch_deleted": result.branch_deleted,
+    }
 
 
 @router.get("/snapshot/diff")

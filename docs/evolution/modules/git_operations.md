@@ -63,3 +63,24 @@ Agent 生成链的快照基础设施：`GitOperations`（裸 git 子进程封装
 ## 5. 测试状态
 
 **零测试覆盖**——tests/unit/test_v4_8_features.py:336-351 仅测 `SnapshotInfo` dataclass 构造（3 个字段赋值断言），无任何 GitOperations/SnapshotManager 方法用例。GO1/GO2/GO3/GO4/GO5/GO7 全部实测可复现但无用例保护。快照链路（保存 → 回滚 → 删除分支）是生成链的版本管理底座，端到端无任何回归保护，且 `--allow-empty` 的空提交行为从未被测试暴露。
+
+## 6. 状态校准（2026-09-23 复核）
+
+以真实临时 git 仓库驱动复核并修复。新增 `tests/unit/test_git_operations_snapshot.py`（10 项，真实 git 子进程，零 mock）。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| GO1 | 已修 | `commit_snapshot` 去掉 `--allow-empty`，无变更时 commit 返回非 0 → 返回 None，`save_snapshot` 的「无变更」分支复活。`orchestrator_utils._git_save_snapshot` 的裸 git 回退路径同样去掉 `--allow-empty`，并改为按 returncode 判定成功（此前无条件打印「快照已保存」，commit 失败也报成功）。 |
+| GO2 | 已修 | 原实现在当前 feature 分支上 reset 后尝试删除该分支，git 禁止且失败被忽略。现改为：若当前是 feature 分支则**先 `checkout_mainline`（依次尝试已有 main/master，都没有则在当前位置建 main）再 reset**，reset 落在主线上、回滚内容不随分支丢失，然后删除 feature 分支。`RollbackResult` 新增 `branch_deleted` 并回传端点，删除失败不再静默。默认分支为 `master` 的仓库被识别为主线，不会被误删（环境实测 `git init` 默认分支为 master）。 |
+| GO3 | 已修 | `get_current_branch` 不再 `or "main"`，非 git 仓库/detached HEAD 如实返回 ""；异常路径同样返回 ""。调用方按空值守卫。 |
+| GO4 | 已修并接线 | `get_head_commit` 改用 `git rev-parse --verify HEAD`，无有效 HEAD 返回 ""；同时被回滚流程用作「回滚前 HEAD」以计算真实变更文件，不再是孤儿方法。 |
+| GO5 | 已修 | `list_snapshots` 的 `--format=%H\|%s\|%ci` 改用 ASCII 单元分隔符 `%x1f`，描述含 `\|` 不再截断。 |
+| GO6 | 已修 | `create_branch` 在 `checkout -b` 失败（分支已存在）时回退 `git checkout name`，成功则返回分支名——「声明的分支」与「实际提交分支」不再错位，`save_snapshot` 不再提交到错误分支。 |
+| GO7 | 已修 | `current_tag` 用回滚后实际分支（不再硬编码 "main"）；`files_restored` 改为 `git diff --name-only <回滚前 HEAD> <目标 commit>` 的真实变更文件，不再复用恒空的 `snapshot.files_changed`。 |
+| GO9 | 已修 | `init_repo` 检查 `git init` returncode，非 0 时记录 stderr 并返回 False，不再仅凭 `.gitignore` 可写谎报成功。 |
+| GO10 | 已修 | `commit_snapshot` 检查 `git add -A` returncode，失败显式返回 None，不再依赖后续 commit 兜底。 |
+| GO11 | 已修 | `merge_branch` 检查 `git checkout target` returncode，失败返回 False，不再在错误分支上执行 merge。 |
+| GO12 | **保留** | `revert_to_commit` 仍用 `reset --hard`（无备份/确认）。改为 stash 备份或二次确认会改变外部暴露端点的数据破坏语义，需产品侧确认，保留。 |
+| GO8 | **保留** | `finalize_session` 仍零调用方。它是「会话结束合并」的未接线能力（功能而非缺陷），GO2 修复后已具备可安全收口的条件，接线属独立需求。 |
+
+**复核中新发现并一并修复**（原文档未列）：`save_snapshot` 的标签名为 `agent-{session}-{HHMMSS}`，同一会话同一秒内多次保存产生重名 tag，`create_tag` 失败却被忽略、仍返回 SnapshotInfo，导致 `self.snapshots` 中同名条目互相覆盖、后续 rollback 命中错误 commit。现标签追加 commit 短哈希保证唯一，并在标签创建失败时返回 None，不再谎报快照已保存。
