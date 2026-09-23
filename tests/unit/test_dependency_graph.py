@@ -1031,3 +1031,125 @@ class TestEnrichFromSource:
         assert graph.nodes["calc.py"].file_type == "utils"
         assert graph.nodes["calc.py"].description == "Arithmetic helpers."
         assert "add" in graph.nodes["main.py"].description or graph.nodes["main.py"].file_type == "entry"
+
+
+class TestGenerationOrderPriorityQueue:
+    """DG5：Kahn 排序改用最小堆后，顺序语义（优先级、稳定性、依赖先行）不变。"""
+
+    def test_same_priority_keeps_insertion_order(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        for path in ("c.py", "b.py", "a.py"):
+            graph.add_file(path, priority=3)
+
+        assert graph.get_generation_order() == ["c.py", "b.py", "a.py"]
+
+    def test_lower_priority_value_wins(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("late.py", priority=5)
+        graph.add_file("early.py", priority=1)
+        graph.add_file("mid.py", priority=3)
+
+        assert graph.get_generation_order() == ["early.py", "mid.py", "late.py"]
+
+    def test_dependencies_always_precede_dependents(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("model.py", priority=1)
+        graph.add_file("service.py", priority=3)
+        graph.add_file("api.py", priority=5)
+        graph.add_dependency("service.py", "model.py")
+        graph.add_dependency("api.py", "service.py")
+
+        order = graph.get_generation_order()
+
+        assert order.index("model.py") < order.index("service.py") < order.index("api.py")
+
+    def test_large_graph_orders_every_node(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        size = 1500
+        for index in range(size):
+            graph.add_file(f"mod_{index}.py", priority=3)
+        for index in range(1, size):
+            graph.add_dependency(f"mod_{index}.py", f"mod_{index - 1}.py")
+
+        order = graph.get_generation_order()
+
+        assert len(order) == size
+        assert order.index("mod_0.py") < order.index(f"mod_{size - 1}.py")
+
+
+class TestContextBudgetWiring:
+    """DG7：上下文预算随模型窗口变化，未指定窗口时走集中式默认值。"""
+
+    def test_budget_grows_with_model_window(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("main.py")
+
+        small = graph.get_context_package_for_file(
+            "main.py", {}, model_context_length=32768
+        )
+        large = graph.get_context_package_for_file(
+            "main.py", {}, model_context_length=131072
+        )
+
+        assert large["budget_chars"] > small["budget_chars"]
+
+    def test_missing_window_falls_back_to_central_default(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("main.py")
+
+        default = graph.get_context_package_for_file("main.py", {})
+        explicit = graph.get_context_package_for_file(
+            "main.py", {}, model_context_length=32768
+        )
+
+        # 未传窗口时等于集中式默认窗口（32768）的预算，而非本地硬编码常量
+        assert default["budget_chars"] == explicit["budget_chars"]
+
+
+class TestJsImportAliasResolution:
+    """DG9：前端别名（@/、~/、src/）导入应能解析为项目内真实文件。"""
+
+    @pytest.mark.asyncio
+    async def test_at_alias_resolves_to_src(self, tmp_path):
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "src/components").mkdir(parents=True)
+        (tmp_path / "src/components/User.ts").write_text(
+            "export const user = 1;\n", encoding="utf-8"
+        )
+        (tmp_path / "src/pages").mkdir(parents=True)
+        (tmp_path / "src/pages/Home.vue").write_text(
+            'import User from "@/components/User";\n', encoding="utf-8"
+        )
+
+        graph = DependencyGraph()
+        await graph.build_from_existing_project(tmp_path)
+
+        assert "src/components/User.ts" in graph.adjacency["src/pages/Home.vue"]
+
+    def test_tilde_and_bare_src_prefixes_resolve(self, tmp_path):
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "src/lib").mkdir(parents=True)
+        (tmp_path / "src/lib/api.js").write_text("export const api = 1;\n", encoding="utf-8")
+        source = tmp_path / "src/entry.ts"
+        source.write_text(
+            'import api from "~/lib/api";\nimport other from "src/lib/api";\n',
+            encoding="utf-8",
+        )
+
+        graph = DependencyGraph()
+
+        assert graph._parse_js_requires(source, tmp_path) == ["src/lib/api.js"]

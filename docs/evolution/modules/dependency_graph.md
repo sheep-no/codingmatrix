@@ -251,9 +251,10 @@ return f"app/api/{'_'.join(parts)}.py"
 - **DG3 [P2] 已修复**：新增 `unresolved_dependencies: Dict[str, Set[str]]`。`add_dependency` 解析不到目标节点时，若引用看起来像项目文件（含 `/` 或已知源码后缀）则记入该表，外部包名（`fastapi`/`react`）不记录。`get_missing_files`/`validate_completeness` 一并消费该表，`add_missing_files` 补齐节点后调用 `_reprocess_unresolved_dependencies` 重建真实边。完整性三方法不再是死逻辑，architect.py:1416 的补缺路径恢复可用。
 - **DG4 [P2] 已修复**：`_break_cycles` 由递归 DFS 改为显式栈迭代（保留 `rec_stack` + `position` 还原环路径），1500 层依赖链不再 `RecursionError`。
 - **DG8 [P3] 已修复**：新增 `_resolve_dependency_reference`，把依赖引用按「精确节点键 → 文件名/模块名唯一匹配 → 路径段唯一匹配」解析为完整路径；`add_dependency` 先解析再加边。LLM 声明的 `models.py`、`models/user.py`（省略目录）等文件名式依赖不再静默丢失；歧义引用（多个同名候选）不猜测，按 DG3 记为缺失。
-- **DG5 [P3] 仍在**：Kahn 仍每轮全量 `sort`，未换 heapq（纯性能项，无正确性影响）。
+- **DG5 [P3] 已修复**：`get_generation_order` 的 Kahn 队列改为 `heapq` 最小堆（元素 `(priority, 序号, path)`，序号保证同优先级仍按入队顺序出队），删除 while 内每轮全量 `sort` + `pop(0)`。大图由 O(V² log V) 降为 O(E log V)，出队顺序与旧稳定排序等价。新增用例：同优先级保持插入顺序、低 priority 值优先、依赖先行、1500 节点全量出队。
 - **DG6 [P3] 仍在**：`deduplicate` 仍为启发式评分，无内容比对。
-- **DG7 [P3] 仍在**：`get_context_for_file` 未传 `model_context_length` 时仍走 32768 兜底。
-- **DG9 / DG10 [P3] 仍在**：`_parse_js_requires` 不解析 `@/` 别名；`_path_to_api_file` 多段路径仍平铺拼接。
+- **DG7 [P3] 已修复**：生产调用方 `orchestrator_files.py` 现传 `model_context_length=get_context_length(file_model)`；`get_context_package_for_file` 未显式给窗口时改为调用集中式 `get_context_length("")`（默认 32768），不再硬编码窗口常量。同时修复 `spec_first_generate.py` `refactor_file` 的既有接线错误：原先把 `str(self.output_dir)` 位置传参给 `max_context_bytes`（str 与 0 比较抛 TypeError），且把路径列表当 `generated_files: Dict[str, str]` 传入（取值时 TypeError）——该调用路径此前无测试覆盖，故长期潜伏。现改为传「已生成文件 路径->内容」字典并显式传模型窗口。
+- **DG9 [P3] 已修复**：`_parse_js_requires` 新增 `@/`、`~/` 别名与项目根相对裸路径（`src/`）的 import/require 模式；抽出 `_resolve_js_import` 统一解析（相对路径按文件目录、别名按 `src/` 与项目根两组基址、裸路径按项目根），命中扩展名候选后返回项目内相对路径。
+- **DG10 [P3] 仍在**：`_path_to_api_file` 多段路径仍平铺拼接。
 
-测试：既有 `tests/unit/test_dependency_graph.py`（59 项）全部通过；新增 `tests/unit/test_dependency_graph_integrity.py`（11 项：缺失项目文件上报、外部包不误报、update/remove 清理未解析表、补缺后重建边、文件名/路径段解析、歧义不猜测、1500 层长链不崩、环被打破）。
+测试：`tests/unit/test_dependency_graph.py`（67 项）全部通过，本轮为 DG5/DG7/DG9 新增 8 项（堆排序顺序语义 4 项、上下文窗口预算 2 项、JS 别名解析 2 项）；`tests/unit/test_dependency_graph_integrity.py`（11 项：缺失项目文件上报、外部包不误报、update/remove 清理未解析表、补缺后重建边、文件名/路径段解析、歧义不猜测、1500 层长链不崩、环被打破）；`tests/unit/test_spec_first_llm_and_concurrency.py` 新增 1 项守卫 `refactor_file` 的依赖上下文接线（路径->内容字典 + 模型窗口）。

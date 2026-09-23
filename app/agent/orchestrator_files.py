@@ -18,6 +18,7 @@ from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL
+from app.agent.dynamic_model_router import get_context_length
 from app.agent.utils import extract_engineer_content, is_documentation_file, write_file_atomic
 from app.agent.dependency_graph import summarize_dependency_context
 from app.agent.topology_scheduler import HeartbeatTracker
@@ -2108,8 +2109,11 @@ class FilesMixin:
         spec_context = ""
         dep_context = ""
         if self.dependency_graph_obj:
+            file_model = self._select_model_for_file(file_path)
             dep_context = self.dependency_graph_obj.get_context_for_file(
-                file_path, generated_contents or {}
+                file_path,
+                generated_contents or {},
+                model_context_length=get_context_length(file_model),
             )
         dep_audit = summarize_dependency_context(dep_context)
         logger.info(
