@@ -77,3 +77,21 @@ docstring 声称「通过轻量级符号提取和文件级变更对比，**准�
 - SM2/SM3 [P2]：old_versions 来源（content_hash/快照）恒空，diff 路径缺数据
 - DG 体系（OA12/DG1/DG3/AR8）：影响传播应复用依赖图
 - 测试状态：impact_analyzer **零单元测试**（tests/unit 无 impact 相关文件）
+
+## 状态更新（2026-09-23 核实）
+
+本轮修复 OT16 / IA1 / IA4 / IA5 / IA7：
+
+- **OT16 已修**：`orchestrator_testing._select_tests` 原先 `ImpactAnalyzer()`/`TestSelector()` 均无参构造，而两者 `__init__` 都要求 `project_root` → TypeError 被 `except` 吞掉、记「测试选择失败，回退到全量测试」→ **智能测试选择从未执行过**。现改为传 `str(self.output_dir)`，同目录测试选择真实生效。
+- **IA1 已修**：删除原先「先全量 extend、再按 added 过滤后重复 extend」的绕行逻辑。改为逐文件在 `old_versions` 命中时按 `new_names/old_names` 差集归类：同名符号只进 `modified_symbols`，不再同时出现在 `new_symbols`。
+- **IA4 已修**：`_has_dynamic_imports` 由子串匹配改为 AST 调用识别（`__import__(...)`、`*.import_module(...)`），`getattr(obj, 'y')` 与注释/字符串里的字样不再误判；非 Python 内容解析失败返回 False。
+- **IA5 已修**：符号提取纳入 `ast.AsyncFunctionDef`，async 函数不再漏收。
+- **IA7 已修**：无 `old_versions`（或无该文件基线）时不再把既有符号登记为「新增」/「修改」——无从对比就不声称差异；`modified_files` 仍如实返回。
+
+仍未处理：
+
+- **IA2 [P2]**：仍只解析 Python（`ast.parse`），JS/TS/Go 等非 Python 文件符号全盲，需按扩展名分发解析器（多语言主线）。
+- **IA3 [P2]**：仍只做符号 diff，不做影响传播（无 `affected_files`）。这是「精准影响分析」的核心能力缺失，需复用 DG 依赖图专项设计。
+- **IA5 的符号粒度**（变量/Import/嵌套层级）未扩展，仅补了 AsyncFunctionDef。
+
+回归：`tests/unit/test_impact_analyzer.py`（8 项，覆盖 IA1/IA4/IA5/IA7 + OT16 真实协作对象跑通）；回退 `impact_analyzer.py` / `orchestrator_testing.py` 后 6 项失败。
