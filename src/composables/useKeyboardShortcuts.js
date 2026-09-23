@@ -17,6 +17,8 @@ function normalizeKey(e) {
 
   let key = e.key
   if (key === ' ') key = ' '
+  // Shift+/ 在多数键盘布局下产生 '?'，与本项目注册名 '/' 是同一物理键，统一归一化
+  else if (key === '?') key = '/'
   else if (key.length === 1) key = key.toLowerCase()
   else key = key.toLowerCase()
 

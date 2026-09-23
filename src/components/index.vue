@@ -1336,6 +1336,7 @@
         showShortcutsHelp.value = false
         return
       }
+      leftlistRef.value?.closeToolkitMenu?.()
       navigationStore.hideAllTools()
       showMessageEditor.value = false
     }))
@@ -1365,10 +1366,6 @@
     }))
 
     _cleanupFns.push(register('shift+/', () => {
-      showShortcutsHelp.value = true
-    }))
-
-    _cleanupFns.push(register('?', () => {
       showShortcutsHelp.value = true
     }))
   })
