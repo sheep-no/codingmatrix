@@ -48,4 +48,17 @@
 
 ## 5. 测试状态
 
+## 6. 状态校准（2026-09-23 复核）
+
+逐条读码复核，MLP1-MLP4 四项缺陷在当前代码中**全部复现**，但本模块已无生产消费方（唯一引用是 `app/agent/capability_registry.py:144` 的模块登记条目），故本轮未修：
+
+- **MLP1 仍成立**：`_remove_comments_and_strings`（`:275-287`）实际注释掉了字符串剥离，`string_regex`（13 种语言都定义）从未被引用，docstring 内行首 `import` 仍会被解析为依赖。
+- **MLP2 仍成立**：Go 的第三个 pattern `r'"\s*([^"]+)\s*"'`（`:87`）会匹配任意双引号字符串，字符串常量被当成依赖。
+- **MLP3 仍成立**：Go 多行 import `r'import\s*\((?:[^)]*?)\)'`（`:83`）无捕获组，`findall` 返回整段文本，`_normalize_import` 产出垃圾条目。
+- **MLP4 仍成立**：Java pattern 有两个捕获组，`next((m for m in match if m), "")`（`:266`）取第一个非空组，`import static ...` 返回 `"static "`。
+- **MLP5-MLP8 未复核**（P3，随 MLP9 决策一并处理）。
+- **MLP9 仍成立**：生产正主是 `app/agent/adapters/language_adapter.py`，本模块（`app/agent/multi_language_parser.py` + 文档 + `tests/unit/test_multi_language_parser.py`）三方都在维护一个生产不用的实现。
+
+处置需要显式决策，三条路径：删除文件与测试（最彻底，但属破坏性操作需确认）；或在架构决策中显式标记为历史遗留并从 features 文档移除误导性入口；或把 MLP1-4 修好并作为兜底解析器接入（不推荐，会与 `language_adapter` 形成双轨）。在决策前，本模块的测试弱断言（`test_static_import` 只断言 `len >= 1`、`test_multi_import` 只断言子集）会持续给「已接线」的错觉。
+
 `tests/unit/test_multi_language_parser.py` 597 行全绿，但**断言强度系统性不足**：`test_multi_import`/`test_multiple_imports` 用 `in` 子集断言（漏垃圾条目）、`test_static_import` 用 `len>=1`（漏取错组）、`test_skip_strings`/`test_mixed_languages_content` 的字符串用例恰好规避了「行首 import 在字符串内」的真实场景（docstring 内独立成行的 import 从未被测试覆盖）。测试与实现共同维护着一个生产不使用的解析器，且测试断言设计掩盖了实现缺陷——这组测试若被迁移到正主适配器体系，应同步强化断言（精确集合比对）。
