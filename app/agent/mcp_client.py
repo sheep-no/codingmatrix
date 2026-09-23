@@ -365,19 +365,13 @@ class MCPServerConnection:
 
             description = tool_def.get("description", f"MCP 工具: {name}")
 
-            # 创建调用闭包
-            server_name = self.name
+            # 创建调用闭包：直接捕获本连接对象，不依赖运行时的全局单例（MCP2），
+            # 避免单例被替换后工具闭包找不到 server。
             tool_name = name
 
-            async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, **kwargs):
-                manager = MCPClientManager._instance
-                if not manager:
-                    return {"success": False, "error": "MCPClientManager 未初始化"}
-                server = manager.get_server(_sn)
-                if not server:
-                    return {"success": False, "error": f"MCP Server {_sn} 不存在"}
+            async def _mcp_tool_fn(project_path: str = "", _server=self, _tn=tool_name, **kwargs):
                 try:
-                    result = await server.call_tool(_tn, kwargs)
+                    result = await _server.call_tool(_tn, kwargs)
                     return {"success": True, "result": result}
                 except MCPError as e:
                     return {"success": False, "error": str(e)}
@@ -394,27 +388,32 @@ class MCPServerConnection:
 
 
 class MCPClientManager:
-    """MCP 客户端管理器 - 管理多个 MCP Server 连接"""
+    """MCP 客户端管理器 - 管理多个 MCP Server 连接
+
+    进程内单例：重复构造返回同一实例（MCP1），避免使用方直接 new 时
+    替换单例、后台断开既有连接。
+    """
 
     _instance: Optional["MCPClientManager"] = None
 
+    def __new__(cls) -> "MCPClientManager":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # 已有状态说明是复用单例，跳过重复初始化
+        if getattr(self, "_servers", None) is not None:
+            return
         self._servers: Dict[str, MCPServerConnection] = {}
         self._all_tools: Dict[str, Dict] = {}
-        # 如果已有实例，记录旧实例以便后续断开
-        old_instance = MCPClientManager._instance
-        MCPClientManager._instance = self
-        if old_instance and old_instance._servers:
-            logger.warning("MCPClientManager 被重新创建，旧实例的连接将在后台断开")
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(old_instance.disconnect_all())
-                else:
-                    loop.run_until_complete(old_instance.disconnect_all())
-            except Exception as e:
-                logger.debug(f"断开旧 MCP 实例失败: {e}")
+
+    @classmethod
+    def get_or_create_instance(cls) -> "MCPClientManager":
+        """获取单例，不存在则创建（使用方统一入口）"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> Optional["MCPClientManager"]:
@@ -443,10 +442,19 @@ class MCPClientManager:
             logger.info("MCP 配置中无 mcp_servers，跳过")
             return 0
 
-        connected = 0
+        # 先摘除新配置中已不再启用的旧 server，断开连接并回收工具（MCP6）
+        enabled_names = {
+            name for name, cfg in servers_config.items() if cfg.get("enabled", True)
+        }
+        for name in [n for n in self._servers if n not in enabled_names]:
+            await self._servers.pop(name).disconnect()
+
         for name, server_config in servers_config.items():
             if not server_config.get("enabled", True):
                 logger.info(f"[MCP:{name}] 已禁用，跳过")
+                continue
+            if name in self._servers:
+                # 已连接的 server 直接复用，避免重复启动子进程（MCP6）
                 continue
 
             server = MCPServerConnection(name, server_config)
@@ -454,14 +462,17 @@ class MCPClientManager:
                 tools = await server.list_tools()
                 if tools:
                     self._servers[name] = server
-                    specialist_tools = server.get_tools_as_specialist_format()
-                    self._all_tools.update(specialist_tools)
-                    connected += 1
                 else:
                     await server.disconnect()
             else:
                 logger.warning(f"[MCP:{name}] 连接失败，跳过")
 
+        # 由当前存活的 server 重建工具表，杜绝重复 load 的工具累积（MCP6）
+        self._all_tools = {}
+        for server in self._servers.values():
+            self._all_tools.update(server.get_tools_as_specialist_format())
+
+        connected = len(self._servers)
         logger.info(f"MCP 加载完成: {connected}/{len(servers_config)} 个 Server 连接成功，共 {len(self._all_tools)} 个工具")
         return connected
 

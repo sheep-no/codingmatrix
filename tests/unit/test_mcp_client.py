@@ -211,6 +211,21 @@ class TestMCPClientManager:
         mgr = MCPClientManager()
         assert MCPClientManager.get_instance() is mgr
 
+    def test_repeated_construction_reuses_singleton(self):
+        """MCP1：重复构造返回同一实例，不再替换单例"""
+        first = MCPClientManager()
+        first._servers["keep"] = MagicMock()
+
+        second = MCPClientManager()
+
+        assert second is first
+        assert MCPClientManager.get_instance() is first
+        # 复用单例不得断开既有连接
+        assert "keep" in first._servers
+
+    def test_get_or_create_instance(self):
+        assert MCPClientManager.get_or_create_instance() is MCPClientManager.get_instance()
+
     def test_get_all_tools_empty(self):
         mgr = MCPClientManager()
         assert mgr.get_all_tools() == {}
@@ -260,6 +275,62 @@ class TestMCPClientManager:
         assert mgr._servers == {}
         assert mgr._all_tools == {}
 
+    @pytest.mark.asyncio
+    async def test_load_servers_reuses_connected_server(self):
+        """MCP6：已连接的 server 复用，不重复启动"""
+        mgr = MCPClientManager()
+        existing = MagicMock()
+        existing.connect = AsyncMock()
+        existing.get_tools_as_specialist_format.return_value = {"mcp_test_tool": {}}
+        mgr._servers["test"] = existing
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"mcp_servers": {"test": {"enabled": True, "transport": "stdio"}}}, f)
+            f.flush()
+            connected = await mgr.load_servers(f.name)
+        os.unlink(f.name)
+
+        assert connected == 1
+        existing.connect.assert_not_called()
+        assert mgr.get_all_tools() == {"mcp_test_tool": {}}
+
+    @pytest.mark.asyncio
+    async def test_load_servers_drops_disabled_server(self):
+        """MCP6：新配置中禁用/移除的 server 断开并回收工具"""
+        mgr = MCPClientManager()
+        stale = MagicMock()
+        stale.disconnect = AsyncMock()
+        mgr._servers["old"] = stale
+        mgr._all_tools = {"mcp_old_tool": {}}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"mcp_servers": {"old": {"enabled": False}}}, f)
+            f.flush()
+            connected = await mgr.load_servers(f.name)
+        os.unlink(f.name)
+
+        assert connected == 0
+        stale.disconnect.assert_awaited_once()
+        assert mgr.get_server("old") is None
+        assert mgr.get_all_tools() == {}
+
+    @pytest.mark.asyncio
+    async def test_load_servers_rebuilds_tools_without_accumulation(self):
+        """MCP6：重复 load 不累积陈旧工具"""
+        mgr = MCPClientManager()
+        server = MagicMock()
+        server.get_tools_as_specialist_format.return_value = {"mcp_a_tool": {}}
+        mgr._servers["a"] = server
+        mgr._all_tools = {"mcp_a_tool": {}, "mcp_stale_tool": {}}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"mcp_servers": {"a": {"enabled": True}}}, f)
+            f.flush()
+            await mgr.load_servers(f.name)
+        os.unlink(f.name)
+
+        assert mgr.get_all_tools() == {"mcp_a_tool": {}}
+
     def test_create_default_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "mcp_servers.json")
@@ -273,25 +344,54 @@ class TestMCPClientManager:
 
 
 class TestMCPToolFunction:
-    @pytest.mark.asyncio
-    async def test_mcp_tool_fn_no_manager(self):
+    def setup_method(self):
         MCPClientManager._instance = None
-        conn = MCPServerConnection("test", {})
+
+    @staticmethod
+    def _make_tools(conn):
         conn._tools = [{"name": "search", "description": "Search", "inputSchema": {"properties": {}}}]
-        tools = conn.get_tools_as_specialist_format()
-        fn = tools["mcp_test_search"]["fn"]
-        result = await fn(project_path="")
-        assert result["success"] is False
-        assert "未初始化" in result["error"]
+        return conn.get_tools_as_specialist_format()
 
     @pytest.mark.asyncio
-    async def test_mcp_tool_fn_no_server(self):
-        mgr = MCPClientManager()
-        MCPClientManager._instance = mgr
+    async def test_mcp_tool_fn_uses_captured_server(self):
+        """MCP2：闭包持有连接对象，不依赖全局单例"""
         conn = MCPServerConnection("test", {})
-        conn._tools = [{"name": "search", "description": "Search", "inputSchema": {"properties": {}}}]
-        tools = conn.get_tools_as_specialist_format()
-        fn = tools["mcp_test_search"]["fn"]
-        result = await fn(project_path="")
+        tools = self._make_tools(conn)
+        conn.call_tool = AsyncMock(return_value="ok")
+
+        result = await tools["mcp_test_search"]["fn"](project_path="")
+
+        assert result == {"success": True, "result": "ok"}
+        conn.call_tool.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_mcp_tool_fn_survives_manager_replacement(self):
+        """MCP2：单例被清空/替换后，已注册工具仍可用"""
+        conn = MCPServerConnection("test", {})
+        tools = self._make_tools(conn)
+        conn.call_tool = AsyncMock(return_value="ok")
+        MCPClientManager._instance = None
+
+        result = await tools["mcp_test_search"]["fn"](project_path="")
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_mcp_tool_fn_without_connection_returns_error(self):
+        conn = MCPServerConnection("test", {})
+        tools = self._make_tools(conn)
+
+        result = await tools["mcp_test_search"]["fn"](project_path="")
+
         assert result["success"] is False
-        assert "不存在" in result["error"]
+        assert "未连接" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_mcp_tool_fn_propagates_mcp_error(self):
+        conn = MCPServerConnection("test", {})
+        tools = self._make_tools(conn)
+        conn.call_tool = AsyncMock(side_effect=MCPError("boom"))
+
+        result = await tools["mcp_test_search"]["fn"](project_path="")
+
+        assert result == {"success": False, "error": "boom"}

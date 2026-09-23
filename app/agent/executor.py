@@ -170,7 +170,7 @@ class EnhancedExecutor:
             return 0
         try:
             from app.agent.mcp_client import MCPClientManager
-            manager = MCPClientManager()
+            manager = MCPClientManager.get_or_create_instance()
             connected = await manager.load_servers()
             if connected > 0:
                 mcp_tools = manager.get_all_tools()
