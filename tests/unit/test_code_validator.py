@@ -270,6 +270,96 @@ class TestCodeValidator:
         assert ok is True, errors
         assert sys.modules["app"] is backend_app
 
+
+class TestRuntimeImportStaticAnalysis:
+    """CV2: 运行时导入校验不得执行被校验代码。"""
+
+    @pytest.mark.asyncio
+    async def test_module_level_code_is_not_executed(self, tmp_path, monkeypatch):
+        """被校验文件的模块级副作用不能发生。"""
+        from app.agent.code_validator import CodeValidator
+
+        marker = tmp_path / "EXECUTED"
+        target = tmp_path / "side_effect.py"
+        target.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('boom')\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_runtime_imports(target)
+
+        assert ok is True, errors
+        assert not marker.exists()
+
+    @pytest.mark.asyncio
+    async def test_blocking_module_level_code_does_not_hang(self, tmp_path):
+        """模块级阻塞代码不能占住事件循环。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "slow.py"
+        target.write_text("import time\n\ntime.sleep(300)\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_runtime_imports(target)
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_missing_project_symbol_is_flagged(self, tmp_path):
+        """`from app import nope` 曾由 exec 的 ImportError 捕获，静态检查须保持一致。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        target = tmp_path / "main.py"
+        target.write_text("from app import nope\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_runtime_imports(target)
+
+        assert ok is False
+        assert any("nope" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_relative_import_is_not_a_runtime_error(self, tmp_path):
+        """相对导入在单文件校验时缺包上下文，不能报运行时导入失败。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "base.py").write_text("X = 1\n", encoding="utf-8")
+        target = tmp_path / "app" / "factory.py"
+        target.write_text("from .base import X\n\ndef create_app():\n    return X\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_runtime_imports(target)
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_global_import_state_is_untouched(self, tmp_path):
+        """并发校验下不得改写 sys.path/sys.modules。"""
+        import sys
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        target = tmp_path / "main.py"
+        target.write_text(
+            "import os\nfrom app import __doc__\n", encoding="utf-8"
+        )
+        path_before = list(sys.path)
+        modules_before = set(sys.modules)
+
+        ok, errors = await CodeValidator(tmp_path).validate_runtime_imports(target)
+
+        assert ok is True, errors
+        assert sys.path == path_before
+        assert set(sys.modules) == modules_before
+
     @pytest.mark.asyncio
     async def test_requirements_skip_manifest_for_non_python_project(self, tmp_path):
         """纯前端工程没有 requirements.txt 不算缺陷。"""

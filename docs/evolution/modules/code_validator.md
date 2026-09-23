@@ -194,7 +194,7 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 | 编号 | 状态 | 说明 |
 |------|------|------|
 | CV1 | 已修 | `run_full_validation` 此前用合成串键调 `get_cached_validation`（内部按文件路径 `open`），恒失败。新增 `get_cached_validation_by_key`（:270）直接按键查表（含 TTL/LRU 维护），写入改用已有的 `store_validation`（:939）。连续两次 `run_full_validation`，第二次 `cache_hit=True`。 |
-| CV2 | **仍在** | `spec.loader.exec_module(module)`（:436）依旧真实执行模块级代码，无超时、阻塞事件循环。修复方案（compile+AST 静态检查，或 subprocess 隔离沙箱）会改变 `validate_runtime_imports` 对项目内缺失模块的检测路径，需单独评估与配套测试，未并入本批。 |
+| CV2 | 已修 | `validate_runtime_imports` 不再 `spec.loader.exec_module` 执行被校验代码，改为纯静态解析：AST 提取绝对导入 → `_resolve_project_module`（按文件定位，绕开 `sys.modules`/`sys.path`）判断项目内模块是否存在 → `_missing_project_symbols` 静态校验 `from X import Y`。项目内缺失模块仍报「运行时导入失败」，第三方包缺失/拼写不报错（与 `validate_imports` 一致）。副作用、无超时与事件循环阻塞一并消除；不再改写全局 `sys.path`/`sys.modules`（`asyncio.gather` 并发校验安全）。模块级 AttributeError/TypeError 不再拦截，交由 Agent Host 运行时验证；`__init__.py`、相对导入与隐式模块属性（`__doc__` 等）不误报。删除随之失效的 `_is_module_in_project`。 |
 | CV3 | 已修（早于本批） | 原「root 只认 src/tests」的 `for _ in range(10)` 判定已不存在；`_import_search_paths`（:126）始终把 `project_path` 与 `src/` 纳入搜索路径，`_project_top_level_packages`（:134）另行识别常规包与 PEP 420 命名空间包。`app/` 主包布局不再误报。 |
 | CV4 | 已修 | `validate_cross_file_consistency` 中原「前端 API 一致性检查」段只 `pass`（连警告都没有），且按 `/api` 前缀直接比对后端路由会大量误报（后端前缀经 `include_router(prefix=...)` 挂载）。该空操作段整体删除，跨文件校验不再假装覆盖前端。 |
 | CV5 | 已修 | 规则方向反了：现代 FastAPI 用 camelCase `tokenUrl`，原代码要求 `token_url`。现从 `API_COMPATIBILITY_RULES`（:110）取 `token_url -> tokenUrl` 映射生成判定（:487），既修正方向又消除两处规则各说一套。 |
@@ -202,4 +202,6 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 | CV7 | 部分修 | 删除未使用的 `MAX_CACHE_SIZE`（已无引用）。类级 `_lru_cache`/统计跨实例共享仍在，属结构性改动，需连同失效语义一并设计，保留。 |
 | CV8 | **仍在** | 四套验证器并存的归位是结构性演化项（§6 主线），非单点 bug。 |
 
-配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误），文件累计 48 项。
+配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误）；本轮 CV2 新增 `TestRuntimeImportStaticAnalysis` 5 项（模块级副作用不执行、阻塞代码不挂起、缺失项目符号仍报错、相对导入不误报、`sys.path`/`sys.modules` 不被改写），文件累计 53 项。
+
+**复核说明**：CV8 保留为结构性演化项；CV7 的类级缓存跨实例共享仍在，删除 `MAX_CACHE_SIZE` 后至少不再有误导性常量。CV2 静态化后，检出能力收敛到「结构上可静态判定的导入错误」，这是消除执行风险的代价；此前相对导入在单文件校验中会产生假「运行时导入失败」，现已消除。
