@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-23
 
 `已解决` 表示当前代码保持对应修复；`仍在` 表示当前实现可直接定位；`部分解决` 表示原修复范围仍有同类残留。历史测试数字保留其发生时的范围。
 
@@ -37,7 +37,7 @@
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P1 | CORS host 字符串直接拼为正则 | `app/main.py` | 仍在 |
-| P2 | 开发测试使用 Python 3.11，Dockerfile 使用 3.10 | `Dockerfile` | 仍在 |
+| P2 | 开发测试使用 Python 3.11，Dockerfile 使用 3.10 | `Dockerfile` | 已解决；`Dockerfile` 两阶段均基于 `python:3.11-slim`，无 3.10 残留 |
 | P2 | lifespan 与 startup hook 并存 | `app/main.py` | 仍在 |
 | P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 仍在 |
 | P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 仍在 |
@@ -50,10 +50,31 @@
 | P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 已解决；`clean` 目标改指 `./scripts/_archive/cleanup.sh` |
 | P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 已解决；注释与警告改为说明真实调用位置，不再引用已删除的 `call_siliconflow` |
 
+## 2026-09-23 生产就绪复核新增项
+
+### 本轮已修复
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | 明文登录成功响应引用未定义变量 `encrypted_body`，任何凭据正确的登录都抛 `NameError` 并返回 500 | `app/api/v1/auth.py` | 已解决；改用模式布尔 `encrypted_mode`，补成功分支回归用例，PR #202 |
+| P1 | 生产编排 api/celery/scheduler 因 `DATABASE_URL` 缺省不同而指向三个不同数据库，调度任务看不到 API 数据 | `docker-compose.prod.yml` | 已解决；三服务统一到共享卷上的 `sqlite+aiosqlite:////app/data/app.db`，PR #205 |
+| P1 | 镜像未预建上传/生成物挂载点，非 root 的 appuser 无法写入 | `Dockerfile` | 已解决；`mkdir -p` 补齐全量挂载点后再统一 chown，PR #205 |
+| P2 | `SystemConfigManager` 配置路径随进程 CWD 漂移 | `app/utils/system_config.py` | 已解决；改为 `BASE_DIR / "configs" / "system_config.json"`，PR #204 |
+
+### 仍需决策
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | RSA 私钥被 git 跟踪，而该密钥用于登录凭据传输的解密 | `keys/rsa_private.pem`、`app/utils/encryption.py`、`app/utils/crypto.py` | 仍在；需轮换密钥并 `git rm --cached` + 加入 `.gitignore`，属运维决策 |
+| P1 | 生产镜像与编排未提供模型/系统配置，运行期静默回退硬编码默认值 | `Dockerfile`、`docker-compose.prod.yml`、`app/utils/model_defaults.py`、`app/utils/system_config.py` | 仍在；镜像未 COPY `data/unified_model_config.yaml` 与 `configs/system_config.json`，且 `api-data` 首次挂载为空 |
+| P3 | 本地 compose 以 `ENV=production` 启动却未提供 `SECRET_KEY`，且 celery 未挂载数据卷 | `docker-compose.yml` | 仍在；`ENV=production` 下 config 强制要求 `SECRET_KEY`，缺省直接启动失败 |
+| P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
+
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`1784 passed, 2 skipped`。
-- 前端全量 Vitest：`36 passed`，Vite 生产构建成功。
+- 后端 unit/integration 最近完整记录：`4455 passed, 3 skipped`（含 `--cov` 门禁运行，覆盖率 `61.98%`，门槛 `58%`；同批 `test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`）。
+- 前端全量 Vitest：`49 files / 248 passed`；`npm run build:budget` 四项预算全部通过。
+- 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
