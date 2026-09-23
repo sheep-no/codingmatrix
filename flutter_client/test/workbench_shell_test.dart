@@ -1,5 +1,8 @@
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
+import 'package:codingmatrix_desktop/application/capability_registry.dart';
 import 'package:codingmatrix_desktop/domain/models/auth_session.dart';
+import 'package:codingmatrix_desktop/infrastructure/settings/capability_preferences.dart';
+import 'package:codingmatrix_desktop/presentation/capability_nav.dart';
 import 'package:codingmatrix_desktop/presentation/mcp_admin_page.dart';
 import 'package:codingmatrix_desktop/presentation/ppt_page.dart';
 import 'package:codingmatrix_desktop/presentation/workbench_page.dart';
@@ -9,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
+import 'generation_flags_controller_test.dart' show MemoryCapabilityPreferences;
 
 class ShellAuth extends AuthController {
   ShellAuth(Fixture fixture) : super(fixture.auth, fixture.store);
@@ -24,13 +28,14 @@ class ShellAuth extends AuthController {
   }
 }
 
-Widget shell(ShellAuth auth) {
+Widget shell(ShellAuth auth, {List<Override> overrides = const <Override>[]}) {
   return ProviderScope(
     overrides: [
       authControllerProvider.overrideWith((_) => auth),
       authenticatedClientProvider.overrideWithValue(
         DeliveryApi((_, __, ___) async => <String, Object?>{}),
       ),
+      ...overrides,
     ],
     child: const MaterialApp(home: WorkbenchPage()),
   );
@@ -178,5 +183,58 @@ void main() {
     expect(find.byType(AppBar), findsOneWidget);
     expect(find.widgetWithText(AppBar, '聊天'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('全部能力页在多档视口下渲染无溢出', (tester) async {
+    const sizes = <Size>[
+      Size(1280, 720),
+      Size(900, 700),
+      Size(800, 600),
+      Size(640, 480),
+      Size(360, 640),
+    ];
+    final preferences = MemoryCapabilityPreferences();
+    for (final size in sizes) {
+      useSize(tester, size);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pumpWidget(
+        shell(
+          ShellAuth(Fixture())..switchAccount('root', level: 'superadmin'),
+          overrides: [
+            capabilityPreferencesProvider.overrideWithValue(preferences),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: '外壳 ${size.width}x${size.height}');
+
+      for (final capability in capabilityRegistry) {
+        final navKey = find.byKey(Key('capabilityNav_${capability.id}'));
+        final menu = find.byIcon(Icons.menu);
+        if (find.byType(Drawer).evaluate().isEmpty && menu.evaluate().isNotEmpty) {
+          await tester.tap(menu);
+          await tester.pumpAndSettle();
+        }
+        final navScrollable = find.descendant(
+          of: find.byType(CapabilityNav),
+          matching: find.byType(Scrollable),
+        );
+        await tester.scrollUntilVisible(navKey, 120, scrollable: navScrollable);
+        await tester.pumpAndSettle();
+        expect(
+          navKey,
+          findsOneWidget,
+          reason: '导航项缺失 ${capability.id} @ ${size.width}x${size.height}',
+        );
+        await tester.tap(navKey);
+        await tester.pumpAndSettle();
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '${capability.id} @ ${size.width}x${size.height}',
+        );
+      }
+    }
   });
 }
