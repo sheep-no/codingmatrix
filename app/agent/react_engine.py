@@ -429,9 +429,10 @@ class ReActEngine:
             text = "\n\n".join(self.tool_history)
             # 即使条目少，也可能单条很大（如读取大文件）
             if len(text) > self.MAX_HISTORY_CHARS:
-                return text[:self.MAX_HISTORY_CHARS] + "\n[...结果已截断]"
+                text = text[:self.MAX_HISTORY_CHARS] + "\n[...结果已截断]"
+            # 字符上限对中文不构成 token 上限（中文约 2 token/字符），需再按 token 截断
             if self._estimate_tokens(text) > self.MAX_HISTORY_TOKENS:
-                return self._truncate_to_tokens(text, self.MAX_HISTORY_TOKENS)
+                text = self._truncate_to_tokens(text, self.MAX_HISTORY_TOKENS)
             return text
 
         # 更早的条目：每条压缩为一行摘要
@@ -452,20 +453,26 @@ class ReActEngine:
             overflow_tokens = self._estimate_tokens(full_text) - self.MAX_HISTORY_TOKENS
             # 粗略按比例截断 summary
             summary_tokens = self._estimate_tokens(summary)
-            cut_chars = int(len(summary) * overflow_tokens / max(summary_tokens, 1))
-            summary = summary[:max(0, len(summary) - cut_chars)]
-            full_text = f"{summary}\n\n{recent_text}"
+            if summary_tokens > 0:
+                cut_chars = int(len(summary) * overflow_tokens / summary_tokens)
+                summary = summary[:max(0, len(summary) - cut_chars)]
+                full_text = f"{summary}\n\n{recent_text}"
+            # 最近条目本身就可能超限（如多条大文件读取），摘要清空也压不下来 -> 整体硬截断
+            if self._estimate_tokens(full_text) > self.MAX_HISTORY_TOKENS:
+                full_text = self._truncate_to_tokens(full_text, self.MAX_HISTORY_TOKENS)
 
         return full_text
 
     @staticmethod
     def _truncate_to_tokens(text: str, max_tokens: int) -> str:
-        """按 token 估算截断文本"""
+        """按 token 估算截断文本（截断标记计入 max_tokens 预算）"""
+        suffix = "\n[...结果已截断]"
+        budget = max(max_tokens - ReActEngine._estimate_tokens(suffix), 1)
         tokens = 0
         for i, c in enumerate(text):
             tokens += 2 if '\u4e00' <= c <= '\u9fff' else 0.25
-            if tokens > max_tokens:
-                return text[:i] + "\n[...结果已截断]"
+            if tokens > budget:
+                return text[:i] + suffix
         return text
 
     async def _run_simple(self, prompt: str, enhanced_system: str) -> str:

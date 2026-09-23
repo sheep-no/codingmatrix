@@ -174,6 +174,11 @@ return ""
 - **RE5 [P2] 已核实为文档滞后，未改码**：原条目称 `_run_full_iteration` 异常时 `return ""`（:634/:654），`run` 层把 `""` 当正常终止而丢弃全部步骤。当前实现中这两处已不存在——Thought/Action/Reflection 的 LLM 异常均 `raise RuntimeError`（:700-728/:289-298），会向上抛出而非静默返回空串。剩余 `return ""` 仅在取消路径（:455/:606），语义为取消，符合预期。是否把「单次 LLM 抖动」改为继续下一轮属设计取舍（当前选择显式失败），本轮未改。
 - **RE6 [P2] 未改**：`_reflect` 解析失败仍默认 `{"continue": True}`。改为保守终止会改变 full 模式的成本/完成度权衡，且需产品侧确认，暂缓。
 
+## 8. 状态更新（2026-09-23）
+
+- **RE8 [P2] 已修**：`_build_history_text` 声称把工具历史压到 `MAX_HISTORY_TOKENS`（4000），但两处都压不住。其一，条目数 ≤ `MAX_RECENT_ENTRIES` 时先按 `MAX_HISTORY_CHARS`（6000 字符）截断，中文约 2 token/字符，6000 字符可达 12000 token，越过了 token 上限；其二，条目数超限时只按比例截断「更早条目摘要」，最近 3 条完整结果本身若超限（如多条大文件读取）则完全不受约束——实测 4 条历史（1 条早期 + 3 条 20000 字符）返回 15001 token，是上限的 3.75 倍。现改为两处都保证 token 上限：字符截断后再做 token 截断；摘要截断后若仍超限，对整体做兜底硬截断。顺带修正 `_truncate_to_tokens`，把截断标记自身的 token 计入预算（原返回值比 `max_tokens` 多 11 token）。回归 `TestBuildHistoryText` 新增 2 项（中文大条目、最近条目超限，均断言 `_estimate_tokens(text) <= MAX_HISTORY_TOKENS`）；回退源码后 2 项失败。
+- **RE6 [P2] 保留**：反射解析失败仍默认 `{"continue": True}`，需产品侧确认成本/完成度口径后处理。
+
 ## 6. 演化方向关联
 
 - **§13 修正（react_agent 深扫）**：RE1 是 react_agent.md RA2 的**引擎侧放大**——project_path="" 不仅丢上下文，直接短路整个循环
