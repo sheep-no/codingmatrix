@@ -153,25 +153,27 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text('编辑 ${server['name']}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                title: const Text('启用'),
-                value: enabled,
-                onChanged: (value) => setDialogState(() => enabled = value),
-              ),
-              if (server['transport'] == 'stdio')
-                TextField(
-                  controller: command,
-                  decoration: const InputDecoration(labelText: '命令路径'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  title: const Text('启用'),
+                  value: enabled,
+                  onChanged: (value) => setDialogState(() => enabled = value),
                 ),
-              if (server['transport'] == 'http')
-                TextField(
-                  controller: url,
-                  decoration: const InputDecoration(labelText: '服务 URL'),
-                ),
-            ],
+                if (server['transport'] == 'stdio')
+                  TextField(
+                    controller: command,
+                    decoration: const InputDecoration(labelText: '命令路径'),
+                  ),
+                if (server['transport'] == 'http')
+                  TextField(
+                    controller: url,
+                    decoration: const InputDecoration(labelText: '服务 URL'),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(

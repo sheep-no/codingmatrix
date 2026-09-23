@@ -66,23 +66,25 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('创建用户'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: username,
-              decoration: const InputDecoration(labelText: '用户名'),
-            ),
-            TextField(
-              controller: email,
-              decoration: const InputDecoration(labelText: '邮箱'),
-            ),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: '初始密码'),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: username,
+                decoration: const InputDecoration(labelText: '用户名'),
+              ),
+              TextField(
+                controller: email,
+                decoration: const InputDecoration(labelText: '邮箱'),
+              ),
+              TextField(
+                controller: password,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '初始密码'),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -158,28 +160,30 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('编辑用户'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: username,
-                decoration: const InputDecoration(labelText: '用户名'),
-              ),
-              TextField(
-                controller: email,
-                decoration: const InputDecoration(labelText: '邮箱'),
-              ),
-              DropdownButton<String>(
-                value: permission,
-                items: const [
-                  DropdownMenuItem(value: 'normal', child: Text('普通用户')),
-                  DropdownMenuItem(value: 'admin', child: Text('管理员')),
-                  DropdownMenuItem(value: 'superadmin', child: Text('超级管理员')),
-                ],
-                onChanged: (value) =>
-                    setDialogState(() => permission = value ?? 'normal'),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: username,
+                  decoration: const InputDecoration(labelText: '用户名'),
+                ),
+                TextField(
+                  controller: email,
+                  decoration: const InputDecoration(labelText: '邮箱'),
+                ),
+                DropdownButton<String>(
+                  value: permission,
+                  items: const [
+                    DropdownMenuItem(value: 'normal', child: Text('普通用户')),
+                    DropdownMenuItem(value: 'admin', child: Text('管理员')),
+                    DropdownMenuItem(value: 'superadmin', child: Text('超级管理员')),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => permission = value ?? 'normal'),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -372,25 +376,27 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('沙箱配置'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                key: const Key('sandboxEnabledSwitch'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('启用代码沙箱'),
-                value: enabled,
-                onChanged: (value) => setDialogState(() => enabled = value),
-              ),
-              TextField(
-                key: const Key('sandboxLanguagesField'),
-                controller: languagesController,
-                decoration: const InputDecoration(
-                  labelText: '支持语言（逗号分隔）',
-                  hintText: 'python,javascript',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  key: const Key('sandboxEnabledSwitch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启用代码沙箱'),
+                  value: enabled,
+                  onChanged: (value) => setDialogState(() => enabled = value),
                 ),
-              ),
-            ],
+                TextField(
+                  key: const Key('sandboxLanguagesField'),
+                  controller: languagesController,
+                  decoration: const InputDecoration(
+                    labelText: '支持语言（逗号分隔）',
+                    hintText: 'python,javascript',
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(

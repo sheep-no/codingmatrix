@@ -108,19 +108,21 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('调整并发限制'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: roleController,
-              decoration: const InputDecoration(labelText: '角色'),
-            ),
-            TextField(
-              controller: limitController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '限制值'),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: roleController,
+                decoration: const InputDecoration(labelText: '角色'),
+              ),
+              TextField(
+                controller: limitController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '限制值'),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
