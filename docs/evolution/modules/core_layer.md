@@ -84,7 +84,7 @@
   - `EXTENSION_MIME_MAP` 为全部文本/代码扩展名补上 `text/plain`，并补齐白名单里缺失的 `.c/.cpp/.go/.rs/.rb/.jsx/.tsx/.vue/.scss/.toml/.ini/.rst/.docx`。
   - 二进制伪装仍被拦截：`.py` 内放 PNG 魔数判为 `image/png` 后与扩展名不匹配而拒，`.css` 内放 zip 同理；SVG 危险模式、`.doc`（无 OLE2 魔数支持）保持 fail-closed。
 - **连带修复（原文档未列）**：`generate_safe_filename` 的扩展名正则原为 `^\.[a-z0-9]{2,10}$`，单字符扩展名 `.c` 恒被拒——`file_upload.ALLOWED_EXTENSIONS` 明确允许 `.c`，属同一「白名单声称支持但深度校验必杀」家族。下限改为 1。
-- **未改（FV4 范围）**：`.tar` 魔数 `b'ustar'` 位置错误（tar magic 在 offset 257，前 16 字节是文件名）导致 `.tar` 恒判 `application/octet-stream` 被拒；`.doc` 无 OLE2 魔数与 MIME 映射。二者均为 fail-closed，独立于 FV1 的文本/代码路径，留待 FV4 专项处理。
+- **FV4 部分修复（2026-09-22）**：`.tar` 魔数 `b'ustar'` 原放在 `magic_signatures` 里用 `header.startswith` 比对，但 tar magic 在偏移 257（前 257 字节是首个成员的文件名等元数据），导致合法 `.tar` 恒判 `application/octet-stream` 被白名单拒——`ALLOWED_EXTENSIONS` 与 `EXTENSION_MIME_MAP` 都列了 `.tar`，属「白名单声称支持但深度校验必杀」。现改为独立判 `content[257:262] == b'ustar'`，`.tar` 在 `validate_file_content` 与 `validate_file_path` 双路径均可上传。**`.doc` 仍未处理**：`.docx`（zip 容器）有映射，`.doc` 旧格式的 OLE2 魔数未识别、也无 `application/msword` 条目，上传恒拒。这是 fail-closed，支持 `.doc` 需同时落地 OLE2 魔数、MIME 白名单与下游解析（`knowledge_processor.parse_document` 目前把 `.doc` 交给 python-docx，本身也解析不了旧格式），属能力扩张，待确认后处理。
 - 新增回归 `tests/unit/test_file_validator_uploads.py`（57 项）：26 种文本/代码扩展名在 `validate_file_content` 与 `validate_file_path` 双路径下均接受、二进制伪装拒绝、`.docx` zip 容器接受、含脚本 SVG 拒绝。回退 `file_validator.py` 后 46 项失败。
 
 ## 状态更新（2026-09-22 核实）
