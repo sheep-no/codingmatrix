@@ -76,7 +76,7 @@ def extract_json_field(text: str, field: str, default=None):
         data = safe_parse_json(text)
         if isinstance(data, dict):
             return data.get(field, default)
-    except (ValueError, Exception):
+    except Exception:
         pass
     return default
 
@@ -95,7 +95,7 @@ class _JsonParser:
 
         # 层 2: 直接解析
         try:
-            return json.loads(text)
+            return self._ensure_container(json.loads(text))
         except json.JSONDecodeError:
             pass
 
@@ -106,7 +106,7 @@ class _JsonParser:
             json_str = text[start:end + 1]
             fixed = self._apply_common_fixes(json_str)
             try:
-                return json.loads(fixed)
+                return self._ensure_container(json.loads(fixed))
             except json.JSONDecodeError:
                 pass
 
@@ -117,22 +117,31 @@ class _JsonParser:
             json_str = text[start:end + 1]
             fixed = self._apply_common_fixes(json_str)
             try:
-                return json.loads(fixed)
+                return self._ensure_container(json.loads(fixed))
             except json.JSONDecodeError:
                 pass
 
         # 层 4: 状态机截断修复
         fixed = self._fix_truncation(text)
         if fixed is not None:
-            return fixed
+            return self._ensure_container(fixed)
 
         # 层 5: json_repair 库兜底
         if HAS_JSON_REPAIR:
             fixed = self._fix_json_repair(text)
             if fixed is not None:
-                return fixed
+                return self._ensure_container(fixed)
 
         raise ValueError(f"无法解析 JSON: {text[:200]}...")
+
+    @staticmethod
+    def _ensure_container(result: Any) -> Union[Dict, list]:
+        """契约收口：只接受 dict/list，顶层标量（null/数字/布尔/字符串）视为解析失败。"""
+        if isinstance(result, (dict, list)):
+            return result
+        raise ValueError(
+            f"JSON 顶层必须是对象或数组，实际为 {type(result).__name__}"
+        )
 
     def parse_tool_call(self, content: str, known_tools: Optional[set] = None) -> Optional[Dict]:
         """解析工具调用 JSON"""
@@ -245,8 +254,13 @@ class _JsonParser:
 
     @staticmethod
     def _clean_thinking(text: str) -> str:
-        """移除 thinking tags"""
-        return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+        """移除 thinking tags（含 thinking/thought/reasoning 变体）"""
+        return re.sub(
+            r'<(think|thinking|thought|reasoning)>.*?</\1>',
+            '',
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        ).strip()
 
     @staticmethod
     def _extract_code_block(text: str) -> str:

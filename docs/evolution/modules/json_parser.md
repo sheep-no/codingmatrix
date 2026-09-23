@@ -74,3 +74,18 @@
 - **「存在≠正确」主线**：JP2 截断静默补全是解析端失真——与 TR1（无测试=通过）、CV2/RL3（轻量验证）、UT5（验证空转）同属「结果看起来成功但内容不完整」家族，构成解析端的又一实例
 - **验证栈**：cross_validator/ai_reviewer/architect 的 LLM 结构化输出解析全部经 safe_parse_json——JP1/JP2 的返回契约问题直接决定验证结果可信度；§5.6 支柱 2（验证器协议）的解析基础
 - **契约主线**：docstring「Raises ValueError」与实际行为（标量穿透）不符是「文档-实现契约漂移」又一例（AR3/OP8/SFG1 家族）；**json_parser 设计意图是「统一解析层」，消费方仍有 ppt_agent:675/GirlAi:511 等下标解析（Aicode 家族）未收敛至此——统一层存在但未全量接线**
+
+## 状态更新（2026-09-23 核实）
+
+本轮修复 JP1/JP3/JP5：
+
+- **JP1 已修（契约收口）**：新增 `_JsonParser._ensure_container`，在层 2/3/3b/4/5 的每个返回点统一校验结果为 `dict`/`list`；顶层标量（`null`/数字/布尔/字符串）不再穿透，直接抛 `ValueError("JSON 顶层必须是对象或数组…")`，与 docstring 的 `Raises ValueError` 契约一致。11 个按 Dict/list 假设消费的调用方不再拿到标量后 `.get()` 抛 AttributeError。`extract_json_field` 对标量输入返回 `default`（由宽 `except` 兜底），错误不再被当作「字段缺失」静默吞掉之外的路径。
+- **JP3 已修**：`_clean_thinking` 由只认 `<think>` 扩展为 `<(think|thinking|thought|reasoning)>…</\1>`（`DOTALL | IGNORECASE`），DeepSeek 等模型的 thinking 变体不再残留。变体段内含 JSON 样例/方括号时，层 3「首个 `{` 到末个 `}`」与层 3b 的越界提取不再拼坏真实 JSON。
+- **JP5 已修**：`extract_json_field` 的 `except (ValueError, Exception)`（`Exception` 已含 `ValueError`）简化为 `except Exception`。
+
+**仍未处理**：
+
+- **JP2 [P2]**：`_fix_truncation` 静默补全半份 JSON，返回结果不带「已截断」标记，消费方无法区分完整与补全结果。需引入截断标记或完整性断言，属设计级改动，保留。
+- **JP4 [P3]**：模块级单例 `_get_parser` 无锁，多线程/多事件循环下无一致性保证（ERL5/MCP1/SM1 家族），保留。
+
+**回归**：`tests/unit/test_json_parser.py` 由 48 项扩到 61 项（顶层标量 5 例 raise、dict/list 仍接受、标量 `extract_json_field` 返回 default、thinking 四变体清理、变体内含 JSON 样例/方括号）；回退 `json_parser.py` 后新增用例 7 项失败。

@@ -271,3 +271,46 @@ class TestEdgeCases:
         text = '{"value": null}'
         result = safe_parse_json(text)
         assert result["value"] is None
+
+
+class TestTopLevelScalarContract:
+    """JP1: 顶层标量 JSON 必须按解析失败处理，而非穿透返回。"""
+
+    @pytest.mark.parametrize("text", ["null", "123", "3.14", "true", '"abc"'])
+    def test_top_level_scalar_raises(self, text):
+        with pytest.raises(ValueError, match="顶层必须是对象或数组"):
+            safe_parse_json(text)
+
+    def test_dict_and_list_still_accepted(self):
+        assert safe_parse_json('{"a": 1}') == {"a": 1}
+        assert safe_parse_json("[1, 2]") == [1, 2]
+
+    def test_extract_json_field_scalar_returns_default(self):
+        """JP5: 标量输入不应抛 AttributeError，应静默返回 default。"""
+        assert extract_json_field("null", "a", default="D") == "D"
+        assert extract_json_field("123", "a", default="D") == "D"
+
+
+class TestThinkingTagVariants:
+    """JP3: thinking/thought/reasoning 变体标签也应被清理。"""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '<thinking>let me check</thinking>{"a": 1}',
+            '<thought>hmm</thought>{"a": 1}',
+            '<reasoning>step by step</reasoning>{"a": 1}',
+            '<THINKING>upper case</THINKING>{"a": 1}',
+        ],
+    )
+    def test_variant_tags_removed(self, text):
+        assert safe_parse_json(text) == {"a": 1}
+
+    def test_variant_tag_containing_json_example(self):
+        """thinking 段内含 JSON 样例时，层 3 的「首 { 到末 }」提取会拼坏结果。"""
+        text = '<thinking>示例：{"fake": 1}</thinking>{"real": 2}'
+        assert safe_parse_json(text) == {"real": 2}
+
+    def test_variant_tag_containing_brackets_before_array(self):
+        text = "<thinking>[note]</thinking>[1, 2, 3]"
+        assert safe_parse_json(text) == [1, 2, 3]
