@@ -25,11 +25,15 @@ services:
       # 各容器各自独立，celery 看不到 API 写入的数据
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      # 与 celery 共用同一密钥卷，避免各容器各自生成 RSA 密钥
+      - RSA_KEY_DIR=/app/keys
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
     volumes:
       - ./app:/app/app
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./configs/system_config.json:/app/configs/system_config.json
+      - api-keys:/app/keys
       - ./uploads:/app/uploads
       - ./pptx_output:/app/pptx_output
       - ./generated_images:/app/generated_images
@@ -56,10 +60,13 @@ services:
       - LOG_LEVEL=WARNING
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - RSA_KEY_DIR=/app/keys
     volumes:
       - ./app:/app/app
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./configs/system_config.json:/app/configs/system_config.json
+      - api-keys:/app/keys
       - ./uploads:/app/uploads
       - ./pptx_output:/app/pptx_output
       - ./generated_images:/app/generated_images
@@ -121,6 +128,10 @@ services:
       - ai-agent-net
     mem_limit: 256m
     cpus: 0.25
+
+volumes:
+  api-keys:
+    driver: local
 
 networks:
   ai-agent-net:
