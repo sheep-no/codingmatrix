@@ -68,6 +68,17 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Noto Sans CJK SC subset (ASCII + GB2312 + CJK punctuation), used on Linux
+  # where the host may not ship a CJK font. See assets/fonts/OFL.txt.
+  fonts:
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.otf
+
+  assets:
+    # OFL 1.1 requires the license to ship alongside the font.
+    - assets/fonts/OFL.txt
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

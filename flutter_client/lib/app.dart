@@ -1,9 +1,16 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'application/auth_controller.dart';
 import 'presentation/login_page.dart';
 import 'presentation/workbench_page.dart';
+
+/// Linux hosts may have no CJK font installed, which renders Chinese as tofu.
+/// Use the bundled Noto Sans CJK SC subset there; other platforms keep their
+/// own system fonts.
+final String? _uiFontFamily = Platform.isLinux ? 'NotoSansSC' : null;
 
 class CodingMatrixApp extends ConsumerWidget {
   const CodingMatrixApp({super.key});
@@ -15,6 +22,7 @@ class CodingMatrixApp extends ConsumerWidget {
       title: 'CodingMatrix Agent',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        fontFamily: _uiFontFamily,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6D5EF5),
           brightness: Brightness.dark,
