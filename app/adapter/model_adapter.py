@@ -117,9 +117,8 @@ class ModelAdapter:
         Returns:
             AI 回复的文本
         """
-        # 实际上这个类主要是配置管理
-        # 实际调用由 utils/AiCodeUtil.py 中的 call_siliconflow 处理
-        logger.warning("ModelAdapter.chat() 已废弃，请使用 call_siliconflow()")
+        # 实际上这个类主要是配置管理，真正的 LLM 调用在 app/api/v1/Aicode.py 的聊天端点
+        logger.warning("ModelAdapter.chat() 已废弃，此类仅用于模型配置查询")
         return ""
 
     def build_system_prompt(self, tools_schema: List[Dict[str, Any]] = None) -> str:

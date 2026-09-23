@@ -21,7 +21,7 @@
 | 11 | SQL LIKE 未转义 | 已解决 | `app/db/search_history.py` 使用 `escape_like_pattern` 和显式 escape |
 | 15 | login 限流标识不一致 | 已解决 | 检查、失败和成功记录统一使用 `identifier` |
 | 18 | health 版本来源分裂 | 已解决 | 统一到 `app/core/version.py` 的 `APP_VERSION = "v5.15.0"`，`app/api/v1/health.py` 与 `app/services/health_checker.py` 均引用该常量 |
-| 19 | cloudflared 遗留注释 | 仍在 | `app/main.py` 末尾仍有 Windows cloudflared 命令注释 |
+| 19 | cloudflared 遗留注释 | 已解决 | 已移除 `app/main.py` 末尾的 Windows cloudflared 命令注释 |
 | 20 | 旧 Agent router 备份残留 | 已解决 | 备份残留已移除 |
 | 21 | FeatureSwitchMiddleware 路径 | 已解决 | `app/middleware/feature_switch.py` 使用 `/api/v1/agent` |
 | 22 | evaluate 角色缺用户模型上下文 | 已解决 | Architect、CodeReviewer 传递 token 与 provider ID |
@@ -47,8 +47,8 @@
 | P2 | 跨工作台续跑与多 worker 恢复缺独立验收 | `app/api/v1/agent_host.py`、`app/agent/state/` | 仍在 |
 | P3 | 无时区时间调用在模型、状态、PPT 和 Skill 模块仍有残留 | `app/models/`、`app/services/` | 仍在 |
 | P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
-| P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 仍在 |
-| P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 仍在 |
+| P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 已解决；`clean` 目标改指 `./scripts/_archive/cleanup.sh` |
+| P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 已解决；注释与警告改为说明真实调用位置，不再引用已删除的 `call_siliconflow` |
 
 ## 当前验收基线
 
@@ -94,7 +94,7 @@
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
 | 18 | health.py 版本号 | `app/api/v1/health.py` | 提取 `app/core/version.py`，health 端点与 `health_checker.py` 共用同一常量 |
-| 19 | main.py 遗留注释 | `app/main.py` | 历史曾记录移除；当前注释仍存在 |
+| 19 | main.py 遗留注释 | `app/main.py` | 移除末尾 Windows cloudflared 隧道命令注释 |
 | 20 | 旧 Agent router 备份残留 | 已移除 | 删除历史残留文件 |
 | 21 | FeatureSwitchMiddleware 路径 | `app/middleware/feature_switch.py` | `/api/v1/project` → `/api/v1/agent` |
 

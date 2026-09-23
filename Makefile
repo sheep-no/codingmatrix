@@ -68,7 +68,7 @@ migrate-revision:
 
 # 清理缓存
 clean:
-	@./scripts/cleanup.sh
+	@./scripts/_archive/cleanup.sh
 
 # 查看日志
 logs:
