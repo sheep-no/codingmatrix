@@ -507,6 +507,7 @@ class IsolatedTestRunner:
 
     def _filter_requirements(self, req_file: Path, output: Path) -> bool:
         allowed_lines = []
+        dropped_names = []
         try:
             content = req_file.read_text(encoding='utf-8', errors='ignore')
             for line in content.splitlines():
@@ -517,6 +518,8 @@ class IsolatedTestRunner:
                 pkg_base = re.split(r'\[', pkg_name)[0].strip()
                 if pkg_base in ALLOWED_PIP_PACKAGES or pkg_name in ALLOWED_PIP_PACKAGES:
                     allowed_lines.append(line)
+                else:
+                    dropped_names.append(pkg_name)
         except Exception as e:
             logger.warning(f"读取 requirements 失败: {e}")
             return False
@@ -526,6 +529,11 @@ class IsolatedTestRunner:
 
         output.write_text("\n".join(allowed_lines) + "\n", encoding='utf-8')
         logger.info(f"依赖过滤: {len(allowed_lines)} 个白名单包通过")
+        # 白名单外的依赖会被剔除，若不显式提示，后续测试失败原因会被误归为代码缺陷
+        if dropped_names:
+            shown = ", ".join(dropped_names[:20])
+            more = f" 等 {len(dropped_names)} 个" if len(dropped_names) > 20 else ""
+            logger.warning(f"{req_file.name}: 已剔除白名单外依赖 {shown}{more}")
         return True
 
     async def _pip_install(self, req_file: str) -> bool:
@@ -717,9 +725,10 @@ class IsolatedTestRunner:
     def _scan_security(self) -> List[str]:
         warnings = []
         py_files = list(self.project_path.rglob("*.py"))
-        scan_limit = min(len(py_files), 100)
 
-        for py_file in py_files[:scan_limit]:
+        # 安全扫描是提示性的，但静默只扫前 100 个文件会让大项目的高风险文件漏检；
+        # 扫描范围应覆盖全部 .py 文件（目录序无风险优先级，截断即不可预期漏检）。
+        for py_file in py_files:
             try:
                 content = py_file.read_text(encoding='utf-8', errors='ignore')
                 lines = content.splitlines()
@@ -779,6 +788,12 @@ class IsolatedTestRunner:
             result.total_tests = passed + failed + errors_count
             result.failed_tests = re.findall(r'FAILED\s+(\S+)', result.logs)
 
+        # success 由 subprocess returncode 决定，但部分框架以非标准退出码报告失败。
+        # 解析出失败用例时以解析结果为准，避免 success=True 与 failed>0 自相矛盾。
+        if result.failed > 0 and result.success:
+            logger.warning(f"退出码为 0 但解析到 {result.failed} 个失败用例，判定为测试失败")
+            result.success = False
+
         return result
 
     # ==================== 资源释放 ====================
@@ -796,13 +811,6 @@ class IsolatedTestRunner:
             self._venv_dir = None
             self._work_dir = None
             self._venv_python = None
-
-        if self.project_path.exists():
-            for pycache in self.project_path.rglob("__pycache__"):
-                try:
-                    shutil.rmtree(str(pycache), ignore_errors=True)
-                except Exception as e:
-                    logger.debug(f"清理 pycache 失败 {pycache}：{e}")
 
 
 class TestRunner(IsolatedTestRunner):

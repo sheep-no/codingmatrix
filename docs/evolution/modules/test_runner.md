@@ -184,3 +184,17 @@ if self.project_path.exists():
 - 双路径（Docker 优先 / 本地 fallback，orchestrator_testing.py:35-40）与 `_detect_test_command` 的 `/app` 硬编码——DockerRunner（docker_runner.py 802 行，未深扫）与本地 TestRunner 的验证语义需收敛，避免「同一项目两种验证结果」。
 - TR2 非 Python 隔离缺失归入「多语言支持」演化方向；TR4 全局信号量归入「单例→按需实例」收敛主线（ERL5/MCP1/CEC6/DG7 同类）。
 - 依赖白名单（TR6）与 requirements 校验（code_validator CV6）同属依赖管理收敛主线。
+
+## 7. 状态校准（2026-09-23 复核）
+
+逐条读码复核本清单，结论如下（正文既有行号已随代码漂移，以本条为准）：
+
+- **TR3 已修**：`_parse_with_output_parser` 末尾新增一致性收敛——退出码为 0 但解析出 `failed > 0` 时记 warning 并把 `success` 置为 False，消除 `success=True` 与 `failed>0` 自相矛盾。仅以 `failed > 0` 为准（不含 `errors`），避免把提示性错误行误判为失败。
+- **TR5 已修**：`_scan_security` 删除 `scan_limit = min(len(py_files), 100)` 的静默截断，改为扫描全部 `.py` 文件。AST 化改造未做（保留）。
+- **TR6 已修**：`_filter_requirements` 收集白名单外被剔除的包名并记 `logger.warning`（超过 20 个折叠计数），依赖过滤动作可审计、测试失败可归因。放行配置项未做。
+- **TR8 已修**：`_cleanup` 删除对 `self.project_path` 递归删 `__pycache__` 的块。Python 分支的复制沙箱由 `rmtree(self._temp_dir)` 整体回收，原目录清理既冗余又越界修改用户项目。
+- **TR1 保留（需产品确认）**：`run_tests` 的「python 且无测试文件 → success=True」语义未改。是否改为 `no_tests_found` 标志交由编排层补写测试，会影响传统生成链路的 final success 判定，属行为契约变更。
+- **TR2 保留**：非 Python 原目录执行无隔离，属结构性改造（需复制沙箱或容器化），并牵动 `test_runner_enhanced.py` 固化的既有预期。
+- **TR4 / TR7 保留**：全局信号量跨事件循环、无条件注入 sqlite `DATABASE_URL`，分别属单例收敛与配置探测，均需独立设计。
+
+新增回归 `tests/unit/test_test_runner_fixes.py`（6 项）：退出码 0 叠加解析失败时 success 翻转与无失败时保持、150 文件全量扫描、白名单外依赖日志与无剔除不告警、清理不触碰用户项目 `__pycache__`。回退源码后 4 项失败（2 项为反向保护断言），确认测试可捕获缺陷。
