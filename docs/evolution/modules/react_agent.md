@@ -144,3 +144,18 @@ success=any(s.success for s in steps if s.step_type == "action"),
 - **统一工具 Schema（§11.4 #6）**：RA1 是工具 fn 签名统一的关键节点
 - **§9.1 修复**：executor.md B1 修复须同时验证 ReActAgent 消费路径（#11）
 - **Backlog 关联**：#6、#11、#12
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码逐条复核 §3 缺陷：
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| RA1 | 已修（早于本批） | executor wrapper 现接受 `project_path` 关键字（executor.py:205/211），`execute_tool` 按签名注入，ReActEngine 注入不再 TypeError。见 executor.md §7 B1。 |
+| RA2 | 已修（文档已标注） | `process` 现消费 `context["project_path"]` 传入 ReActEngine（:153）。 |
+| RA3 | 已修（文档已标注） | success 判定改为 `bool(final_answer.strip()) or any(action 成功)`（:180-182），纯文本回答不再恒判失败。 |
+| RA4 | 已修 | 删除 `DEFAULT_STAGE_MODELS` 与 `stage_models` 构造参数/属性——三处均无消费方，为死配置。`ReActStepType` 保留（对外向后兼容，虽已无内部消费者）。 |
+| RA5 | 已修（随 RA2 修复） | 工具 params 现从 executor 的 JSON Schema `properties[x].type` 还原（:139-142），不再全部退化为 string。 |
+| RA6 | 已修/已兜底 | `_call_llm` 的 `temperature` 由硬编码 0.7 改为 `self.default_model.temperature`（:198）。异常返回 `""` 不再静默：ReActEngine 对空响应重试 2 次后 `raise RuntimeError`（react_engine.py:511-525）。error_recovery 侧硬编码 `"Qwen/Qwen3-8B"` 兜底已消失，改为缺少 model assignment 时显式报错。 |
+
+配套测试：新增 `tests/unit/test_react_agent.py`，断言 temperature 跟随模型配置。
