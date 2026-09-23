@@ -174,9 +174,14 @@ output = "test_api.py::test_login PASSED\n...\n2 passed, 1 failed"
 - **OP3 已修**：`JestJSONParser` 在缺少 jest 顶层 `numPassedTests`/`numFailedTests` 时，按 `testResults[].assertionResults[].status` 统计（`passed`/`failed`，`pending`/`skipped` 不计通过）。原先 `.get(..., 0)` 使 vitest 风格 JSON 恒为 0/0；与 FD1（检测端给 vitest 打 jest_json 标签）的失效链被打破。
 - **OP9 已修（部分）**：新增 `tests/unit/test_output_parser.py`，覆盖真 JUnit XML（含 skipped/failure/命名空间）、文本回退、正则 skipped 扣除、jest/vitest JSON 与非 JSON 回退。
 
-**仍未处理**：
+## 7. 状态更新（2026-09-23 第二批）
 
-- **OP4 [P3]**：`GoTestParser` 仍只数 `--- PASS:`/`--- FAIL:`，包级 `FAIL`（编译错误/panic）不计入 failed。
-- **OP5/OP6/OP7/OP8 [P3]**：Rust 摘要行噪声、GenericTextParser 措辞覆盖、CppTestParser 纯委托、参数名 `format` 遮蔽内置，均为代码级结论，保留。
+本轮修复 OP4/OP5/OP6/OP7/OP8：
 
-**回归**：`tests/unit/test_output_parser.py` 新增 11 项；回退 `output_parser.py` 后新增用例 7 项失败。
+- **OP4 已修**：`GoTestParser` 增加包级 `FAIL` 识别——先按 `^FAIL\s+\S.*$` 收集带包名/原因的失败行，无此类行且存在裸 `FAIL` 时才计 1（避免 `FAIL\tpkg` 与结尾裸 `FAIL` 重复计数）；`failed = max(用例级 fail 数, 包级失败数)`，编译错误/panic 不再恒 0，包级行同时进入 errors。既有用例（`--- FAIL:` + 裸 `FAIL`）结果不变。
+- **OP5 已修**：`RustTestParser` 的 errors 收集跳过 `test result:` 摘要行（该行是统计行，原被当作失败明细进入 errors）。
+- **OP6 已修**：`GenericTextParser` 的 passed/failed 正则放宽为 `(\d+)\s+(?:tests?\s+)?passed|failed`（兼容 `1 test passed` 单数形态），ERROR 匹配改为大小写不敏感。
+- **OP7 已修（实现专属解析）**：`CppTestParser` 不再纯委托 `GenericTextParser`——新增 gtest（`[  PASSED  ] N test.` / `[  FAILED  ] N test,`，逐条 `[  FAILED  ] Case` 进 errors）与 catch2（`test cases: N | M passed | K failed`）摘要解析；两者都不命中才回退通用解析。
+- **OP8 已修**：`OutputParser.parse` 参数 `format` 改名 `output_format`，不再遮蔽内置 `format`。现有调用方（`test_runner.py:753`）均按位置传参，无兼容影响；新增关键字调用用例锁定。
+
+**回归**：`tests/unit/test_output_parser.py` 由 11 项扩到 21 项；以 HEAD 版本覆盖 `output_parser.py` 后新增用例 7 项失败（仅 catch2 摘要因可被旧通用正则误中而通过），恢复后全绿。

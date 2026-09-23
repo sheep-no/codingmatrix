@@ -40,13 +40,13 @@ class OutputParser:
     """统一测试输出解析器"""
 
     @staticmethod
-    def parse(raw_output: str, format: str) -> ParsedTestResult:
+    def parse(raw_output: str, output_format: str) -> ParsedTestResult:
         """
         解析测试输出为统一格式
 
         Args:
             raw_output: 原始测试输出文本
-            format: 输出格式标识
+            output_format: 输出格式标识
 
         Returns:
             ParsedTestResult 统一结果
@@ -60,7 +60,7 @@ class OutputParser:
             "cpp_text": CppTestParser,
         }
 
-        parser_cls = parsers.get(format, GenericTextParser)
+        parser_cls = parsers.get(output_format, GenericTextParser)
         parser = parser_cls()
         return parser.parse(raw_output)
 
@@ -75,15 +75,15 @@ class GenericTextParser:
             result.errors.append("测试输出为空")
             return result
 
-        passed_match = re.search(r"(\d+)\s+passed", raw_output, re.IGNORECASE)
+        passed_match = re.search(r"(\d+)\s+(?:tests?\s+)?passed", raw_output, re.IGNORECASE)
         if passed_match:
             result.passed = int(passed_match.group(1))
 
-        failed_match = re.search(r"(\d+)\s+failed", raw_output, re.IGNORECASE)
+        failed_match = re.search(r"(\d+)\s+(?:tests?\s+)?failed", raw_output, re.IGNORECASE)
         if failed_match:
             result.failed = int(failed_match.group(1))
 
-        error_matches = re.findall(r"ERROR[:\s]+(.+)", raw_output)
+        error_matches = re.findall(r"ERROR[:\s]+(.+)", raw_output, re.IGNORECASE)
         result.errors = error_matches[:20]
 
         return result
@@ -267,13 +267,20 @@ class GoTestParser:
 
         pass_count = len(re.findall(r"--- PASS:", raw_output))
         fail_count = len(re.findall(r"--- FAIL:", raw_output))
+        # 包级 FAIL 行（编译错误 / panic 未产生 --- FAIL: 用例）也要计入失败。
+        # `FAIL\tpkg ...` 与结尾裸 `FAIL` 是同一包失败的两种写法，只计前者，避免重复。
+        package_failures = re.findall(r"(?m)^FAIL\s+\S.*$", raw_output)
+        if not package_failures and re.search(r"(?m)^FAIL\s*$", raw_output):
+            package_failures = ["FAIL"]
 
         result.passed = pass_count
-        result.failed = fail_count
+        result.failed = max(fail_count, len(package_failures))
 
         for line in raw_output.split("\n"):
             if "--- FAIL:" in line:
                 result.errors.append(line.strip())
+        for line in package_failures:
+            result.errors.append(line.strip())
 
         return result
 
@@ -293,6 +300,8 @@ class RustTestParser:
             result.failed = int(failed_match.group(1))
 
         for line in raw_output.split("\n"):
+            if line.strip().startswith("test result:"):
+                continue
             if "FAILED" in line and "---" not in line:
                 result.errors.append(line.strip())
 
@@ -300,7 +309,37 @@ class RustTestParser:
 
 
 class CppTestParser:
-    """C++ make test 输出解析器"""
+    """C++ gtest / catch2 输出解析器"""
+
+    _CATCH2 = re.compile(
+        r"test cases:\s*(\d+)\s*\|\s*(\d+)\s+passed\s*\|\s*(\d+)\s+failed",
+        re.IGNORECASE,
+    )
+    _GTEST_PASSED = re.compile(r"\[\s+PASSED\s+\]\s+(\d+)\s+test", re.IGNORECASE)
+    _GTEST_FAILED = re.compile(r"\[\s+FAILED\s+\]\s+(\d+)\s+test", re.IGNORECASE)
 
     def parse(self, raw_output: str) -> ParsedTestResult:
+        result = ParsedTestResult()
+
+        catch2 = self._CATCH2.search(raw_output)
+        if catch2:
+            _, passed, failed = (int(g) for g in catch2.groups())
+            result.passed = passed
+            result.failed = failed
+            if failed:
+                result.errors.append(catch2.group(0).strip())
+            return result
+
+        passed_match = self._GTEST_PASSED.search(raw_output)
+        failed_match = self._GTEST_FAILED.search(raw_output)
+        if passed_match or failed_match:
+            if passed_match:
+                result.passed = int(passed_match.group(1))
+            if failed_match:
+                result.failed = int(failed_match.group(1))
+            for line in raw_output.split("\n"):
+                if re.match(r"^\[\s+FAILED\s+\]\s+\S", line):
+                    result.errors.append(line.strip())
+            return result
+
         return GenericTextParser().parse(raw_output)
