@@ -1,9 +1,10 @@
 import os
 import time
 import json
+import difflib
 import asyncio
 import logging
-from typing import Optional, Callable, Dict, List, Any
+from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass, field
 
 # P2 清理：删除死常量 MAX_CONCURRENT_LLM_CALLS
@@ -80,29 +81,20 @@ PROGRESS_LABELS = {
 }
 
 @dataclass
-class GenerationProgress:
-    current_step: str
-    total_steps: int
-    completed_files: int
-    total_files: int
-    current_model: str
-    errors: List[str]
-    warnings: List[str]
-
-
-@dataclass
 class CostTracker:
     """成本追踪器"""
     total_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_cost_usd: float = 0.0
+    llm_calls: int = 0
     model_costs: Dict[str, float] = field(default_factory=dict)
     model_tokens: Dict[str, Dict[str, int]] = field(default_factory=dict)
     start_time: float = 0.0
 
     def add_usage(self, model: str, prompt_tokens: int, completion_tokens: int, cost_usd: float = 0.0):
         """添加 token 用量"""
+        self.llm_calls += 1
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
         self.total_tokens = self.prompt_tokens + self.completion_tokens
@@ -125,6 +117,7 @@ class CostTracker:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_cost_usd": round(self.total_cost_usd, 4),
+            "llm_calls": self.llm_calls,
             "elapsed_seconds": round(elapsed, 1),
             "tokens_per_second": round(self.total_tokens / elapsed, 1) if elapsed > 0 else 0,
             "model_costs": self.model_costs,
@@ -133,7 +126,36 @@ class CostTracker:
 
 
 class ProgressMixin:
-    _pending_tasks: set = set()
+    """进度/事件推送 Mixin。
+
+    不定义 `_pending_tasks` 类属性：那会让所有实例共享同一 set（多
+    orchestrator 并发时不同事件循环的 task 混在一起）。`_track_task` 在
+    实例上惰性创建。
+    """
+
+    def _track_task(self, task: "asyncio.Task") -> None:
+        """登记后台推送 task，并按实例隔离。"""
+        tasks = getattr(self, "_pending_tasks", None)
+        if tasks is None:
+            tasks = set()
+            self._pending_tasks = tasks
+        tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: "asyncio.Task") -> None:
+        """task 完成回调：移除引用并消费异常。
+
+        只 discard 不取异常会让 asyncio 打出「Task exception was never
+        retrieved」告警且异常信息丢失。
+        """
+        tasks = getattr(self, "_pending_tasks", None)
+        if tasks is not None:
+            tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(f"异步事件推送失败: {exc}")
 
     def _report_progress(self, step: str, current: int, total: int, callback: Optional[Callable] = None, **kwargs):
         percentage = round((current / total * 100) if total > 0 else 0, 1)
@@ -163,35 +185,9 @@ class ProgressMixin:
             try:
                 result = cb(json.dumps(progress, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"进度回调失败: {e}")
-
-    def build_progress_event(self, step: str, current: int, total: int, **kwargs) -> Dict:
-        percentage = round((current / total * 100) if total > 0 else 0, 1)
-
-        elapsed = 0
-        eta_seconds = 0
-        if self._start_time:
-            elapsed = time.time() - self._start_time
-            if current > 0 and current < total:
-                rate = current / elapsed
-                remaining = total - current
-                eta_seconds = remaining / rate if rate > 0 else 0
-
-        return {
-            "type": "progress",
-            "step": step,
-            "phase": self._current_phase,
-            "current": current,
-            "total": total,
-            "percentage": percentage,
-            "elapsed_seconds": round(elapsed, 1),
-            "eta_seconds": round(eta_seconds, 1),
-            **kwargs
-        }
 
     def _report_file_event(self, file_path: str, content: str, description: str = "", file_type: str = "", operation: str = "create", **kwargs):
         """增强的文件事件，包含文件大小和复杂度"""
@@ -215,9 +211,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"文件事件推送失败: {e}")
 
@@ -239,9 +233,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"文件差异事件推送失败: {e}")
 
@@ -258,9 +250,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"模型信息事件推送失败: {e}")
 
@@ -273,9 +263,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"完成事件推送失败: {e}")
 
@@ -292,9 +280,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"思考事件推送失败: {e}")
 
@@ -309,9 +295,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"测试结果事件推送失败: {e}")
 
@@ -326,9 +310,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"验证结果事件推送失败: {e}")
 
@@ -343,9 +325,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"成本更新事件推送失败: {e}")
 
@@ -360,9 +340,7 @@ class ProgressMixin:
             try:
                 result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
+                    self._track_task(asyncio.create_task(result))
             except Exception as e:
                 logger.error(f"性能指标事件推送失败: {e}")
 
@@ -428,9 +406,7 @@ class ProgressMixin:
         try:
             result = self.callback(json.dumps(event, ensure_ascii=False))
             if asyncio.iscoroutine(result):
-                task = asyncio.create_task(result)
-                self._pending_tasks.add(task)
-                task.add_done_callback(self._pending_tasks.discard)
+                self._track_task(asyncio.create_task(result))
         except Exception as e:
             logger.error(f"{label}推送失败: {e}")
 
@@ -456,7 +432,9 @@ class ProgressMixin:
                 "files_generated": files_count,
                 "files_per_minute": round(files_count / (elapsed / 60), 1) if elapsed > 0 else 0,
                 "avg_file_time": round(elapsed / files_count, 1) if files_count > 0 else 0,
-                "llm_calls": getattr(self, '_llm_call_count', 0),
+                # llm_calls 取 CostTracker 的真实调用计数：此前读的
+                # `_llm_call_count` 全库无维护点，恒 0。
+                "llm_calls": self.cost_tracker.llm_calls if getattr(self, 'cost_tracker', None) else 0,
                 "retry_count": getattr(self, '_retry_count', 0)
             }
 
@@ -545,24 +523,34 @@ class ProgressMixin:
 
     @staticmethod
     def _calculate_changes(old_content: str, new_content: str) -> Dict[str, int]:
-        """计算文件变更统计"""
+        """计算文件变更统计
+
+        用 difflib 序列比对按真实行内容统计新增/删除。原实现用行数差
+        （`len(new) - len(old)`）推算 removed，纯替换场景（删 10 行同时新增
+        10 行）会得出 added=0、removed=0，与实际不符；行内容整体位移时
+        modified 也会把未变的行算进去。
+        """
         old_lines = old_content.split('\n') if old_content else []
         new_lines = new_content.split('\n') if new_content else []
 
-        added = len(new_lines) - len(old_lines)
-        removed = max(0, -added)
-
-        # 简单统计变更行数
-        changed = 0
-        min_len = min(len(old_lines), len(new_lines))
-        for i in range(min_len):
-            if old_lines[i] != new_lines[i]:
-                changed += 1
+        added = 0
+        removed = 0
+        modified = 0
+        matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "replace":
+                removed += i2 - i1
+                added += j2 - j1
+                modified += max(i2 - i1, j2 - j1)
+            elif tag == "delete":
+                removed += i2 - i1
+            elif tag == "insert":
+                added += j2 - j1
 
         return {
-            "added": max(0, added),
+            "added": added,
             "removed": removed,
-            "modified": changed,
+            "modified": modified,
             "total_old": len(old_lines),
             "total_new": len(new_lines)
         }
