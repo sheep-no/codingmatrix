@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 class RequirementAssociationMixin:
 
+    # 宿主契约默认值：独立实例化（如 association_endpoints 单独 new）时不再因
+    # 缺少 `_report_progress`/`architect` 抛 AttributeError 而静默降级为 skipped。
+    # OrchestratorAgent 场景下，ProgressMixin 的 `_report_progress` 与 __init__
+    # 赋值的 `self.architect` 会覆盖这两个默认；architect 为空时 Layer 3 与
+    # 魔鬼代言人按既有逻辑跳过并保持 llm_called=False。
+    architect = None
+
+    def _report_progress(self, *args, **kwargs) -> None:
+        """默认空实现，供无宿主的独立调用路径使用。"""
+
     @traced("orchestrator.requirement_association", attributes={"component": "orchestrator"})
     async def _generate_requirement_associations(
         self, requirement: str, complexity_level: str = ""

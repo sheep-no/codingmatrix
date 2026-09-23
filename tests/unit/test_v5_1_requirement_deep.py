@@ -16,6 +16,7 @@ import json
 import pytest
 import asyncio
 import sqlite3
+import time
 import tempfile
 import shutil
 from pathlib import Path
@@ -179,6 +180,78 @@ class TestAssociationFeedbackTracker:
             )
             rows = cursor.fetchall()
             assert any(r[0] == "very_helpful" for r in rows)
+
+    def _insert_rows(self, tracker, count):
+        for i in range(count):
+            tracker._conn.execute(
+                "INSERT INTO association_feedback "
+                "(session_id, requirement, item_source, user_action, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"s{i}", "req", "template", "accepted", float(i))
+            )
+        tracker._conn.commit()
+
+    def test_cleanup_trims_oldest_quarter_not_whole_table(self, temp_dir):
+        """OA8：超限清理按行数裁剪最旧四分之一，而非把整个表删空。"""
+        db_path = temp_dir / "cleanup.db"
+        with patch.object(AssociationFeedbackTracker, 'DB_PATH', db_path), \
+             patch.object(AssociationFeedbackTracker, 'MAX_DB_SIZE_BYTES', 0), \
+             patch.object(AssociationFeedbackTracker, 'RETENTION_DAYS', 100000):
+            # 阻止 __init__ 内清理，手动控制执行时机
+            AssociationFeedbackTracker._last_cleanup_at = time.time()
+            tracker = AssociationFeedbackTracker()
+            self._insert_rows(tracker, 40)
+
+            tracker._cleanup()
+
+            remaining = tracker._conn.execute(
+                "SELECT created_at FROM association_feedback ORDER BY created_at"
+            ).fetchall()
+            assert len(remaining) == 30
+            assert remaining[0][0] == 10.0
+            assert remaining[-1][0] == 39.0
+
+    def test_cleanup_throttled_across_instances(self, temp_dir):
+        """OA8：频率闸内的新实例不重复执行清理，闸过期后恢复。"""
+        db_path = temp_dir / "throttle.db"
+        with patch.object(AssociationFeedbackTracker, 'DB_PATH', db_path), \
+             patch.object(AssociationFeedbackTracker, 'MAX_DB_SIZE_BYTES', 0), \
+             patch.object(AssociationFeedbackTracker, 'RETENTION_DAYS', 100000):
+            AssociationFeedbackTracker._last_cleanup_at = time.time()
+            first = AssociationFeedbackTracker()
+            self._insert_rows(first, 40)
+
+            second = AssociationFeedbackTracker()
+            count = second._conn.execute(
+                "SELECT COUNT(*) FROM association_feedback"
+            ).fetchone()[0]
+            assert count == 40
+
+            AssociationFeedbackTracker._last_cleanup_at = 0.0
+            second._maybe_cleanup()
+            count = second._conn.execute(
+                "SELECT COUNT(*) FROM association_feedback"
+            ).fetchone()[0]
+            assert count == 30
+
+
+class TestStandaloneMixinHostContract:
+    """OA1：无宿主的独立实例化不应因缺少 _report_progress/architect 而静默降级。"""
+
+    async def test_standalone_mixin_returns_items(self):
+        mixin = RequirementAssociationMixin()
+        mixin.callback = None
+        mixin._start_time = time.time()
+        mixin._current_phase = "requirement_association"
+
+        result = await mixin._generate_requirement_associations("银行转账系统", "medium")
+
+        assert result.skipped is False
+        assert result.skip_reason == ""
+        assert result.items, "领域模板应产出联想项"
+        # architect 缺省为空，Layer 3 与魔鬼代言人按既有逻辑跳过
+        assert result.llm_called is False
+        assert result.devil_review_items == []
 
 
 class TestDualModelMerge:

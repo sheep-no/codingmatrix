@@ -78,3 +78,20 @@
 ## 5. 测试状态
 
 **表层单测、契约盲区**——test_requirement_association.py 28 用例覆盖领域检测/Layer1/Layer2 门槛/解析/分类/增强文本，但全部 P2 项零用例：OA1 被 FakeMixin:39-40 手工补 `_report_progress`+`architect` 遮蔽（endpoint 场景无测试）；OA2 `record_feedback`/`record_helpfulness` 签名无断言；OA3 双 JSON 跨块未测（test_parse_json_in_text 只测单 JSON 前有文字）；OA8 清理超限删除无测试。最严重的 OA1 是「全库唯一路径」却由测试夹具掩盖——契约缺口在测试层被「恰好补上」而未暴露。
+
+## 9. 状态校准（2026-09-23 复核）
+
+### 9.1 已修复
+
+- **OA1 [P2] 已修**：`RequirementAssociationMixin` 补上宿主契约默认值——类属性 `architect = None` 与空实现 `_report_progress(*args, **kwargs)`（mixin.py:29-37）。`association_endpoints.py` 单独 `RequirementAssociationMixin()` 实例化时不再在 `_association_pipeline` 第一步 `self._report_progress(...)` 抛 `AttributeError` 而静默降级为 `skipped=True`；`layer3_dual_model_deep`/`devil_advocate_review` 在 `architect` 为空时按既有逻辑返回 `[]`，结果标记 `llm_called=False`。`OrchestratorAgent` 场景下 MRO 中 `ProgressMixin` 先于本 mixin，其 `_report_progress` 覆盖默认实现，`__init__` 的 `self.architect` 覆盖类属性，主链路行为不变。回归 `tests/unit/test_v5_1_requirement_deep.py::TestStandaloneMixinHostContract::test_standalone_mixin_returns_items`（独立实例化返回 Layer 1/2 联想项且不 skipped）。
+- **OA8 [P2] 已修**：`feedback_tracker._cleanup` 超限裁剪原用 `db_size // 4`（字节数）当 LIMIT 行数（≈52 万），行数远小于该值时超 2MB 首次清理会把整表删空。现先 `SELECT COUNT(*)` 取真实行数，按 `max(1, row_count // 4)` 裁掉最旧四分之一（`ORDER BY created_at ASC, id ASC`），只裁剪不整表清空。同时新增清理频率闸 `CLEANUP_INTERVAL_SECONDS = 3600` + 类级 `_cleanup_gate`/`_last_cleanup_at`，`__init__` 由直接 `_cleanup()` 改为 `_maybe_cleanup()`——endpoint 每请求 new tracker 不再每请求执行全表 DELETE + pragma 查询，清理退化为小时级后台维护。回归 `tests/unit/test_v5_1_requirement_deep.py::TestAssociationFeedbackTracker::test_cleanup_trims_oldest_quarter_not_whole_table` 与 `::test_cleanup_throttled_across_instances`。
+
+### 9.2 仍未处理
+
+- **OA2 [P2] 未处理（需契约决策）**：`association_endpoints.py` 的 confirm/helpfulness 端点与 `AssociationFeedbackTracker` 三处错位仍在——① 端点把 `association_id: int` / `helpful: bool` 声明为查询参数，而前端 `src/utils/api/agent.js:89-98` 以 JSON body 发送 `{association_id}` / `{association_id, helpful}`，传输层即 422；② 端点调用的 `tracker.record_feedback` 方法不存在；③ `record_helpfulness(association_id, helpful)` 与实现签名 `(session_id, requirement, helpfulness)` 不符。修正需先确定「association_id 语义」：联想项是请求期临时产物、未持久化 ID，无法映射为 tracker 的 `(session_id, requirement)` 键，属跨前后端的契约设计，留给产品/接口口径确认后处理。
+- **OA3 [P2] 未处理（解析族）**：`llm_prompts.parse_llm_response` 的贪婪 `\{[\s\S]*\}` 与文本降级污染（MAR5/EC3/PM1/TE3 同族）本轮未动，随解析族统一收敛专项处理。
+- **OA4/OA5/OA6/OA7/OA9 [P3] 维持**：无架构师时静默空、merge key/置信度硬编码、`devil_review` 死字段、模型配置双轨、Layer 2 门槛不一致，均保持原状。
+
+### 9.3 测试状态
+
+本轮新增 3 项（OA1 独立实例化 1、OA8 清理语义与频率闸 2），`test_v5_1_requirement_deep.py` 由 28 项增至 31 项，全部通过。
