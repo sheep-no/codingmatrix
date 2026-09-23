@@ -335,6 +335,8 @@ class _WorkflowHistorySheetState extends State<_WorkflowHistorySheet> {
   @override
   Widget build(BuildContext context) => ListView(
     children: [
+      if (widget.items.isEmpty)
+        const ListTile(dense: true, title: Text('暂无工作流历史')),
       for (final item in widget.items)
         ListTile(
           title: Text('${item['name'] ?? item['workflow_id'] ?? '工作流'}'),

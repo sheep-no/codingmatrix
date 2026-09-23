@@ -227,6 +227,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('未上传文件时给出空状态提示', (tester) async {
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(FileApi())],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('尚未上传文件'), findsOneWidget);
+  });
+
   testWidgets('切换账号清空文件列表和提示', (tester) async {
     final auth = ModuleAuth(Fixture())..switchAccount('alice');
     final picker = TestPicker()

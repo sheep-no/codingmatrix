@@ -138,6 +138,8 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
           if (message != null) Text(message!),
           if (savedPath != null) SavedFileActions(path: savedPath!),
           const Divider(),
+          if (files.isEmpty)
+            const ListTile(dense: true, title: Text('尚未上传文件')),
           for (final file in files)
             ListTile(
               title: Text('${file['name'] ?? file['filename'] ?? '文件'}'),

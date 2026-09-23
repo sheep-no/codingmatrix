@@ -262,6 +262,7 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
         context: context,
         builder: (sheetContext) => ListView(
           children: [
+            if (items.isEmpty) const ListTile(dense: true, title: Text('暂无快照')),
             for (final item in items)
               ListTile(
                 title: Text('${item['tag'] ?? item['id'] ?? '快照'}'),

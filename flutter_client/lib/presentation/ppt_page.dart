@@ -168,6 +168,8 @@ class _PptPageState extends ConsumerState<PptPage> {
         context: context,
         builder: (_) => ListView(
           children: [
+            if (items.isEmpty)
+              const ListTile(dense: true, title: Text('暂无历史记录')),
             for (final item in items)
               ListTile(
                 title: Text('${item['topic'] ?? item['title'] ?? 'PPT'}'),

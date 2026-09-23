@@ -82,6 +82,27 @@ void main() {
     expect(find.textContaining('生成中'), findsOneWidget);
   });
 
+  testWidgets('没有任务时给出空状态而不是空白页', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => {'tasks': <Object?>[]}),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('暂无任务'), findsOneWidget);
+  });
+
   testWidgets('切换账号清空旧任务并重新拉列表', (tester) async {
     final auth = ModuleAuth(Fixture())..switchAccount('alice');
     var lists = 0;
@@ -450,6 +471,41 @@ void main() {
     pending.complete(const <Object?>[]);
     await tester.pump();
     await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('没有事件时弹层给出空状态', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/events')) return {'events': <Object?>[]};
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('查看事件'));
+    await tester.tap(find.byTooltip('查看事件'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('暂无事件'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

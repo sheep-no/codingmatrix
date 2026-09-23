@@ -569,6 +569,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('没有工作流历史时弹层给出空状态', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/history') return {'items': <Object?>[]};
+      fail('unexpected $path');
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('暂无工作流历史'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('读取历史网络断开显示失败原文', (tester) async {
     final api = DeliveryApi((path, method, body) async {
       expect(path, '/api/v1/workflow/history');

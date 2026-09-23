@@ -521,6 +521,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('没有历史记录时弹层给出空状态', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/history') return {'records': <Object?>[]};
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('暂无历史记录'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('历史读取网络断开显示失败原文', (tester) async {
     final api = DeliveryApi((path, _, __) async {
       if (path == '/api/v1/pptx/history') {

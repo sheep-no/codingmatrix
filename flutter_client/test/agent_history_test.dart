@@ -580,6 +580,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('没有快照时弹层给出空状态', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/snapshots/')) return {'snapshots': <Object?>[]};
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('暂无快照'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('切账号后旧账号的快照弹层不会弹出', (tester) async {
     final auth = ModuleAuth(Fixture())..switchAccount('alice');
     final pending = Completer<Object?>();

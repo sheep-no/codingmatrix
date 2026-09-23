@@ -88,6 +88,8 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
         context: context,
         builder: (_) => ListView(
           children: [
+            if (events.isEmpty)
+              const ListTile(dense: true, title: Text('暂无事件')),
             for (final event in events)
               ListTile(
                 title: Text(
@@ -130,6 +132,8 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
           ? const Center(child: CircularProgressIndicator())
           : error != null
           ? Center(child: Text(error!))
+          : items.isEmpty
+          ? const Center(child: Text('暂无任务'))
           : ListView.builder(
               padding: const EdgeInsets.all(12),
               itemCount: items.length,
