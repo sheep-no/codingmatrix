@@ -47,7 +47,7 @@ from starlette.datastructures import State
 # Alembic 迁移导入
 from migrations.runner import run_async_migrations
 
-from app.core.config import settings
+from app.core.config import BASE_DIR, settings
 from app.core.logging_config import setup_logging
 from app.core.graceful_shutdown import shutdown_manager, GracefulShutdownManager
 from sqlalchemy.exc import SQLAlchemyError
@@ -107,6 +107,8 @@ async def lifespan(App: FastAPI):
     scheduler_started = False
     shutdown_manager.setup_signal_handlers()
 
+    _validate_production_config_files()
+
     # 确保用户项目上传目录存在
     user_uploads_dir = Path("./projects/user_uploads")
     user_uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -161,6 +163,32 @@ async def lifespan(App: FastAPI):
             logger.info("缓存管理器已关闭")
     except Exception as e:
         logger.warning(f"缓存管理器关闭失败: {e}")
+
+
+# 生产环境必需的配置文件；缺失时运行期会静默回退到硬编码默认模型或默认系统配置
+_REQUIRED_PRODUCTION_CONFIGS = (
+    "data/unified_model_config.yaml",
+    "data/agent_model_config.yaml",
+    "configs/system_config.json",
+)
+
+
+def _validate_production_config_files() -> None:
+    """生产环境缺少必需配置文件时快速失败，避免静默回退到硬编码默认值。
+
+    编排必须显式挂载这些文件：`/app/data` 是数据卷，会遮蔽镜像内的 `data/` 目录。
+    """
+    if settings.ENV != "production":
+        return
+    missing = [
+        str(BASE_DIR / relative_path)
+        for relative_path in _REQUIRED_PRODUCTION_CONFIGS
+        if not (BASE_DIR / relative_path).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "生产环境缺少必需配置文件，拒绝以硬编码默认值启动：" + "、".join(missing)
+        )
 
 
 async def _warm_up_database_pool():

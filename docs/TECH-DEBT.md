@@ -67,16 +67,17 @@
 | P1 | 测试 fixture 对所连数据库执行 `drop_all`，本地跑一次 pytest 就会清空开发库 `app.db` 全部表（表现为既有账号消失、登录 500） | `tests/conftest.py` | 已解决；导入 app 前把测试库指向独立 `test.db`（可被 `TEST_DATABASE_URL` 覆盖），并对非测试库拒绝执行清表，补 3 项回归用例 |
 | P2 | 前端 CI 的触发分支写作 `main`，而默认分支是 `master`，导致前端 lint 与生产构建从不执行 | `.github/workflows/frontend-ci.yml` | 已解决；`on.push/pull_request.branches` 改为 `[master, main]`，PR #207 |
 | P1 | RSA 私钥被 git 跟踪，而该密钥用于登录凭据传输与 API Key 密文解密 | `keys/rsa_private.pem`、`keys/rsa_public.pem`、`app/utils/encryption.py`、`app/utils/crypto.py` | 已解决；完成密钥轮换（旧密钥备份后作废），`git rm --cached` 停止跟踪并加 `.gitignore` 的 `keys/*.pem`，补 2 项忽略契约回归用例。仓库历史中的旧私钥视为已泄露 |
+| P1 | 生产编排未提供模型/系统配置，且各容器可能各自生成 RSA 密钥；运行期静默回退硬编码默认模型 | `Dockerfile`、`docker-compose.prod.yml`、`docker-compose.yml`、`app/main.py` | 已解决；两个编排显式挂载 `unified_model_config.yaml`、`agent_model_config.yaml`、`system_config.json`，三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR=/app/keys`，镜像内 COPY `system_config.json` 兜底，生产启动缺配置即报错，补 5 项编排守卫与 3 项启动校验用例 |
+| P3 | `e2e.yml` 与 `backend-ci.yml` 触发分支写作 `main`（默认分支 `master`），从不运行 | `.github/workflows/e2e.yml`、`.github/workflows/backend-ci.yml` | 已解决；`backend-ci.yml` 与 `ci.yml` 完全重复（测试与 pip-audit 均已覆盖）且 `ruff check app/` 在无 ruff 配置下默认规则报 8297 个错误，已删除；`e2e.yml` 重写为可运行门禁 |
 
 ### 仍需决策
 
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离，如需更强保护可改为带口令私钥 + 环境变量注入口令 |
-| P1 | 生产镜像与编排未提供模型/系统配置，运行期静默回退硬编码默认值 | `Dockerfile`、`docker-compose.prod.yml`、`app/utils/model_defaults.py`、`app/utils/system_config.py` | 仍在；镜像未 COPY `data/unified_model_config.yaml` 与 `configs/system_config.json`，且 `api-data` 首次挂载为空 |
+| P3 | `tests/e2e/` 下有 99 个 spec，含大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 仍在；`e2e.yml` 只把 5 个稳定 spec 作为门禁，其余建议按用途清理或归档到 `tests/archive/` |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动，API 实际以 root 运行 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 仍在；镜像设计以 appuser 运行 API，但两个编排都用 `command` 覆盖，需决策是否补 `user:`（本地 compose 的 bind mount 属主需一并处理） |
-| P3 | `e2e.yml` 与 `backend-ci.yml` 触发分支仍为 `main`，从不运行；`backend-ci.yml` 的 `ruff check app/` 在仓库无 ruff 配置时默认规则报 8297 个错误，一旦启用即失败；`e2e.yml` 未注入 `TEST_ADMIN_PASSWORD` | `.github/workflows/e2e.yml`、`.github/workflows/backend-ci.yml` | 仍在；需决策是「补齐依赖与密钥后启用」还是「删除无用工作流」 |
 
 ## 当前验收基线
 
@@ -85,7 +86,7 @@
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
-- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，`core`（7）、`11-theme-shortcuts`（12）、`encrypted-login`（3）共 `22 passed`；`01-auth`、`02-core-navigation` 亦可稳定通过。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
+- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login` 共 `44` 项；`CI=1`（单 worker + 2 次重试）下稳定通过。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
 
 ## 历史修复记录

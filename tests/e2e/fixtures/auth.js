@@ -3,7 +3,7 @@
  * 提供登录、登出等辅助函数
  */
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8000'
+const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8000'
 
 export const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 export const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD
@@ -132,7 +132,7 @@ export async function apiLogin(page, frontendUrl) {
  * @param {Page} page - Playwright page object
  */
 export async function logout(page) {
-  const FRONTEND_URL = 'http://localhost:3000';
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000';
 
   // Navigate to frontend first
   await page.goto(FRONTEND_URL)

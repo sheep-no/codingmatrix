@@ -27,9 +27,17 @@ services:
       # 容器内 /app/app.db（各容器各自独立、重建即丢），导致调度任务看不到 API 数据
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      # 与 celery/scheduler 共用同一密钥卷，避免各容器各自生成 RSA 密钥
+      - RSA_KEY_DIR=/app/keys
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
+      # api-data 是空卷，会遮蔽镜像内的 data/ 目录；不显式挂载时模型配置缺失，
+      # 运行期将静默回退到硬编码默认模型
+      - ./data/unified_model_config.yaml:/app/data/unified_model_config.yaml:ro
+      - ./data/agent_model_config.yaml:/app/data/agent_model_config.yaml:ro
+      - ./configs/system_config.json:/app/configs/system_config.json
+      - api-keys:/app/keys
       - ppt-artifacts:/app/pptx_output
       - uploads:/app/uploads
       - generated-images:/app/generated_images
@@ -72,9 +80,14 @@ services:
       - LOG_LEVEL=INFO
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - RSA_KEY_DIR=/app/keys
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
+      - ./data/unified_model_config.yaml:/app/data/unified_model_config.yaml:ro
+      - ./data/agent_model_config.yaml:/app/data/agent_model_config.yaml:ro
+      - ./configs/system_config.json:/app/configs/system_config.json
+      - api-keys:/app/keys
       - ppt-artifacts:/app/pptx_output
       - uploads:/app/uploads
       - generated-images:/app/generated_images
@@ -110,8 +123,13 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - RSA_KEY_DIR=/app/keys
     volumes:
       - api-data:/app/data
+      - ./data/unified_model_config.yaml:/app/data/unified_model_config.yaml:ro
+      - ./data/agent_model_config.yaml:/app/data/agent_model_config.yaml:ro
+      - ./configs/system_config.json:/app/configs/system_config.json
+      - api-keys:/app/keys
       - api-logs:/app/logs
       - ppt-artifacts:/app/pptx_output
       - uploads:/app/uploads
@@ -201,6 +219,8 @@ volumes:
   api-logs:
     driver: local
   api-data:
+    driver: local
+  api-keys:
     driver: local
   ppt-artifacts:
     driver: local

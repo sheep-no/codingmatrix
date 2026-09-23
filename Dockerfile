@@ -54,6 +54,9 @@ COPY --from=backend-deps /usr/local/bin /usr/local/bin
 # Copy backend source code
 COPY app/ ./app/
 COPY configs/alembic.ini ./
+# 系统配置默认值随镜像分发；/app/configs 不是挂载点，不会被数据卷遮蔽。
+# 生产如需持久化运行期覆盖，可在编排中把该文件挂到同一路径。
+COPY configs/system_config.json ./configs/
 COPY migrations/ ./migrations/
 COPY pyproject.toml ./
 
@@ -77,7 +80,7 @@ COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf
 # 必须覆盖 compose 中所有 appuser 需要写入的挂载点：Docker 为缺失的挂载路径
 # 创建 root 属主的目录，若不预建并 chown，非 root 的 appuser 将无法写入
 # 上传目录与生成物目录。
-RUN mkdir -p /app/logs /app/data /app/uploads /app/pptx_output /app/generated_images /app/projects && \
+RUN mkdir -p /app/logs /app/data /app/keys /app/uploads /app/pptx_output /app/generated_images /app/projects && \
     chown -R appuser:appuser /app && \
     chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run
 
