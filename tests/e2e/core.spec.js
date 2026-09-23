@@ -6,7 +6,7 @@ const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 test.describe('Core E2E Tests', () => {
   test('页面加载测试 - 首页应正常加载', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/AI Agent|MonkeyCode/);
+    await expect(page).toHaveTitle(/CodingMatrix/);
     // Use first() to avoid strict mode violation when multiple #app elements exist
     const appEl = page.locator('.app-container').first();
     await expect(appEl).toBeVisible();

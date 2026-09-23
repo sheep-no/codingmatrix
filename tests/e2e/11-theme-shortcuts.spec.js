@@ -5,101 +5,77 @@
 import { test, expect } from '@playwright/test';
 import { apiLogin, logout } from './fixtures/auth.js';
 
+// 窗口级快捷键在 index.vue 的 onMounted 中、等待状态恢复之后才注册，
+// 页面首帧可能尚未挂载监听器。这里重试按键直到断言成立，避免时序误报。
+async function pressUntil(page, key, predicate, timeout = 15000) {
+  await expect.poll(async () => {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(200);
+    return predicate();
+  }, { timeout }).toBe(true);
+}
+
 test.describe('主题与快捷键', () => {
   test.beforeEach(async ({ page }) => {
     await apiLogin(page);
   });
 
   test('主题切换按钮 - 应可见', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"], [class*="theme-switch"]');
-    const themeVisible = await themeBtn.isVisible().catch(() => false);
-    expect(themeVisible).toBeTruthy();
+    await expect(page.locator('.theme-switcher')).toBeVisible();
   });
 
   test('暗色模式 - 切换后应应用暗色主题', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"], [class*="theme-switch"]');
-    const themeVisible = await themeBtn.isVisible().catch(() => false);
+    await page.getByRole('radio', { name: '夜晚' }).click();
 
-    if (themeVisible) {
-      const beforeTheme = await page.evaluate(() => document.documentElement.className);
-      await themeBtn.click();
-      await page.waitForTimeout(300);
-      const afterTheme = await page.evaluate(() => document.documentElement.className);
-
-      expect(afterTheme).not.toBe(beforeTheme);
-    }
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
   });
 
   test('明亮模式 - 切换后应应用明亮主题', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"], [class*="theme-switch"]');
-    const themeVisible = await themeBtn.isVisible().catch(() => false);
+    await page.getByRole('radio', { name: '夜晚' }).click();
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
 
-    if (themeVisible) {
-      await themeBtn.click();
-      await page.waitForTimeout(300);
-      await themeBtn.click();
-      await page.waitForTimeout(300);
-
-      const theme = await page.evaluate(() => document.documentElement.className);
-      expect(typeof theme).toBe('string');
-    }
+    await page.getByRole('radio', { name: '白天' }).click();
+    await expect(page.locator('html')).toHaveClass(/theme-light/);
   });
 
   test('主题持久化 - 刷新后主题应保持', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"], [class*="theme-switch"]');
-    const themeVisible = await themeBtn.isVisible().catch(() => false);
+    await page.getByRole('radio', { name: '夜晚' }).click();
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
 
-    if (themeVisible) {
-      await themeBtn.click();
-      await page.waitForTimeout(300);
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
-
-      const savedTheme = await page.evaluate(() => localStorage.getItem('app-theme'));
-      expect(typeof savedTheme).toBe('string');
-    }
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
+    const savedTheme = await page.evaluate(() => localStorage.getItem('app-theme'));
+    expect(savedTheme).toBe('theme-dark');
   });
 
   test('Ctrl+K - 聚焦输入框', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    await page.keyboard.press('ControlOrMeta+k');
-    await page.waitForTimeout(300);
-
-    const focused = await page.evaluate(() => {
+    await pressUntil(page, 'ControlOrMeta+k', () => page.evaluate(() => {
       const el = document.activeElement;
-      return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
-    });
-    expect(focused).toBeTruthy();
+      return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+    }));
   });
 
   test('Ctrl+Enter - 发送消息', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const textarea = page.locator('textarea').first();
+    await textarea.waitFor({ state: 'visible' });
     await textarea.fill('Test Ctrl+Enter');
-    await page.keyboard.press('Control+Enter');
-    await page.waitForTimeout(500);
 
-    const messagesExist = await page.evaluate(() => {
-      return document.querySelectorAll('[class*="message"]').length > 0;
-    });
-    expect(messagesExist).toBeTruthy();
+    await pressUntil(page, 'Control+Enter', () => page.evaluate(
+      () => document.querySelectorAll('[class*="message"]').length > 0
+    ));
   });
 
   test('Escape - 关闭所有面板', async ({ page }) => {
@@ -124,30 +100,21 @@ test.describe('主题与快捷键', () => {
     await page.waitForTimeout(500);
   });
 
-  test('Ctrl+/ - 查看帮助', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+  test('/ - 聚焦搜索框', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    await page.keyboard.press('Control+/');
-    await page.waitForTimeout(500);
-
-    const helpVisible = await page.evaluate(() => {
-      return !!document.querySelector('[class*="help"], [class*="shortcut"], [class*="modal"]');
-    });
-    expect(helpVisible).toBeTruthy();
+    await pressUntil(page, '/', () => page.evaluate(
+      () => !!document.activeElement?.classList?.contains('search-input')
+    ));
   });
 
   test('Shift+/ - 查看快捷键列表', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    await page.keyboard.press('Shift+/');
-    await page.waitForTimeout(500);
-
-    const shortcutVisible = await page.evaluate(() => {
-      return !!document.querySelector('[class*="shortcut"], [class*="help"]');
-    });
-    expect(shortcutVisible).toBeTruthy();
+    await pressUntil(page, 'Shift+/', () =>
+      page.locator('.keyboard-shortcuts-modal').isVisible().catch(() => false)
+    );
+    await expect(page.locator('.keyboard-shortcuts-modal')).toBeVisible();
   });
 
   test('Tab - 键盘导航顺序', async ({ page }) => {
