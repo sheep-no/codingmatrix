@@ -53,6 +53,13 @@ _STDLIB_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) or frozense
 })
 
 
+# 模块对象天然具备的属性：`from mod import __doc__` 等合法，但源码里没有定义。
+_IMPLICIT_MODULE_ATTRS = frozenset({
+    '__doc__', '__name__', '__file__', '__spec__', '__loader__',
+    '__package__', '__path__', '__builtins__', '__cached__',
+})
+
+
 def _iter_module_scope(body: Iterable[ast.stmt]) -> Iterator[ast.stmt]:
     """遍历模块作用域内的语句（进入复合语句，但不进入函数/类体）。"""
     for node in body:
@@ -151,16 +158,55 @@ class CodeValidator:
             return []
         return names
 
-    def _is_module_in_project(self, module: Any) -> bool:
-        """模块对象是否来自待校验项目（而非 Agent 自身代码）。"""
-        origin = getattr(module, "__file__", None)
-        if not origin:
-            return False
+    def _resolve_project_module(self, module: str) -> Optional[Path]:
+        """把绝对模块名解析为项目内的源文件/包目录；项目外返回 None。
+
+        直接按文件定位，绕开 sys.modules 与 sys.path：Agent 自身与生成项目
+        常有同名包（如 app/），且并发校验时不应改写全局导入状态。
+        """
+        parts = module.split('.')
+        if not all(parts):
+            return None
+        roots = [self.project_path]
+        src_dir = self.project_path / "src"
+        if src_dir.is_dir():
+            roots.append(src_dir)
+        for root in roots:
+            base = root.joinpath(*parts)
+            module_file = base.with_suffix('.py')
+            if module_file.is_file():
+                return module_file
+            init_file = base / '__init__.py'
+            if init_file.is_file():
+                return init_file
+            # PEP 420 命名空间包：目录无 __init__.py 也可被导入
+            if base.is_dir() and any(base.glob('*.py')):
+                return base
+        return None
+
+    def _missing_project_symbols(self, module: str, names: Iterable[str]) -> List[str]:
+        """`from <module> import <name>` 中项目模块未导出的符号名。"""
+        path = self._resolve_project_module(module)
+        if path is None or not path.is_file():
+            return []
+        package_dir = path.parent if path.name == '__init__.py' else None
         try:
-            Path(origin).resolve().relative_to(self.project_path)
-        except (OSError, ValueError):
-            return False
-        return True
+            exports = _module_level_exports(ast.parse(path.read_text(encoding='utf-8')))
+        except (OSError, SyntaxError, ValueError):
+            # 语法错误由 validate_syntax 负责，这里不重复报错
+            return []
+        available = exports["classes"] | exports["functions"] | exports["variables"]
+        missing = []
+        for name in names:
+            if not name or name == '*' or name in available or name in _IMPLICIT_MODULE_ATTRS:
+                continue
+            sub_paths = []
+            if package_dir is not None:
+                # from pkg import mod -> pkg/mod.py；from pkg import sub -> pkg/sub/__init__.py
+                sub_paths = [package_dir / f"{name}.py", package_dir / name / "__init__.py"]
+            if not any(p.exists() for p in sub_paths):
+                missing.append(name)
+        return missing
 
     def _python_third_party_imports(self) -> List[str]:
         """项目中来自第三方包的顶层 Python 导入名（排序去重）。
@@ -383,94 +429,62 @@ class CodeValidator:
             return False, [f"导入验证失败: {str(e)}"]
 
     async def validate_runtime_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
-        """运行时导入验证：尝试实际执行导入，捕获 ImportError, AttributeError 等"""
+        """运行时导入验证：静态解析导入，不执行被校验代码。
+
+        原实现用 `spec.loader.exec_module` 真实执行模块级代码：会触发被校验
+        代码的副作用（连数据库、发请求、写文件），无超时；模块级阻塞 I/O 还会
+        占住事件循环，使 `run_full_validation` 的 `asyncio.gather` 整体卡死，
+        且 `asyncio.wait_for` 对同步阻塞无效。现改为 AST + 项目文件定位做静态
+        检查：仍能检出项目内的缺失模块/符号，且不再改写 sys.path/sys.modules，
+        并发校验安全。被校验代码模块级行为本身（AttributeError/TypeError 等）
+        不再拦截，交由本地 Agent Host 运行时验证。
+        """
         if file_path.suffix != '.py':
             return True, []
 
-        # Skip runtime validation for __init__.py files (relative imports need package context)
+        # __init__.py 的导入依赖包上下文，单独校验易误报，交由跨文件校验处理
         if file_path.name == '__init__.py':
             return True, []
 
-        errors = []
-        shadowed_modules = {}
-        project_loaded = []
+        errors: List[str] = []
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source = f.read()
-
-            # 检查 passlib 错误导入模式
-            if 'import passlib.hash.bcrypt' in source:
-                errors.append("passlib 导入错误: 应使用 'from passlib.hash import bcrypt' 而非 'import passlib.hash.bcrypt'")
-            if 'import passlib.hash' in source and 'from passlib.hash import' not in source:
-                errors.append("passlib 导入错误: 'import passlib.hash' 无法使用 bcrypt，应改为 'from passlib.hash import bcrypt'")
-
-            # 尝试动态编译和执行模块级代码以捕获运行时导入错误
-            module_name = file_path.stem
-            spec = importlib.util.spec_from_file_location(module_name, str(file_path))
-            if spec is None or spec.loader is None:
-                return True, []  # 无法加载 spec，跳过
-
-            # Include the project root even when a generated project has no src/tests directory.
-            added_paths = []
-            try:
-                for import_path in reversed(self._import_search_paths(file_path)):
-                    if import_path not in sys.path:
-                        sys.path.insert(0, import_path)
-                        added_paths.append(import_path)
-            except Exception as e:
-                logger.debug(f"模块路径设置失败：{e}")
-                pass  # best effort
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            try:
-                # 生成的项目常与 Agent 自身包重名（如 app/）。sys.modules 中
-                # 已缓存 Agent 自己的同名包时，生成项目的 `from app import ...`
-                # 会解析到 Agent 代码而非待校验项目，产生假的运行时导入失败。
-                # 执行前临时移出这些同名缓存，执行后恢复。
-                for pkg in self._project_top_level_packages():
-                    cached = sys.modules.get(pkg)
-                    if cached is not None and not self._is_module_in_project(cached):
-                        shadowed_modules[pkg] = cached
-                        del sys.modules[pkg]
-                spec.loader.exec_module(module)
-            except ModuleNotFoundError as e:
-                # 缺失的模块若是项目内包/模块，说明代码引用了不存在的文件；
-                # 否则是 Agent 执行环境未安装该第三方包，不代表生成代码有缺陷。
-                top = (getattr(e, "name", "") or "").split(".")[0]
-                if top and top in set(self._project_top_level_packages()):
-                    errors.append(f"运行时导入失败: {str(e)}")
-                else:
-                    logger.warning("运行时导入失败（环境缺包，不计入代码有效性）: %s", e)
-            except ImportError as e:
-                errors.append(f"运行时导入失败: {str(e)}")
-            except AttributeError as e:
-                errors.append(f"属性错误 (可能是 API 版本不兼容): {str(e)}")
-            except TypeError as e:
-                errors.append(f"类型错误 (可能是 API 参数不兼容): {str(e)}")
-            except Exception:
-                # 其余异常多来自运行环境（缺环境变量、连不上数据库等），
-                # 不代表代码本身有错，交由本地 Agent Host 运行时验证处理。
-                pass
-            finally:
-                # 清理临时模块和路径。只移除与 Agent 自身重名的项目模块
-                # （以及本次校验的模块），避免污染 Agent 进程的 sys.modules，
-                # 同时不能误删项目路径恰好覆盖 Agent 代码时的模块。
-                colliding = set(shadowed_modules) | {module_name}
-                project_loaded.extend(
-                    name
-                    for name, mod in list(sys.modules.items())
-                    if name.split(".")[0] in colliding and self._is_module_in_project(mod)
-                )
-                for name in project_loaded:
-                    sys.modules.pop(name, None)
-                sys.modules.update(shadowed_modules)
-                for p in added_paths:
-                    if p in sys.path:
-                        sys.path.remove(p)
-
+            source = file_path.read_text(encoding='utf-8')
         except Exception as e:
-            errors.append(f"运行时验证异常: {str(e)}")
+            return False, [f"运行时验证异常: {str(e)}"]
+
+        # 检查 passlib 错误导入模式（文本规则，与执行无关）
+        if 'import passlib.hash.bcrypt' in source:
+            errors.append("passlib 导入错误: 应使用 'from passlib.hash import bcrypt' 而非 'import passlib.hash.bcrypt'")
+        if 'import passlib.hash' in source and 'from passlib.hash import' not in source:
+            errors.append("passlib 导入错误: 'import passlib.hash' 无法使用 bcrypt，应改为 'from passlib.hash import bcrypt'")
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            # 语法错误由 validate_syntax 报告，这里不重复报错
+            return len(errors) == 0, errors
+
+        project_top_levels = set(self._project_top_level_packages())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split('.')[0]
+                    if self._resolve_project_module(alias.name) is None and top in project_top_levels:
+                        errors.append(f"运行时导入失败: No module named '{alias.name}'")
+            elif isinstance(node, ast.ImportFrom):
+                # 相对导入（level > 0）需要包上下文，交由跨文件校验处理
+                if node.level or not node.module:
+                    continue
+                top = node.module.split('.')[0]
+                if self._resolve_project_module(node.module) is None:
+                    # 第三方包未安装/拼写错误取决于 Agent 执行环境，不算生成代码缺陷
+                    if top in project_top_levels:
+                        errors.append(f"运行时导入失败: No module named '{node.module}'")
+                    continue
+                for name in self._missing_project_symbols(
+                    node.module, [alias.name for alias in node.names]
+                ):
+                    errors.append(f"运行时导入失败: 无法从 '{node.module}' 导入 '{name}'")
 
         return len(errors) == 0, errors
 
