@@ -766,7 +766,7 @@ class TestHtmlCssStructureGate:
 
 
 class TestCodeValidatorLRU:
-    def test_in_memory_store_keeps_tuple_shape(self):
+    def test_in_memory_store_keeps_tuple_shape(self, tmp_path):
         """校验缓存条目必须是 (result, timestamp) 元组。
 
         调用方在文件落盘前先用内存内容写缓存，绕开 tuple 约定会让
@@ -774,24 +774,16 @@ class TestCodeValidatorLRU:
         """
         from app.agent.code_validator import CodeValidator
 
-        saved_cache = dict(CodeValidator._lru_cache)
-        saved_size = CodeValidator._cache_size_bytes
-        try:
-            CodeValidator._lru_cache.clear()
-            CodeValidator._cache_size_bytes = 0
-            result = {"is_valid": True, "syntax_errors": [], "import_errors": []}
+        validator = CodeValidator(tmp_path)
+        result = {"is_valid": True, "syntax_errors": [], "import_errors": []}
 
-            CodeValidator.store_validation("app/agent/utils.py:cafebabe", result)
+        validator.store_validation("app/agent/utils.py:cafebabe", result)
 
-            entry = CodeValidator._lru_cache["app/agent/utils.py:cafebabe"]
-            assert entry[0] is result
-            assert isinstance(entry[1], float)
-            # 形状正确时缓存清理不得抛错
-            CodeValidator._clear_old_cache()
-        finally:
-            CodeValidator._lru_cache.clear()
-            CodeValidator._lru_cache.update(saved_cache)
-            CodeValidator._cache_size_bytes = saved_size
+        entry = validator._lru_cache["app/agent/utils.py:cafebabe"]
+        assert entry[0] is result
+        assert isinstance(entry[1], float)
+        # 形状正确时缓存清理不得抛错
+        validator._clear_old_cache()
 
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
@@ -822,24 +814,44 @@ class TestCodeValidatorDefectFixes:
         """全项目校验键是内容 hash 合成串，不能当文件路径打开，否则恒 miss。"""
         from app.agent.code_validator import CodeValidator
 
-        saved_cache = dict(CodeValidator._lru_cache)
-        saved_size = CodeValidator._cache_size_bytes
-        try:
-            CodeValidator._lru_cache.clear()
-            CodeValidator._cache_size_bytes = 0
-            (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
-            validator = CodeValidator(tmp_path)
+        (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+        validator = CodeValidator(tmp_path)
 
-            first = await validator.run_full_validation()
-            second = await validator.run_full_validation()
+        first = await validator.run_full_validation()
+        second = await validator.run_full_validation()
 
-            assert first["cache_hit"] is False
-            assert second["cache_hit"] is True
-            assert CodeValidator.get_cache_stats()["entries"] >= 1
-        finally:
-            CodeValidator._lru_cache.clear()
-            CodeValidator._lru_cache.update(saved_cache)
-            CodeValidator._cache_size_bytes = saved_size
+        assert first["cache_hit"] is False
+        assert second["cache_hit"] is True
+        assert validator.get_cache_stats()["entries"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_full_validation_cache_is_isolated_per_instance(self, tmp_path):
+        """CV7：两个项目实例不共享缓存/统计。
+
+        缓存键是文件内容拼接的 hash，不含项目路径——类级共享时，内容相同的两个
+        项目会互相命中并返回对方的错误列表；统计也跨实例累加。
+        """
+        from app.agent.code_validator import CodeValidator
+
+        project_a = tmp_path / "a"
+        project_b = tmp_path / "b"
+        project_a.mkdir()
+        project_b.mkdir()
+        for project in (project_a, project_b):
+            (project / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        validator_a = CodeValidator(project_a)
+        validator_b = CodeValidator(project_b)
+
+        first_a = await validator_a.run_full_validation()
+        first_b = await validator_b.run_full_validation()
+
+        # B 与 A 内容相同，但缓存不共享，B 的首次运行必须是 miss
+        assert first_a["cache_hit"] is False
+        assert first_b["cache_hit"] is False
+        # 统计各自独立：A 的 entries 不计入 B
+        assert validator_a.get_cache_stats()["entries"] == 1
+        assert validator_b.get_cache_stats()["entries"] == 1
 
     @pytest.mark.asyncio
     async def test_api_compatibility_accepts_modern_camel_case_token_url(self, tmp_path):

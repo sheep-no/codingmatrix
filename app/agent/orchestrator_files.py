@@ -2793,7 +2793,7 @@ router = APIRouter()
             try:
                 import ast
                 ast.parse(content)
-                CodeValidator.store_validation(cache_key, {
+                self.validator.store_validation(cache_key, {
                     "is_valid": True,
                     "syntax_errors": [],
                     "import_errors": []

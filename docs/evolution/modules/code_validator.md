@@ -199,9 +199,9 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 | CV4 | 已修 | `validate_cross_file_consistency` 中原「前端 API 一致性检查」段只 `pass`（连警告都没有），且按 `/api` 前缀直接比对后端路由会大量误报（后端前缀经 `include_router(prefix=...)` 挂载）。该空操作段整体删除，跨文件校验不再假装覆盖前端。 |
 | CV5 | 已修 | 规则方向反了：现代 FastAPI 用 camelCase `tokenUrl`，原代码要求 `token_url`。现从 `API_COMPATIBILITY_RULES`（:110）取 `token_url -> tokenUrl` 映射生成判定（:487），既修正方向又消除两处规则各说一套。 |
 | CV6 | 已修 | Pipfile 是 TOML，改由标准库 `tomllib` 解析，抽出 `_packages_from_pipfile`（:701）。第三方 `toml` 未在依赖中声明，此前缺包时异常被吞、`required=[]` 导致依赖校验静默通过。 |
-| CV7 | 部分修 | 删除未使用的 `MAX_CACHE_SIZE`（已无引用）。类级 `_lru_cache`/统计跨实例共享仍在，属结构性改动，需连同失效语义一并设计，保留。 |
+| CV7 | 已修 | 缓存与统计由类级改为实例级：`_lru_cache`/`_cache_size_bytes`/`_cache_hits`/`_cache_misses` 移入 `__init__`，`_clear_old_cache`/`store_validation`/`get_cached_validation_by_key`/`get_cache_stats` 由 classmethod 改为实例方法；`_validation_cache` 保留为实例缓存别名（既有外部读取点 `orchestrator_files` 无需改动语义）。此前全项目校验键是「文件内容拼接 hash」不含项目路径，内容相同的两个项目实例会互相命中并返回对方的错误列表，hits/misses 也跨实例累加。 |
 | CV8 | **仍在** | 四套验证器并存的归位是结构性演化项（§6 主线），非单点 bug。 |
 
-配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误）；本轮 CV2 新增 `TestRuntimeImportStaticAnalysis` 5 项（模块级副作用不执行、阻塞代码不挂起、缺失项目符号仍报错、相对导入不误报、`sys.path`/`sys.modules` 不被改写），文件累计 53 项。
+配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误）；本轮 CV2 新增 `TestRuntimeImportStaticAnalysis` 5 项（模块级副作用不执行、阻塞代码不挂起、缺失项目符号仍报错、相对导入不误报、`sys.path`/`sys.modules` 不被改写）；CV7 新增 1 项实例隔离（内容相同的两个项目实例各自 miss、缓存条目不交叉），并把 2 项直接操作类级缓存的旧用例改为实例级，文件累计 54 项。
 
-**复核说明**：CV8 保留为结构性演化项；CV7 的类级缓存跨实例共享仍在，删除 `MAX_CACHE_SIZE` 后至少不再有误导性常量。CV2 静态化后，检出能力收敛到「结构上可静态判定的导入错误」，这是消除执行风险的代价；此前相对导入在单文件校验中会产生假「运行时导入失败」，现已消除。
+**复核说明**：CV8 保留为结构性演化项。CV7 已修（缓存/统计实例级隔离，跨实例命中与统计串扰消除）。CV2 静态化后，检出能力收敛到「结构上可静态判定的导入错误」，这是消除执行风险的代价；此前相对导入在单文件校验中会产生假「运行时导入失败」，现已消除。
