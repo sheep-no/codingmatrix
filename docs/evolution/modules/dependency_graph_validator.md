@@ -58,3 +58,17 @@
 ## 5. 测试状态
 
 **零测试覆盖**——tests/ 无任何 DependencyGraphValidator 用例。DGV1/DGV2/DGV4 全部实测可复现但无任何用例保护。spec_first 链的依赖图验证门禁（full 重试 + incremental + refactor 三模式）端到端无回归保护，LLM 响应解析的健壮性（非 JSON/null/标量/缺键）零用例。
+
+## 6. 状态校准（2026-09-23）
+
+本节为逐条读码复核结论。**模块已于 `1d571cb3`（wire GLM agent pipeline）改为纯确定性校验**——`validate` 只 `del scope, new_files` 后委托 `validate_static`，LLM 审查路径（`_llm_caller`/`_build_context`/`_build_system_prompt`/`_build_prompt`/`_parse_response`/`format_validation_feedback`/`MAX_VALIDATION_RETRIES`）成为零调用死代码，`spec_first_generate.py` 三条调用点也均只消费 `validate_static`/`validate` 的确定性结果。据此校准原清单：
+
+- **DGV1 已消解**：条目描述的 validate 外层 `except Exception`、`_parse_response` 兜底 passed=True 三路径均随 LLM 路径移除而消失。当前确定性校验不存在「验证失效当通过」的路径（解析失败返回 `ValidationResult(passed=False)` 的早期分支仅用于空图）。
+- **DGV2 已消解**：`_build_context` 边过滤随死代码移除；缺失依赖检测改由 `validate_static` 直接遍历 `adjacency` 并调用 `_dependency_satisfied`（:115-125），指向不存在节点的边**正是**被检测对象，不再有「证据在数据构建阶段被抹掉」的矛盾。
+- **DGV3 语义变更**：现无 full 重试反馈循环。三条路径统一为确定性校验：生成首次（`validate_static`）失败 `raise RuntimeError`，incremental 失败 `raise RuntimeError`，refactor 失败仅 `logger.warning` 继续。原「incremental/refactor 零反馈」保留在 refactor 一处；full 无重试反馈而是硬失败。
+- **DGV4 已修复（本批次）**：`ValidationResult.__post_init__` 原按 4+3 类型白名单统计，导致 `invalid_path`（使 passed=False 的拦截类型）反被计入 warning_count，且白名单外类型（如 `made_up`、模块自身曾构造的 `validation_error`）error/warning 双 0。现改为：明确警告类型（`wrong_file_type`/`same_name_file`）计 warning，**其余（含未知类型）一律计 error**，并抽出 `_BLOCKING_ISSUE_TYPES` 供 `validate_static` 复用，`passed=False` 与 `error_count>0` 语义一致。
+- **DGV5 仍在**：三处消费仍只写 logger，未落 ctx/metrics/orchestration_progress。
+- **DGV6 已消解**：空验证 prompt 随 `_build_prompt` 移除；architecture=None 时确定性校验仍以 nodes/adjacency 为输入（architecture 仅追加 file_plan 依赖检查），不会构造空 LLM 调用。
+- **死代码清理（本批次）**：删除上述 6 个零调用符号（含 `_build_context` 等 4 个方法、`format_validation_feedback` 函数、`MAX_VALIDATION_RETRIES` 常量）与 `llm_caller` 构造参数，并删除仅为其服务的 `SpecFirstGenerateMixin._create_validator_llm_caller`（含「model assignment is required for dependency graph validation」守卫）——确定性校验不再需要 reviewer/architect 模型分配。
+
+**测试状态更新**：`tests/unit/test_dependency_graph_validator.py` 由 5 项扩到 9 项，新增 DGV4 计数一致性（拦截类型计 error / 未知类型计 error / 警告类型计 warning）与 `validate` 无 LLM 依赖用例；删除 `test_orchestrator_files.py::test_create_validator_llm_caller_requires_model_assignment`（守卫已移除）。
