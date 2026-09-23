@@ -52,6 +52,8 @@ class MetricsCollector:
         self.module_metrics: Dict[str, ModuleMetrics] = {}
         self.storage_path = Path(storage_path) if storage_path else Path('./metrics')
         self.storage_path.mkdir(parents=True, exist_ok=True)
+        # 已处于低命中率告警状态的模块，避免每次 miss 重复告警（PMC3）
+        self._cache_alert_active: set = set()
         
         # 阈值配置
         self.thresholds = {
@@ -102,6 +104,7 @@ class MetricsCollector:
         
         self.module_metrics[module].cache_hits += 1
         self._update_cache_hit_rate(module)
+        self._check_cache_hit_rate_alert(module)
     
     def record_cache_miss(self, module: str):
         """记录缓存未命中"""
@@ -110,13 +113,26 @@ class MetricsCollector:
         
         self.module_metrics[module].cache_misses += 1
         self._update_cache_hit_rate(module)
-        
-        # 检查缓存命中率告警
+        self._check_cache_hit_rate_alert(module)
+
+    def _check_cache_hit_rate_alert(self, module: str):
+        """命中率跌破阈值只告警一次，恢复到阈值以上后重新武装（PMC3）。
+
+        原实现每次未命中都 append 告警，低命中率状态下 alerts 无限增长、
+        warning 日志重复刷屏；而命中率随每次采样变化，按文本去重无效，
+        故以「是否已处于告警态」判重。
+        """
         hit_rate = self.module_metrics[module].cache_hit_rate
-        if hit_rate < self.thresholds['cache_hit_rate_min']:
-            alert = f"缓存命中率告警：{module} 缓存命中率 {hit_rate:.1f}% 低于阈值 {self.thresholds['cache_hit_rate_min']}%"
+        threshold = self.thresholds['cache_hit_rate_min']
+        if hit_rate < threshold:
+            if module in self._cache_alert_active:
+                return
+            self._cache_alert_active.add(module)
+            alert = f"缓存命中率告警：{module} 缓存命中率 {hit_rate:.1f}% 低于阈值 {threshold}%"
             logger.warning(alert)
             self.module_metrics[module].alerts.append(alert)
+        else:
+            self._cache_alert_active.discard(module)
     
     def record_test_coverage(self, module: str, coverage: float):
         """记录测试覆盖率"""
