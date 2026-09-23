@@ -72,6 +72,8 @@ class RefinementLoop:
     """
 
     MAX_ATTEMPTS = 3
+    # 修复场景使用的默认温度（低于生成温度），可由 model_config 覆盖
+    REFINEMENT_TEMPERATURE = 0.5
     SYSTEM_PROMPT = """你是一位资深代码修复专家，擅长根据错误信息修复代码。
 
 你的任务：
@@ -88,6 +90,7 @@ class RefinementLoop:
         self.context = context
         self.api_key_token = api_key_token
         self._pending_tasks: set = set()
+        self._spec_generator = None
         assignment = context.model_assignment or {}
         self.default_model = assignment.get("backend_model") if isinstance(assignment, dict) else getattr(assignment, "backend_model", None)
         if not self.default_model:
@@ -128,6 +131,7 @@ class RefinementLoop:
         content = initial_content
         all_issues: List[ValidationIssue] = []
         issues_fixed = 0
+        blocking: List[ValidationIssue] = []
 
         self.context.increment_fix_attempts(file_path)
 
@@ -189,7 +193,9 @@ class RefinementLoop:
                     stream=False,
                     max_tokens=model_config["max_tokens"],
                     thinking_budget=model_config["thinking_budget"],
-                    temperature=0.5,  # 修复时使用更低的温度
+                    temperature=model_config.get(
+                        "refinement_temperature", self.REFINEMENT_TEMPERATURE
+                    ),
                     api_key_token=self.api_key_token
                 )
 
@@ -276,22 +282,20 @@ class RefinementLoop:
         if file_type in ("api", "view", "controller", "router"):
             openapi = self.context.get_spec("openapi")
             if openapi:
-                paths = openapi.get("paths", {})
-                for path in paths:
-                    # 检查路径是否在代码中出现
-                    # 简化检查：只检查路径的关键部分
-                    path_parts = path.strip('/').split('/')
-                    for part in path_parts:
-                        if part and not part.startswith('{') and part not in content:
-                            # 不一定要报错，只是记录为 warning
-                            pass
+                for path in self._openapi_paths_missing_from_content(content, openapi):
+                    issues.append(ValidationIssue(
+                        type="spec_mismatch",
+                        severity="warning",
+                        message=f"OpenAPI 路由 {path} 未在代码中引用",
+                        suggestion="确认该路由是否应在本文件中实现",
+                    ))
 
         # 如果是模型相关文件，检查是否引用了正确的字段
         if file_type in ("model", "entity", "dto"):
             types_spec = self.context.get_spec("types")
             if types_spec and types_spec.get("code"):
-                # 简化检查：确保代码中使用了 Pydantic 的 BaseModel
-                if "BaseModel" not in content and "pydantic" not in content.lower():
+                # AST 判定，注释/字符串里的 "BaseModel" 字样不算
+                if not self._uses_pydantic_model(content):
                     issues.append(ValidationIssue(
                         type="spec_mismatch",
                         severity="warning",
@@ -300,6 +304,50 @@ class RefinementLoop:
                     ))
 
         return issues
+
+    @staticmethod
+    def _openapi_paths_missing_from_content(content: str, openapi: Dict) -> List[str]:
+        """返回 content 中未引用的 OpenAPI 路由。
+
+        路径参数段（``{id}``）无法逐字比对，跳过；某条路由存在任一非参数段
+        未在 content 中出现时，即认为该路由未被引用。
+        """
+        missing = []
+        for path in openapi.get("paths", {}):
+            literals = [
+                seg for seg in str(path).strip("/").split("/")
+                if seg and not seg.startswith("{")
+            ]
+            if literals and any(seg not in content for seg in literals):
+                missing.append(str(path))
+        return missing
+
+    _PYDANTIC_BASE_NAMES = frozenset({"BaseModel", "BaseSettings"})
+
+    @classmethod
+    def _uses_pydantic_model(cls, content: str) -> bool:
+        """AST 判定代码是否真正使用 Pydantic（排除注释与字符串中的字样）。"""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return False
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] == "pydantic":
+                    return True
+            elif isinstance(node, ast.Import):
+                if any(a.name.split(".")[0] == "pydantic" for a in node.names):
+                    return True
+            elif isinstance(node, ast.ClassDef):
+                for base in node.bases:
+                    if isinstance(base, ast.Name):
+                        name = base.id
+                    else:
+                        name = getattr(base, "attr", "")
+                    if name in cls._PYDANTIC_BASE_NAMES:
+                        return True
+        return False
 
     def _validate_js_source(self, content: str, ext: str) -> List[ValidationIssue]:
         """校验 JS/TS 家族源码，包括 .vue 的 <script> 块与 JSX/TSX。
@@ -414,11 +462,14 @@ class RefinementLoop:
         # 获取相关规范上下文
         spec_context = ""
         try:
-            from app.agent.spec_first_generator import SpecFirstGenerator
-            gen = SpecFirstGenerator(self.context)
-            spec_context = gen.get_spec_context_for_file(file_path, file_type)
+            if self._spec_generator is None:
+                from app.agent.spec_first_generator import SpecFirstGenerator
+                self._spec_generator = SpecFirstGenerator(self.context)
+            spec_context = self._spec_generator.get_spec_context_for_file(file_path, file_type)
         except Exception as e:
-            logger.debug(f"精炼循环操作失败：{e}")
+            logger.warning(
+                f"获取修复规范上下文失败（{file_path}），将以无规范方式修复：{e}"
+            )
 
         # 获取已生成的相关文件
         related_files = self.context.get_generated_files_summary()

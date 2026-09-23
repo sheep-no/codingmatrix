@@ -181,3 +181,21 @@ if line.startswith('import '): parts = line[7:].split()
 - RL3「存在≠正确」与 TG2/TR1/IM2 直接同主线——修复循环的 success 语义是验证语义统一的一部分。
 - RL5 node -c 与 test_runner 的 `_execute_test`（进程执行）同属「subprocess 执行」安全模式——统一进程执行抽象（超时/清理/资源限制）可复用。
 - `call_llm` 直连（无信号量/成本）归入 LCL1 收敛范围（与 ERL4/EV1/TG1/CEC3 同源）。
+
+## 7. 状态更新（2026-09-23 核实）
+
+**已修**：
+
+- **RL1 已修**：`_validate_spec_consistency` 的 openapi 分支原为纯 `pass` 空操作。现抽出 `_openapi_paths_missing_from_content`：跳过路径参数段（`{id}`），任一非参数段未在 content 中出现即 append 一条 `spec_mismatch` warning，api/view/controller/router 类型文件对「未按 openapi 实现」终于有感知。
+- **RL7 部分已修**：model 类型检查由字符串包含（`"BaseModel" not in content`）改为 AST 判定 `_uses_pydantic_model`（识别 `from pydantic import`、`import pydantic`、类基类 `BaseModel/BaseSettings`，含 `Attribute` 形式），注释/字符串里的字样不再误判。修复温度由硬编码 `0.5` 改为类属性 `REFINEMENT_TEMPERATURE = 0.5`，并支持 `model_config["refinement_temperature"]` 覆盖。
+- **RL6 已修**：`SpecFirstGenerator` 提升为实例惰性缓存 `self._spec_generator`（同一 loop 多次修复只实例化一次）；异常由 `logger.debug` 改 `logger.warning` 且带文件路径，spec 上下文丢失可见。
+- **RL4 已修**：`blocking` 在循环前初始化为 `[]`，兜底返回 `remaining_issues=blocking or all_issues` 不再可能 `NameError`/返回空列表（当前 `MAX_ATTEMPTS>=2` 使末轮提前返回，兜底为防御性路径）。
+- **RL2 / RL5 已修（早前批次）**：`_validate_python_imports`（importlib 环境错位 + 执行副作用）与 `_validate_js_basic`（node -c 临时文件/5s 阻塞）已从代码中移除，改复用 `app/agent/js_syntax.py`（node 不可用时无进程内回退）——文档正文对应章节为历史记录，保留以溯源。
+
+**仍未处理**：
+
+- **RL3 [P2]**：验证栈仍为「语法/结构」级，`success=True` 只证明语法合法，未纳入跨文件引用完整性与功能正确性；`success` 语义（「验证通过」 vs 「功能已验证」）未重命名，调用方仍无法区分。需与 TG2/TR1/IM2 验证语义主线统一。
+- **RL2 尾项**：standard_libs 清单与 `integrity_validator.PYTHON_BUILTINS` 的重复定义随 `_validate_python_imports` 移除而消失，但「用户项目 requirements 比对」的依赖缺失检查仍未建设。
+- **潜在项**：`call_llm` 仍直连（无信号量/成本/token 审批），归 LCL1 收敛。
+
+**回归**：`tests/unit/test_refinement_loop.py` 由 1 项扩到 22 项（新增 openapi 引用/未引用、Pydantic 注释误判与真实导入、生成器复用与失败可见、空返回兜底 remaining_issues、单轮修复恢复）；回退 `refinement_loop.py` 后新增用例 4 项失败。全量 4600+ passed / 3 skipped / cov 62.7%。
