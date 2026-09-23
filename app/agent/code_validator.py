@@ -101,12 +101,6 @@ def _module_level_exports(tree: ast.Module) -> Dict[str, set]:
 class CodeValidator:
     """代码验证器 - 语法、依赖、运行时、跨文件一致性验证（带缓存优化）"""
 
-    _lru_cache: OrderedDict = OrderedDict()
-    _max_cache_bytes = 50 * 1024 * 1024
-    _cache_size_bytes = 0
-    _cache_hits = 0
-    _cache_misses = 0
-    _validation_cache = _lru_cache
     SUCCESS_CACHE_TTL = 3600
     FAILURE_CACHE_TTL = 300
 
@@ -128,6 +122,16 @@ class CodeValidator:
 
     def __init__(self, project_path):
         self.project_path = Path(project_path).resolve()
+        # 校验缓存与统计按实例隔离（CV7）：此前为类级属性，所有项目实例共享同一个
+        # OrderedDict。全项目校验键是「文件内容拼接 hash」，不含项目路径，跨实例命中
+        # 会返回另一个项目的错误列表；hits/misses 也相互串扰。`_validation_cache` 是
+        # 既有外部读取点（orchestrator_files）引用的别名，仍指向同一实例缓存。
+        self._lru_cache: OrderedDict = OrderedDict()
+        self._validation_cache = self._lru_cache
+        self._max_cache_bytes = 50 * 1024 * 1024
+        self._cache_size_bytes = 0
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def _import_search_paths(self, file_path: Path) -> List[str]:
         """Return the candidate directory and configured project roots for imports."""
@@ -245,20 +249,19 @@ class CodeValidator:
         import hashlib
         return hashlib.sha256(file_content.encode('utf-8')).hexdigest()[:16]
 
-    @classmethod
-    def _clear_old_cache(cls):
+    def _clear_old_cache(self):
         now = time.time()
         expired_keys = []
-        for key, entry in list(cls._lru_cache.items()):
-            ttl = cls.SUCCESS_CACHE_TTL if entry[0].get("is_valid", False) else cls.FAILURE_CACHE_TTL
+        for key, entry in list(self._lru_cache.items()):
+            ttl = self.SUCCESS_CACHE_TTL if entry[0].get("is_valid", False) else self.FAILURE_CACHE_TTL
             if now - entry[1] > ttl:
                 expired_keys.append(key)
         for key in expired_keys:
-            entry = cls._lru_cache.pop(key)
-            cls._cache_size_bytes -= sys.getsizeof(key) + sys.getsizeof(entry)
-        while cls._cache_size_bytes > cls._max_cache_bytes and cls._lru_cache:
-            oldest_key, oldest_entry = cls._lru_cache.popitem(last=False)
-            cls._cache_size_bytes -= sys.getsizeof(oldest_key) + sys.getsizeof(oldest_entry)
+            entry = self._lru_cache.pop(key)
+            self._cache_size_bytes -= sys.getsizeof(key) + sys.getsizeof(entry)
+        while self._cache_size_bytes > self._max_cache_bytes and self._lru_cache:
+            oldest_key, oldest_entry = self._lru_cache.popitem(last=False)
+            self._cache_size_bytes -= sys.getsizeof(oldest_key) + sys.getsizeof(oldest_entry)
 
     def get_cached_validation(self, file_path: Path) -> Optional[Dict]:
         cache_key = None
@@ -267,21 +270,21 @@ class CodeValidator:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
             cache_key = f"{file_path}:{content_hash}"
-            if cache_key in CodeValidator._lru_cache:
-                result, timestamp = CodeValidator._lru_cache[cache_key]
-                ttl = CodeValidator.SUCCESS_CACHE_TTL if result.get("is_valid", False) else CodeValidator.FAILURE_CACHE_TTL
+            if cache_key in self._lru_cache:
+                result, timestamp = self._lru_cache[cache_key]
+                ttl = self.SUCCESS_CACHE_TTL if result.get("is_valid", False) else self.FAILURE_CACHE_TTL
                 if time.time() - timestamp <= ttl:
-                    CodeValidator._lru_cache.move_to_end(cache_key)
-                    CodeValidator._cache_hits += 1
+                    self._lru_cache.move_to_end(cache_key)
+                    self._cache_hits += 1
                     return result
                 else:
-                    entry = CodeValidator._lru_cache.pop(cache_key)
-                    CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
-            CodeValidator._cache_misses += 1
+                    entry = self._lru_cache.pop(cache_key)
+                    self._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
+            self._cache_misses += 1
             return None
         except Exception as e:
             logger.debug(f"缓存读取失败 {cache_key or file_path}：{e}")
-            CodeValidator._cache_misses += 1
+            self._cache_misses += 1
             return None
 
     def cache_validation(self, file_path: Path, result: Dict):
@@ -291,60 +294,57 @@ class CodeValidator:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
             cache_key = f"{file_path}:{content_hash}"
-            CodeValidator.store_validation(cache_key, result)
+            self.store_validation(cache_key, result)
         except Exception as e:
             logger.debug(f"缓存写入失败 {cache_key or file_path}：{e}")
 
-    @classmethod
-    def store_validation(cls, cache_key: str, result: Dict):
+    def store_validation(self, cache_key: str, result: Dict):
         """按内容哈希键写入校验缓存。
 
         调用方可能已持有内存中的内容、文件尚未落盘，因此这里按 key 直接写入，
         不再读盘。缓存条目统一为 `(result, timestamp)` 元组，任何绕开本方法
         的裸结果写入都会让 `_clear_old_cache` 在 `entry[0]` 处抛错。
         """
-        if cache_key in cls._lru_cache:
-            old_entry = cls._lru_cache.pop(cache_key)
-            cls._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
+        if cache_key in self._lru_cache:
+            old_entry = self._lru_cache.pop(cache_key)
+            self._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
         entry = (result, time.time())
-        cls._lru_cache[cache_key] = entry
-        cls._lru_cache.move_to_end(cache_key)
-        cls._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
-        cls._clear_old_cache()
+        self._lru_cache[cache_key] = entry
+        self._lru_cache.move_to_end(cache_key)
+        self._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
+        self._clear_old_cache()
 
-    @classmethod
-    def get_cached_validation_by_key(cls, cache_key: str) -> Optional[Dict]:
+    def get_cached_validation_by_key(self, cache_key: str) -> Optional[Dict]:
         """按键读取校验结果（键由调用方构造，非文件路径）。
 
         `get_cached_validation` 面向真实文件路径（先读盘、再按内容算键），而
         `run_full_validation` 的键是「全项目内容 hash」合成串，无法作为文件
         打开，因此需要这个直接按键查表的入口。
         """
-        entry = cls._lru_cache.get(cache_key)
+        entry = self._lru_cache.get(cache_key)
         if entry is None:
-            cls._cache_misses += 1
+            self._cache_misses += 1
             return None
         result, timestamp = entry
-        ttl = cls.SUCCESS_CACHE_TTL if result.get("is_valid", False) else cls.FAILURE_CACHE_TTL
+        ttl = self.SUCCESS_CACHE_TTL if result.get("is_valid", False) else self.FAILURE_CACHE_TTL
         if time.time() - timestamp <= ttl:
-            cls._lru_cache.move_to_end(cache_key)
-            cls._cache_hits += 1
+            self._lru_cache.move_to_end(cache_key)
+            self._cache_hits += 1
             return result
-        cls._lru_cache.pop(cache_key, None)
-        cls._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
-        cls._cache_misses += 1
+        self._lru_cache.pop(cache_key, None)
+        self._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
+        self._cache_misses += 1
         return None
 
-    @classmethod
-    def get_cache_stats(cls) -> Dict[str, Any]:
-        total_requests = cls._cache_hits + cls._cache_misses
-        hit_rate = cls._cache_hits / total_requests if total_requests > 0 else 0.0
+    def get_cache_stats(self) -> Dict[str, Any]:
+        total_requests = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total_requests if total_requests > 0 else 0.0
         return {
-            "entries": len(cls._lru_cache),
-            "size_bytes": cls._cache_size_bytes,
-            "max_bytes": cls._max_cache_bytes,
-            "hits": cls._cache_hits,
-            "misses": cls._cache_misses,
+            "entries": len(self._lru_cache),
+            "size_bytes": self._cache_size_bytes,
+            "max_bytes": self._max_cache_bytes,
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
             "hit_rate": hit_rate,
         }
 
@@ -863,7 +863,7 @@ class CodeValidator:
                     all_contents += str(f)
             content_hash = self._compute_content_hash(all_contents)
             cache_key = f"full_validation:{content_hash}"
-            cached = CodeValidator.get_cached_validation_by_key(cache_key)
+            cached = self.get_cached_validation_by_key(cache_key)
             if cached:
                 results.update(cached)
                 results["cache_hit"] = True
@@ -944,7 +944,7 @@ class CodeValidator:
 
         # 缓存验证结果（成功和失败都缓存，但过期时间不同）
         if all_files:
-            CodeValidator.store_validation(cache_key, {
+            self.store_validation(cache_key, {
                 "syntax_errors": results["syntax_errors"],
                 "import_errors": results["import_errors"],
                 "dependency_errors": results["dependency_errors"],
