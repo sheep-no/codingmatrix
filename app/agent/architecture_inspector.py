@@ -12,10 +12,23 @@ ArchitectureInspector - 架构检查器
 """
 
 import logging
+import re
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+# 分层边界规则。条目按正则解释；不含正则元字符的裸词（SELECT/INSERT 等）
+# 按整词匹配，避免命中 "SELECTED" 之类的子串。
+_BOUNDARY_RULES = {
+    "no_database_access": ["import.*sql", "import.*mongo", "import.*redis", "SELECT", "INSERT"],
+    "no_business_logic": ["class.*Service", "def.*calculate", "def.*validate"],
+    "no_ui_rendering": ["render", "template", "return.*html"],
+    "no_http_handling": ["@app.route", "@router", "Request", "Response"],
+}
+
+_REGEX_META = set(".*+?[]{}()|^$\\")
 
 
 @dataclass
@@ -109,8 +122,13 @@ class ArchitectureInspector:
             llm_violations = self._llm_architecture_review(llm_checker)
             violations.extend(llm_violations)
 
-        critical_violations = [v for v in violations if v.severity == "critical"]
-        passed = len(critical_violations) == 0
+        # 门禁口径：high 及以上违规即不通过。六项内建检查最高只产出 high，
+        # 若只认 critical，则内建检查永远无法让门禁失败（LLM 审查是可选且
+        # 生产未接线），门禁形同虚设。
+        blocking_violations = [
+            v for v in violations if v.severity in ("critical", "high")
+        ]
+        passed = len(blocking_violations) == 0
 
         alignment_score = self._calculate_alignment_score(violations)
 
@@ -173,16 +191,13 @@ class ArchitectureInspector:
 
     def _violates_boundary(self, content: str, rule: str) -> bool:
         """检查是否违反边界规则"""
-        rule_patterns = {
-            "no_database_access": ["import.*sql", "import.*mongo", "import.*redis", "SELECT", "INSERT"],
-            "no_business_logic": ["class.*Service", "def.*calculate", "def.*validate"],
-            "no_ui_rendering": ["render", "template", "return.*html"],
-            "no_http_handling": ["@app.route", "@router", "Request", "Response"]
-        }
-
-        patterns = rule_patterns.get(rule, [])
+        patterns = _BOUNDARY_RULES.get(rule, [])
         for pattern in patterns:
-            if pattern.lower() in content.lower():
+            if _REGEX_META & set(pattern):
+                hit = re.search(pattern, content, re.IGNORECASE)
+            else:
+                hit = re.search(rf"\b{re.escape(pattern)}\b", content, re.IGNORECASE)
+            if hit:
                 return True
 
         return False
@@ -240,9 +255,13 @@ class ArchitectureInspector:
             allowed_targets = rule_config.get("allowed_targets", [])
 
             if source_pattern and source_pattern in file_path:
-                for allowed in allowed_targets:
-                    if allowed not in import_path:
-                        return rule_name
+                # allowed_targets 是白名单：import 目标须落在其中之一，全部
+                # 都不匹配才算违规。原实现要求「每个 allowed 都出现在同一
+                # import 里」，多目标规则必然误报。
+                if allowed_targets and not any(
+                    allowed in import_path for allowed in allowed_targets
+                ):
+                    return rule_name
 
         return None
 
@@ -333,11 +352,10 @@ class ArchitectureInspector:
         violations = []
 
         for constraint in self.global_constraints:
-            for file_path in constraint.applies_to:
-                if file_path == "all":
+            applies_to = getattr(constraint, "applies_to", None) or ["all"]
+            for file_path, content in self.generated_files.items():
+                if not self._constraint_applies_to_file(applies_to, file_path):
                     continue
-
-                content = self.generated_files.get(file_path, "")
                 if not content:
                     continue
 
@@ -346,6 +364,28 @@ class ArchitectureInspector:
                     violations.append(violation)
 
         return violations
+
+    @staticmethod
+    def _constraint_applies_to_file(applies_to: List[str], file_path: str) -> bool:
+        """约束的 applies_to 是层名/关键词（backend/frontend/api/all），不是文件路径。
+
+        按语义把层名映射到真实文件路径：`all` 命中全部；`api` 命中 API 相关
+        文件；其余按路径关键词匹配。
+        """
+        path_lower = file_path.lower()
+        for marker in applies_to:
+            marker = str(marker).lower()
+            if marker == "all":
+                return True
+            if marker == "api":
+                if any(
+                    token in path_lower
+                    for token in ("api", "router", "controller", "endpoint", "route")
+                ):
+                    return True
+            elif marker in path_lower:
+                return True
+        return False
 
     def _check_constraint_in_content(
         self,
@@ -357,7 +397,11 @@ class ArchitectureInspector:
         constraint_text = constraint.description.lower()
 
         if "安全" in constraint_text or "权限" in constraint_text:
-            security_patterns = ["@require_auth", "@login_required", "check_permission", "auth_required"]
+            security_patterns = [
+                "@require_auth", "@login_required", "check_permission", "auth_required",
+                "Depends(", "Security(", "get_current_user", "OAuth2PasswordBearer",
+                "HTTPBearer", "current_user",
+            ]
             has_security = any(p in content for p in security_patterns)
             if not has_security and ("api" in file_path or "router" in file_path):
                 return ArchitectureViolation(
@@ -496,15 +540,3 @@ class ArchitectureInspector:
             suggestions.append(f"[{v.severity}] {v.file_path}: {v.suggestion}")
 
         return suggestions
-
-    def get_violations_by_type(
-        self,
-        result: ArchitectureCheckResult
-    ) -> Dict[str, List[ArchitectureViolation]]:
-        """按类型分组违规"""
-        grouped = {}
-        for v in result.violations:
-            if v.violation_type not in grouped:
-                grouped[v.violation_type] = []
-            grouped[v.violation_type].append(v)
-        return grouped

@@ -205,3 +205,24 @@ if api_style == "REST":
 - 归属「存在≠正确」验证语义主线（与 cross_validator CV / refinement_loop RL3 / test_runner TR1 同族）——架构审查是生成链路最后一道验证关口，当前形同虚设。
 - 架构检查与 `critical_decision`（CD 决策）耦合：AI7 的 api_style 依赖决策链路产出；CD 修复（见 critical_decision.md CD1/CD2）后检查输入源才可靠。
 - 与两套 LLM 契约主线（LLMClient str vs call_llm dict）冲突点：AI8c；接线 LLM 审查须走统一 llm_client（LCL1 收敛范围）。
+
+## 7. 状态校准（2026-09-23 复核）
+
+以当前代码逐条复核 §3 缺陷：
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| AI1 | 已修 | `passed` 判定由「仅 critical」改为「high 及以上」违规数为 0（`blocking_violations`，:128-131）。六项内建检查最高只产出 high、LLM 审查是可选且生产未接线，原口径下门禁永不失败。消费方 spec_first:1164 只追加 warnings，不阻断生成，故该改动把「恒通过」变为「真实告警」而非硬失败。 |
+| AI2 | 已修 | `_check_global_constraints` 不再把 `applies_to` 的层名当文件路径查内容、也不再跳过 `all`。改为遍历真实 `generated_files`，用 `_constraint_applies_to_file`（:349）把层名/关键词（`all`/`api`/`backend`/`frontend`）映射到文件路径；`all` 命中全部文件。同时扩充安全模式识别（补 `Depends(`/`Security(`/`get_current_user`/`OAuth2PasswordBearer`/`HTTPBearer`/`current_user`），降低仅认装饰器的假阳性。安全/权限类全局约束的真实检查得以执行。 |
+| AI3 | **仍在** | `layers`/`dependency_rules`/`naming_conventions` 三个 key 全库仍无生产者（architect 只产 `tech_stack` 等）。定义数据契约并接线属架构侧改动，保留。 |
+| AI4 | 已修 | `_violates_boundary` 原先用 `pattern in content` 字面匹配，含 `.*` 的正则风格模式永不命中。规则提取为模块级 `_BOUNDARY_RULES`，含正则元字符的按 `re.search` 匹配，裸词（`SELECT`/`INSERT`/`render` 等）按整词边界匹配，消除 `SELECTED` 之类子串误报。 |
+| AI5 | 已修 | `_check_import_direction` 语义反转：原「每个 allowed 都必须出现在同一 import 中」改为白名单语义——仅当 import 目标落在 `allowed_targets` 之外才违规（:258-263）。多目标规则不再必然误报。 |
+| AI6 | **仍在** | `_check_tech_stack_consistency` 仍用 `"backend"/"frontend" in path` 子串归属，框架 markers 仍为裸词子串。属噪声收敛（P2），且不改变门禁正确性，保留。 |
+| AI7 | **仍在** | `_check_api_style` 仍是单向反证（REST 只查 GraphQL 字面）。依赖 CD 决策链路产出 `api_style`，属 P2，保留。 |
+| AI8a | 仍在 | `_check_file_naming` 仍只覆盖 snake_case/kebab-case；依赖 AI3 未产出的 key。 |
+| AI8b | 未改（判定可接受） | `_calculate_alignment_score` 的权重与 passed 口径独立：score 是连续质量指标，passed 是 high 级门禁。多个 medium/low 违规时 score 下降而 passed 仍为 True，语义合理；`critical: 0.3` 权重仍留给 LLM 审查产出的 critical。 |
+| AI8c | **仍在** | `_llm_architecture_review` 异常静默与 LLM 契约分歧属接线专项（spec_first 未传 llm_checker），保留。 |
+| AI8d | 已修 | 删除零消费方死方法 `get_violations_by_type`。 |
+| AI8e | 已修 | 新增 `tests/unit/test_architecture_inspector.py`（11 项），建立模块回归基线（此前零覆盖）。 |
+
+配套测试覆盖：passed 门禁（high 拦截 / low+medium 放行 / 零违规满分）、全局约束（api 文件缺鉴权告警、Depends 注入不告警、`all` 命中、无关层跳过）、依赖方向白名单（放行/拦截）、边界规则（正则命中、整词边界）。
