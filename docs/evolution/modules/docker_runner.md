@@ -1,9 +1,15 @@
-# docker_runner.py 演化深扫文档
+# docker_runner.py 演化深扫文档（已废弃）
 
-> 版本：v0.1 | 扫描日期：2026-08-17 | 状态：已完成
+> 版本：v0.1 | 扫描日期：2026-08-17 | 状态：**已废弃（模块已删除）**
 > 归属：Agent 引擎 / 测试执行链（Docker 容器化验证侧）
-> 路径：`app/utils/docker_runner.py`（802 行）
+> 路径：`app/utils/docker_runner.py`（已于 commit `58feba59` 删除）
 > 索引：[TASKS.md](../TASKS.md)
+
+## 0. 废弃说明（2026-09-23 校准）
+
+本文档描述的 `app/utils/docker_runner.py`（802 行）已随 commit `58feba59`「refactor(sandbox): drop Docker runner and its unreachable tasks」整体删除；同批删除的还有 `app/tasks/code_tasks.py` 的 `execute_code`、`app/tasks/project_tasks.py` 的 `validate_project` 与 `tests/unit/test_task_queue.py` 中对应用例（合计 -908 行）。经全库检索，当前 `app/` 下已无 `DockerRunner` 类、无 `docker_runner` 模块、无 `_run_tests_in_docker` 调用点，`test_runner.py` / `service_container_manager.py` 中残留的仅是注释里对旧名称的引用。
+
+因此 DR1-DR13 全部**失效**，不再作为缺陷清单消费。测试执行链的现状是：`orchestrator_testing.py` 只保留本地 `IsolatedTestRunner` 路径（Docker 分支已移除），运行验证归 VS Code Agent Host 本地执行。下文保留仅作历史存档，不再维护。
 
 ## 1. 模块定位
 

@@ -84,3 +84,17 @@
 - **LLM 契约双轨（v1.11 主线）**：UT10/UT6 都隐含对 llm_caller 返回类型的假设不一致
 - **五支柱（EVOLUTION.md §5.6 支柱 2）**：沙箱验证应是 Gate 的执行器，UT5 使 Gate 在缺依赖时形同虚设
 - **演化方向**：utils 是「存在≠正确」门禁的执行端，应先固化「验证工具不可用=验证未执行」的可辨识语义，再谈验证器协议统一（CV8）
+
+## 状态校准（2026-09-23 复核）
+
+`app/agent/utils.py` 的沙箱验证部分已重构（当前 1420 行），逐条读码复核后，本文档多数条目已过时：
+
+- **UT5 部分已修**：`validate_in_sandbox` 现在把验证拆成三层——`syntax` 级用本地解析器（`_shared_syntax_errors`：Python `ast.parse`、JS/TS 走 `js_syntax`、标记语言走 `markup_syntax`），不执行代码、不依赖 bwrap；`import`/`contract`/`run` 级直接记 info 并返回 `(True, [])`，交由 VS Code Agent Host 本地执行；只有注册了真实编译器验证器的语言（Go/Rust）才构造 bwrap 脚本。bwrap 缺失时（`:819`）记 `logger.info`「云端语法验证跳过」后返回 `(True, [])`。「静默」已消除，但「跳过」与「通过」在返回契约上仍不可区分——要可辨识需改返回结构，属契约变更，保留待产品确认。
+- **UT6 已消解（文档滞后）**：`_generate_script_with_ai` 与 `asyncio.get_event_loop().run_until_complete` 路径已不存在，全文件无该定义。
+- **UT7 已消解（文档滞后）**：`GenericSandboxValidator` 与 `JavaScriptSandboxValidator` 已删除。当前基类 `SandboxValidator` 仅由 `GoSandboxValidator`、`RustSandboxValidator` 继承，二者只做编译器级校验（`go vet` / `rustc`），不再有朴素括号计数兜底。
+- **UT10 已消解（文档滞后）**：`validate_language_with_llm` 已无 `"NO" in result.upper()` 判定，当前先做启发式匹配（`_heuristic_language_match`）后直接返回 `(True, "")`，不再拒绝任何内容，不存在 "NOTE" 假阳性。
+- **UT13 部分已消解**：快速语法检查不再只覆盖 `.json`/`.py`。`_SHARED_SYNTAX_EXTENSIONS` 覆盖 `.py/.js/.jsx/.mjs/.cjs/.ts/.tsx/.vue/.html/.htm/.xhtml/.css`，其余扩展名如实返回 `[]` 后交由 Agent Host 验证。
+- **UT14 已消解（架构调整）**：`import`/`run` 级在 `validate_in_sandbox` 入口即短路返回 `(True, [])` 交给本地 Agent Host，不再进入验证器；Go/Rust 验证器在 `syntax` 级用真实编译器。原「JS 只 node --check、Go 只 go vet」的 JS 验证器已删除。
+- **UT11 已消解**：原 JS/Python 验证器的 f-string `repr` 拼接已随验证器重写移除；现存 `GoSandboxValidator`/`RustSandboxValidator` 的 `repr(go_files)` / `repr(rs_files)` 用作生成脚本内的 Python 字面量赋值，`repr` 对引号与反斜杠做安全转义，不存在破坏脚本的路径。
+
+结论：`utils.md` 的验证器缺陷清单已随架构重构失效，唯一仍在的语义缺口是 UT5 的「跳过 vs 通过」契约可辨识性，属需要调用方一起调整的设计项。

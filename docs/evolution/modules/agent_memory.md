@@ -53,4 +53,19 @@ AGM1 是核心：DB 层是记忆持久化的**正确落点**（schema 完备：s
 
 ## 5. 测试状态
 
+## 6. 状态校准（2026-09-23 复核）
+
+逐条读码复核本清单，结论如下。本模块**没有进入任何修复批次**：DB 层 service 的非知识方法在生产零消费，修复收益依赖先接线，故本轮只做状态核实。
+
+- **AGM1 仍成立**：`app/agent/memory.py` 为进程内记忆（`MemoryEntry` 无 DB 会话/落库路径），运行时链不调用 `AgentMemoryService`。逐方法统计生产调用方：`add_memory_entry`、`log_tool_execution`、`update_model_stats` 均 0；`add_reflection` 命中的是内存态 `app/agent/memory.py:467`，非本 service；`create_session` 命中的是 `session_manager` 的同名方法。仅 `add_knowledge` / `search_knowledge` / `get_user_knowledge` 被 `app/api/v1/ai_agent/knowledge_endpoints.py` 消费。结论未变：记忆闭环断裂，DB 侧除知识三方法外零写入。
+- **AGM2 仍成立**：`add_memory_entry` 签名（`session_id/entry_type/content/extra_data/importance`）确无 embedding 参数，`MemoryEntry.embedding` 恒 None；`KnowledgeEntry` 无 embedding 字段；`search_knowledge` 为 `ilike` 字面匹配。embedding 三断确认。
+- **AGM3 仍成立**：`AiProjectCode.py` 直接 ORM 建 `AgentSession`/写 `KnowledgeEntry`，与 service 方法并存，无统一仓储层。
+- **AGM4 部分过时**：`AgentSession.context_summary` **有写入点**（`app/api/v1/AiProjectCode.py:50` `context_summary=task_description[:500]`），原文「全库无写入点」不成立。`get_memory_context` 仍按 `max_entries=50` 条数截断、未过滤 `TOOL` 类型、无 token 预算/摘要压缩，这部分成立。
+- **AGM5 仍成立**：`update_model_stats` 的滚动平均仍以 `success_count + failure_count` 为分母，失败请求 `execution_time=0` 会稀释均值；`ModelUsageStats` 无成本字段。该 service 生产零消费，影响面为潜在。
+- **AGM6 / AGM7 仍成立**：`get_memory_context` 按条数截断；`log_tool_execution` 的 `tool_result` 仍硬编码截断 10000 字符且无标记。
+- **AGM8 仍成立**：`update_model_stats` 的 select→改→commit 与 `increment_knowledge_usage` 的读改写均无行锁。
+- **AGM9 仍成立**：`KnowledgeEntry.knowledge_key` 为 `Column(String(255), index=True)`，非唯一约束（`app/models/agent_memory.py:86`），与内存态同 key 覆盖语义不一致。
+
+处置建议：AGM2/AGM9 与知识接口相关（有消费方），若要推进需先确认「语义搜索」是否为当前产品目标；AGM4/AGM5/AGM6/AGM7/AGM8 依赖运行时记忆接线到 DB，属记忆闭环功能落地的一部分，接线后需一并处理。
+
 无 agent_memory 专项测试；knowledge_endpoints 端点测试若存在也只覆盖知识三方法；service 的 session/memory/reflection/tool_log/model_stats 方法全部无生产消费方也无测试覆盖。
