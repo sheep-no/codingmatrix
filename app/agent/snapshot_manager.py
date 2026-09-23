@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 
-from app.agent.git_operations import GitOperations, SnapshotInfo
+from app.agent.git_operations import GitOperations, SnapshotInfo, MAINLINE_BRANCHES
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ class RollbackResult:
     previous_tag: str
     current_tag: str
     files_restored: List[str] = field(default_factory=list)
+    branch_deleted: bool = False
 
 
 @dataclass
@@ -99,10 +100,17 @@ class SnapshotManager:
             logger.debug("无变更需要提交")
             return None
 
-        tag_name = f"agent-{session_id}-{datetime.now().strftime('%H%M%S')}"
-        await self.git_ops.create_tag(
+        # 秒级时间戳 + commit 短哈希：同一会话同一秒内多次保存不再产生重名标签
+        tag_name = (
+            f"agent-{session_id}-{datetime.now().strftime('%H%M%S')}-{commit_hash[:8]}"
+        )
+        created_tag = await self.git_ops.create_tag(
             project_path, tag_name, description
         )
+        if not created_tag:
+            # 标签创建失败时不能谎报快照已保存（否则 list/rollback 都查不到该 tag）
+            logger.error(f"创建快照标签失败: {tag_name}")
+            return None
 
         snapshot = SnapshotInfo(
             tag=tag_name,
@@ -143,20 +151,44 @@ class SnapshotManager:
             logger.error(f"快照不存在: {snapshot_tag}")
             return None
 
+        branch_before = await self.git_ops.get_current_branch(project_path)
+        pre_head = await self.git_ops.get_head_commit(project_path)
+
+        # git 禁止删除当前检出的分支。若当前在 feature 分支上，必须在 reset
+        # 之前先切到主线分支，reset 才会落在主线上（否则 reset 移动的是 feature
+        # 分支指针，随后删分支必然失败且回滚内容会随分支一起被丢弃）。
+        is_feature_branch = bool(branch_before) and branch_before not in MAINLINE_BRANCHES
+        if delete_branch and is_feature_branch:
+            switched = await self.git_ops.checkout_mainline(project_path)
+            if not switched:
+                logger.warning(f"无法切换到主线分支，保留 feature 分支: {branch_before}")
+                is_feature_branch = False
+
         success = await self.git_ops.revert_to_commit(
             project_path, snapshot.commit_hash
         )
 
-        current_branch = await self.git_ops.get_current_branch(project_path)
+        files_restored: List[str] = []
+        if success and pre_head:
+            files_restored = await self.git_ops.diff_files_between_commits(
+                project_path, pre_head, snapshot.commit_hash
+            )
 
-        if delete_branch and current_branch != "main":
-            await self.git_ops.delete_branch(project_path, current_branch)
+        branch_deleted = False
+        if success and is_feature_branch:
+            branch_deleted = await self.git_ops.delete_branch(project_path, branch_before)
+            if not branch_deleted:
+                logger.warning(f"feature 分支删除失败，仍残留: {branch_before}")
+
+        # 如实返回回滚后的实际分支，不再恒报 "main"
+        current_tag = await self.git_ops.get_current_branch(project_path)
 
         return RollbackResult(
             success=success,
             previous_tag=snapshot_tag,
-            current_tag="main",
-            files_restored=snapshot.files_changed,
+            current_tag=current_tag,
+            files_restored=files_restored,
+            branch_deleted=branch_deleted,
         )
 
     async def finalize_session(
