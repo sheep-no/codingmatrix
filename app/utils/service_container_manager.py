@@ -16,6 +16,7 @@ v4.8.1 增强：
 
 import asyncio
 import logging
+import re
 import time
 from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
@@ -185,12 +186,13 @@ class ServiceContainerManager:
 
         self._running_containers[service_name] = container_id
 
-        port_mapping = {}
-        for internal_port, host_port in config["ports"].items():
-            actual_port = self._find_available_port(host_port)
-            port_mapping[internal_port] = actual_port
-
-        self._container_ports[service_name] = port_mapping
+        # 端口映射已由 _start_container 分配并记录；这里再次分配会跳过已占用
+        # 端口得到不同结果，使返回的 info/env 与实际绑定端口相差一位。
+        port_mapping = self._container_ports.get(service_name) or {}
+        if not port_mapping:
+            for internal_port, host_port in config["ports"].items():
+                port_mapping[internal_port] = self._find_available_port(host_port)
+            self._container_ports[service_name] = port_mapping
 
         env_vars = self._generate_test_env_vars(service_name, port_mapping)
 
@@ -253,12 +255,31 @@ class ServiceContainerManager:
                 service_name, container_id, config, docker_client
             )
             if not health_ok:
-                logger.warning(f"服务 {service_name} 健康检查超时")
+                logger.warning(f"服务 {service_name} 健康检查未通过，回滚容器")
+                await self._stop_container(docker_client, container_id, service_name)
+                self._container_ports.pop(service_name, None)
+                return None
             return container_id
 
         except Exception as e:
             logger.error(f"启动容器 {service_name} 异常: {e}")
             return None
+
+    async def _stop_container(
+        self, docker_client, container_id: str, service_name: str
+    ) -> bool:
+        """停止单个容器；auto_remove 会在停止后移除容器"""
+        def _stop():
+            container = docker_client.containers.get(container_id)
+            container.stop(timeout=5)
+
+        try:
+            await asyncio.to_thread(_stop)
+            logger.info(f"服务容器 {service_name} 已停止")
+            return True
+        except Exception as e:
+            logger.warning(f"停止容器 {service_name} 失败: {e}")
+            return False
 
     async def _wait_for_health_single(
         self,
@@ -280,7 +301,8 @@ class ServiceContainerManager:
         # Phase 2a: TCP 端口探测（每秒检查，比 exec 快得多）
         tcp_start = time.time()
         tcp_ok = False
-        while (time.time() - tcp_start) < min(startup_timeout, 15):
+        # 尊重配置的 startup_timeout（ES 等冷启动服务需要 >15s），不再硬编码截断
+        while (time.time() - tcp_start) < startup_timeout:
             if await self._port_is_open_async(127, 0, 0, 1, actual_health_port):
                 tcp_ok = True
                 logger.info(f"服务 {service_name} TCP 端口 {actual_health_port} 已就通 ({time.time()-tcp_start:.1f}s)")
@@ -310,7 +332,7 @@ class ServiceContainerManager:
                 await asyncio.sleep(2)
 
             logger.warning(f"服务 {service_name} exec 健康检查未通过")
-            return True  # TCP 已通，视为基本可用
+            return False
 
         logger.info(f"服务 {service_name} TCP 就通，无 exec 健康命令，视为健康")
         return True
@@ -343,15 +365,19 @@ class ServiceContainerManager:
 
     @staticmethod
     async def _port_is_open_async(a: int, b: int, c: int, d: int, port: int) -> bool:
-        """异步检测端口是否可连接"""
-        import socket
+        """异步检测端口是否可连接（非阻塞，不占用事件循环）"""
+        host = f'{a}.{b}.{c}.{d}'
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex((f'{a}.{b}.{c}.{d}', port))
-            sock.close()
-            return result == 0
-        except Exception:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=1
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True
+        except (asyncio.TimeoutError, OSError):
             return False
 
     def _verify_container_alive(self, container_id: str, docker_client) -> bool:
@@ -371,18 +397,20 @@ class ServiceContainerManager:
         return all_env
 
     def _find_available_port(self, preferred_port: int) -> int:
-        """查找可用端口"""
+        """查找可用端口（跳过已分配端口，绑定失败继续向后探测）"""
         import socket
         port = preferred_port
-        while port in self._allocated_ports:
-            port += 1
-
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('localhost', port))
+        while port <= 65535:
+            while port in self._allocated_ports:
+                port += 1
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('localhost', port))
                 return port
-        except OSError:
-            return port + 1
+            except OSError:
+                # 端口被其他进程占用，继续向后探测而不是盲目 +1
+                port += 1
+        raise RuntimeError("没有可用端口")
 
     def _generate_test_env_vars(
         self, service_name: str, port_mapping: Dict[int, int]
@@ -395,46 +423,42 @@ class ServiceContainerManager:
                 return {}
             env_vars = {}
             for var_name, default_val in template.env_vars.items():
-                env_vars[var_name] = default_val
+                value = default_val
                 for internal_port, actual_port in port_mapping.items():
-                    env_vars[var_name] = env_vars[var_name].replace(
-                        str(internal_port), str(actual_port)
+                    # 仅替换独立出现的端口数字，避免误伤密码/用户名里含相同数字的子串
+                    value = re.sub(
+                        rf"(?<![0-9A-Za-z]){internal_port}(?![0-9A-Za-z])",
+                        str(actual_port),
+                        value,
                     )
+                env_vars[var_name] = value
             return env_vars
-        except Exception:
+        except Exception as e:
+            logger.warning(f"生成 {service_name} 测试环境变量失败: {e}")
             return {}
 
     async def cleanup_containers(self, docker_client=None):
-        """清理所有服务容器（不清理缓存的，仅清理本次启动的）"""
+        """停止本管理器启动/复用的全部服务容器并重置状态。
+
+        健康缓存条目在本流程中与运行容器一一对应（每次启动都会写缓存），原先
+        「缓存命中即跳过」的分支会把本批启动的容器全部跳过，容器在
+        auto_remove=True 下永不停止。容器按 TTL 复用的前提是它仍在运行，
+        因此清理阶段必须真正停止。
+        """
         if not docker_client:
             return
 
-        for service_name, container_id in self._running_containers.items():
-            cached = self._health_cache.get(service_name)
-            if cached and cached.container_id == container_id:
-                continue
-
-            try:
-                def _stop():
-                    try:
-                        container = docker_client.containers.get(container_id)
-                        container.stop(timeout=5)
-                        logger.info(f"服务容器 {service_name} 已停止")
-                    except Exception:
-                        pass
-
-                await asyncio.to_thread(_stop)
-            except Exception as e:
-                logger.warning(f"停止容器 {service_name} 失败: {e}")
+        for service_name, container_id in list(self._running_containers.items()):
+            await self._stop_container(docker_client, container_id, service_name)
 
         self._running_containers.clear()
         self._allocated_ports.clear()
         self._container_ports.clear()
+        self._health_cache.clear()
 
     async def cleanup_all(self, docker_client=None):
         """清理所有容器包括缓存（用于完全退出时）"""
         await self.cleanup_containers(docker_client)
-        self._health_cache.clear()
 
     def get_running_services(self) -> Dict[str, str]:
         """获取当前运行的服务容器"""
@@ -495,13 +519,21 @@ def detect_project_services(project_path: Path) -> List[str]:
                 "RABBITMQ_HOST": "rabbitmq",
                 "ELASTICSEARCH_URL": "elasticsearch",
             }
-            for var_name, svc in ENV_VAR_TO_SERVICE.items():
-                if var_name in content and svc not in services:
+            for line in content.split("\n"):
+                line = line.strip()
+                # 忽略注释/空行，按键名精确匹配，避免注释里的变量名被当真实依赖
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                var_name = line.split("=", 1)[0].strip()
+                svc = ENV_VAR_TO_SERVICE.get(var_name)
+                if svc and svc not in services:
                     services.append(svc)
         except Exception:
             pass
 
     compose_file = project_path / "docker-compose.yml"
+    if not compose_file.exists():
+        compose_file = project_path / "docker-compose.yaml"
     if compose_file.exists():
         try:
             content = compose_file.read_text(encoding="utf-8", errors="ignore")
@@ -513,9 +545,16 @@ def detect_project_services(project_path: Path) -> List[str]:
                 "rabbitmq": "rabbitmq",
                 "elasticsearch": "elasticsearch",
             }
-            for image_key, svc in COMPOSE_IMAGE_TO_SERVICE.items():
-                if image_key in content.lower() and svc not in services:
-                    services.append(svc)
+            for line in content.split("\n"):
+                stripped = line.strip()
+                # 只看 image 定义行，跳过注释；服务名/注释里的关键词不再误判
+                if stripped.startswith("#") or not stripped.startswith("image:"):
+                    continue
+                image = stripped[len("image:"):].strip().strip('"\'')
+                repo = image.split(":")[0].split("/")[-1].lower()
+                for image_key, svc in COMPOSE_IMAGE_TO_SERVICE.items():
+                    if image_key in repo and svc not in services:
+                        services.append(svc)
         except Exception:
             pass
 

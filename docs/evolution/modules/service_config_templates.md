@@ -189,7 +189,7 @@
 | SCT2 | 已修 | 关键词匹配由裸 `in` 子串改为 `_keyword_matches`：ASCII 关键词按非标识符字符边界（`(?<![A-Za-z0-9_])kw(?![A-Za-z0-9_])`）匹配，中文关键词仍按子串。并移除纯误报源短词/泛词 `es` / `pg` / `mq` / `queue` / `session store`，`search engine` 保留。三条文档实测误报（`Users need these services`、`The user session stores tokens`、`business analysis report`）现均返回 `[]`；`Redis cache` / `Elasticsearch` / `RabbitMQ message queue` 等真实信号仍命中。注：`cache` 保留为整词匹配（非文档建议的移除），因其在词边界下不产生误报且是 redis 的真实信号。 |
 | SCT3 | 已修 | 6 个 `connection_code` 模板统一在首行补 `import os`（redis/postgresql/mysql/mongodb/rabbitmq/elasticsearch），复制即用，不再 `NameError: name 'os' is not defined`。新增用 `ast` 断言各模板均导入 `os`。 |
 | SCT7 | 部分已修 | `generate_env_example` 对空默认值（如 `REDIS_PASSWORD: ""`）改输出注释行 `# REDIS_PASSWORD=`，`generate_docker_compose` 解析时按 `#` 跳过，空字符串不再注入 app 容器 `environment`（空串 ≠ 未设置的语义问题消除）。**SECRET_KEY 仍为 `change-me-in-production` 静态弱口令**：改为强随机占位需要产品侧确定生成/下发流程（`.env.example` 与 compose 插值 `\${SECRET_KEY}` 的取值来源），保留。 |
-| SCT4 | **待处理（他模块）** | 位于 `app/utils/service_container_manager.py:399-402` 的全局子串端口替换（密码含端口数字被误改）属容器管理器，未在本批处理。 |
+| SCT4 | 已修（2026-09-23，跨模块） | `app/utils/service_container_manager.py::_generate_test_env_vars` 的端口替换由全局 `str.replace` 改为边界正则 `(?<![0-9A-Za-z])<port>(?![0-9A-Za-z])`：仅替换独立出现的端口数字，`pass5672word` 等含相同数字的密码/用户名字串不再被误改，端口本身正常替换。同一批次另修复该模块的 SCM1/2/3/4/5/6/7/9 与端口重复分配缺陷，详见 `service_container_manager.md` §7。 |
 | SCT5 | **保留** | 6/7 公开函数仍生产零消费方。接线需与 `spec_first_generator` 的 `config_hint` LLM 提示路径做替换决策，属生成链专项。 |
 | SCT6 | **保留** | `SERVICE_TEMPLATES` 与 `SERVICE_CONTAINER_CONFIGS` 双份 image/端口/健康检查手工副本仍并存（当前值一致），收敛为单向派生属结构性改动，保留。 |
 
