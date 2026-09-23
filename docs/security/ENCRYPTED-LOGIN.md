@@ -39,7 +39,7 @@
 5. 查询用户与权限，使用 bcrypt 验证密码。
 6. 签发 access token 和 refresh token，设置 refresh 与 CSRF Cookie。
 
-登录密钥管理器默认从工作目录下的 `keys/rsa_private.pem` 与 `keys/rsa_public.pem` 加载 RSA 密钥。文件首次缺失时生成并保存密钥对。容器部署应创建可写的 `keys/` 目录，并将同一密钥卷挂载到所有 worker；私钥应限制为服务账户可读。
+登录密钥管理器默认从 `keys/rsa_private.pem` 与 `keys/rsa_public.pem` 加载 RSA 密钥，路径可用 `RSA_KEY_DIR` 覆盖。文件首次缺失时生成并保存密钥对。密钥文件不入库（`.gitignore` 忽略 `keys/*.pem`），部署时应经密钥卷或密钥管理注入，而不能依赖仓库分发；容器部署需创建可写的密钥目录并将同一密钥卷挂载到所有 worker，私钥限制为服务账户可读。2026-09-23 已完成一次密钥轮换，仓库历史中的旧私钥视为已泄露，不再用于任何环境。
 
 ## 兼容载荷
 
