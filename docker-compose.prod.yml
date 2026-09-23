@@ -23,6 +23,10 @@ services:
       - WS_MAX_CONNECTIONS=100
       - LOG_LEVEL=INFO
       - ENABLE_SCHEDULER=false
+      # 与 celery/scheduler 共用 api-data 卷上的同一 SQLite 文件；缺省会落到
+      # 容器内 /app/app.db（各容器各自独立、重建即丢），导致调度任务看不到 API 数据
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
@@ -66,6 +70,8 @@ services:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=INFO
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
@@ -102,7 +108,8 @@ services:
     environment:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/app.db}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
     volumes:
       - api-data:/app/data
       - api-logs:/app/logs
