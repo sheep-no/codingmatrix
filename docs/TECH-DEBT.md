@@ -64,6 +64,7 @@
 | P2 | `Escape` 无法关闭左侧工具集下拉菜单，与帮助面板「Esc 关闭工具面板/弹窗」声明不一致 | `src/components/index.vue`、`src/components/leftlist.vue` | 已解决；leftlist 暴露 `closeToolkitMenu`，escape 处理器调用之 |
 | P2 | 本地 compose 以 `ENV=production` 启动却不提供 `SECRET_KEY`，celery 也未挂载数据卷与生成物目录 | `docker-compose.yml` | 已解决；补齐 `SECRET_KEY=${SECRET_KEY:?}` 与统一 `DATABASE_URL`，api/celery 共享 data 与四个生成物挂载，新增守卫用例 |
 | P3 | 前端 E2E 的 `core`、`11-theme-shortcuts` 存在测试代码缺陷（选择器过期、等待不足、快捷键名与实现不符） | `tests/e2e/core.spec.js`、`tests/e2e/11-theme-shortcuts.spec.js` | 已解决；按真实控件与产品声明的快捷键重写，改用轮询等待，PR #210 |
+| P1 | 测试 fixture 对所连数据库执行 `drop_all`，本地跑一次 pytest 就会清空开发库 `app.db` 全部表（表现为既有账号消失、登录 500） | `tests/conftest.py` | 已解决；导入 app 前把测试库指向独立 `test.db`（可被 `TEST_DATABASE_URL` 覆盖），并对非测试库拒绝执行清表，补 3 项回归用例 |
 
 ### 仍需决策
 

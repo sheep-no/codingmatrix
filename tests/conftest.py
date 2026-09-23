@@ -8,13 +8,36 @@ import os
 import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO_ROOT)
+
+# 测试隔离：test_db_setup 会对所连数据库执行 drop_all 清空全部表。
+# 若沿用 .env 中的开发库（app.db），跑一次测试就会把本地数据整库删掉。
+# 因此在导入 app 模块前把数据库指向独立测试库，可用 TEST_DATABASE_URL 显式覆盖。
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL",
+    f"sqlite+aiosqlite:///{_REPO_ROOT}/test.db",
+)
 
 from app.utils.security import create_access_token
 from app.db.database import engine, async_session
+from app.core.config import settings
 from app.models.base import Base
 from app.models.user import User
 from app.models.Permission import Permission
+
+
+def _assert_dedicated_test_database() -> None:
+    """test_db_setup 会 drop_all，拒绝在非测试库上执行以免误删数据。"""
+    url = settings.DATABASE_URL
+    if os.environ.get("TEST_DATABASE_URL") or ":memory:" in url:
+        return
+    db_name = os.path.basename(url.split("///")[-1])
+    if "test" not in os.path.splitext(db_name)[0].lower():
+        raise RuntimeError(
+            f"test_db_setup 会清空数据库全部表，拒绝在非测试库 {url!r} 上运行；"
+            "如需指定测试库请设置 TEST_DATABASE_URL。"
+        )
 
 
 @pytest.fixture(scope="session")
@@ -115,6 +138,7 @@ async def db_session():
 @pytest_asyncio.fixture
 async def test_db_setup():
     """创建测试数据库表"""
+    _assert_dedicated_test_database()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         yield
