@@ -1,22 +1,24 @@
 # 生产部署指南
 
-**最后核验**: 2026-09-03 | **适用范围**: 当前仓库实现
+**最后核验**: 2026-09-23 | **适用范围**: 当前仓库实现
 
 本文档描述仓库中已经存在的生产部署配置、运行命令和已知阻塞。配置核验范围包括 `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile`、`configs/nginx.conf`、`src/vite.config.js`、`app/api/v1/health.py`、`configs/alembic.ini`、`configs/requirements.txt` 和 `configs/requirements-test.txt`。
 
 ## 当前结论
 
-当前 Docker 生产链路存在以下关键阻塞，仓库内没有修复它们：
+当前 Docker 生产链路的编排层缺口（密钥注入、数据库路径、运行期配置）已修复，镜像层仍缺文档转换工具：
 
-> 2026-09-20 更新：原第 1、2 条前端产物路径冲突已修复。`src/vite.config.js` 的 `build.outDir` 统一为 `dist`（即 `src/dist`），`app/main.py` 的 `DIST_PATH`、`Dockerfile` 的 COPY 与软链、两份 Compose、`configs/nginx.conf`、`scripts/start.sh`、`scripts/check-performance-budget.js` 与 CI 上传路径现在全部指向同一目录。其余阻塞仍然存在。
+> 2026-09-20 更新：原第 1、2 条前端产物路径冲突已修复。`src/vite.config.js` 的 `build.outDir` 统一为 `dist`（即 `src/dist`），`app/main.py` 的 `DIST_PATH`、`Dockerfile` 的 COPY 与软链、两份 Compose、`configs/nginx.conf`、`scripts/start.sh`、`scripts/check-performance-budget.js` 与 CI 上传路径现在全部指向同一目录。
 
 1. ~~Vite 从 `src/` 执行 `npm run build`，`src/vite.config.js` 的 `build.outDir` 是 `../dist`，因此输出目录为仓库根目录 `dist/`。~~ 已修复：输出目录改为 `src/dist`。
 2. ~~`docker-compose.yml`、`docker-compose.prod.yml` 和 `configs/nginx.conf` 都使用 `src/dist`；`Dockerfile` 的前端阶段实际会生成 `/app/dist`，后续却执行 `COPY --from=frontend-builder /app/src/dist ./src/dist`。~~ 已修复：前端阶段产物即 `/app/src/dist`，COPY 与 `ln -sfn /app/src/dist /workspace/src/dist` 指向同一目录。
-3. `Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。PPT 转 PDF 调用 `libreoffice --headless --convert-to pdf`；仓库中没有可用的 LibreOffice/Poppler 运行时保障。
-4. 两份 Compose 都向 API 设置 `ENV=production`，但没有 `env_file` 或 `SECRET_KEY` 环境项。`app/core/config.py` 会在生产环境缺少 `SECRET_KEY` 时拒绝启动。
-5. 两份 Compose 都没有向 API 传递 `DATABASE_URL`。容器内 API 默认使用 `/app/app.db`，该路径没有挂载到持久化卷；生产 scheduler 默认使用 `/app/data/app.db`，因此 API 与 scheduler 会连接两个不同的 SQLite 文件。
+3. ~~两份 Compose 都向 API 设置 `ENV=production`，但没有 `env_file` 或 `SECRET_KEY` 环境项。~~ 已修复：两份 Compose 都以 `${SECRET_KEY:?...}` 强制注入 `SECRET_KEY`，未设置时编排在启动前即报错。
+4. ~~两份 Compose 都没有向 API 传递 `DATABASE_URL`。~~ 已修复：两份 Compose 都以 `${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}` 注入，默认落在 `api-data` 卷内，API 与 celery/scheduler 连接同一持久化数据库。
+5. `Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。PPT 转 PDF 调用 `libreoffice --headless --convert-to pdf`；镜像内仍无 LibreOffice/Poppler 运行时保障。
 
-因此，当前文档不提供“可直接成功”的 Docker 生产部署步骤。修复上述代码和配置属于部署实现变更，本次仅记录阻塞。
+运行期配置已补齐：两份 Compose 的 api/celery/scheduler 统一设置 `RSA_KEY_DIR=/app/keys` 并共享 `api-keys` 卷，避免各容器各自生成密钥导致密文不可互通；同时显式挂载 `data/unified_model_config.yaml`、`data/agent_model_config.yaml` 和 `configs/system_config.json`（`api-data` 空卷会遮蔽镜像内 `data/`）。`app/main.py` 在生产环境缺失这些配置文件时抛出 `RuntimeError` 拒绝启动，避免静默回退到硬编码默认模型。`Dockerfile` 另将 `configs/system_config.json` 打进镜像作为兜底。
+
+镜像层仍缺文档转换工具，因此 PPT 转 PDF 相关能力在容器内不可用；其余部署步骤按下文执行。
 
 ## 部署拓扑
 
@@ -31,13 +33,13 @@
 | `redis` | `redis:7-alpine`；宿主机绑定 `127.0.0.1:6379`；256 MB `allkeys-lru` |
 | `nginx` | `nginx:alpine`；宿主机暴露 `80:80`；代理 `api:8080`；静态目录挂载为 `./src/dist:/workspace/src/dist:ro` |
 
-基础 Compose 文件还声明了名为 `jaeger` 的网络映射项，未将 Jaeger 定义在 `services` 下。因此基础 Compose 当前不会启动 Jaeger 服务，实际服务数仍为 4。该网络映射中含有 `image`、`container_name`、`ports`、`environment` 等服务字段，Compose schema 校验会拒绝这些网络字段，基础 Compose 文件本身也会在配置解析阶段失败。
+基础 Compose 还定义了 `jaeger` 服务，通过 `profiles: ["observability"]` 门控，默认不启动。执行 `docker compose --profile observability up` 才会拉起，因此默认服务数为 4。
 
 ### 生产 Compose
 
 `docker-compose.prod.yml` 的 `services` 实际包含 5 个服务：`api`、`celery`、`scheduler`、`redis`、`nginx`。
 
-- `api` 使用 2 个 Uvicorn worker，绑定 `127.0.0.1:8080`，使用 `api-logs`、`api-data`、`ppt-artifacts` 命名卷。
+- `api` 使用 2 个 Uvicorn worker，绑定 `127.0.0.1:8080`，使用 `api-logs`、`api-data`、`api-keys`、`ppt-artifacts` 命名卷。
 - `celery` 使用 1 个 worker，健康检查显式禁用，使用 `api-logs`、`api-data`、`ppt-artifacts`。
 - `scheduler` 执行 `python -m app.db.scheduler_runner`，健康检查显式禁用；它使用 `api-data` 和 `api-logs`。
 - `redis` 使用 AOF、256 MB `allkeys-lru` 和 `redis-data`，健康检查为 `redis-cli ping`。
@@ -63,13 +65,16 @@ Dockerfile COPY 源 = /app/src/dist
 Compose/Nginx 静态目录 = src/dist / /workspace/src/dist
 ```
 
-## 不可直接执行的 Docker 命令
+## Docker 命令
 
-以下命令反映仓库中的预期入口，当前会受到前述镜像构建或静态目录阻塞，执行前需要先修复代码和配置：
+以下命令反映仓库中的预期入口。编排层配置已修复，可在具备 Docker CLI 的主机执行：
 
 ```bash
 # 构建基础镜像
 docker build -t codingmatrix:latest .
+
+# 两份 Compose 都要求显式提供 SECRET_KEY
+export SECRET_KEY=$(openssl rand -hex 32)
 
 # 启动基础 Compose
 docker compose up -d
@@ -78,7 +83,7 @@ docker compose up -d
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-当前环境未安装 Docker CLI，无法在本工作区执行 `docker compose config` 或构建验证。服务数和字段来自 YAML 文件内容核验。
+当前环境未安装 Docker CLI，无法在本工作区执行 `docker compose config` 或构建验证。服务数和字段来自 YAML 文件内容核验。镜像内仍缺 LibreOffice/Poppler，PPT 转 PDF 能力需在镜像中补齐依赖后使用。
 
 ## 非 Docker 运行
 
@@ -184,7 +189,7 @@ curl -i http://127.0.0.1:8080/api/v1/health
 
 应用日志目录是 `logs/`，当前日志文件包括 `app.log`、`error.log`、`debug.log`、`process_guard.log` 和 `security.log`。Nginx 日志位于 `/var/log/nginx/access.log` 和 `/var/log/nginx/error.log`；生产 Compose 将 Nginx 日志保存到 `nginx-logs`。
 
-生产 Compose 的持久化卷为 `api-data`、`api-logs`、`ppt-artifacts`、`redis-data` 和 `nginx-logs`。当前 API 默认数据库是容器内 `/app/app.db`，位于这些命名卷之外；scheduler 默认数据库是 `api-data` 卷内的 `/app/data/app.db`。完成数据库路径统一和持久化修复后，备份范围至少包含实际应用数据库、`data/`、PPT 输出目录和日志。备份任务的保留周期、权限和异地副本由部署环境负责配置。
+生产 Compose 的持久化卷为 `api-data`、`api-keys`、`api-logs`、`ppt-artifacts`、`redis-data` 和 `nginx-logs`。API 与 celery/scheduler 的默认数据库同为 `api-data` 卷内的 `/app/data/app.db`。备份范围至少包含该数据库、`data/`、PPT 输出目录和日志。备份任务的保留周期、权限和异地副本由部署环境负责配置。
 
 对停止写入后的仓库根目录 SQLite 数据库执行文件备份：
 
@@ -232,7 +237,7 @@ docker compose config --services
 docker compose -f docker-compose.prod.yml config --services
 ```
 
-基础 Compose 应在 `networks.jaeger` schema 校验处报错；生产 Compose 应列出 `api`、`celery`、`scheduler`、`redis`、`nginx`。当前工作区缺少 Docker CLI，这两条命令需要在 Docker 主机执行。
+基础 Compose 应列出 `api`、`celery`、`redis`、`nginx` 四个服务（`jaeger` 需追加 `--profile observability`）；生产 Compose 应列出 `api`、`celery`、`scheduler`、`redis`、`nginx`。当前工作区缺少 Docker CLI，这两条命令需要在 Docker 主机执行。
 
 查看生产服务日志：
 
@@ -243,7 +248,7 @@ docker compose -f docker-compose.prod.yml logs scheduler
 docker compose -f docker-compose.prod.yml logs nginx
 ```
 
-API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的环境注入方案。API 与 scheduler 数据不一致时，分别核对 `/app/app.db` 和 `/app/data/app.db`，并在继续写入前统一数据库路径。健康响应体为 `unhealthy` 且容器探针仍通过时，依据 `checks` 内容判断数据库或 Redis 故障，不能只依赖 `curl -f` 的退出码。
+API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的环境注入方案。API 启动报缺少必需配置文件时，核对 `data/` 与 `configs/` 的挂载项。健康响应体为 `unhealthy` 且容器探针仍通过时，依据 `checks` 内容判断数据库或 Redis 故障，不能只依赖 `curl -f` 的退出码。
 
 ## 已知问题清单
 
@@ -252,12 +257,14 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | ~~前端输出目录冲突~~ | 2026-09-20 已修复：Vite、Dockerfile、Compose、Nginx、start.sh、CI 统一使用 `src/dist` | 已消除 |
 | 镜像缺少文档转换工具 | Dockerfile 运行时仅安装 `curl`、`nginx`；源码调用 LibreOffice | PPT 转 PDF 在镜像中不可用 |
 | Poppler 未纳入镜像 | `configs/requirements.txt` 和 Dockerfile 均未提供 Poppler | PDF 页面渲染相关能力没有镜像级保障 |
-| Compose Jaeger 状态不完整 | 基础文件的 `jaeger` 位于 `networks` 映射；生产文件没有 Jaeger | 当前 Compose 不会启动 Jaeger |
-| 基础 Compose schema 错误 | `networks.jaeger` 下出现服务专用字段 | `docker compose up` 在配置解析阶段失败 |
-| 生产密钥没有注入 | Compose 设置 `ENV=production`，但未声明 `SECRET_KEY` 或 `env_file` | API 配置初始化拒绝启动 |
-| SQLite 路径分裂且持久化缺失 | API 默认 `/app/app.db`；scheduler 默认 `/app/data/app.db`；API 默认路径未挂卷 | 服务读取不同数据库，API 数据随容器替换丢失 |
+| ~~Compose Jaeger 状态不完整~~ | 2026-09-23 已修复：基础文件的 `jaeger` 已是带 `profiles` 的 service，生产链路可另配 Collector | 已消除 |
+| ~~基础 Compose schema 错误~~ | 2026-09-23 已修复：`jaeger` 不再出现在 `networks` 映射中 | 已消除 |
+| ~~生产密钥没有注入~~ | 2026-09-23 已修复：两份 Compose 以 `${SECRET_KEY:?...}` 强制注入 | 已消除 |
+| ~~SQLite 路径分裂且持久化缺失~~ | 2026-09-23 已修复：两份 Compose 注入 `DATABASE_URL`，默认落在 `api-data` 卷内 | 已消除 |
+| ~~运行期模型与系统配置缺失~~ | 2026-09-23 已修复：显式挂载模型/系统配置，生产启动缺文件即报错 | 已消除 |
+| ~~各容器各自生成 RSA 密钥~~ | 2026-09-23 已修复：三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR` | 已消除 |
 | 容器内 Alembic 路径失配 | Dockerfile 将 ini 复制到 `/app/alembic.ini`，相对脚本路径解析到 `/migrations` | 镜像内无法按仓库标准命令执行迁移 |
 | 运行时版本差异 | Dockerfile 使用 Python 3.10；项目说明和本地依赖上下文使用 Python 3.11+ | Docker 与本地运行时行为可能存在差异 |
 | 迁移快捷命令路径不足 | `Makefile` 的 `make migrate` 未指定 Alembic 配置 | 命令依赖当前工作目录和默认配置发现行为 |
 
-本次更新只记录这些事实，没有修改部署实现以清除阻塞。
+本次更新核对了编排层修复结果，并保留仍成立的镜像层与迁移层问题。
