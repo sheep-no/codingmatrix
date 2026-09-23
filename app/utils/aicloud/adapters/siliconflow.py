@@ -1,7 +1,7 @@
 """
 SiliconFlow 供应商适配器
 
-复用现有 call_siliconflow 逻辑。
+基于 `BaseProviderAdapter` 实现 SiliconFlow 的请求与流式响应处理。
 """
 
 import asyncio

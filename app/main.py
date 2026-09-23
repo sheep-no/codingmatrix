@@ -359,5 +359,3 @@ async def serve_vue_routes(full_path: str):
 
     # 其他路径返回 index.html，让 Vue Router 处理
     return FileResponse(os.path.join(DIST_PATH, "index.html"))
-
-# .\cloudflared.exe tunnel --config="C:\Users\admin\Downloads\cloudflared\cloudflared\config\config.yml" run 93dbf689-e460-4139-8318-cbd8f5956567
