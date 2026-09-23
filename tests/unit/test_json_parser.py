@@ -14,9 +14,29 @@ from app.agent.json_parser import (
     safe_parse_json,
     parse_tool_call,
     extract_json_field,
+    extract_first_json_object,
     _JsonParser,
     _get_parser,
 )
+
+
+class TestExtractFirstJsonObject:
+    def test_single_object(self):
+        assert extract_first_json_object('{"a": 1}') == {"a": 1}
+
+    def test_multi_block_returns_first(self):
+        assert extract_first_json_object('前言 {"a": 1} 附加 {"b": 2}') == {"a": 1}
+
+    def test_skips_non_dict_then_object(self):
+        assert extract_first_json_object('[1, 2] 然后 {"a": 1}') == {"a": 1}
+
+    def test_nested_object_preserved(self):
+        parsed = extract_first_json_object('{"outer": {"inner": [1, 2]}}')
+        assert parsed == {"outer": {"inner": [1, 2]}}
+
+    def test_no_object(self):
+        assert extract_first_json_object("纯文本无 JSON") is None
+        assert extract_first_json_object("") is None
 
 
 class TestSafeParseJson:

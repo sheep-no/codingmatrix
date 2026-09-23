@@ -165,28 +165,15 @@ class ProjectMetadataManager:
     def _parse_features_with_source(self, response: str) -> "tuple[List[str], str]":
         # 逐「{」尝试解析首个 JSON 对象；贪婪 \{[\s\S]*\} 在多 JSON 块时会跨块匹配
         # 导致 json.loads 失败，进而把整段 JSON 原文当成功能项。
-        parsed = self._first_json_object(response)
+        from app.agent.json_parser import extract_first_json_object
+
+        parsed = extract_first_json_object(response)
         if parsed is not None:
             features = self._coerce_feature_list(parsed)
             if features is not None:
                 return features, "llm"
             logger.warning("功能清单响应 features 非字符串列表，回退文本解析")
         return self._parse_text_features(response), "llm_text"
-
-    @staticmethod
-    def _first_json_object(response: str) -> Optional[Dict]:
-        decoder = json.JSONDecoder()
-        idx = response.find("{")
-        while idx != -1:
-            try:
-                parsed, _ = decoder.raw_decode(response, idx)
-            except json.JSONDecodeError:
-                idx = response.find("{", idx + 1)
-                continue
-            if isinstance(parsed, dict):
-                return parsed
-            idx = response.find("{", idx + 1)
-        return None
 
     @staticmethod
     def _coerce_feature_list(parsed: Dict) -> Optional[List[str]]:

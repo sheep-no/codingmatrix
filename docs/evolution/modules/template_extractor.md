@@ -62,3 +62,26 @@
 ## 5. 测试状态
 
 **仅解析单测、零流程覆盖**——test_v5_1_requirement_deep.py:340-368 两个用例只测 `_parse_template_response`（正常 JSON / 非 JSON），全部 4 个 P2 项（TE1 手工模板覆盖实测 / TE2 审核失败兜底 / TE3 贪婪跨块实测 / TE4 截断频率）零用例保护。最严重的 TE1 涉及 `_save_template` 覆盖已有模板文件，测试目录未建、手工模板覆盖场景完全空白——数据源写端的唯一行为未受任何测试约束。
+
+## 6. 状态校准（2026-09-23 复核）
+
+### 新发现
+
+- **TE5 [P2] prompt f-string 花括号未转义——萃取与审核两条 prompt 均构造即崩（实测）**：`extract_template` 的 prompt（原 :39-54）内嵌 JSON 输出示例，`_review_template` 的 prompt（原 :120-125）同样内嵌。裸花括号被 f-string 当表达式/格式说明符求值，实测 `extract_template` 抛 `ValueError: Invalid format specifier ' "模块名", ...' for object of type 'str'`，且 prompt 构造位于 try 之外直接向上传播（由 `feature_extractor` 吞成整体失败）；`_review_template` 的同类异常被其 try 捕获、退化为「审核过程异常」。与 TG1 同族，属「LLM 调用链 prompt 模板化恒失败」。
+
+### 已修
+
+- **TE5 已修**：JSON 输出示例抽为模块级普通字符串常量 `_EXTRACT_OUTPUT_EXAMPLE` / `_REVIEW_OUTPUT_EXAMPLE`，f-string 中仅保留 `{表达式}` 形式的占位，彻底消除花括号转义陷阱。
+- **TE3 已修**：`_parse_template_response` 与 `_review_template` 的贪婪 `\{[\s\S]*\}` 替换为统一解析层新增的 `extract_first_json_object`（`json_parser.py`，逐 `{` 位置 `raw_decode` 取首个 dict）。多 JSON 块、带解释文本前缀/后缀均能正确取首个对象。
+- **TE1 已修**：`_save_template` 读出现存模板后，若 `version != "auto_extracted"`（手工模板）则不覆盖 `{domain}.json`（layer1 消费文件），自动萃取结果另存为 `{domain}_auto.json`；现存为自动模板时正常刷新。手工模板不再被程序生成数据替换。
+- **TE4 已修**：功能清单截断时在 prompt 标注「共 N 条，仅展示前 200 条，频率统计基于该子集」，并抽出 `MAX_PROMPT_FEATURES` 常量。
+
+配套：`extract_first_json_object` 复用 `ProjectMetadataManager`（原 `_first_json_object` 删除并改为调用共享函数，消除重复实现）。
+
+### 仍成立
+
+- **TE2**：审核失败仍直接丢弃萃取结果；审核标准 `core_modules >= 5`（:126）与萃取要求「频率 >=40% 才提取」的矛盾未解——低频领域可能产出空模板。属阈值口径的产品决策，保留。
+
+### 测试
+
+新增 `tests/unit/test_template_extractor_fixes.py` 9 项（prompt 渲染、多块/带文本解析、手工模板保护与自动刷新、截断标记），回退源码后 6 项失败；`test_json_parser.py` 新增 4 项覆盖 `extract_first_json_object`。

@@ -81,6 +81,29 @@ def extract_json_field(text: str, field: str, default=None):
     return default
 
 
+def extract_first_json_object(text: str) -> Optional[Dict]:
+    """提取文本中的首个 JSON 对象。
+
+    逐「{」位置用 ``JSONDecoder.raw_decode`` 尝试解析，命中即返回。相比贪婪
+    ``re.search(r'\\{[\\s\\S]*\\}')``，多 JSON 块或前后带解释文本时不会跨块匹配
+    失败。解析结果非 dict（数组/标量）时继续向后尝试。
+    """
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            parsed, _ = decoder.raw_decode(text, idx)
+        except ValueError:
+            idx = text.find("{", idx + 1)
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+        idx = text.find("{", idx + 1)
+    return None
+
+
 class _JsonParser:
     """JSON 解析器（内部实现）"""
 
