@@ -65,6 +65,7 @@
 | P2 | 本地 compose 以 `ENV=production` 启动却不提供 `SECRET_KEY`，celery 也未挂载数据卷与生成物目录 | `docker-compose.yml` | 已解决；补齐 `SECRET_KEY=${SECRET_KEY:?}` 与统一 `DATABASE_URL`，api/celery 共享 data 与四个生成物挂载，新增守卫用例 |
 | P3 | 前端 E2E 的 `core`、`11-theme-shortcuts` 存在测试代码缺陷（选择器过期、等待不足、快捷键名与实现不符） | `tests/e2e/core.spec.js`、`tests/e2e/11-theme-shortcuts.spec.js` | 已解决；按真实控件与产品声明的快捷键重写，改用轮询等待，PR #210 |
 | P1 | 测试 fixture 对所连数据库执行 `drop_all`，本地跑一次 pytest 就会清空开发库 `app.db` 全部表（表现为既有账号消失、登录 500） | `tests/conftest.py` | 已解决；导入 app 前把测试库指向独立 `test.db`（可被 `TEST_DATABASE_URL` 覆盖），并对非测试库拒绝执行清表，补 3 项回归用例 |
+| P2 | 前端 CI 的触发分支写作 `main`，而默认分支是 `master`，导致前端 lint 与生产构建从不执行 | `.github/workflows/frontend-ci.yml` | 已解决；`on.push/pull_request.branches` 改为 `[master, main]`，PR #207 |
 
 ### 仍需决策
 
@@ -74,10 +75,11 @@
 | P1 | 生产镜像与编排未提供模型/系统配置，运行期静默回退硬编码默认值 | `Dockerfile`、`docker-compose.prod.yml`、`app/utils/model_defaults.py`、`app/utils/system_config.py` | 仍在；镜像未 COPY `data/unified_model_config.yaml` 与 `configs/system_config.json`，且 `api-data` 首次挂载为空 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动，API 实际以 root 运行 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 仍在；镜像设计以 appuser 运行 API，但两个编排都用 `command` 覆盖，需决策是否补 `user:`（本地 compose 的 bind mount 属主需一并处理） |
+| P3 | `e2e.yml` 与 `backend-ci.yml` 触发分支仍为 `main`，从不运行；`backend-ci.yml` 的 `ruff check app/` 在仓库无 ruff 配置时默认规则报 8297 个错误，一旦启用即失败；`e2e.yml` 未注入 `TEST_ADMIN_PASSWORD` | `.github/workflows/e2e.yml`、`.github/workflows/backend-ci.yml` | 仍在；需决策是「补齐依赖与密钥后启用」还是「删除无用工作流」 |
 
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4455 passed, 3 skipped`（含 `--cov` 门禁运行，覆盖率 `61.98%`，门槛 `58%`；同批 `test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`）。
+- 后端 unit/integration 最近完整记录：`4524 passed, 3 skipped, 0 failed`（225s；2026-09-23 测试库隔离修复后重跑，运行结束开发库 `app.db` 仍为 40 张表 / 3 个种子账号）。此前的 `--cov` 门禁运行记录为 `4455 passed, 3 skipped`，覆盖率 `61.98%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
 - 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 四项预算全部通过。
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
