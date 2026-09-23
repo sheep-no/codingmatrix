@@ -139,7 +139,15 @@ def test_cleanup_survives_concurrent_registration(monkeypatch, tmp_path):
 
 
 def test_font_configuration_is_serialized(monkeypatch):
-    """CH3：多线程首调字体配置时只注册一次。"""
+    """CH3：多线程首调字体配置时只注册一次。
+
+    不依赖系统安装中文字体：强制走「字体存在」分支，并用替身替换
+    addfont/FontProperties，只观察注册次数。此前硬编码依赖
+    `/usr/share/fonts/truetype/wqy/`，在未安装该字体的环境（本机与
+    CI）下 `addfont` 零调用，测试必然失败。
+    """
+    import os
+
     import matplotlib
 
     matplotlib.use("Agg")
@@ -149,14 +157,25 @@ def test_font_configuration_is_serialized(monkeypatch):
     cg = _chart_module()
 
     calls = []
-    real_addfont = fm.fontManager.addfont
 
     def slow_addfont(path):
         calls.append(path)
         time.sleep(0.05)
-        real_addfont(path)
 
+    class _FakeFontProperties:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_name(self):
+            return "Fake CJK Font"
+
+    real_exists = os.path.exists
     monkeypatch.setattr(fm.fontManager, "addfont", slow_addfont)
+    monkeypatch.setattr(fm, "FontProperties", _FakeFontProperties)
+    # 只让候选字体文件「存在」，其余路径查询保持真实语义
+    monkeypatch.setattr(
+        cg.os.path, "exists", lambda path: str(path).endswith(".ttc") or real_exists(path)
+    )
     monkeypatch.setattr(cg, "_fonts_configured", False)
     saved_family = plt.rcParams["font.family"]
     saved_sans = list(plt.rcParams["font.sans-serif"])
