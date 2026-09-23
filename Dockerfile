@@ -74,7 +74,10 @@ COPY configs/nginx.conf /etc/nginx/nginx.conf
 COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf
 
 # Create necessary directories and set permissions
-RUN mkdir -p /app/logs /app/data && \
+# 必须覆盖 compose 中所有 appuser 需要写入的挂载点：Docker 为缺失的挂载路径
+# 创建 root 属主的目录，若不预建并 chown，非 root 的 appuser 将无法写入
+# 上传目录与生成物目录。
+RUN mkdir -p /app/logs /app/data /app/uploads /app/pptx_output /app/generated_images /app/projects && \
     chown -R appuser:appuser /app && \
     chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run
 
