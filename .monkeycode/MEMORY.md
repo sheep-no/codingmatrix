@@ -115,7 +115,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Category: 测试方法
 - Instructions:
   - 每处误报先写确定性探针复现（不依赖 LLM / Playwright），再用单测固化"正确产物不被拒 + 真实错误仍被拒"两类断言。
-  - 用 `git stash push <源文件>` 回退源码后跑新增用例，必须确认新增误报用例失败，证明修复非空；恢复后再核对文件内容一致。
+  - 回退源码验证新增用例有效性时，不要用 `git stash push <路径>`：路径含未跟踪文件（如本次新建的源文件）时它会静默失败，若又重定向了 stderr 就完全看不出；随后 `git stash pop` 会弹出并丢弃仓库里既有的旧 stash。改用备份法：`cp` 源文件到 `/tmp/opencode/vbak/`，`git show HEAD:<path> > <path>` 回退，跑完新增用例确认失败后 `cp` 回来，再核对 `git diff --stat` 与预期一致。必须在回退态看到新增用例失败，证明修复非空。
+  - 在自己未创建 stash 的仓库里绝不执行 `git stash pop`；只看不动用 `git stash show -p`。误删的 stash 可用 `git stash store -m "<原消息>" <sha>` 找回（被 pop 的提交在 gc 前仍可达，也可用 `git fsck --unreachable` 定位）。
   - 新增用例若在模块顶层 `import` 只存在于修复后的私有符号（如新增的 `_keyword_safety_check`、`_normalize_on_failure`），回退源码会让整个测试模块 collection error 得到 `0 collected`，看不到逐条失败；把对新增符号的 import 放进用到的测试函数内，才能在回退态观察到预期条数的 FAILED。
   - 中间件/门禁类正则用单词黑名单（SQL 关键字 SELECT/CREATE/DELETE、JS 的 `eval(`、`document.`）会在业务文本上大量误报——本平台是 AI 代码生成平台，需求文本天然含这些词。校验口径应为组合特征（引号布尔注入、`UNION SELECT`、堆叠 DDL、注释符、`1=1`），安全白名单只应跳过内容扫描、保留 Content-Type 与请求体大小校验。
   - 端点限流规则表以路径前缀为键（`/api/v1/code` 等），查找必须按路径段边界做最长前缀匹配、端点桶 key 也归一为规则前缀；否则带路径参数的真实请求既不命中规则、又各自成桶（既限不住也泄漏 `_history`）。验证用 `RateLimiter()` 新实例 + 中间件确定性探针，不依赖运行中的服务。
