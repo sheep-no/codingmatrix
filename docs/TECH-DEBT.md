@@ -81,8 +81,8 @@
 
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4524 passed, 3 skipped, 0 failed`（225s；2026-09-23 测试库隔离修复后重跑，运行结束开发库 `app.db` 仍为 40 张表 / 3 个种子账号）。此前的 `--cov` 门禁运行记录为 `4455 passed, 3 skipped`，覆盖率 `61.98%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
-- 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 四项预算全部通过。
+- 后端 unit/integration 最近完整记录：`4591 passed, 2 skipped, 0 failed`（236s；2026-09-23 生产编排与 CI 门禁加固后重跑，运行结束开发库 `app.db` 仍为 41 张表 / 3 个种子账号）。带 `--cov=app` 的门禁运行 `4591 passed, 2 skipped`，覆盖率 `62.47%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
+- 前端全量 Vitest：`50 files / 251 passed`；`npm run build` 成功（39s）；`npm run budget:check` 四项预算全部通过。
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
