@@ -207,12 +207,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull, reason: '外壳 ${size.width}x${size.height}');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '外壳 ${size.width}x${size.height}',
+      );
 
       for (final capability in capabilityRegistry) {
         final navKey = find.byKey(Key('capabilityNav_${capability.id}'));
         final menu = find.byIcon(Icons.menu);
-        if (find.byType(Drawer).evaluate().isEmpty && menu.evaluate().isNotEmpty) {
+        if (find.byType(Drawer).evaluate().isEmpty &&
+            menu.evaluate().isNotEmpty) {
           await tester.tap(menu);
           await tester.pumpAndSettle();
         }
