@@ -12,12 +12,14 @@ Agent Executor - 扩展执行器
 import asyncio
 import inspect
 import logging
+import time
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 
 from app.agent.tools import (
     _tool_read_file as _impl_read_file,
     _tool_list_files as _impl_list_files,
+    _tool_search_files as _impl_search_files,
     _tool_write_file as _impl_write_file,
     _tool_execute_code as _impl_execute_code,
     _tool_partial_update as _impl_partial_update,
@@ -49,34 +51,38 @@ class ToolResult:
     tool_name: str = ""
 
 
+def _interpret_tool_result(result: Any, start_time: float) -> ToolResult:
+    """把 tools.py 的返回 dict 归一化为 ToolResult。
+
+    read 系列工具业务失败时返回 `{"error": ...}`（没有 success 键），若只按
+    `result.get("success", True)` 判定，会把「文件不存在」当成成功，修复闭环
+    会基于错误数据继续。含 error 键且无显式 success 时按失败处理。
+    """
+    if not isinstance(result, dict):
+        return ToolResult(True, result, None, time.time() - start_time)
+    success = bool(result.get("success", "error" not in result))
+    return ToolResult(
+        success=success,
+        result=result,
+        error=result.get("error") if not success else None,
+        execution_time=time.time() - start_time,
+    )
+
+
 def _wrap_sync(func, project_path: str, params: Dict) -> ToolResult:
     """将同步工具函数适配为 ToolResult"""
-    import time
     start = time.time()
     try:
-        result = func(project_path, **params)
-        return ToolResult(
-            success=result.get("success", True) if isinstance(result, dict) else True,
-            result=result,
-            error=result.get("error") if isinstance(result, dict) and not result.get("success", True) else None,
-            execution_time=time.time() - start
-        )
+        return _interpret_tool_result(func(project_path, **params), start)
     except Exception as e:
         return ToolResult(False, None, str(e), time.time() - start)
 
 
 async def _wrap_async(func, project_path: str, params: Dict) -> ToolResult:
     """将异步工具函数适配为 ToolResult"""
-    import time
     start = time.time()
     try:
-        result = await func(project_path, **params)
-        return ToolResult(
-            success=result.get("success", True) if isinstance(result, dict) else True,
-            result=result,
-            error=result.get("error") if isinstance(result, dict) and not result.get("success", True) else None,
-            execution_time=time.time() - start
-        )
+        return _interpret_tool_result(await func(project_path, **params), start)
     except Exception as e:
         return ToolResult(False, None, str(e), time.time() - start)
 
@@ -237,6 +243,17 @@ class EnhancedExecutor:
                     "max_depth": {"type": "integer", "description": "递归深度"}
                 },
                 "required": ["directory"]
+            }),
+            ("search_files", _adapt_sync(_impl_search_files), "在项目文件中搜索文本或正则模式（grep 封装，任何语言通用）", {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "搜索模式（支持正则）"},
+                    "file_pattern": {"type": "string", "description": "文件过滤，如 *.py，默认 *"},
+                    "directory": {"type": "string", "description": "搜索目录（相对项目根），默认 ."},
+                    "context_lines": {"type": "integer", "description": "匹配行的上下文行数"},
+                    "max_results": {"type": "integer", "description": "最大返回结果数"}
+                },
+                "required": ["pattern"]
             }),
             ("write_file", _adapt_sync(_impl_write_file), "写入文件内容", {
                 "type": "object",
