@@ -8,8 +8,11 @@ v4.8.0 新增：
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +56,9 @@ SERVICE_TEMPLATES: Dict[str, ServiceTemplate] = {
                 },
             },
         },
-        connection_code="""import redis
+        connection_code="""import os
+
+import redis
 from urllib.parse import urlparse
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -96,7 +101,9 @@ def get_redis() -> redis.Redis:
                 },
             },
         },
-        connection_code="""from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        connection_code="""import os
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://appuser:apppass@localhost:5432/appdb")
@@ -142,7 +149,9 @@ async def get_db() -> AsyncSession:
                 },
             },
         },
-        connection_code="""from sqlalchemy import create_engine
+        connection_code="""import os
+
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://appuser:apppass@localhost:3306/appdb")
@@ -186,7 +195,9 @@ def get_db():
                 },
             },
         },
-        connection_code="""from pymongo import MongoClient
+        connection_code="""import os
+
+from pymongo import MongoClient
 
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 
@@ -228,7 +239,9 @@ def get_mongo_db():
                 },
             },
         },
-        connection_code="""import aio_pika
+        connection_code="""import os
+
+import aio_pika
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 
@@ -266,7 +279,9 @@ async def get_rabbitmq_connection():
                 },
             },
         },
-        connection_code="""from elasticsearch import AsyncElasticsearch
+        connection_code="""import os
+
+from elasticsearch import AsyncElasticsearch
 
 ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 
@@ -302,12 +317,12 @@ def detect_services_from_requirements(requirement: str) -> List[str]:
         匹配的服务名称列表
     """
     DETECTION_KEYWORDS: Dict[str, List[str]] = {
-        "redis": ["redis", "缓存", "cache", "session store"],
-        "postgresql": ["postgresql", "postgres", "pg", "关系数据库"],
+        "redis": ["redis", "缓存", "cache"],
+        "postgresql": ["postgresql", "postgres", "关系数据库"],
         "mysql": ["mysql", "关系型数据库"],
         "mongodb": ["mongodb", "mongo", "文档数据库", "nosql"],
-        "rabbitmq": ["rabbitmq", "消息队列", "queue", "mq", "amqp"],
-        "elasticsearch": ["elasticsearch", "es", "搜索", "search engine", "全文检索"],
+        "rabbitmq": ["rabbitmq", "消息队列", "message queue", "amqp"],
+        "elasticsearch": ["elasticsearch", "搜索", "search engine", "全文检索"],
     }
 
     requirement_lower = requirement.lower()
@@ -315,12 +330,22 @@ def detect_services_from_requirements(requirement: str) -> List[str]:
 
     for service, keywords in DETECTION_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in requirement_lower:
+            if _keyword_matches(keyword, requirement_lower):
                 if service not in detected:
                     detected.append(service)
                 break
 
     return detected
+
+
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """ASCII 关键词按词边界匹配，避免 ``es`` 命中 ``services`` 之类的子串误报；
+    中文等非 ASCII 关键词仍按子串匹配。"""
+    if keyword.isascii():
+        return re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(keyword)}(?![A-Za-z0-9_])", text
+        ) is not None
+    return keyword in text
 
 
 def generate_env_example(services: List[str], custom_vars: Dict[str, str] = None) -> str:
@@ -350,7 +375,12 @@ def generate_env_example(services: List[str], custom_vars: Dict[str, str] = None
         if template:
             lines.append(f"# {template.name}")
             for var, default in template.env_vars.items():
-                lines.append(f"{var}={default}")
+                if default == "":
+                    # 空值不输出为有效赋值，否则会以空字符串注入容器环境
+                    # （与「未设置」语义不同），注释形式保留变量名供用户填写。
+                    lines.append(f"# {var}=")
+                else:
+                    lines.append(f"{var}={default}")
             lines.append("")
 
     if custom_vars:
@@ -373,8 +403,8 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
     Returns:
         docker-compose.yml 文件内容
     """
-    service_defs = {}
-    volume_defs = {}
+    service_defs: Dict[str, Any] = {}
+    volume_defs: Dict[str, Any] = {}
 
     for service_name in services:
         template = get_service_template(service_name)
@@ -386,11 +416,14 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
                         vol_name = vol.split(":")[0]
                         volume_defs[vol_name] = {}
 
-    app_service = {
+    app_service: Dict[str, Any] = {
         "build": {"context": ".", "dockerfile": "Dockerfile"},
         "ports": ["8000:8000"],
         "environment": [],
-        "depends_on": [],
+        # depends_on 必须是「服务名 -> 条件」的映射；原先构造的
+        # ``[{svc: {condition: ...}}]`` 中的内层 dict 被 f-string 渲染成
+        # Python repr，docker compose 无法解析。
+        "depends_on": {},
         "volumes": [".:/app"],
     }
 
@@ -398,9 +431,7 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
         template = get_service_template(service_name)
         if template:
             for svc_name in template.docker_service:
-                app_service["depends_on"].append({
-                    svc_name: {"condition": "service_healthy"}
-                })
+                app_service["depends_on"][svc_name] = {"condition": "service_healthy"}
 
     env_content = generate_env_example(services)
     for line in env_content.split("\n"):
@@ -411,34 +442,15 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
 
     service_defs["app"] = app_service
 
-    lines = ["version: '3.8'", "", "services:"]
-    for svc_name, svc_config in service_defs.items():
-        lines.append(f"  {svc_name}:")
-        for key, val in svc_config.items():
-            if isinstance(val, dict):
-                lines.append(f"    {key}:")
-                for k2, v2 in val.items():
-                    lines.append(f"      {k2}: {v2}")
-            elif isinstance(val, list):
-                lines.append(f"    {key}:")
-                for item in val:
-                    if isinstance(item, dict):
-                        lines.append("      -")
-                        for k3, v3 in item.items():
-                            lines.append(f"        {k3}: {v3}")
-                    else:
-                        lines.append(f"      - {item}")
-            elif isinstance(val, str):
-                lines.append(f"    {key}: {val}")
-        lines.append("")
-
+    compose: Dict[str, Any] = {"services": service_defs}
     if volume_defs:
-        lines.append("volumes:")
-        for vol_name in volume_defs:
-            lines.append(f"  {vol_name}:")
-        lines.append("")
+        compose["volumes"] = volume_defs
 
-    return "\n".join(lines)
+    # 交给 PyYAML 渲染：嵌套映射/列表（depends_on、healthcheck）自动缩进，
+    # 不再手工拼接导致 Python repr 泄漏进 YAML。
+    return yaml.safe_dump(
+        compose, sort_keys=False, default_flow_style=False, allow_unicode=True
+    )
 
 
 def get_python_packages_for_services(services: List[str]) -> List[str]:
