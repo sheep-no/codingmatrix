@@ -98,3 +98,16 @@ if result.success:                     # ← 恒 False（RE1 短路）
 - **§13 修复闭环终结确认**：`_try_react_auto_fix` 是 RA2/RE1 链的**生产端收尾**——react_agent 传空 context → react_engine 空串短路 → success 恒 False → 此处修复失效。链路四段（error_recovery:26 → react_agent:149 → react_engine:344 → error_recovery:27）全部打通确认，单一根因在 react_agent:149
 - **模块索引第 13 个完成**：13/13 深扫收尾，顶层 error_recovery.py（797 行）留待后续补扫
 - **Backlog 关联**：#13-#18（RA/RE 系列），新增 ERR2-ERR5
+
+## 7. 状态校准（2026-09-22）
+
+按当前代码逐条复核 §3：
+
+- **ERR1 [P1] 已修复（根因侧）**：`ReActAgent.process` 现消费 context——`react_agent.py:153` 取 `str((context or {}).get("project_path", ""))` 传给 `ReActEngine`，本模块 `error_recovery.py:31-33` 传入的 `{"project_path": str(self.output_dir)}` 真实生效，project_path 不再恒空。
+- **ERR2 [P1] 已消解**：`react_engine.py` 的「空串短路」路径已不存在——`_generate_final_answer` 在最终答案为空时 `raise RuntimeError`（`react_engine.py:355-357`），`success` 改为由 `final_answer` 非空或存在成功的 action step 推导（`react_agent.py:180-182`），不再恒 False。
+- **ERR3 [P2] 行为已变**：失败路径由「吞错返回 None」改为抛 `RuntimeError`（`error_recovery.py:41`），调用方 `traditional_generate.py:339` 不捕获，即自动修复失败会让该次生成显式失败。此项属既定设计选择，未再改动。
+- **ERR4 [P2] 已修复**：门控改为 `not getattr(self, "enable_error_recovery", True) or not self.error_recovery or not self.reviewer`。此前只判恒为真值的 `self.error_recovery` 对象，`enable_error_recovery=False` 时仍会走 ReAct 修复路径；现与 `orchestrator_files.py:2730/2745` 使用同一开关。回归 `tests/unit/test_error_recovery_react_fix.py`。
+- **ERR5 [P2] 已修复**：`react_agent.process` 外层包 `asyncio.wait_for(..., REACT_AUTO_FIX_TIMEOUT=900.0)`，超时抛 `RuntimeError`。engine 每轮只有心跳超时（600s），5 轮最坏可阻塞近一小时，现多一层总时长上限。
+- **ERR6 [P3] 已消解**：`fallback_model or "Qwen/Qwen3-8B"` 不存在；现在缺 `model_assignment.backend_model` 直接 `raise RuntimeError`，不再有硬编码兜底模型名。
+
+新增回归 `tests/unit/test_error_recovery_react_fix.py`（7 项：开关关闭跳过、缺 reviewer 跳过、无失败测试跳过、成功路径传 project_path 并复测、缺模型分配报错、process 异常包装、总超时生效）。
