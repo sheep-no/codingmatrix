@@ -200,3 +200,177 @@ class TestMarkupValidationReusesSharedSyntax:
 
         assert issues
         assert any("大括号不匹配" in issue.message for issue in issues)
+
+
+class TestSpecConsistencyFixes:
+    """RL1（openapi 空操作）与 RL7（字符串包含检查）。"""
+
+    @pytest.fixture
+    def loop(self):
+        from app.agent.refinement_loop import RefinementLoop
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
+            yield RefinementLoop(ctx)
+
+    @pytest.mark.asyncio
+    async def test_unreferenced_openapi_routes_produce_warnings(self, loop):
+        """RL1: 原实现只 pass，api 文件对未实现的路由零 issue。"""
+        loop.context.save_spec(
+            "openapi", {"paths": {"/api/users": {}, "/api/orders": {}}}, "m"
+        )
+
+        issues = await loop._validate_code(
+            "routes.py", "router = APIRouter()\n", "api"
+        )
+
+        messages = [i.message for i in issues]
+        assert any("/api/users" in m for m in messages)
+        assert any("/api/orders" in m for m in messages)
+        assert all(i.severity == "warning" for i in issues)
+
+    @pytest.mark.asyncio
+    async def test_referenced_openapi_route_is_not_flagged(self, loop):
+        loop.context.save_spec("openapi", {"paths": {"/api/users": {}}}, "m")
+
+        issues = await loop._validate_code(
+            "routes.py", 'router.get("/api/users")\n', "api"
+        )
+
+        assert issues == []
+
+    @pytest.mark.asyncio
+    async def test_pydantic_mention_in_comment_still_warns(self, loop):
+        """RL7: 注释里出现 BaseModel 不应让检查通过。"""
+        loop.context.save_spec("types", {"code": "class User(BaseModel): ..."}, "m")
+        content = "# 注意：这里应使用 BaseModel 定义\n\n\ndef helper():\n    return 1\n"
+
+        issues = await loop._validate_code("models.py", content, "model")
+
+        assert any("Pydantic" in i.message for i in issues)
+
+    @pytest.mark.asyncio
+    async def test_real_pydantic_import_passes(self, loop):
+        loop.context.save_spec("types", {"code": "class User(BaseModel): ..."}, "m")
+        content = "from pydantic import BaseModel\n\n\nclass User(BaseModel):\n    pass\n"
+
+        assert await loop._validate_code("models.py", content, "model") == []
+
+
+class TestSpecContextReuse:
+    """RL6: SpecFirstGenerator 复用 + 异常可见。"""
+
+    @pytest.fixture
+    def loop(self):
+        from app.agent.refinement_loop import RefinementLoop
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
+            yield RefinementLoop(ctx)
+
+    def _install_generator(self, monkeypatch, generator_cls):
+        import sys
+        import types
+
+        module = types.ModuleType("app.agent.spec_first_generator")
+        module.SpecFirstGenerator = generator_cls
+        monkeypatch.setitem(sys.modules, "app.agent.spec_first_generator", module)
+
+    def test_generator_is_instantiated_once(self, loop, monkeypatch):
+        calls = {"count": 0}
+
+        class FakeGenerator:
+            def __init__(self, context):
+                calls["count"] += 1
+
+            def get_spec_context_for_file(self, file_path, file_type):
+                return f"SPEC:{file_path}"
+
+        self._install_generator(monkeypatch, FakeGenerator)
+
+        first = loop._build_fix_prompt("a.py", "api", "d", "code", "err", None, 1)
+        second = loop._build_fix_prompt("b.py", "api", "d", "code", "err", None, 2)
+
+        assert calls["count"] == 1
+        assert "SPEC:a.py" in first
+        assert "SPEC:b.py" in second
+
+    def test_generator_failure_is_logged_and_degrades_gracefully(
+        self, loop, monkeypatch
+    ):
+        from app.agent import refinement_loop as module
+
+        warnings = []
+
+        class BoomGenerator:
+            def __init__(self, context):
+                pass
+
+            def get_spec_context_for_file(self, file_path, file_type):
+                raise RuntimeError("boom")
+
+        self._install_generator(monkeypatch, BoomGenerator)
+        monkeypatch.setattr(
+            module.logger, "warning", lambda *a, **k: warnings.append(a)
+        )
+        loop._spec_generator = None
+
+        prompt = loop._build_fix_prompt("a.py", "api", "d", "code", "err", None, 1)
+
+        assert any("无规范方式修复" in str(w) for w in warnings)
+        assert "（无相关规范）" in prompt
+
+
+class TestRefineFailurePaths:
+    """RL4/RL8: LLM 空返回与多轮修复的兜底语义。"""
+
+    @pytest.fixture
+    def loop(self):
+        from app.agent.refinement_loop import RefinementLoop
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
+            yield RefinementLoop(ctx, complexity="simple")
+
+    @pytest.mark.asyncio
+    async def test_empty_llm_response_keeps_remaining_issues(self, loop, monkeypatch):
+        from app.agent import refinement_loop as module
+
+        async def fake_call_llm(**kwargs):
+            return {"choices": [{"message": {"content": ""}}]}
+
+        monkeypatch.setattr(module, "call_llm", fake_call_llm)
+
+        result = await loop.refine(
+            "bad.py", "backend", "d", "def f(:\n", model_name="test-model"
+        )
+
+        assert result.success is False
+        assert result.attempts == loop.MAX_ATTEMPTS
+        # RL4: 兜底/末轮都必须携带真实剩余问题，而非空列表
+        assert result.remaining_issues
+
+    @pytest.mark.asyncio
+    async def test_recovers_after_one_fix(self, loop, monkeypatch):
+        from app.agent import refinement_loop as module
+
+        fixed = "def f():\n    return 1\n"
+
+        async def fake_call_llm(**kwargs):
+            return {"choices": [{"message": {"content": fixed}}]}
+
+        monkeypatch.setattr(module, "call_llm", fake_call_llm)
+
+        result = await loop.refine(
+            "bad.py", "backend", "d", "def f(:\n", model_name="test-model"
+        )
+
+        assert result.success is True
+        assert result.attempts == 2
+        assert result.final_content.strip() == fixed.strip()
