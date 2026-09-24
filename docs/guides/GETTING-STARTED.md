@@ -44,21 +44,18 @@ GENERATED_ASSET_RETENTION_DAYS=30
 
 FastAPI 启动时会运行 `migrations.runner.run_async_migrations()`，创建缺失表并补齐已有 `tasks` 表的统一状态字段。
 
-Alembic 当前 head 为 `20260902_ppt_quality_state`，且 `migrations/env.py` 固定指向仓库根目录 `app.db`。
+Alembic 当前 head 为 `20260918_unique_tasks_task_id`，`migrations/env.py` 使用统一的 `settings.DATABASE_URL`：生产由环境变量注入，本地默认仓库根 `app.db`。
 
 ```bash
 # 查看迁移状态
 alembic -c configs/alembic.ini heads
 alembic -c configs/alembic.ini current
 
-# 已具备当前结构的既有 app.db 首次登记基线
-alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state
-
-# 后续升级
+# 建库或升级到最新
 alembic -c configs/alembic.ini upgrade head
 ```
 
-`stamp` 适用于结构已存在的数据库。新数据库应通过迁移链创建结构，或先由应用运行时迁移器初始化并核对结构后登记基线。
+首次接入无需手工 `stamp`。库内没有 `alembic_version` 时，`upgrade head` 会以 `Base.metadata` 为真相来源建全量表并把版本登记为 head；已有版本记录的库只执行尚未应用的修订。`make migrate` 与 `scripts/migrate.sh` 执行同一命令。
 
 ## 启动开发服务
 

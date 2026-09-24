@@ -175,7 +175,7 @@ docker-compose logs -f
 alembic -c configs/alembic.ini upgrade head
 ```
 
-`scripts/migrate.sh` 当前未传 `-c configs/alembic.ini`，仓库根目录也没有默认 `alembic.ini`，因此不能作为迁移入口。既有数据库首次接入当前迁移链时，先执行 `alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state`，再执行上述升级命令。
+`scripts/migrate.sh` 已显式传入 `-c configs/alembic.ini`，执行与上述相同的升级命令，可直接作为迁移入口。首次接入无需手工 `stamp`：库内没有 `alembic_version` 时，`upgrade head` 以 `Base.metadata` 为真相来源建全量表并登记 head，不重放历史修订。
 
 ### 运行测试
 

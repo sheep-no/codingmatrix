@@ -81,21 +81,18 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 应用 lifespan 启动时调用 `migrations.runner.run_async_migrations()`。该运行时迁移器支持 SQLite 和 MySQL，创建缺失表，并为已有 `tasks` 表补充统一状态字段；它不执行 Alembic 版本脚本中的全部结构变更。
 
-Alembic 当前只有一个 head：`20260902_ppt_quality_state`。`migrations/env.py` 固定使用仓库根目录 `app.db`，不会读取运行时 `DATABASE_URL`。
+Alembic 当前只有一个 head：`20260918_unique_tasks_task_id`。`migrations/env.py` 使用统一的 `settings.DATABASE_URL`，容器内 alembic 与 API 命中同一库。
 
 ```bash
 # 查看 Alembic head 与当前版本
 alembic -c configs/alembic.ini heads
 alembic -c configs/alembic.ini current
 
-# 已由运行时迁移器初始化的既有数据库首次接入 Alembic
-alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state
-
-# 已纳入 Alembic 管理的数据库升级
+# 建库或升级到最新
 alembic -c configs/alembic.ini upgrade head
 ```
 
-执行 `stamp` 前应确认目标数据库已经包含该 head 所代表的表、索引和字段；`stamp` 只登记版本，不创建结构。
+库内没有 `alembic_version` 时，`upgrade head` 以 `Base.metadata` 为真相来源建全量表并登记 head，不重放历史修订；已有版本记录的库只执行尚未应用的修订。空库、运行时迁移器初始化过的库、已纳入管理的库都用同一条命令接入。
 
 ## 关键配置
 

@@ -58,13 +58,13 @@ format:
 
 # 数据库迁移
 migrate:
-	alembic upgrade head
+	alembic -c configs/alembic.ini upgrade head
 	@echo "✅ 数据库迁移完成"
 
 # 创建新迁移
 migrate-revision:
 	@read -p "请输入迁移描述：" desc; \
-	alembic revision -m "$$desc"
+	alembic -c configs/alembic.ini revision -m "$$desc"
 
 # 清理缓存
 clean:

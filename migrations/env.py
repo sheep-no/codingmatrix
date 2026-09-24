@@ -1,9 +1,10 @@
 # migrations/env.py
 from logging.config import fileConfig
-from sqlalchemy import pool
+from sqlalchemy import inspect, pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
+from alembic.script import ScriptDirectory
 import sys
 from pathlib import Path
 
@@ -61,8 +62,25 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    """同步执行迁移"""
+    """同步执行迁移。
+
+    首次接入（库内尚无 alembic_version）时以 `Base.metadata` 为唯一真相来源：
+    生产启动由 `migrations/runner.py` 依据同一份 metadata 建表补列，而 alembic
+    历史迁移链无法在空库重放——起点 `56882bedb846` 是空迁移，紧随的
+    `a1b2c3d4e5f6` 就假设 `user` 等基础表已存在。此处先按 metadata 建全量表，
+    再把版本直接登记为 head，避免重放这段无法自洽的伪历史。
+
+    已有 alembic_version 的库走标准迁移，只执行尚未应用的新修订。
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
+
+    if not inspect(connection).has_table("alembic_version"):
+        Base.metadata.create_all(bind=connection, checkfirst=True)
+        script = ScriptDirectory.from_config(config)
+        context.get_context().stamp(script, script.get_current_head())
+        connection.commit()
+        return
+
     with context.begin_transaction():
         context.run_migrations()
 
