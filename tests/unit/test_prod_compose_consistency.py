@@ -231,3 +231,18 @@ def test_alembic_env_reads_database_url_from_settings():
 
     assert "settings.DATABASE_URL" in content
     assert 'Path(BASE_DIR) / "app.db"' not in content
+
+
+DOCUMENT_TOOLCHAIN_PACKAGES = ("libreoffice-impress", "poppler-utils", "fonts-noto-cjk")
+
+
+def test_dockerfile_installs_document_conversion_toolchain():
+    """PPT 转 PDF 用 libreoffice，PDF 转 PNG 用 pdftoppm，中文渲染依赖 CJK 字体。
+
+    缺任一项时容器内 PDF 导出返回 501、成品质量视觉复审抛错。运行时的
+    `curl` 与 `nginx` 之外，这三个系统包是 PPT 链路可用的前提。
+    """
+    content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+    for package in DOCUMENT_TOOLCHAIN_PACKAGES:
+        assert package in content, f"Dockerfile 未安装 {package}"

@@ -72,6 +72,7 @@
 | P3 | 4 个模块全库零生产引用：`ppxRequest.py`（PPT 链实际用端点内联模型）、`nginx_ai.py`（路由从未挂载）、`resume_manager.py`、`hot_reload.py` | `app/schema/ppxRequest.py`、`app/api/v2/nginx_ai.py`、`app/utils/resume_manager.py`、`app/utils/hot_reload.py` | 已解决；确认零生产引用（含符号名）后删除，同步裁剪 14 项仅针对这些模块的单测并重命名 `test_hot_reload_and_package_filter.py` 为 `test_dynamic_package_filter.py` |
 | P3 | 镜像内 Alembic 路径失配：ini 被复制到 `/app/alembic.ini`，`%(here)s/../migrations` 与 `%(here)s/..` 解析到 `/migrations` 与 `/` | `Dockerfile`、`configs/alembic.ini` | 已解决；改为 `COPY configs/alembic.ini ./configs/`，与仓库布局一致后解析为 `/app/migrations` 与 `/app`，补 1 项路径守卫用例 |
 | P2 | `migrations/env.py` 硬编码 `BASE_DIR/app.db` 并覆盖 ini 中的 URL，容器内 alembic 迁移到与 API 不同的空库 | `migrations/env.py` | 已解决；改用 `settings.DATABASE_URL`（生产由环境变量注入），副本验证目标库正确且原库未被触碰，补 1 项守卫用例 |
+| P3 | 运行时镜像未提供文档转换工具链，PPT 转 PDF 返回 501、成品质量视觉复审在缺 `pdftoppm` 时抛错 | `Dockerfile`、`app/api/v1/aiGeneratorPptx.py`、`app/services/ppt_quality_orchestrator.py` | 已解决；镜像新增 `libreoffice-impress`、`poppler-utils`、`fonts-noto-cjk` 层并补 1 项守卫用例，代价是镜像增大约 0.7-1 GB |
 
 ### 仍需决策
 

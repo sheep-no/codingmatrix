@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-当前 Docker 生产链路的编排层缺口（密钥注入、数据库路径、运行期配置）已修复，镜像层仍缺文档转换工具：
+当前 Docker 生产链路的编排层缺口（密钥注入、数据库路径、运行期配置）与镜像层文档转换工具均已修复，剩余结构性缺口是 Alembic 与 `migrations/runner.py` 的双轨冲突：
 
 > 2026-09-20 更新：原第 1、2 条前端产物路径冲突已修复。`src/vite.config.js` 的 `build.outDir` 统一为 `dist`（即 `src/dist`），`app/main.py` 的 `DIST_PATH`、`Dockerfile` 的 COPY 与软链、两份 Compose、`configs/nginx.conf`、`scripts/start.sh`、`scripts/check-performance-budget.js` 与 CI 上传路径现在全部指向同一目录。
 
@@ -14,11 +14,11 @@
 2. ~~`docker-compose.yml`、`docker-compose.prod.yml` 和 `configs/nginx.conf` 都使用 `src/dist`；`Dockerfile` 的前端阶段实际会生成 `/app/dist`，后续却执行 `COPY --from=frontend-builder /app/src/dist ./src/dist`。~~ 已修复：前端阶段产物即 `/app/src/dist`，COPY 与 `ln -sfn /app/src/dist /workspace/src/dist` 指向同一目录。
 3. ~~两份 Compose 都向 API 设置 `ENV=production`，但没有 `env_file` 或 `SECRET_KEY` 环境项。~~ 已修复：两份 Compose 都以 `${SECRET_KEY:?...}` 强制注入 `SECRET_KEY`，未设置时编排在启动前即报错。
 4. ~~两份 Compose 都没有向 API 传递 `DATABASE_URL`。~~ 已修复：两份 Compose 都以 `${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}` 注入，默认落在 `api-data` 卷内，API 与 celery/scheduler 连接同一持久化数据库。
-5. `Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。PPT 转 PDF 调用 `libreoffice --headless --convert-to pdf`；镜像内仍无 LibreOffice/Poppler 运行时保障。
+5. ~~`Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。~~ 已修复：镜像新增文档转换工具链层，安装 `libreoffice-impress`、`poppler-utils`、`fonts-noto-cjk`，PPT 转 PDF 与 PDF 转 PNG 预览/质量复审在容器内可用。该层使镜像增大约 0.7-1 GB。
 
 运行期配置已补齐：两份 Compose 的 api/celery/scheduler 统一设置 `RSA_KEY_DIR=/app/keys` 并共享 `api-keys` 卷，避免各容器各自生成密钥导致密文不可互通；同时显式挂载 `data/unified_model_config.yaml`、`data/agent_model_config.yaml` 和 `configs/system_config.json`（`api-data` 空卷会遮蔽镜像内 `data/`）。`app/main.py` 在生产环境缺失这些配置文件时抛出 `RuntimeError` 拒绝启动，避免静默回退到硬编码默认模型。`Dockerfile` 另将 `configs/system_config.json` 打进镜像作为兜底。
 
-镜像层仍缺文档转换工具，因此 PPT 转 PDF 相关能力在容器内不可用；其余部署步骤按下文执行。
+镜像层的文档转换工具链已就位；剩余缺口是 Alembic 与 `migrations/runner.py` 的双轨冲突，见下文"数据库迁移"。
 
 ## 部署拓扑
 
@@ -51,7 +51,7 @@
 
 `Dockerfile` 是三阶段文件：Node 20 Alpine 前端构建、Python 3.10 slim 后端依赖、Python 3.10 slim 运行时。运行时创建 `appuser`，安装 `curl` 和 `nginx`，暴露 80、8080，并以内置命令启动 Nginx 和 2 个 Uvicorn worker。
 
-后端依赖来自 `configs/requirements.txt`。该文件包含 FastAPI、Uvicorn、Celery、Redis、SQLAlchemy、Alembic、OpenTelemetry、`python-pptx`、Pillow、OpenCV、Matplotlib、NumPy、Pandas、Scrapy 等依赖。它没有 `gunicorn`、`asyncpg`、`poppler`、`pdf2image` 或 LibreOffice 包。`configs/requirements-test.txt` 是测试工具补充依赖，不会被当前 Dockerfile 安装。
+后端依赖来自 `configs/requirements.txt`。该文件包含 FastAPI、Uvicorn、Celery、Redis、SQLAlchemy、Alembic、OpenTelemetry、`python-pptx`、Pillow、OpenCV、Matplotlib、NumPy、Pandas、Scrapy 等依赖。它没有 `gunicorn`、`asyncpg`、`pdf2image`；文档转换能力由镜像的系统包层提供（`libreoffice-impress`、`poppler-utils`），不来自 pip。`configs/requirements-test.txt` 是测试工具补充依赖，不会被当前 Dockerfile 安装。
 
 Dockerfile 将 `configs/alembic.ini` 复制为 `/app/alembic.ini`，同时将迁移脚本复制到 `/app/migrations`。配置内的 `script_location = %(here)s/../migrations` 在这个新位置会解析为 `/migrations`；镜像内也不存在 `/app/configs/alembic.ini`。因此要求的 `alembic -c configs/alembic.ini ...` 命令当前只能在仓库目录结构中使用，镜像内迁移路径需要部署实现修复。
 
@@ -83,7 +83,7 @@ docker compose up -d
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-当前环境未安装 Docker CLI，无法在本工作区执行 `docker compose config` 或构建验证。服务数和字段来自 YAML 文件内容核验。镜像内仍缺 LibreOffice/Poppler，PPT 转 PDF 能力需在镜像中补齐依赖后使用。
+当前环境未安装 Docker CLI，无法在本工作区执行 `docker compose config` 或构建验证。服务数与字段来自 YAML 文件内容核验，镜像改动的守卫由 `tests/unit/test_prod_compose_consistency.py` 静态锁定。
 
 ## 非 Docker 运行
 
@@ -257,8 +257,8 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | 问题 | 证据 | 影响 |
 |---|---|---|
 | ~~前端输出目录冲突~~ | 2026-09-20 已修复：Vite、Dockerfile、Compose、Nginx、start.sh、CI 统一使用 `src/dist` | 已消除 |
-| 镜像缺少文档转换工具 | Dockerfile 运行时仅安装 `curl`、`nginx`；源码调用 LibreOffice | PPT 转 PDF 在镜像中不可用 |
-| Poppler 未纳入镜像 | `configs/requirements.txt` 和 Dockerfile 均未提供 Poppler | PDF 页面渲染相关能力没有镜像级保障 |
+| ~~镜像缺少文档转换工具~~ | 2026-09-23 已修复：镜像新增 `libreoffice-impress`、`poppler-utils`、`fonts-noto-cjk` 层 | 已消除（镜像增大约 0.7-1 GB） |
+| ~~Poppler 未纳入镜像~~ | 2026-09-23 已修复：`poppler-utils` 提供 `pdftoppm`，PDF 转 PNG 有镜像级保障 | 已消除 |
 | ~~Compose Jaeger 状态不完整~~ | 2026-09-23 已修复：基础文件的 `jaeger` 已是带 `profiles` 的 service，生产链路可另配 Collector | 已消除 |
 | ~~基础 Compose schema 错误~~ | 2026-09-23 已修复：`jaeger` 不再出现在 `networks` 映射中 | 已消除 |
 | ~~生产密钥没有注入~~ | 2026-09-23 已修复：两份 Compose 以 `${SECRET_KEY:?...}` 强制注入 | 已消除 |
@@ -271,4 +271,4 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | 运行时版本差异 | Dockerfile 使用 Python 3.10；项目说明和本地依赖上下文使用 Python 3.11+ | Docker 与本地运行时行为可能存在差异 |
 | 迁移快捷命令路径不足 | `Makefile` 的 `make migrate` 未指定 Alembic 配置 | 命令依赖当前工作目录和默认配置发现行为 |
 
-本次更新核对了编排层修复结果，并保留仍成立的镜像层与迁移层问题。
+本次更新核对并修复了编排层与镜像层问题，保留仍成立的迁移层双轨冲突。
