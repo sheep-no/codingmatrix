@@ -169,6 +169,8 @@
 >
 > 模板：[modules/_TEMPLATE.md](modules/_TEMPLATE.md)
 > **13/13 扫描完成后的演化汇总**：[EVOLUTION.md](EVOLUTION.md)（四层演化蓝图 + 关键问题确定性分级：已实测 / 实码可证 / 待实测）
+>
+> **已删除模块（2026-09-24 校准）**：`app/utils/docker_runner.py`、`app/utils/hot_reload.py`、`app/utils/project_validator.py`、`app/utils/validators/`（整包）已从代码库删除，对应详档顶部或状态节均已标注失效。下表相关行保留作历史登记，路径与行数为扫描时值；已修复/已失效的条目以各详档状态节为准（如 [spec_first_generator.md](modules/spec_first_generator.md) §7、[incremental_modify.md](modules/incremental_modify.md) §7、[dev_tools.md](modules/dev_tools.md) §六、[docker_runner.md](modules/docker_runner.md) §0、[validators.md](modules/validators.md)）。
 
 | 顺序 | 模块 | 路径 | 行数 | 关键关注（已知候选） | 状态 | 详细文档 |
 |------|------|------|------|---------------------|------|---------|
