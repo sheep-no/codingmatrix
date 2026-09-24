@@ -73,7 +73,7 @@ class FailureClusterer:
                 error_type=error_type,
                 error_location=error_location,
                 error_keywords=keywords,
-                tests=[{'name': result['name'], 'error': result.get('error_message', '')}],
+                tests=[{'name': result.get('name', ''), 'error': result.get('error_message', '')}],
                 root_cause_hint=hint,
                 count=1
             )]
@@ -83,7 +83,7 @@ class FailureClusterer:
         for result in test_results:
             error_type, error_location, keywords = self._parse_traceback(result.get('traceback', ''))
             parsed_results.append({
-                'name': result['name'],
+                'name': result.get('name', ''),
                 'error_type': error_type,
                 'error_location': error_location,
                 'error_keywords': keywords,
@@ -94,8 +94,12 @@ class FailureClusterer:
         clusters_map = defaultdict(list)
 
         for parsed in parsed_results:
-            # 集群键：错误类型 + 错误位置
-            cluster_key = (parsed['error_type'], parsed['error_location'])
+            # 集群键：错误类型 + 归一化位置（去行号、去绝对路径前缀），
+            # 避免同一文件同类型错误因绝对路径/行号差异被拆成多簇。
+            cluster_key = (
+                parsed['error_type'],
+                self._normalize_location(parsed['error_location']),
+            )
             clusters_map[cluster_key].append(parsed)
 
         # 生成集群结果
@@ -162,6 +166,20 @@ class FailureClusterer:
 
         return clusters
 
+    # pytest 短格式：``tests/test_x.py:12: in test_func``（无 File "..." 前缀），
+    # 末行也常见 ``tests/test_x.py:12: AssertionError`` 形态，故只要求 path:line:
+    _PYTEST_SHORT_LOC = re.compile(r'^(?P<path>[^\s:]+\.py):(?P<line>\d+):', re.MULTILINE)
+
+    @staticmethod
+    def _normalize_location(location: str) -> str:
+        """聚类键用的位置：去行号、只保留路径尾部两级，消除绝对路径前缀差异。"""
+        if not location:
+            return ""
+        head, sep, tail = location.rpartition(":")
+        file_part = head if sep and tail.isdigit() else location
+        parts = [p for p in re.split(r'[\\/]', file_part) if p]
+        return "/".join(parts[-2:]) if len(parts) >= 2 else (parts[0] if parts else "")
+
     def _parse_traceback(self, traceback: str) -> tuple:
         """
         解析 traceback，提取错误类型、位置和关键词
@@ -178,6 +196,11 @@ class FailureClusterer:
         # 提取错误类型（最后一行）
         error_type = 'Unknown'
         error_match = re.search(r'^(\w+Error|\w+Exception):', traceback, re.MULTILINE)
+        if not error_match:
+            # pytest 短格式的错误类型出现在 ``FAILED ... - AssertionError:``、
+            # ``E   AssertionError:`` 或末行 ``file.py:12: AssertionError`` 中，
+            # 不在行首且末行无冒号，退化为无锚点匹配
+            error_match = re.search(r'(\w+Error|\w+Exception)\b', traceback)
         if error_match:
             error_type = error_match.group(1)
 
@@ -187,14 +210,23 @@ class FailureClusterer:
         if location_matches:
             last_location = location_matches[-1]
             error_location = f"{last_location[0]}:{last_location[1]}"
+        else:
+            # pytest 短格式只有 ``file.py:line: in func``，无 File "..." 前缀，
+            # 不兼容时 error_location 恒空、位置维度全丢。
+            short_match = self._PYTEST_SHORT_LOC.search(traceback)
+            if short_match:
+                error_location = f"{short_match.group('path')}:{short_match.group('line')}"
 
         # 提取错误信息关键词
         keywords = []
-        lines = traceback.split('\n')
-        if lines:
-            last_line = lines[-1].strip()
-            # 提取前 50 字符作为关键词
-            keywords = [last_line[:50]] if last_line else []
+        # 末行常为空行（traceback 以换行结尾），取最后一条非空行，避免关键词恒空
+        meaningful = [ln.strip() for ln in traceback.split('\n') if ln.strip()]
+        for ln in meaningful:
+            if ln.startswith('E ') or 'Error' in ln or 'assert' in ln.lower():
+                keywords.append(ln[:100])
+        if not keywords and meaningful:
+            keywords.append(meaningful[-1][:100])
+        keywords = list(dict.fromkeys(keywords))[:5]
 
         return (error_type, error_location, keywords)
 
