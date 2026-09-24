@@ -121,3 +121,14 @@ max_tokens=self.model_config["max_tokens"], thinking_budget=self.model_config["t
 - **§15（双 spec_first 文件）**：本类是独立生成器，spec_first_generate 是编排——**生成逻辑唯一性确认**（规范生成不重复）
 - **§10.1 直连体系**：SFG6 是 26 直连文件之一（无并发/成本控制）
 - **Backlog 关联**：#7、#12，新增 SFG1-SFG7
+
+## 7. 修复状态（2026-09-24 复核）
+
+按当前 `app/agent/spec_first_generator.py`（573 行）逐项核实：
+
+- **SFG1 已修**：`generate_all_specs`（:125-183）返回值语义与 docstring 一致——types 失败（:150-155）、db 失败（:160-166）、config 失败（:171-177）均 `add_error` + `complete_phase` + `return False`，任一必需规范失败即返回 False，不再是「只 return openapi_success」。
+- **SFG2 已修**：规范链部分失败不再静默——依赖 OpenAPI 的 types 失败即中断（:150-155）；新增 `_needs_http_spec`/`_needs_db_spec`（:139-140）按需求信号跳过，config 仅在 `needs_http or needs_db` 时生成（:171），「OpenAPI 成功 + types 失败仍继续」的半规范状态被显式失败取代。
+- **SFG3 未修**：OpenAPI 主链仍硬编码 `max_tokens=8192, thinking_budget=4096`（:214-215），types/db/config 三处仍用 `self.model_config`（:332/:397/:447，`self.model_config` 于 :122 计算）。
+- **SFG4 未修**：`_generate_types`（:299-322）仍无 str 防御，直接 `json.dumps(openapi_spec, ...)[:3000]`；`_generate_db_schema`（:353-356）保留 str 防御注释。
+- **SFG7 复核确认未修**：仍从 `app.agent.orchestrator` 中转导入 `LayeredModelRouter`（:121）。
+- **SFG5/SFG6/SFG8、截断项未逐一复核**：维持扫描时判定，后续批次再核。

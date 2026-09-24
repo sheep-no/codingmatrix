@@ -66,3 +66,10 @@
 - **HR2 [P3] 判定不成立**：`ConfigWatcher._lock` 定义后从未被 `_poll` 或 `_reload_config` 使用，不存在「用 threading.Lock 保护 async 轮询」的情形；该字段为未使用字段，可在后续清理中移除。
 - **HR3/HR6/HR7、DPM1/DPM2/DPM4/DPM6/DPM7 未改**：均为已知设计取舍或零消费场景下的延后项（mtime 精度、相对路径、单例无锁、启发式评估强度、动态白名单无复审、正则只匹配无嵌套 JSON、持久化无锁），不属于「接线即崩」类，留待接入消费方时专项处理。
 - 新增回归 `tests/unit/test_hot_reload_and_package_filter.py`（4 项）：async 回调被 await、回调异常不中断后续、变更历史被记录、未评估包被拒绝。回退 `hot_reload.py` 与 `dynamic_package_manager.py` 后 4 项全部失败。
+
+## 六、状态更新（2026-09-24 复核）
+
+- **hot_reload.py 已删除，HR1-HR8 全部失效**：`app/utils/hot_reload.py` 已随 commit `2eb520be`「chore: 删除 4 个零生产引用的死模块」删除（同批删除 `app/api/v2/nginx_ai.py`、`app/schema/ppxRequest.py`、`app/utils/resume_manager.py`），对应测试 `tests/unit/test_hot_reload_and_package_filter.py` 同步移除。§五 中 HR1/HR4/HR8「已修」与 HR2「判定不成立」的结论随之作废，HR3/HR6/HR7 不再消费。
+- **project_validator.py 已删除，PV 系列失效**：见 §五，PV1/PV2/PV5/PV6/PV7/PV8 随文件删除失效。
+- **dynamic_package_manager.py 仍存续（456 行），DPM 系列有效**：DPM5 的 fail-closed 修复保留，回归由 `tests/unit/test_dynamic_package_filter.py`（1 项）承接，替换原 `test_hot_reload_and_package_filter.py` 中的用例。DPM1/DPM2/DPM4/DPM6/DPM7 维持未改。
+- **遗留**：`app/test/test_hot_reload.py`（107 行）仍 import 已删除的 `app.utils.hot_reload`。`app/test/` 不在 `pyproject.toml` 的 `testpaths`（`tests/unit`、`tests/integration`）内，CI 不收集该目录，故未被暴露；该文件属引用已删模块的死测试，待确认后清理。

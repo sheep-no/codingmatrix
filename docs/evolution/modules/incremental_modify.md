@@ -138,3 +138,15 @@ engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
 - **IM1/IM5** → 演化蓝图「模型路由统一」（dynamic_model_router 是唯一模型决策源），硬编码模型名违背 DMR 体系
 - **IM3/IM2** → 与 SPFG1/SPFG2（文件启发式校验缺陷）同类——「存在≠正确」验证语义是验证层演化主线（LangGraph Evaluator-optimizer 条件回边方向）
 - **IM9** → 断点续传/回退策略显式化（Checkpointer 对照：增量进度应持久化检查点而非依赖图存在性）
+
+## 7. 修复状态（2026-09-24 复核）
+
+按当前 `app/agent/orchestrator_generation/incremental_modify.py`（1024 行）逐项核实：
+
+- **IM1 已修**：简单变更不再硬编码 `THUDM/GLM-4-9B-0414`——`_select_engineer(file_path)`（:554）+ `_select_model_for_file(file_path)`（:555）取代原 `force_model`；`_retry_with_fallback_model` 与硬编码降级链（原 :688-692）整体移除，模型决策改经 `app.agent.dynamic_model_router`（:644 导入 `LayeredModelRouter`）。
+- **IM3 已修**：`_generate_file_with_model` 内部对生成结果做 `is_valid_code_content`（:975）校验，非法内容走 `_recover_invalid_content`（:989）/ `_retry_generate_file`（:997），坏内容不再直接入依赖图。
+- **IM5 已失效**：`_retry_with_fallback_model` 方法已不存在，重试统一走 `_retry_generate_file`。
+- **IM6 已修**：闭包内 `model_semaphores`/`MAX_CONCURRENT_PER_MODEL` 局部死代码已移除，并发上限仅 `_get_model_semaphore`（:1016-1024）单处定义。
+- **IM9 已失效**：`generate_with_spec_first` 在本文件中已无引用，原「依赖图缺失/计划为空静默回退全量生成」路径不复存在。
+- **IM2/IM4/IM7 仍成立**：`_content_already_satisfies`（:806+）仍为关键词启发式（命中 `/health`/`fastapi` 等字符串即判满足）；`_extract_imports_from_content`（:750-797）仍只解析 Python `import`/`from`；`generate_single_file(file_path, tracker=None)`（:548）调用处不传 tracker（:587），`tracker` 恒 None。
+- **IM8 未复核**：变更计划缓存 key 生成逻辑经重构后位置变动，未逐一核对。
