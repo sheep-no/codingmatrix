@@ -53,7 +53,9 @@ COPY --from=backend-deps /usr/local/bin /usr/local/bin
 
 # Copy backend source code
 COPY app/ ./app/
-COPY configs/alembic.ini ./
+# alembic.ini 必须落在 configs/ 下：其 script_location 与 prepend_sys_path 均以
+# %(here)s（ini 所在目录）相对定位，放在 /app/configs 时解析为 /app/migrations 与 /app
+COPY configs/alembic.ini ./configs/
 # 系统配置默认值随镜像分发；/app/configs 不是挂载点，不会被数据卷遮蔽。
 # 生产如需持久化运行期覆盖，可在编排中把该文件挂到同一路径。
 COPY configs/system_config.json ./configs/

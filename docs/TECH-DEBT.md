@@ -70,6 +70,8 @@
 | P1 | 生产编排未提供模型/系统配置，且各容器可能各自生成 RSA 密钥；运行期静默回退硬编码默认模型 | `Dockerfile`、`docker-compose.prod.yml`、`docker-compose.yml`、`app/main.py` | 已解决；两个编排显式挂载 `unified_model_config.yaml`、`agent_model_config.yaml`、`system_config.json`，三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR=/app/keys`，镜像内 COPY `system_config.json` 兜底，生产启动缺配置即报错，补 5 项编排守卫与 3 项启动校验用例 |
 | P3 | `e2e.yml` 与 `backend-ci.yml` 触发分支写作 `main`（默认分支 `master`），从不运行 | `.github/workflows/e2e.yml`、`.github/workflows/backend-ci.yml` | 已解决；`backend-ci.yml` 与 `ci.yml` 完全重复（测试与 pip-audit 均已覆盖）且 `ruff check app/` 在无 ruff 配置下默认规则报 8297 个错误，已删除；`e2e.yml` 重写为可运行门禁 |
 | P3 | 4 个模块全库零生产引用：`ppxRequest.py`（PPT 链实际用端点内联模型）、`nginx_ai.py`（路由从未挂载）、`resume_manager.py`、`hot_reload.py` | `app/schema/ppxRequest.py`、`app/api/v2/nginx_ai.py`、`app/utils/resume_manager.py`、`app/utils/hot_reload.py` | 已解决；确认零生产引用（含符号名）后删除，同步裁剪 14 项仅针对这些模块的单测并重命名 `test_hot_reload_and_package_filter.py` 为 `test_dynamic_package_filter.py` |
+| P3 | 镜像内 Alembic 路径失配：ini 被复制到 `/app/alembic.ini`，`%(here)s/../migrations` 与 `%(here)s/..` 解析到 `/migrations` 与 `/` | `Dockerfile`、`configs/alembic.ini` | 已解决；改为 `COPY configs/alembic.ini ./configs/`，与仓库布局一致后解析为 `/app/migrations` 与 `/app`，补 1 项路径守卫用例 |
+| P2 | `migrations/env.py` 硬编码 `BASE_DIR/app.db` 并覆盖 ini 中的 URL，容器内 alembic 迁移到与 API 不同的空库 | `migrations/env.py` | 已解决；改用 `settings.DATABASE_URL`（生产由环境变量注入），副本验证目标库正确且原库未被触碰，补 1 项守卫用例 |
 
 ### 仍需决策
 
@@ -78,6 +80,7 @@
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离，如需更强保护可改为带口令私钥 + 环境变量注入口令 |
 | P3 | `tests/e2e/` 下有 99 个 spec，含大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 仍在；`e2e.yml` 只把 5 个稳定 spec 作为门禁，其余建议按用途清理或归档到 `tests/archive/` |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 仍在；与 4 个死文件一同核实出，因功能语义与 Agent 相邻暂保留，待确认是否属于预留能力 |
+| P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突：runner.py 依据 `Base.metadata` 建表补列但不写 `alembic_version`，`upgrade head` 在空库与 runner.py 管理过的库上均失败（`app.db` 副本复现 `duplicate column name: lifecycle_status`，且 SQLite DDL 非事务可能半应用） | `migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 仍在；需决定保留哪一套作为唯一 schema 演进机制（拆除另一套或让迁移幂等），当前指南只允许 `stamp head` 对齐版本、禁止 `upgrade head` |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动，API 实际以 root 运行 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 仍在；镜像设计以 appuser 运行 API，但两个编排都用 `command` 覆盖，需决策是否补 `user:`（本地 compose 的 bind mount 属主需一并处理） |
 
