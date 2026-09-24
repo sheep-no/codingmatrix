@@ -12,6 +12,10 @@ services:
       dockerfile: Dockerfile
     container_name: ai-agent-api-prod
     restart: always
+    # command 覆盖了 Dockerfile 的 CMD，其中的 su appuser 不再执行；显式以 appuser
+    # 运行，否则 API 以 root 运行。Dockerfile 已 chown -R appuser:appuser /app 并预建
+    # 全部挂载点，named volume 首次创建会继承该属主，bind mount 源文件为 644 可读
+    user: appuser
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2
     ports:
       - "127.0.0.1:8080:8080"
@@ -71,6 +75,8 @@ services:
       dockerfile: Dockerfile
     container_name: ai-agent-celery-prod
     restart: always
+    # 同 api：command 覆盖 CMD 会绕过 su appuser
+    user: appuser
     command: celery -A app.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=50
     healthcheck:
       disable: true
@@ -115,6 +121,8 @@ services:
       dockerfile: Dockerfile
     container_name: ai-agent-scheduler-prod
     restart: always
+    # 同 api：command 覆盖 CMD 会绕过 su appuser
+    user: appuser
     command: python -m app.db.scheduler_runner
     healthcheck:
       disable: true
