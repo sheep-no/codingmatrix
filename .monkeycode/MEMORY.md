@@ -69,6 +69,9 @@
   - VS Code 插件 e2e（`npm run e2e`）的后端会话段需 `CODINGMATRIX_E2E_API_URL` + `CODINGMATRIX_E2E_ACCESS_TOKEN`，缺任一个 `e2e/suite.mjs:36-38` 直接 `return` 且仍以退出码 0 结束——退出码 0 只证明扩展能加载与注册命令，不代表后端链路被覆盖。判定是否真跑了要查 `data/agent_host_sessions/` 是否新增 `workspace_id=fixtures` 记录及其 `control_status` 终态为 `cancelled`。
   - 插件 e2e 断言命令注册不要手写命令名清单，直接从 `package.json` 的 `contributes.commands` 读出来再和 `vscode.commands.getCommands(true)` 比对，否则 `package.json` 与 `activate()` 漂移（面板显示有、点了报错）不会被发现。
   - webview 面板打开后不会立刻出现在 `vscode.window.tabGroups.all` 里：`executeCommand` 返回时标签页可能尚未创建，直接断言会得到 0 个标签。要轮询等待（实测约 250ms 内出现），否则会把时序问题误判成「面板没打开」。
+  - 插件测试分两层：单元 `npm test` = 全局 `tsc` + `node --test test/*.test.mjs`（不需要 `node_modules`）；e2e 有两个入口 —— `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`，可带真实后端）与 `xvfb-run -a node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`）。
+  - e2e 首次运行由 `@vscode/test-electron` 下载 VS Code（实测 1.139.0，325.98 MB）到 `.vscode-test/`，解压后约 971 MB，会把磁盘压到 97%；缓存带 `is-complete` 标记，重跑直接复用。删除源码后 tsc 不清理对应的 `dist/*.js|.d.ts|.js.map` 残留，而 `vsce package` 按 `files: ["dist/**"]` 全打包，打包前必须手动清理这些残留。
+  - VS Code 1.139 启动会打印大量内置子系统日志（`[AgentHost] No signed-in session resolved for https://api.github.com`、`[ChatModelSelection]`、`Unknown channel: agentHostClientProxy`、dbus 连接失败），与本插件无关（`signed-in` 文案不在 `src/`、`dist/`），排查插件问题时忽略。
 
 ### Flutter 客户端验证约束
 - Date: 2026-09-08 / 2026-09-09

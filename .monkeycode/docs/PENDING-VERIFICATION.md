@@ -4,7 +4,7 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test --no-pub --concurrency=1` → 488 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 103 passed / 0 fail）。构建产物类结果来自产出记录，未重复构建。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test --no-pub --concurrency=1` → 488 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 95 passed / 0 fail，另两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
 
 ## 已经完成的验证
 
@@ -18,9 +18,12 @@
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
 | Provider 测试连接错误文案 | 设计内行为，非缺陷：`ProviderKeyClient.test()` 丢弃后端 `message`，页面统一显示「Provider Key 测试失败，请重试」。既有测试 `test/provider_key_test.dart:551`「测试连接网络断开显示测试失败」明确断言不出现 `connection lost` 与 `sensitive-token`，即刻意不向 UI 回显后端/网络细节。与 `dynamic_provider_client.dart:68`、`github_controller.dart:125-126` 展示后端原文的做法不同，属产品选择，不改 | `test/provider_key_test.dart:551-583` |
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
-| VS Code 插件单测 | 103 passed / 0 fail | `npm test` |
-| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`assertCompatible` 通过、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `npm run e2e` |
+| VS Code 插件单测 | 95 passed / 0 fail | `npm test`（全局 `tsc` + `node --test test/*.test.mjs`，无需 `node_modules`） |
+| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
+| VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
 | VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
+| VS Code 插件孤儿模块清理 | 删除生产代码零引用的 `src/compatibility.ts`（65 行）与 `src/status-view.ts`（177 行）及各自单测；两者只被自身测试 import，`compatibility` 的握手校验与生产实际逻辑（`agent-host.ts:204` 的 `protocol_version` 单值比对）不一致，且 `EXTENSION_VERSION` 与 `package.json` 版本重复。同时移除 e2e 里「自造对象自测」的假断言（它从未触及真实握手路径） | 单测 103 → 95；`rg` 全仓引用计数为 0；删后 tsc 退出 0、两套 e2e 仍通过 |
+| VS Code 插件重新打包 | `vsce package` 重建本地 vsix：包内 51 个 `dist/` 文件与当前源码 1:1，不再含已删模块（旧包为 9 月 7 日产物，`extension.js` 缺后续 52 行改动）。注意 tsc 不清理已删源码的 `dist/` 残留，打包前需手动清理 | `codingmatrix-local-validation-0.1.0.vsix`（54 files, 74.57 KB） |
 | Linux 桌面构建与运行 | `flutter build linux --debug` 成功；Xvfb 下窗口已映射 | 窗口标题 `CodingMatrix Agent`，WM_CLASS `com.codingmatrix.agent` |
 | Linux 端真实后端全流程 | 登录、会话恢复、13 个功能页渲染全部通过，客户端日志无异常 | 见下文「Linux 实跑记录」 |
 | 对话框窄屏 + 键盘溢出 | 新增复现测试 7 项全过；`创建用户` 44px、`编辑用户` 36px、`MCP 编辑` 52px 三处溢出已修 | `test/narrow_dialog_test.dart`；`admin_page.dart`、`agent_history_page.dart`、`mcp_admin_page.dart` 的 `content` 外包 `SingleChildScrollView` |
