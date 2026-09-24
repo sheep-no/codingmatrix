@@ -1,6 +1,7 @@
 """project_metadata 解析加固回归：PM1（null/dict 崩溃）与 PM2（回退污染）。"""
 
 import json
+import types
 
 import pytest
 
@@ -234,6 +235,8 @@ class TestVectorIndexFallbackFilter:
                 indexed_ids.append(len(indexed_ids))
 
         monkeypatch.setattr("app.utils.AiCodeUtil.get_embedding", fake_embedding)
+        # CI 环境未安装 faiss，build_from_metadata 会调用 faiss.normalize_L2
+        monkeypatch.setattr(vi_mod, "faiss", types.SimpleNamespace(normalize_L2=lambda v: v))
         manager._create_empty_index = lambda: None
         manager._index = _FakeIndex()
         manager._save_index = lambda: None
