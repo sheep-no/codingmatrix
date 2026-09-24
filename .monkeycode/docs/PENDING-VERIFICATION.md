@@ -4,7 +4,7 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test --no-pub --concurrency=1` → 488 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 95 passed / 0 fail，另两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 490 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`npm test` → 95 passed / 0 fail，另两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
 
 ## 已经完成的验证
 
@@ -34,6 +34,7 @@
 | Android 目标编译 | `flutter build bundle --target-platform android-arm64` 成功 | 产物 `build/flutter_assets` |
 | 应用标识统一 | 三端一致为 `com.codingmatrix.agent` | Android `namespace`/`applicationId`、Linux `APPLICATION_ID`、窗口标题与 Windows 产品名 |
 | 真实 LLM 链路 | SiliconFlow 凭据有效（98 模型）、5 个 agent 角色模型可用、后端 chat 非流式与流式均真实返回、Provider RSA 提交与「测试连接」成功 | 本地后端实跑，详见「待验收项 4」 |
+| 工作台进度契约修复 | 已修并回归：`WorkbenchController` 的 `progress` 分支只读 `stage`/`progress`/`session_id`，而后端 `ProgressMixin._report_progress` 实际发 `step`/`phase`/`current`/`total`/`percentage`（`app/agent/orchestrator_progress.py:150`），故真实运行时进度条恒 0%、阶段停在初始 `connecting`。同一字段缺失也让 `awaiting_user_decision` 判定恒不成立（死分支）：当前后端两种帧顺序下未造成可见故障，但顺序一旦互换就会把已下发的架构决策清空。现统一从 `step`/`phase`、`percentage` 读取，保留旧字段别名 | 新增 `test/agent_delivery_test.dart` 两项确定性用例（按真实 SSE 包封形状构造），修前必失败、修后通过；全量 490 passed、`flutter analyze lib test` 无问题 |
 
 ## Linux 实跑记录
 
@@ -121,9 +122,13 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 复现方式：`DATABASE_URL=sqlite+aiosqlite:////tmp/opencode/llm_test.db ENV=development SILICONFLOW_API_KEY=<key> python3 -m uvicorn app.main:app --port 8000`，注册/登录后调上述端点。Provider 提交与测试连接依赖 Redis（未起时提交返回 403），需先 `redis-server --port 6379 --save '' --appendonly no --maxmemory 128mb`。
 
-仍待验证：`/api/v1/ai-agent/orchestrate/stream` 与七个生成开关的真实端到端生成，以及 GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取。
+`/api/v1/agent/orchestrate/stream` 端到端已实跑（2026-09-24，真实 SiliconFlow 凭据，session `llm-e2e-1790257115`）：SSE 传输层全通，收到 `pipeline_mode`、`progress`、`step_detail`、`thinking`（1753 条）、`heartbeat`（135 条）、`critical_decisions` 与 `error` 各 1 条；`projects/1/llm-e2e-1790257115/.dep_graph.json` 已落盘（20 文件节点）。但生成在依赖图校验阶段中断，`error` 事件内容为 `unknown file types were not inferred: vue.py`，`projects/1` 无源码产出。
 
-阻塞原因（agent 编排）：该端点有磁盘守卫，可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且会写 `./projects`。本机根分区 20G 常年 92% 占用，需先腾出 >2GB 可用。GitHub 侧需真实 Token。
+中断根因（后端，本范围外）：Architect 角色模型对「Python hello world」需求产出了含 `src/main.js`、`src/router.js`、`vue.py` 的 Web 架构（`Qwen/Qwen3.5-4B` 幻觉），`_ensure_file_plan_completeness` 把 `vue.py` 自动补进 file_plan（type=unknown），而 `DependencyGraph._infer_file_type` 对 `.py` 无兜底（`EXTENSION_TYPE_MAP` 缺 `.py`），`_infer_unknown_file_types` 遂抛 `RuntimeError` 中止整轮生成。同一路径下任何非约定命名的 `.py` 都会触发。详见「跨边界发现」。
+
+仍待验证：GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取（需真实 GitHub Token）；agent 编排需更强 Architect 模型或后端修复后才能跑到 `done`。
+
+磁盘守卫：该端点可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且写 `./projects`。本轮已腾出 >3GB 可用后通过。
 
 ### 5. GitHub 设置页验证状态不持久
 
@@ -144,6 +149,8 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | `app/main.py:197` | `allow_origin_regex=settings.ALLOWED_HOSTS.replace(",", "\|")` 未转义正则元字符 |
 | `Dockerfile:23`、`:34` | 基础镜像 `python:3.10-slim`，与文档要求的 Python 3.11+ 不一致 |
 | 应用挂载 | `AiProjectCode.py`、`nginx_ai.py` 未挂载 |
+| `app/agent/dependency_graph.py:1208` + `app/agent/dependency_rules.py:189` | `_infer_file_type` 对 `.py` 无扩展名兜底：`EXTENSION_TYPE_MAP` 没有 `.py`（只有 `.vue`、`.js` 等），Python 适配器的 `infer_file_type` 也只在目录名/文件名命中规则时才给类型。任何非常规命名的 `.py`（`vue.py`，甚至 `hello.py`）推断为 `unknown`，`_infer_unknown_file_types` 随即 `RuntimeError` 中止整轮编排（`spec_first_generate.py:1955`） |
+| `app/agent/architect.py:1341` | `_ensure_file_plan_completeness` 会把 Architect 幻觉出的模块自动补进 file_plan（上例中 Vue 风格的 `vue.py`、`app/api.py`），放大上一条的爆炸半径；本轮弱 Architect 模型（`Qwen/Qwen3.5-4B`）对简单 Python 需求产出了 Web 架构 |
 
 ## 本地后端联调方法
 

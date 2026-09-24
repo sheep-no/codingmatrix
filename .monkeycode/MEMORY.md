@@ -78,7 +78,7 @@
 - Date: 2026-09-08 / 2026-09-09
 - Category: 测试方法
 - Instructions:
-  - 直接验证可用 `FLUTTER_ALLOW_ROOT=1 flutter analyze` / `FLUTTER_ALLOW_ROOT=1 flutter test`。
+  - 直接验证可用 `FLUTTER_ALLOW_ROOT=1 flutter analyze` / `FLUTTER_ALLOW_ROOT=1 flutter test`。托管后台终端的 PATH 不含 flutter，需先 `export PATH="/root/flutter/bin:$PATH"`（SDK 装在 `/root/flutter`），否则报 `flutter: not found`。
   - 修改后执行 `dart format`（只格式化本次改动文件，全量会因本地 SDK 与仓库格式不一致产生无关改动）→ `flutter analyze` → 定向测试 → 全量 `flutter test`，修完再返回。
   - 账号切换竞态统一守卫是自增 epoch 快照：`NotifierProvider` 重建会复用 notifier 实例，`ref.onDispose` 里置位的一次性布尔会永久生效并静默屏蔽后续请求；`StateNotifierProvider` 重建会新建实例，用 `mounted` 判断即可。
   - 区分度测试只用默认参数构造被测对象；使用新增命名参数会让旧代码编译失败而非干净失败，掩盖真实断言。
