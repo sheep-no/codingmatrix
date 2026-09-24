@@ -316,16 +316,17 @@ class IntegrityValidator:
         # 检查前端调用的 API 是否存在
         for call in frontend_calls:
             endpoint = call['endpoint']
+            method = call['method']
             file_path = call['file']
 
-            # 检查端点是否存在
-            if not self._api_endpoint_exists(endpoint, backend_apis):
+            # 检查端点是否存在（method + path 二元组）
+            if not self._api_endpoint_exists(endpoint, method, backend_apis):
                 result.add_issue(IntegrityIssue(
                     file_path=file_path,
                     issue_type="api_mismatch",
-                    message=f"前端调用的 API 端点可能不存在: {endpoint}",
+                    message=f"前端调用的 API 端点可能不存在: {method} {endpoint}",
                     severity="warning",
-                    suggestion=f"确保后端有对应的路由处理 {endpoint}"
+                    suggestion=f"确保后端有对应的路由处理 {method} {endpoint}"
                 ))
 
     def _extract_backend_apis(self, files: Dict[str, str]) -> List[Dict]:
@@ -362,36 +363,46 @@ class IntegrityValidator:
             # 匹配 fetch/axios 调用
             # fetch("/api/xxx") 或 axios.get("/api/xxx")
             patterns = [
-                r'fetch\s*\(\s*[`"\']([^`"\']+)[`"\']',
-                r'axios\.\w+\s*\(\s*[`"\']([^`"\']+)[`"\']',
-                r'\.get\s*\(\s*[`"\']([^`"\']+)[`"\']',
-                r'\.post\s*\(\s*[`"\']([^`"\']+)[`"\']',
+                (r'fetch\s*\(\s*[`"\']([^`"\']+)[`"\']', 'GET'),
+                (r'\.(get|post|put|delete|patch)\s*\(\s*[`"\']([^`"\']+)[`"\']', None),
             ]
 
-            for pattern in patterns:
+            for pattern, default_method in patterns:
                 for match in re.finditer(pattern, content):
-                    endpoint = match.group(1)
+                    if default_method:
+                        method = default_method
+                        endpoint = match.group(1)
+                    else:
+                        method = match.group(1).upper()
+                        endpoint = match.group(2)
                     # 跳过模板字符串中的变量
                     if '${' in endpoint:
                         continue
+                    # 去掉查询串/锚点，便于与后端路由比对
+                    endpoint = endpoint.split('?')[0].split('#')[0]
                     calls.append({
                         'endpoint': endpoint,
+                        'method': method,
                         'file': file_path
                     })
 
         return calls
 
-    def _api_endpoint_exists(self, endpoint: str, apis: List[Dict]) -> bool:
-        """检查 API 端点是否存在"""
-        # 简化检查：路径是否匹配
+    def _api_endpoint_exists(self, endpoint: str, method: str, apis: List[Dict]) -> bool:
+        """检查 API 端点是否存在（method + path 二元组匹配）。
+
+        旧实现只比对路径，且用 `startswith` 做前缀判断，会把 `/api/users` 误判为
+        `/api/user` 的子路径；同时忽略 HTTP method。改为 method 相等 + 路径正则全匹配
+        （`{param}` 段匹配任意单段，其余字符 `re.escape`）。
+        """
         for api in apis:
+            if api['method'] != method:
+                continue
             api_path = api['path']
-            # 处理路径参数：/todos/{id} -> /todos/xxx
-            api_pattern = re.sub(r'\{[^}]+\}', r'[^/]+', api_path)
-            if re.match(f'^{api_pattern}$', endpoint):
-                return True
-            # 检查是否是前缀匹配
-            if endpoint.startswith(api_path) or api_path.startswith(endpoint):
+            # 先按 `{param}` 切分再 escape 字面段，避免 re.escape 把 `{` 转义后再替换
+            segments = re.split(r'\{[^}]+\}', api_path)
+            pattern = '[^/]+'.join(re.escape(seg) for seg in segments)
+            if re.match(f'^{pattern}$', endpoint):
                 return True
         return False
 
