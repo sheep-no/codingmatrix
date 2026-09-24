@@ -11,6 +11,9 @@ services:
       dockerfile: Dockerfile
     container_name: ai-agent-api
     restart: unless-stopped
+    # 本地 compose 不设 user: appuser（与 docker-compose.prod.yml 相反）：这里的
+    # ./logs、./data、./uploads 等是 bind mount，宿主机目录属主为当前用户，
+    # 切到 appuser 会失去写权限。本地以 root 运行，生产 compose 才以 appuser 运行
     ports:
       - "127.0.0.1:8080:8080"
     environment:
@@ -53,6 +56,7 @@ services:
       dockerfile: Dockerfile
     container_name: ai-agent-celery
     restart: unless-stopped
+    # 同 api：本地为 bind mount，不设 user: appuser
     command: celery -A app.celery_app worker --loglevel=warning --concurrency=1 --max-tasks-per-child=50
     environment:
       - ENV=production

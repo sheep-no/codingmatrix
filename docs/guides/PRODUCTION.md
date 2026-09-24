@@ -49,7 +49,9 @@
 
 ## 当前 Docker 配置
 
-`Dockerfile` 是三阶段文件：Node 20 Alpine 前端构建、Python 3.10 slim 后端依赖、Python 3.10 slim 运行时。运行时创建 `appuser`，安装 `curl` 和 `nginx`，暴露 80、8080，并以内置命令启动 Nginx 和 2 个 Uvicorn worker。
+`Dockerfile` 是三阶段文件：Node 20 Alpine 前端构建、Python 3.11 slim 后端依赖、Python 3.11 slim 运行时。运行时创建 `appuser`，安装 `curl` 和 `nginx`，暴露 80、8080，并以内置命令启动 Nginx 和 2 个 Uvicorn worker（CMD 内以 `su appuser` 降权）。
+
+两份编排的 `command` 都会覆盖该 CMD，其中的 `su appuser` 不再执行，因此非 root 启动需要编排显式声明：`docker-compose.prod.yml` 的 api/celery/scheduler 均设置 `user: appuser`。本地 `docker-compose.yml` 使用 bind mount（`./logs`、`./data`、`./uploads` 等属主为宿主用户），切到 `appuser` 会失去写权限，故保持默认 root 运行。
 
 后端依赖来自 `configs/requirements.txt`。该文件包含 FastAPI、Uvicorn、Celery、Redis、SQLAlchemy、Alembic、OpenTelemetry、`python-pptx`、Pillow、OpenCV、Matplotlib、NumPy、Pandas、Scrapy 等依赖。它没有 `gunicorn`、`asyncpg`、`pdf2image`；文档转换能力由镜像的系统包层提供（`libreoffice-impress`、`poppler-utils`），不来自 pip。`configs/requirements-test.txt` 是测试工具补充依赖，不会被当前 Dockerfile 安装。
 
@@ -267,7 +269,8 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | ~~容器内 Alembic 路径失配~~ | 2026-09-23 已修复：ini 复制到 `/app/configs/alembic.ini`，`%(here)s` 相对解析恢复为 `/app/migrations` 与 `/app` | 已消除 |
 | ~~Alembic 忽略 `DATABASE_URL`~~ | 2026-09-23 已修复：`migrations/env.py` 改用 `settings.DATABASE_URL`，容器内 alembic 与 API 命中同一库 | 已消除 |
 | ~~Alembic 与 runner.py 双轨冲突~~ | 2026-09-24 已修复：`migrations/env.py` 在库内无 `alembic_version` 时以 `Base.metadata` 建全量表并登记 head，已有版本走标准迁移；空库与 runner.py 管理过的库均可 `upgrade head` | 已消除（新增 3 项引导回归用例） |
-| ~~运行时版本差异~~ | 已修复：`Dockerfile` 两阶段均基于 `python:3.11-slim`，无 Python 3.10 残留 | 已消除 |
+| ~~运行时版本差异~~ | 已修复：`Dockerfile` 的两个 Python 阶段均基于 `python:3.11-slim`，无 Python 3.10 残留 | 已消除 |
+| ~~生产服务以 root 运行~~ | 2026-09-24 已修复：`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，本地 compose 因 bind mount 属主保持 root 并加注释 | 已消除 |
 | ~~迁移快捷命令路径不足~~ | 2026-09-24 已修复：`Makefile` 的 `migrate`/`migrate-revision` 与 `scripts/migrate.sh` 显式带上 `-c configs/alembic.ini`；脚本内 `history -n 3` 的无效参数改为 `current` | 已消除 |
 
 本次更新核对并修复了编排层、镜像层与迁移层的遗留问题。

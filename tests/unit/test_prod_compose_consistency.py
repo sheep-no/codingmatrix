@@ -1,4 +1,4 @@
-"""生产编排一致性回归：数据库单一来源、必需密钥显式、写入挂载点可写。
+"""生产编排一致性回归：数据库单一来源、必需密钥显式、写入挂载点可写、非 root 启动显式声明。
 
 这三个问题在本地开发不会暴露，但会让生产部署静默降级或直接不可用：
 
@@ -145,6 +145,30 @@ def test_prod_app_services_mount_model_and_system_configs():
         targets = _mount_targets(services[name])
         for target in REQUIRED_CONFIG_TARGETS:
             assert target in targets, f"{name} 未挂载配置 {target}"
+
+
+def test_prod_app_services_run_as_non_root_appuser():
+    """生产服务必须显式以 appuser 运行。
+
+    两个编排的 `command` 都覆盖了 Dockerfile 的 CMD，CMD 里的 `su appuser` 不再
+    执行；缺 `user` 时 API/celery/scheduler 会以 root 运行，非 root 启动的设计失效。
+    """
+    services = _load_services()
+    for name in APP_SERVICES:
+        assert services[name].get("user") == "appuser", f"{name} 未以 appuser 运行"
+
+    # 修复前提：镜像 CMD 确实以 appuser 启动，Dockerfile 改动时此断言会提醒
+    dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    assert "su -s /bin/sh appuser" in dockerfile, "Dockerfile CMD 未使用 appuser"
+
+
+def test_local_compose_app_services_stay_root_for_bind_mounts():
+    """本地 compose 用 bind mount（./logs、./data、./uploads 属主为宿主用户），
+    切到 appuser 会失去写权限，因此本地保持默认 root 运行。
+    """
+    services = _load_services(LOCAL_COMPOSE_PATH)
+    for name in LOCAL_APP_SERVICES:
+        assert "user" not in services[name], f"{name} 不应在本地 compose 指定 user"
 
 
 def test_prod_app_services_share_rsa_key_volume():
