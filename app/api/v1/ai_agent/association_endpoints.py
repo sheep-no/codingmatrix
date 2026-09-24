@@ -72,41 +72,6 @@ async def requirement_association(
     )
 
 
-@router.post("/requirement-association/confirm")
-async def requirement_association_confirm(
-    association_id: int,
-    token: dict = Depends(verify_token),
-):
-    from app.agent.orchestrator_requirements import AssociationFeedbackTracker
-
-    tracker = AssociationFeedbackTracker()
-
-    tracker.record_feedback(association_id, "accepted")
-
-    return {
-        "success": True,
-        "association_id": association_id,
-    }
-
-
-@router.post("/requirement-association/helpfulness")
-async def requirement_association_helpfulness(
-    association_id: int,
-    helpful: bool,
-    token: dict = Depends(verify_token),
-):
-    from app.agent.orchestrator_requirements import AssociationFeedbackTracker
-
-    tracker = AssociationFeedbackTracker()
-    tracker.record_helpfulness(association_id, helpful)
-
-    return {
-        "success": True,
-        "association_id": association_id,
-        "helpful": helpful,
-    }
-
-
 @router.get("/requirement-association/stats")
 async def requirement_association_stats(
     token: dict = Depends(verify_token),

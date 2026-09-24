@@ -1255,26 +1255,6 @@
     }
   }
 
-  const confirmAssociation = async (associationId) => {
-    try {
-      await api.confirmAssociation(associationId)
-      ElMessage.success('已确认')
-      associations.value = associations.value.map(a =>
-        a.id === associationId ? { ...a, confirmed: true } : a
-      )
-    } catch (error) {
-      ElMessage.error('确认失败')
-    }
-  }
-
-  const rateAssociation = async (associationId, helpful) => {
-    try {
-      await api.submitAssociationHelpful(associationId, helpful)
-    } catch {
-      // 静默失败
-    }
-  }
-
   // ========== 增量修改 ==========
   const enableIncrementalModify = () => {
     isIncrementalMode.value = true

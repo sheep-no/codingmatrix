@@ -86,17 +86,6 @@ export function createAgentClient(client) {
       return await request('post', '/agent/requirement-association', { requirement }) || { associations: [] }
     },
 
-    async confirmAssociation(associationId) {
-      return await request('post', '/agent/requirement-association/confirm', { association_id: associationId }) || { success: false }
-    },
-
-    async submitAssociationHelpful(associationId, helpful) {
-      return await request('post', '/agent/requirement-association/helpfulness', {
-        association_id: associationId,
-        helpful
-      }) || { success: false }
-    },
-
     async getAssociationStats() {
       return await request('get', '/agent/requirement-association/stats') || {}
     },
