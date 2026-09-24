@@ -118,7 +118,7 @@ class SpecFirstGenerator:
         self.architect_model = assignment.get("architect_model") if isinstance(assignment, dict) else getattr(assignment, "architect_model", None)
         if not self.architect_model:
             raise RuntimeError("model assignment is required for spec generation")
-        from app.agent.orchestrator import LayeredModelRouter
+        from app.agent.dynamic_model_router import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.architect_model)
         self._pending_tasks = set()
 
@@ -211,8 +211,8 @@ class SpecFirstGenerator:
                 model=self.architect_model,
                 prompt=f"【USER】\n{prompt}",
                 stream=False,
-                max_tokens=8192,
-                thinking_budget=4096,
+                max_tokens=self.model_config["max_tokens"],
+                thinking_budget=self.model_config["thinking_budget"],
                 temperature=0.5,  # 规范生成需要更确定性的输出
                 api_key_token=self.api_key_token
             )
@@ -297,7 +297,13 @@ class SpecFirstGenerator:
     async def _generate_types(self) -> bool:
         """基于 OpenAPI 规范生成类型定义"""
         openapi_spec = self.context.get_spec("openapi")
-        if not openapi_spec:
+        # 防御：确保 openapi_spec 是 dict 类型，避免 json.dumps 输出字符串字面量
+        if isinstance(openapi_spec, str):
+            logger.warning("openapi_spec 为字符串类型，尝试重新解析")
+            openapi_spec = self._extract_json(openapi_spec) or {}
+        if not isinstance(openapi_spec, dict) or not openapi_spec:
+            openapi_spec = {}
+            # 类型定义依赖 OpenAPI 规范，无有效规范时不生成
             return False
 
         # 根据语言选择类型生成策略

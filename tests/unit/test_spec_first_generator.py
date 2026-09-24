@@ -119,3 +119,78 @@ def test_spec_first_generator_requires_model_assignment(tmp_path):
     ctx = SharedContext("test", tmp_path)
     with pytest.raises(RuntimeError, match="model assignment is required for spec generation"):
         SpecFirstGenerator(ctx)
+
+
+class TestSpecModelConfigAndTypeDefense:
+    """SFG3/SFG4：OpenAPI 走 model_config，_generate_types 对非 dict 规范防御。"""
+
+    @pytest.fixture
+    def generator(self):
+        from app.agent.spec_first_generator import SpecFirstGenerator
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test", Path(tmpdir))
+            ctx.model_assignment = {"architect_model": "test-model"}
+            yield SpecFirstGenerator(ctx)
+
+    @pytest.mark.asyncio
+    async def test_openapi_spec_uses_model_config_limits(self, generator, monkeypatch):
+        generator.model_config = {"max_tokens": 4242, "thinking_budget": 111}
+        captured = {}
+
+        async def fake_call_llm(**kwargs):
+            captured.update(kwargs)
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"openapi":"3.0.0","info":{},"paths":{"/x":{}},"components":{"schemas":{}}}'
+                        }
+                    }
+                ]
+            }
+
+        monkeypatch.setattr("app.agent.spec_first_generator.call_llm", fake_call_llm)
+
+        ok = await generator._generate_openapi_spec(
+            "做一个 FastAPI 用户接口", {"has_backend": True}
+        )
+
+        assert ok is True
+        assert captured["max_tokens"] == 4242
+        assert captured["thinking_budget"] == 111
+
+    @pytest.mark.asyncio
+    async def test_generate_types_parses_string_spec(self, generator, monkeypatch):
+        from app.agent.shared_context import SpecArtifact
+
+        generator.context.specs["openapi"] = SpecArtifact(
+            spec_type="openapi",
+            content='{"openapi":"3.0.0","paths":{"/x":{}}}',
+            generated_by="test-model",
+        )
+        prompts = []
+
+        async def fake_call_llm(**kwargs):
+            prompts.append(kwargs["prompt"])
+            return {"choices": [{"message": {"content": "class X: pass"}}]}
+
+        monkeypatch.setattr("app.agent.spec_first_generator.call_llm", fake_call_llm)
+
+        ok = await generator._generate_types()
+
+        assert ok is True
+        # 字符串规范被重新解析为 dict 后按 JSON 结构注入，而非整体字符串字面量
+        assert '"openapi": "3.0.0"' in prompts[0]
+        assert '"/x"' in prompts[0]
+        assert '\\"' not in prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_generate_types_returns_false_without_spec(self, generator, monkeypatch):
+        async def fail_if_called(**_kwargs):
+            raise AssertionError("types generation should be skipped without a spec")
+
+        monkeypatch.setattr("app.agent.spec_first_generator.call_llm", fail_if_called)
+
+        assert await generator._generate_types() is False
