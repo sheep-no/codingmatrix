@@ -35,7 +35,7 @@ function needsCsrfToken(url) {
 
 export const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
 
-function getValidToken() {
+export function getValidToken() {
   // 1. 优先从 window.userStore 获取
   if (window.userStore && typeof window.userStore.getAccessToken === 'function') {
     try {
