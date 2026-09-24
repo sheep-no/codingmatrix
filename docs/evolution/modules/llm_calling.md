@@ -45,3 +45,14 @@
 ## 四、测试状态
 
 零单元测试。信号量泄漏、路径穿越、format 异常、正则误删均无测试约束。修复建议：① **LMC6 流式断连信号量释放测试（模拟迭代器提前 close 断言信号量归还）**；② PL2 路径穿越测试（`../` 与绝对路径断言拒绝）；③ PL1 大括号模板异常测试；④ PB2 正则误删回归测试。
+
+## 五、修复状态（2026-09-24 复核）
+
+按当前代码逐项核实（本文件写于 v1.130，`llm_caller.py` 已从 438 行重构到 788 行，原文行号与结论部分过时）：
+
+- **LMC6 已修**：`_SemaphoreWrappedAsyncIterator` 已重写为 `SemaphoreHeldStream`（llm_caller.py:438）——`__anext__` 异常/`StopAsyncIteration` 走 `aclose()` 释放、`aclose()` 的 `finally` 中 `release_now()`、`__del__` 兜底同步释放；`release_now` 同步归还额度，取消路径也能立刻释放。
+- **LMC4 已修**：两级获取收敛到 `_acquire_llm_semaphores`（llm_caller.py:410）——`asyncio.timeout` 包裹 + `except BaseException` 逆序释放已拿到的额度，超时转 503。`_LLMSemaphoreLease`（:202）统一记录 global/model 持有状态。
+- **PL2 已修**：`PromptLoader.load`（prompt_loader.py:20）对 `PROMPTS_ROOT / path` 做 `resolve()` 后用 `is_relative_to(root)` 校验，`../` 与绝对路径（`Path` 拼接绝对路径会丢弃左侧）一律拒绝并返回 None。
+- **PL1 已修**：`PromptLoader.format`（prompt_loader.py:53）的 `except` 扩为 `(KeyError, ValueError)`，模板大括号不配对被捕获返回 None，不再向调用方传播。
+- **PB2 仍未修**：`prompt_builder.py` 属零业务消费死代码，正则误删暂不影响运行路径，保留待决（接入前须修）。
+- **测试**：新增 `tests/unit/test_prompt_loader.py` 6 例（越权路径 `../`、绝对路径、根内正常读取、缺变量、大括号不配对、正常替换）；回退源码后 3 项失败。

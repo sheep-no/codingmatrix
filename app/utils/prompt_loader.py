@@ -27,7 +27,18 @@ class PromptLoader:
         Returns:
             提示词内容，加载失败返回 None
         """
-        file_path = PROMPTS_ROOT / path
+        try:
+            root = PROMPTS_ROOT.resolve()
+            file_path = (PROMPTS_ROOT / path).resolve()
+        except Exception as e:
+            logger.error(f"解析提示词路径失败: {e}")
+            return None
+
+        # 拒绝越出提示词根目录的路径（../ 或绝对路径），避免任意文件被读入 LLM 上下文
+        if not file_path.is_relative_to(root):
+            logger.warning(f"拒绝越权提示词路径: {path}")
+            return None
+
         if not file_path.exists():
             logger.warning(f"提示词文件不存在: {file_path}")
             return None
@@ -56,8 +67,8 @@ class PromptLoader:
 
         try:
             return template.format(**kwargs)
-        except KeyError as e:
-            logger.error(f"提示词格式化失败，缺少变量: {e}")
+        except (KeyError, ValueError) as e:
+            logger.error(f"提示词格式化失败: {e}")
             return None
 
 
