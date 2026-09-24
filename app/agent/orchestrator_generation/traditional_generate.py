@@ -281,18 +281,7 @@ class TraditionalGenerateMixin:
                     integrity_validator.generate_fixes(integrity_result, generated_files_dict),
                     architecture,
                 )
-                for fix_path, fix_content in fixes.items():
-                    full_path = self.output_dir / fix_path
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(full_path, 'w', encoding='utf-8') as f:
-                        f.write(fix_content)
-                    self.generated_files.append({
-                        "path": fix_path,
-                        "description": "自动补充的包初始化文件",
-                        "success": True,
-                        "size": len(fix_content),
-                    })
-                    logger.info(f"完整性验证自动补充: {fix_path}")
+                self._apply_integrity_fixes(fixes, generated_files_dict)
 
             # 项目级沙箱验证（新增）
             from app.agent.utils import validate_in_sandbox
@@ -423,6 +412,25 @@ class TraditionalGenerateMixin:
                 "avg_file_time": round(elapsed / len(self.generated_files), 1) if len(self.generated_files) > 0 else 0,
             }
         }
+
+    def _apply_integrity_fixes(self, fixes: dict, generated_files: dict) -> None:
+        """写盘补充的包入口文件，并同步进验证视图。
+
+        不同步的话，后续项目级沙箱验证与完整性检查看到的仍是补充前的快照。
+        """
+        for fix_path, fix_content in fixes.items():
+            full_path = self.output_dir / fix_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(fix_content)
+            generated_files[fix_path] = fix_content
+            self.generated_files.append({
+                "path": fix_path,
+                "description": "自动补充的包初始化文件",
+                "success": True,
+                "size": len(fix_content),
+            })
+            logger.info(f"完整性验证自动补充: {fix_path}")
 
     async def _validate_project_completeness_traditional(
         self,

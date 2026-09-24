@@ -85,8 +85,23 @@
 ### 仍成立
 
 - TG3：数据源恒空是 TG1/TG2 的下游后果，本次修复后 `extract_and_save` 具备首次成功写入的条件，但 `project_metadata.json` 尚未产出真实数据，模板萃取（≥15）/Layer 2 联想（≥50）触发前仍需实测确认。
-- TG4（`is_complete` 忽略空文件）、TG5（审查放行）、TG7、TG9、TG10：本次未触及，条目描述与当前代码一致。
+- TG9、TG10：本次未触及，条目描述与当前代码一致。
 
 ### 相关文档
 
 - PM6（`project_metadata.md`）：`_extract_feature_list` 已有行为用例，`_parse_feature_response`/`_fallback_feature_list` 仍零覆盖；PM1/PM2 仍成立。
+
+## 7. 闸门与验证视图（2026-09-24，第三批）
+
+### 已修
+
+- **TG5 已修**：`_cache_review_gate`（orchestrator_utils.py:43）异常分支由「放行（`return True`）」改为「重新生成（`return False`）」——审查服务不可用时复用未验证缓存的代价高于重新生成，与「放行兜底」家族（DGV1/EC3）的收紧方向一致。`reviewer` 缺失分支仍返回 True（调用点 `cached and cached.architecture and self.reviewer` 已先行守卫，直调场景保持兼容）。高风险仍拦截，中低风险仍放行（维度扩展属产品策略，未改）。
+- **TG8 已修**：完整性补充文件改经 `_apply_integrity_fixes` 写盘，并在写入后同步 `generated_files[fix_path] = fix_content`——此前补充的 `__init__.py` 等写盘后 `generated_files_dict` 未更新，紧随其后的项目级沙箱验证（`files=generated_files_dict`）与 `_validate_project_completeness_traditional` 看到的仍是补充前快照。
+
+新增 5 用例：`test_cache_review_gate.py::TestCacheReviewGateFailClosed` 4 例（异常拦截、高风险拦截、低风险放行、缺 reviewer 放行），`test_traditional_generate.py` 1 例（补充文件写盘并进入验证视图/`generated_files`）；回退源码后各 1 项失败。
+
+### 已校准（本批复核确认此前已修）
+
+- **TG4 已修**：`_validate_project_completeness_traditional`（traditional_generate.py:472）的 `is_complete` 现含 `len(empty_files) == 0 and len(invalid_files) == 0`，空文件与非法文件均判未完成（`test_traditional_completeness_treats_empty_content_as_incomplete` 覆盖）。
+- **TG7 已修**：返回结果的 `success` 现含 `(not self.enable_validation or final_validation.get("is_valid", False))`，静态验证失败不再被 `test_results` 默认 True 掩盖。
+- **TG8 补充说明**：原档 :221-234 的「补 `__init__.py`」独立的旧实现已随重构迁入 `_apply_integrity_fixes`。

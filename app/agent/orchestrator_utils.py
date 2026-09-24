@@ -59,7 +59,9 @@ class UtilsMixin:
                 logger.warning(f"缓存架构语义审查风险等级: {risk_level}")
                 return False
         except Exception as e:
-            logger.warning(f"缓存审查闸门异常（放行）: {e}")
+            # 审查不可用时复用未经验证的缓存风险更高：宁可重新生成，也不放行
+            logger.warning(f"缓存审查闸门异常，改为重新生成: {e}")
+            return False
 
         return True
 

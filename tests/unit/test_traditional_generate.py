@@ -142,3 +142,26 @@ async def test_incremental_generate_failure_raises_after_rollback(tmp_path):
             {"architecture": {"language": "python"}},
             1,
         )
+
+
+def test_integrity_fixes_are_visible_to_subsequent_validation(tmp_path):
+    """TG8: 补充的包入口文件必须同步进验证视图，否则沙箱/完整性检查看不到。"""
+    from app.agent.orchestrator_generation.traditional_generate import (
+        TraditionalGenerateMixin,
+    )
+
+    mixin = object.__new__(TraditionalGenerateMixin)
+    mixin.output_dir = tmp_path
+    mixin.generated_files = []
+
+    generated_files = {"main.py": "print('hi')"}
+    mixin._apply_integrity_fixes({"src/__init__.py": ""}, generated_files)
+
+    assert generated_files["src/__init__.py"] == ""
+    assert (tmp_path / "src" / "__init__.py").read_text(encoding="utf-8") == ""
+    assert mixin.generated_files == [{
+        "path": "src/__init__.py",
+        "description": "自动补充的包初始化文件",
+        "success": True,
+        "size": 0,
+    }]
