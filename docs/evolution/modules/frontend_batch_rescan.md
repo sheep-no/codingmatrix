@@ -185,3 +185,15 @@ FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及
 | FRESCAN-03 | 部分收敛 | 组件与 workflow 客户端不再直读 `localStorage.access_token`，token 读取统一收口到 `base.js:getValidToken`。存储侧三轨（`tokenManager.js` 同时写内存/sessionStorage/localStorage）未动，因涉及登录、刷新与清理全链路，保留待专项。 |
 
 `aicloud.js`、`file.js` 在本轮复核时已全部使用统一客户端（`client.*`），FRESCAN-15 原文对应行号已漂移。
+
+### 状态与视图批次复核（2026-09-24）
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FRESCAN-08 | 已修 | `src/components/index.vue` 已改用 `src/utils/streamParser.js` 的 `consumeJsonStream`（内部跨块 buffer + 流式 `TextDecoder`，处理 `\r?\n` 与尾帧），不再对每次 `reader.read()` 直接 split。`src/utils/streamParser.test.js` 已覆盖「JSON 跨 chunk 重组」。 |
+| FRESCAN-12 | 已失效 | `src/utils/api/admin.js` 现全部使用 `/api/v2/Controller/*`（用户/服务/健康/统计/配置/备份/限流）与 `/api/v2/admin/*`（`config`、`user-limit`）、`/api/v2/nginx/*`，逐条核对后端 `guardian_router.py`（prefix `/Controller`）、`admin_config.py`（prefix `/admin`）、`nginx_api.py`（prefix `/nginx`）、`user_manage.py` 的路径与方法（含 `update_user` 为 PATCH）全部一致；两组前缀分属不同 router，「并存」属正常分工而非错位。`rename`/`fuse-config` 的 `process_signature`/`new_name`/`fuse_*` 参数名与后端签名逐一对齐。 |
+| FRESCAN-14 | 已修 | `src/utils/api/ppt.js:125` 现发送 `template: options.template \|\| options.template_id \|\| 'auto'`，与后端 `PPTGenerationRequest.template` 对齐，不再静默回落 `modern`。 |
+| FESURF-004 | 已修（前批） | `admin.js` 的 `renameService`/`updateFuseConfig` 已接收 `processSignature` 三参并返回解析后 JSON，与 `ServiceManager.vue` 调用一致。 |
+| FESURF-001 | 已修（前批） | `src/utils/api/index.js:86` 显式创建 `ppt: createPptClient(baseClient)`。 |
+
+第二组「核心可用性」中仍待处理的是 FESTATE-01（Agent 会话快照保存链 no-op，需架构级统一快照契约）与 FRESCAN-05（SSE 重连复用同一队列，需每订阅者独立队列）。
