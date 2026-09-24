@@ -250,6 +250,10 @@ _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 def _register_pending_stream(session_id: str, user_id: str) -> asyncio.Event:
     """Allow cancel before the session row exists in DB."""
+    existing_owner = _pending_stream_owners.get(session_id)
+    if existing_owner is not None and existing_owner != str(user_id):
+        # 不得用他人正在运行的 session_id 覆盖 owner，否则后续可越权取消/审批他人会话
+        raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
     _pending_stream_owners[session_id] = str(user_id)
     event = _cancel_events.get(session_id)
     if event is None:
@@ -2125,22 +2129,23 @@ async def submit_decision_endpoint(
 async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: AsyncSession = None):
     """
     验证用户对会话的访问权限
-    对于队列操作，检查是否在等待的队列中即可（更宽松）
+
+    内存中的 owner 记录是唯一的会话归属凭证；缺失时不得凭审批/决策队列或
+    运行态直接放行，否则任何已认证用户仅凭 session_id 即可操作他人会话，
+    此时一律回落到数据库归属校验。
     """
     owner = _pending_stream_owners.get(session_id)
     if owner is not None:
         if owner != str(user_id):
             raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
         return
-    if session_id in _approval_queues or session_id in _decision_queues:
-        return
-    if session_id in _cancel_events or session_id in _active_tasks:
-        return
 
-    # 否则需要验证数据库所有权
     if db:
         from .helpers import verify_session_ownership
         await verify_session_ownership(db, session_id, user_id)
+        return
+
+    raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
 
 
 async def _authorize_snapshot_access(db: AsyncSession, session_id: str, token: dict) -> None:
@@ -2179,6 +2184,20 @@ async def delete_session_endpoint(
 
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="会话不存在")
+
+    # 停止运行中的生成任务并清理内存态，避免任务继续写文件或回写已删除会话
+    cancel_event = _cancel_events.get(session_id)
+    if cancel_event:
+        cancel_event.set()
+    await _cancel_active_generation(session_id)
+    await _cleanup_session_queues(session_id)
+
+    sm = await get_session_manager()
+    async with sm._lock:
+        sm._active_sessions.pop(session_id, None)
+
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
+    ConcurrentLimitManager().unregister_session(token.get("role", "user"))
 
     # 清理会话文件
     for session_dir in [

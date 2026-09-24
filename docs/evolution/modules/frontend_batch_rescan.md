@@ -161,3 +161,16 @@ Vite 代理使用 `selfHandleResponse` 手动写 SSE，生产 Nginx 依赖全局
 2. 再处理核心可用性：FESURF-001、FESTATE-01、FRESCAN-05、FRESCAN-08、FRESCAN-12、FRESCAN-14。
 3. 接着统一部署和测试契约：FEBOOT-02、FRESCAN-17、FRESCAN-18、FRESCAN-19、FRESCAN-25、FRESCAN-26。
 4. 最后收敛双轨和待实测风险：FEBOOT-06、FRESCAN-16、FRESCAN-22、FRESCAN-23、FRESCAN-27。
+
+## 6. 状态校准（2026-09-24 复核）
+
+以真实内存态字典与临时任务驱动复核，逐项确认后修复两项 P1。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FRESCAN-06 | 已修 | 原 `_verify_session_ownership_or_queue` 在无 `_pending_stream_owners` 记录时，仅凭 session_id 命中审批/决策队列、取消事件或活动任务即直接放行，任意已认证用户可操作他人会话。现移除三处宽松放行分支：owner 缺失时一律回落数据库归属校验，无 db 亦无 owner 则拒绝。同时 `_register_pending_stream` 增加 owner 冲突检查，禁止用请求中的 session_id 覆盖他人已注册的 owner（此前 `generate` 流的 `:940` 可用任意 session_id 顶掉真实归属，再借 owner 匹配通过校验）。 |
+| FRESCAN-07 | 已修 | 原 `delete_session_endpoint` 仅删除数据库行与少数目录，不设置取消事件、不停止 `_active_tasks` 中的生成任务、不清理审批/决策队列与 `SessionManager` 状态、不释放并发计数，运行中任务可能继续写文件或回写已删除会话。现删除成功后依次：置位取消事件 → `_cancel_active_generation` 停止并等待任务 → `_cleanup_session_queues` 清理队列与 owner → 移除 `SessionManager._active_sessions` → 释放并发计数，再清理文件目录。 |
+
+新增 `tests/unit/test_stream_cancel_reconnect.py` 四例（队列命中无 owner 需归属校验、拒绝覆盖他人 owner、同 owner 允许、删除会话停止任务并清内存态）。
+
+FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及为每个订阅者分配独立队列，需改动流式事件分发结构，风险较高，保留待专项处理。
