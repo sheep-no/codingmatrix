@@ -148,7 +148,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `migrations/versions/20260829_add_state_reconciliation.py`：双写核对记录。
 - `migrations/versions/20260902_add_ppt_quality_state.py`：PPT 大纲、质量报告和任务关联字段；该 revision 汇合此前多个 Alembic head。
 
-既有数据库首次接入当前 Alembic 链时，先执行 `alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state` 登记基线，再执行 `alembic -c configs/alembic.ini upgrade head` 验证；运行时迁移器继续承担本地既有库的补表和字段兼容。
+首次接入由 `migrations/env.py` 自动处理：库内没有 `alembic_version` 时以 `Base.metadata` 为真相来源，按 metadata 建全量表并把版本登记为 head，不重放历史修订；已有版本记录的库走标准迁移。因此空库与既有库都直接执行 `alembic -c configs/alembic.ini upgrade head`，无需手工 `stamp`。运行时迁移器 `migrations/runner.py` 继续承担本地既有库的补表和字段兼容。
 
 敏感凭据通过环境变量注入，测试脚本和文档使用占位符或环境变量名。
 
@@ -160,7 +160,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 | 前端开发启动 | `npm --prefix src run dev` | Vite 监听 3000，并代理 API 到后端 8000 |
 | 完整启动脚本 | `scripts/start.sh` | **当前不可用入口**：项目根定位到 `scripts/`，无参数时仅显示状态 |
 | 仅后端 | `scripts/start-backend.sh` | 单独启动后端 |
-| 数据库迁移脚本 | `scripts/migrate.sh` | **当前不可用入口**：未指定 `configs/alembic.ini` |
+| 数据库迁移脚本 | `scripts/migrate.sh` | 已显式指定 `configs/alembic.ini`，可直接执行 |
 | 数据库迁移 | `alembic -c configs/alembic.ini upgrade head` | 已核验的 Alembic 入口，在仓库根目录执行 |
 | 后端测试 | `scripts/test.sh` | 运行测试套件 |
 | 容器启动 | `docker-compose.yml` | 本地容器编排 |

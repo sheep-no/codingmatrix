@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-当前 Docker 生产链路的编排层缺口（密钥注入、数据库路径、运行期配置）与镜像层文档转换工具均已修复，剩余结构性缺口是 Alembic 与 `migrations/runner.py` 的双轨冲突：
+当前 Docker 生产链路的编排层缺口（密钥注入、数据库路径、运行期配置）、镜像层文档转换工具与 Alembic/runner.py 双轨冲突均已修复：
 
 > 2026-09-20 更新：原第 1、2 条前端产物路径冲突已修复。`src/vite.config.js` 的 `build.outDir` 统一为 `dist`（即 `src/dist`），`app/main.py` 的 `DIST_PATH`、`Dockerfile` 的 COPY 与软链、两份 Compose、`configs/nginx.conf`、`scripts/start.sh`、`scripts/check-performance-budget.js` 与 CI 上传路径现在全部指向同一目录。
 
@@ -18,7 +18,7 @@
 
 运行期配置已补齐：两份 Compose 的 api/celery/scheduler 统一设置 `RSA_KEY_DIR=/app/keys` 并共享 `api-keys` 卷，避免各容器各自生成密钥导致密文不可互通；同时显式挂载 `data/unified_model_config.yaml`、`data/agent_model_config.yaml` 和 `configs/system_config.json`（`api-data` 空卷会遮蔽镜像内 `data/`）。`app/main.py` 在生产环境缺失这些配置文件时抛出 `RuntimeError` 拒绝启动，避免静默回退到硬编码默认模型。`Dockerfile` 另将 `configs/system_config.json` 打进镜像作为兜底。
 
-镜像层的文档转换工具链已就位；剩余缺口是 Alembic 与 `migrations/runner.py` 的双轨冲突，见下文"数据库迁移"。
+镜像层的文档转换工具链已就位；Alembic 与 `migrations/runner.py` 的首次接入契约已收敛，见下文"数据库迁移"。
 
 ## 部署拓扑
 
@@ -129,25 +129,24 @@ PYTHONPATH=/workspace python3 -m app.db.scheduler_runner
 
 `configs/alembic.ini` 将迁移脚本定位到 `migrations/`（`script_location = %(here)s/../migrations`），`migrations/env.py` 读取统一的 `settings.DATABASE_URL`：生产由环境变量注入、本地默认仓库根 `app.db`。镜像将 ini 复制到 `/app/configs/alembic.ini`，与 `COPY migrations/ ./migrations/` 配套，因此容器内 alembic 命中与 API 相同的库。当前 Alembic 头为 `20260918_unique_tasks_task_id`。
 
-应用启动由 `migrations/runner.py` 依据 `Base.metadata` 幂等建表并补列，它不写 `alembic_version`。于是仓库里存在两套并行的 schema 演进机制，直接混用会冲突：
+应用启动由 `migrations/runner.py` 依据 `Base.metadata` 幂等建表并补列。`migrations/env.py` 的首次接入契约以同一份 metadata 为 schema 真相来源：
 
-- 全新空库无法 `upgrade head`：`a1b2c3d4e5f6_add_performance_indexes` 等修订假设 `user` 等基础表已存在，而这些表由 runner.py 在应用启动时创建。
-- runner.py 管理过的库不能直接 `upgrade head`：runner.py 已提前补过部分列（如 `project_sessions.lifecycle_status`），再执行对应修订会因 `duplicate column name` 失败；SQLite 的 DDL 非事务，失败可能留下半应用状态。这一点已在 `app.db` 副本上复现。
+- 库内没有 `alembic_version` 时，先按 metadata 建全量表，再把版本登记为 head，不重放历史修订。从零建库的历史链本身无法自洽——起点 `56882bedb846` 是空迁移，紧随的 `a1b2c3d4e5f6_add_performance_indexes` 就假设 `user` 等基础表已存在。
+- 库内已有 `alembic_version` 时走标准迁移，只执行尚未应用的新修订。
 
-在 runner.py 管理的库上，让 alembic 仅对齐版本记录、不执行任何迁移：
+因此空库、runner.py 管理过的库、已有版本记录的库都可直接执行同一条命令：
 
 ```bash
-# 查看当前迁移头
-alembic -c configs/alembic.ini heads
-
-# 登记当前库为 head（不执行 DDL）
-alembic -c configs/alembic.ini stamp head
+# 建库或升级到最新
+alembic -c configs/alembic.ini upgrade head
 
 # 复核
 alembic -c configs/alembic.ini current
 ```
 
-`make migrate` 调用的是未带 `-c configs/alembic.ini` 的 `alembic upgrade head`，在 runner.py 管理的库上会命中上述冲突，不作为本文档的迁移命令。迁移前备份实际使用的 `app.db`。
+`make migrate` 与 `scripts/migrate.sh` 执行同一命令，均已显式带上 `-c configs/alembic.ini`。迁移前备份实际使用的 `app.db`。
+
+修改 schema 时须同时更新模型定义：metadata 是首次接入与 runner.py 的共同真相源，迁移链不承担从零建库。
 
 ## 健康检查端点
 
@@ -267,8 +266,8 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | ~~各容器各自生成 RSA 密钥~~ | 2026-09-23 已修复：三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR` | 已消除 |
 | ~~容器内 Alembic 路径失配~~ | 2026-09-23 已修复：ini 复制到 `/app/configs/alembic.ini`，`%(here)s` 相对解析恢复为 `/app/migrations` 与 `/app` | 已消除 |
 | ~~Alembic 忽略 `DATABASE_URL`~~ | 2026-09-23 已修复：`migrations/env.py` 改用 `settings.DATABASE_URL`，容器内 alembic 与 API 命中同一库 | 已消除 |
-| Alembic 与 runner.py 双轨冲突 | runner.py 依据 `Base.metadata` 建表补列且不写 `alembic_version`；`upgrade head` 在空库与 runner.py 管理过的库上均失败（副本复现 `duplicate column name: lifecycle_status`） | 两套演进机制并存，`upgrade head` 不可用，需决定保留哪一套 |
-| 运行时版本差异 | Dockerfile 使用 Python 3.10；项目说明和本地依赖上下文使用 Python 3.11+ | Docker 与本地运行时行为可能存在差异 |
-| 迁移快捷命令路径不足 | `Makefile` 的 `make migrate` 未指定 Alembic 配置 | 命令依赖当前工作目录和默认配置发现行为 |
+| ~~Alembic 与 runner.py 双轨冲突~~ | 2026-09-24 已修复：`migrations/env.py` 在库内无 `alembic_version` 时以 `Base.metadata` 建全量表并登记 head，已有版本走标准迁移；空库与 runner.py 管理过的库均可 `upgrade head` | 已消除（新增 3 项引导回归用例） |
+| ~~运行时版本差异~~ | 已修复：`Dockerfile` 两阶段均基于 `python:3.11-slim`，无 Python 3.10 残留 | 已消除 |
+| ~~迁移快捷命令路径不足~~ | 2026-09-24 已修复：`Makefile` 的 `migrate`/`migrate-revision` 与 `scripts/migrate.sh` 显式带上 `-c configs/alembic.ini`；脚本内 `history -n 3` 的无效参数改为 `current` | 已消除 |
 
-本次更新核对并修复了编排层与镜像层问题，保留仍成立的迁移层双轨冲突。
+本次更新核对并修复了编排层、镜像层与迁移层的遗留问题。
