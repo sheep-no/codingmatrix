@@ -58,21 +58,33 @@
 
 ## 待验收项
 
-### 1. Android APK 构建
+### 1. Android APK 构建（已完成）
 
-现象：`flutter build apk --debug --target-platform android-arm64` 在配置阶段即失败并报 `NDK not configured. Download it with SDK manager. Preferred NDK version is '27.0.12077973'.`（`android/build.gradle.kts:19`，`:app` 配置期）。NDK 27 解压约 2.9G；本机根分区 20G、可用约 1.6G（已用 92%），无法容纳。
-
-阻塞原因：SDK 缺 `ndk` 目录且磁盘容量不足。移除 `jni`（例如 pin `path_provider_android`）无法免除该需求，已验证并回滚。项目未显式声明 `ndkVersion`，该值来自 Flutter 3.35.7 的 `FlutterExtension.kt:42`，与 AGP 8.9.1 的默认 NDK 一致。
-
-解除条件：提供预装 NDK 27.0.12077973 的 SDK，或扩大根分区（需腾出约 2.5G 以上）。
-
-验收命令：
+环境已装 NDK 27.0.12077973，release 构建通过：
 
 ```bash
-ANDROID_HOME=/tmp/opencode/android-sdk flutter build apk --release --no-pub
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export ANDROID_HOME=/tmp/opencode/android-sdk
+cd /workspace/flutter_client
+flutter build apk --release --no-pub
 ```
 
-安全探测：`./gradlew :app:compileDebugKotlin --offline` 会在配置阶段快速失败，不触发 2.9G 下载。
+产物 `build/app/outputs/flutter-apk/app-release.apk`（57.9 MB），已核对：三 ABI（`arm64-v8a` / `armeabi-v7a` / `x86_64`）、`package com.codingmatrix.agent`、`versionCode 1`、`versionName 1.0.0`、`minSdk 24`、`targetSdk 36`、`application-label 'CodingMatrix Agent'`、仅 `INTERNET` 权限。
+
+Release 签名（`android/app/build.gradle.kts:11-63`）：读取 `android/key.properties` 与同目录 keystore，两者均被 `android/.gitignore` 排除、不入库。存在该文件时用自定义密钥签名（v2 方案，`minSdk 24` 足够）；缺失时回退 debug 签名，因此新克隆仍能 `flutter run --release`。两条路径均已实跑验证。
+
+本地生成签名密钥（密码只写入被忽略的 `key.properties`，勿入库）：
+
+```bash
+cd /workspace/flutter_client/android/app
+keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+`android/key.properties` 字段：`storePassword`、`keyPassword`、`keyAlias=upload`、`storeFile=upload-keystore.jks`（相对 `app/` 模块目录）。
+
+发布提醒：递增 `pubspec.yaml` 的构建号（当前 `+1`），否则同 versionCode 无法覆盖安装；keystore 一旦丢失将无法更新已发布应用。
+
+磁盘提示：SDK + NDK 27（约 2.0G）+ 构建中间产物会把根分区压到约 1.7G 可用（92%）。清理前 `:app:compileDebugKotlin --offline` 可在配置期快速探测 NDK 是否就绪。
 
 ### 2. Android 真机验收
 

@@ -96,13 +96,16 @@ flutter run -d <device-id>
 flutter build linux --debug
 
 # 构建 APK，需要 NDK 27（AGP 需 strip native 库）
-flutter build apk --debug
+flutter build apk --release
+
+# release 签名读取 android/key.properties 与同目录 keystore，两者都被 gitignore 排除；
+# 该文件缺失时回退 Android debug 签名，保证新克隆仍可构建
 
 # 免 NDK 的 Android 目标编译校验，输出在 build/flutter_assets
 flutter build bundle --target-platform android-arm64
 ```
 
-测试文件位于 `flutter_client/test/`，共 34 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。Linux 桌面已在本环境实际构建，接入本地后端跑通登录、会话恢复与 13 个功能页渲染；Android 仅验证 Dart 目标编译（APK 构建受 NDK 体积与本机磁盘限制）。
+测试文件位于 `flutter_client/test/`，共 34 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。Linux 桌面已在本环境实际构建，接入本地后端跑通登录、会话恢复与 13 个功能页渲染；Android 已构建 release APK（三 ABI、`targetSdk 36`、自定义 release 签名）并核对清单、原生库与签名，尚缺真机安装启动。
 
 ### Linux 运行环境依赖
 
