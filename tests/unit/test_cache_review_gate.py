@@ -123,3 +123,58 @@ class TestFeedbackLearnerAntiPattern:
 
         assert pattern.failed_count == 5
         assert pattern.is_anti_pattern() is True
+
+
+class _FakeCached:
+    requirement = "生成一个待办应用"
+    architecture = {"project_type": "web"}
+
+
+class _RaisingReviewer:
+    async def review_code(self, *_args, **_kwargs):
+        raise RuntimeError("审查服务不可用")
+
+
+class _HighRiskReviewer:
+    async def review_code(self, *_args, **_kwargs):
+        return {"risk_level": "high"}
+
+
+class _LowRiskReviewer:
+    async def review_code(self, *_args, **_kwargs):
+        return {"risk_level": "low"}
+
+
+def _gate_orchestrator(reviewer):
+    from app.agent.orchestrator_utils import UtilsMixin
+
+    class _Harness(UtilsMixin):
+        def __init__(self, reviewer):
+            self.reviewer = reviewer
+            self.feedback_learner = None
+
+    return _Harness(reviewer)
+
+
+class TestCacheReviewGateFailClosed:
+    """TG5: 审查不可用时不放行未经校验的缓存"""
+
+    @pytest.mark.asyncio
+    async def test_exception_blocks_cache(self):
+        orch = _gate_orchestrator(_RaisingReviewer())
+        assert await orch._cache_review_gate(_FakeCached()) is False
+
+    @pytest.mark.asyncio
+    async def test_high_risk_blocks_cache(self):
+        orch = _gate_orchestrator(_HighRiskReviewer())
+        assert await orch._cache_review_gate(_FakeCached()) is False
+
+    @pytest.mark.asyncio
+    async def test_low_risk_allows_cache(self):
+        orch = _gate_orchestrator(_LowRiskReviewer())
+        assert await orch._cache_review_gate(_FakeCached()) is True
+
+    @pytest.mark.asyncio
+    async def test_missing_reviewer_allows_cache(self):
+        orch = _gate_orchestrator(None)
+        assert await orch._cache_review_gate(_FakeCached()) is True
