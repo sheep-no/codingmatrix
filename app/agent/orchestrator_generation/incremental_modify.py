@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Any
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
@@ -748,18 +748,32 @@ class IncrementalModifyMixin:
             logger.warning(f"依赖图拓扑排序失败: {e}")
 
     def _extract_imports_from_content(self, content: str, file_path: str) -> List[str]:
-        """从文件内容中提取 import 语句"""
-        imports = []
-        lines = content.split('\n')
+        """从文件内容中提取 import，解析为项目内相对文件路径。
 
-        # 获取所有文件路径（相对于 output_dir）
-        all_files = self._get_all_file_paths()
+        Python 沿用历史解析逻辑；其余语言交给语言适配器，
+        使 JS/TS/Go 等项目的增量依赖图不会与实际 import 脱节。
+        """
+        if not content:
+            return []
+        if file_path.endswith('.py'):
+            return self._extract_python_imports(content, file_path)
+        return self._extract_imports_via_adapter(content, file_path)
+
+    def _get_relative_file_paths(self) -> set:
+        """获取项目内所有文件相对 output_dir 的路径。"""
         relative_files = set()
-        for f in all_files:
+        for f in self._get_all_file_paths():
             try:
                 relative_files.add(str(f.relative_to(self.output_dir)))
             except ValueError:
                 continue
+        return relative_files
+
+    def _extract_python_imports(self, content: str, file_path: str) -> List[str]:
+        """从 Python 文件中提取 import 语句（历史逻辑，保持行为不变）"""
+        imports = []
+        lines = content.split('\n')
+        relative_files = self._get_relative_file_paths()
 
         for line in lines:
             line = line.strip()
@@ -796,10 +810,32 @@ class IncrementalModifyMixin:
 
         return imports
 
+    def _extract_imports_via_adapter(self, content: str, file_path: str) -> List[str]:
+        """借助语言适配器解析非 Python 文件的 import。"""
+        from app.agent.adapters import LanguageAdapterRegistry
+
+        adapter = LanguageAdapterRegistry.get_adapter_for_file(file_path)
+        if adapter is None:
+            return []
+
+        relative_files = self._get_relative_file_paths()
+        imports: List[str] = []
+        seen = set()
+        for import_info in adapter.parse_imports(content, file_path):
+            for candidate in adapter.resolve_import_to_file(import_info, file_path):
+                normalized = str(PurePosixPath(candidate))
+                if not normalized or normalized.startswith('..') or normalized in seen:
+                    continue
+                seen.add(normalized)
+                if normalized in relative_files:
+                    imports.append(normalized)
+                    break
+        return imports
+
     def _get_all_file_paths(self) -> set:
-        """获取所有文件路径"""
+        """获取项目内所有文件路径"""
         try:
-            return set(self.output_dir.rglob('*.py'))
+            return {p for p in self.output_dir.rglob('*') if p.is_file()}
         except Exception:
             return set()
 
@@ -809,18 +845,18 @@ class IncrementalModifyMixin:
         reason: str,
         requirement: str
     ) -> bool:
-        """P7: 检查原文件内容是否已经满足需求"""
+        """P7: 检查原文件内容是否已经满足需求
+
+        只把"结构上已实现"当作满足：端点必须出现真实的路由注册，
+        而不是文件里恰好出现过同名字符串。宁可多生成一次，也不误跳过真实缺失。
+        """
         if not original_content or not reason:
             return False
 
-        # 简单的关键词匹配检测
         reason_lower = reason.lower()
         content_lower = original_content.lower()
 
-        # 检查是否已经包含所需功能
-        # 例如：需求是"添加 /health 端点"，检查是否已有 /health
         if "添加" in reason or "add" in reason_lower:
-            # 提取关键词
             keywords = []
             if "/health" in reason_lower or "健康检查" in reason_lower:
                 keywords.append("/health")
@@ -829,12 +865,14 @@ class IncrementalModifyMixin:
             if "/api" in reason_lower:
                 keywords.append("/api")
 
-            # 检查是否已有这些关键词
-            for keyword in keywords:
-                if keyword in content_lower:
-                    return True
+            # 需求明确要求新增端点时，只有全部端点都已注册为路由才算满足
+            if keywords:
+                return all(
+                    self._route_registered(content_lower, keyword)
+                    for keyword in keywords
+                )
 
-        # 检查是否已经使用了所需框架
+        # 需求只提到框架且未要求新增端点时，已有的框架引入即视为满足
         if "fastapi" in reason_lower:
             if "from fastapi" in content_lower or "fastapi" in content_lower:
                 return True
@@ -844,6 +882,21 @@ class IncrementalModifyMixin:
                 return True
 
         return False
+
+    # 端点"已实现"的判定模式（{path} 会被替换为转义后的端点路径）
+    _ROUTE_PATTERNS = (
+        r'@\w+(?:\.\w+)*\.(?:get|post|put|delete|patch|route|websocket)\(\s*["\']{path}["\']',
+        r'\.(?:get|post|put|delete|patch)\(\s*["\']{path}["\']',
+        r'add_url_rule\(\s*["\']{path}["\']',
+    )
+
+    def _route_registered(self, content_lower: str, path: str) -> bool:
+        """判断内容中是否存在把 path 注册为路由的结构。"""
+        escaped = re.escape(path)
+        return any(
+            re.search(pattern.format(path=escaped), content_lower)
+            for pattern in self._ROUTE_PATTERNS
+        )
 
     def _emit_generated_file_events(
         self,
