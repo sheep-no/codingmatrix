@@ -70,7 +70,7 @@ class VectorIndexManager:
         count = 0
         for project in projects:
             feature_list = project.get("feature_list")
-            if not feature_list:
+            if not feature_list or not self._should_index(project):
                 continue
 
             text = self._project_to_text(project)
@@ -97,7 +97,7 @@ class VectorIndexManager:
     async def add_project(self, project: Dict) -> bool:
         from app.utils.AiCodeUtil import get_embedding
 
-        if not project.get("feature_list"):
+        if not project.get("feature_list") or not self._should_index(project):
             return False
 
         if not self._loaded:
@@ -167,6 +167,11 @@ class VectorIndexManager:
         for feat in project.get("feature_list", [])[:30]:
             parts.append(feat)
         return " ".join(parts)
+
+    @staticmethod
+    def _should_index(project: Dict) -> bool:
+        """file_fallback 是文件名生成的伪功能，索引后会被语义检索当真实历史匹配命中。"""
+        return project.get("feature_source") != "file_fallback"
 
     def _save_index(self):
         try:
