@@ -106,7 +106,7 @@
 
 - AA8（`/cache/clear` 无 admin 门禁）：前端 `useAgentBackend` 以普通用户调用该端点，改为 `verify_admin_token` 会破坏既有能力，需产品侧确认。
 - AA9（`generate` 无 rate limit/磁盘检查）：属防护增强，需确认是否与既有配额策略统一。
-- AA5（反馈归属 + 端点不可用）：见下方第二批。
+- AA5（反馈归属 + 端点不可用）：见 §八，已随第二批处置。
 
 ## 八、修复状态（2026-09-24 第二批）
 
@@ -115,8 +115,4 @@
 - **AA6 已修（范围扩至 15 类）**：`schemas.py` 删除全部零引用 schema——文档列出的 `FileOperationRequest` / `AgentRequest` / `ReActRequest` / `SessionActionRequest` / `ProjectSessionConfigRequest` / `RequirementAssociationConfirmRequest` / `RequirementAssociationHelpfulnessRequest`，另含同族 `AgentResponse` / `ModelListResponse` / `ReviewRequest` / `ReviewResponse` / `CreateSessionRequest` / `SessionResponse` / `SessionDetailResponse` / `ModelStatsResponse`。逐类用「`from .schemas import` 清单 + 文件内引用 + 全库 grep」三重核对；`ModelListResponse`/`ReviewResponse`/`SessionResponse` 的同名外部引用经确认属 `model_manager.py` / `app/schema/aicloud.py` 自有类。`association_endpoints.py` 两处未使用 import 一并移除，顺手删掉同文件早已零消费的 `model_validator` import。
 - **AA7 已修**：`helpers.py:_validate_project_path` 归属校验三支收敛为「首段目录 == user_id 或 目录名末段 == user_id」。原 `elif len(parts) == 2 and parts[1] == user_id` 恒被 `elif user_id == parts[-1]` 覆盖（`rsplit("_", 1)` 后 `parts[-1] == parts[1]`），「兼容旧格式」注释亦误导；现语义等价且可读。`tests/unit/test_ai_agent_endpoint_authz.py::TestProjectPathOwnership` 新增 6 项（3 种布局 × 允许/拒绝）。
 
-**AA5 复核（本轮仅定性，未改代码）**：
-
-- `requirement_association_confirm`（`association_endpoints.py:75`）调用 `tracker.record_feedback(...)`，该方法在 `AssociationFeedbackTracker` 中**不存在**；`requirement_association_helpfulness`（:92）以 `(association_id, helpful)` 调用 `record_helpfulness`，而真实签名为 `(session_id, requirement, helpfulness)`。两端点被调用即抛 `AttributeError`/`TypeError` → 500。
-- 唯一潜在调用方 `src/utils/api/agent.js` 的 `confirmAssociation`/`submitAssociationHelpful` 仅被 `ProjectGenerator.vue` 的 `confirmAssociation`/`rateAssociation` 调用，而后两者从未在模板中接线，属死代码；活跃消费面仅 `getRequirementAssociations`（`bottominput.vue`）与 `stats`。
-- 结论：两端点既不可用又无活跃调用方，文档给定的两条出路（绑定 user_id 或删除端点）均涉及 API 面/产品决策，留待确认后再处置。
+- **AA5 已修（删除损坏端点）**：`requirement_association_confirm` 调用不存在的 `tracker.record_feedback`（`AttributeError`），`requirement_association_helpfulness` 以 `(association_id, helpful)` 调用签名 `(session_id, requirement, helpfulness)` 的 `record_helpfulness`（`TypeError`），两端点被调用即 500，且唯一潜在调用方为前端未接线的死方法。删除两端点及前端死链：`association_endpoints.py`、`src/utils/api/agent.js`（`confirmAssociation`/`submitAssociationHelpful`）、`ProjectGenerator.vue`（`confirmAssociation`/`rateAssociation`）、`tests/e2e/api-endpoint-validation.spec.js`（两处清单）。`AssociationFeedbackTracker` 类与 `record_choice`/`record_helpfulness` 保留（仍由 `tests/unit/test_v5_1_requirement_deep.py` 覆盖，属记录能力 API 面）；`stats` 端点保留（被 `getAssociationStats` 消费）。
