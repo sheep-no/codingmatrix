@@ -396,6 +396,11 @@ class ModifyRequest(BaseModel):
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     incremental: bool = Field(True, description="是否增量修改")
 
+    @field_validator('session_id')
+    @classmethod
+    def validate_session_id(cls, v):
+        return validate_session_id(v, "session_id")
+
 
 class ComplexityAnalysisRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)

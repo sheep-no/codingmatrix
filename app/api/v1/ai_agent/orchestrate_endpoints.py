@@ -1849,9 +1849,12 @@ async def analyze_project_complexity(
 async def list_snapshots(
     session_id: str,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
+
+    await _authorize_snapshot_access(db, session_id, token)
 
     project_dir = Path(f"orchestrator/{session_id}")
     if not project_dir.exists():
@@ -1870,11 +1873,14 @@ async def rollback_to_snapshot(
     target_tag: str,
     delete_branch: bool = True,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     from app.agent.snapshot_manager import SnapshotManager, RollbackResult
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
     snapshot_mgr = SnapshotManager(git_ops)
+
+    await _authorize_snapshot_access(db, session_id, token)
 
     project_dir = Path(f"orchestrator/{session_id}")
     if not project_dir.exists():
@@ -1905,9 +1911,12 @@ async def diff_snapshots(
     from_tag: str,
     to_tag: str,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
+
+    await _authorize_snapshot_access(db, session_id, token)
 
     project_dir = Path(f"orchestrator/{session_id}")
     if not project_dir.exists():
@@ -2132,6 +2141,19 @@ async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: 
     if db:
         from .helpers import verify_session_ownership
         await verify_session_ownership(db, session_id, user_id)
+
+
+async def _authorize_snapshot_access(db: AsyncSession, session_id: str, token: dict) -> None:
+    """快照端点统一鉴权：拒绝路径穿越并按会话归属校验。"""
+    user_id = str(token.get("sub", ""))
+    if not user_id or user_id == "anonymous":
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
+    # session_id 会拼进文件路径，拒绝任何含路径分隔或回溯的取值
+    if not session_id or session_id in (".", "..") or Path(session_id).name != session_id:
+        raise HTTPException(status_code=400, detail="非法的会话 ID")
+
+    await verify_session_ownership(db, session_id, user_id)
 
 
 @router.delete("/sessions/{session_id}")
