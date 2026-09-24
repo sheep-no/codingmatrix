@@ -96,9 +96,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python", "vue"],
             "file_plan": [{"path": f"file_{i}.py"} for i in range(60)],
-            "has_backend": True,
-            "has_database": True,
         }
+        mixin.complexity = SimpleNamespace(has_backend=True, has_database=True)
         association_result = AssociationResult(skipped=True)
         result = mixin._evaluate_risks("req", architecture, association_result)
         assert result["total_risks"] >= 1
@@ -110,9 +109,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python", "fastapi"],
             "file_plan": [{"path": "app/main.py"}],
-            "has_backend": True,
-            "has_database": False,
         }
+        mixin.complexity = SimpleNamespace(has_backend=True, has_database=False)
         association_result = AssociationResult(skipped=True)
         result = mixin._evaluate_risks("req", architecture, association_result)
         api_risks = [r for r in result["risks"] if r["type"] == "missing_api"]
@@ -122,9 +120,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python"],
             "file_plan": [{"path": "app/main.py"}],
-            "has_backend": True,
-            "has_database": True,
         }
+        mixin.complexity = SimpleNamespace(has_backend=True, has_database=True)
         association_result = AssociationResult(skipped=True)
         result = mixin._evaluate_risks("req", architecture, association_result)
         db_risks = [r for r in result["risks"] if r["type"] == "missing_db_schema"]
@@ -134,8 +131,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python"],
             "file_plan": [{"path": "app/main.py"}],
-            "has_backend": False,
         }
+        mixin.complexity = SimpleNamespace(has_backend=False, has_database=False)
         association_result = AssociationResult(
             skipped=False,
             devil_review_items=[
@@ -152,8 +149,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python"],
             "file_plan": [{"path": "app/main.py"}],
-            "has_backend": False,
         }
+        mixin.complexity = SimpleNamespace(has_backend=False, has_database=False)
         association_result = AssociationResult(skipped=True)
         result = mixin._evaluate_risks("req", architecture, association_result)
         assert result["total_risks"] == 0
@@ -163,8 +160,8 @@ class TestEvaluateRisks:
         architecture = {
             "tech_stack": ["python", "vue", "redis", "postgres", "celery", "docker", "nginx"],
             "file_plan": [{"path": "app/main.py"}],
-            "has_backend": False,
         }
+        mixin.complexity = SimpleNamespace(has_backend=False, has_database=False)
         association_result = AssociationResult(skipped=True)
         result = mixin._evaluate_risks("req", architecture, association_result)
         tech_risks = [r for r in result["risks"] if r["type"] == "tech_diversity"]
