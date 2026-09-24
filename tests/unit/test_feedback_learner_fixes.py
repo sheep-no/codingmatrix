@@ -13,7 +13,7 @@ def learner(tmp_path):
     return FeedbackLearner(learning_dir=tmp_path)
 
 
-class _StubLearner:
+class _StubLearner(FeedbackLearner):
     def __init__(self, patterns):
         self._fix_patterns = {str(i): p for i, p in enumerate(patterns)}
 
@@ -88,4 +88,31 @@ class TestDeadCodeRemoved:
     def test_sync_duplicate_and_async_wrappers_are_gone(self):
         assert not hasattr(FeedbackLearner, "_find_relevant_patterns")
         assert not hasattr(FeedbackLearner, "async_record_fix")
+
+
+class TestAntiPatternPublicApi:
+    """FL6/OU5: 反模式查询走公开接口，路径不依赖 CWD"""
+
+    def test_get_anti_patterns_filters_non_anti(self):
+        learner = FeedbackLearner.__new__(FeedbackLearner)
+        learner._fix_patterns = {
+            "anti": _anti_pattern("err", "boom"),
+            "healthy": FixPattern(
+                error_type="validation_error",
+                error_message="ok",
+                error_pattern="ok",
+                fix_description="修复",
+                fix_example="",
+                file_types=[".py"],
+                failed_count=0,
+                success_rate=1.0,
+            ),
+        }
+
+        assert [p.error_pattern for p in learner.get_anti_patterns()] == ["boom"]
+
+    def test_learning_dir_is_absolute(self):
+        from app.agent.feedback_learner import LEARNING_DIR
+
+        assert LEARNING_DIR.is_absolute()
         assert not hasattr(FeedbackLearner, "async_save_patterns")
