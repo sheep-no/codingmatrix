@@ -70,3 +70,17 @@
 1. `_evaluate_risks` 用例手工注入 has_backend/has_database 键（:78/:92/:104）——生产架构 dict 无此键，EV1 恒死却测试全绿（TR2 家族）；
 2. `_parse_evaluation_json` 用例只测 requirement 语义（completeness 键，:55-60），**架构语义（architecture_quality 键）零用例**——EV2 实测可复现却无保护；
 3. `evaluate()` 主流程与 `models_used`（EV3）、增量生成 `_handle_incremental_generation`（IG1）零测试。
+
+## 修复状态（2026-09-24 复核）
+
+分支 `260924-fix-evaluate-mixin` 修复 EV1，同步修正误导性测试夹具：
+
+- **EV1 已修**：`_evaluate_risks` 不再读 `architecture.get("has_backend"/"has_database")`（`design_architecture` 从不产出这两个键），改为读真实来源 `self.complexity.has_backend/has_database`。`missing_api`/`missing_db_schema` 两个 high 风险项由恒死恢复为按复杂度分析结果触发。
+- **测试夹具纠正**：`tests/unit/test_evaluate_mode.py` 的 `TestEvaluateRisks` 五个用例不再往 architecture dict 手工注入 `has_backend/has_database`，改为设置 `mixin.complexity`，使夹具结构与生产一致。回退源码修复后 `test_missing_api_spec_risk`/`test_missing_db_schema_risk` 两项失败，证明用例真正覆盖 EV1。
+- **EV2 复核已修**：`_parse_evaluation_json` 已接受 `architecture_quality` 键（原只认 `score`/`completeness`），架构评价不再恒走 fallback；`_fallback_evaluation` 现改为显式抛错，降级不再静默。
+- **EV3 复核已修**：`evaluate` 经 `_require_evaluation_model` 提前校验 `model_assignment`，关闭动态拓扑时不再走到 `models_used` 才 AttributeError。
+- **EV4 复核部分改善**：`_parse_evaluation_json` 仍用贪婪 `\{[\s\S]*\}` 提取，属 MAR5 家族的通用解析健壮性问题，留待统一处理。
+
+**保留待决**：
+
+- EV5（风险阈值硬编码）、EV6（评价链路无整体超时预算）、EV7（降级静默低分）、IG1（增量回滚后 `generated_files` 仍含已还原的成功项）、GM1（组件每次全量重建）：分别属配置化/超时/报告一致性/性能范畴，留待专门批次。

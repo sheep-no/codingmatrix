@@ -235,6 +235,10 @@ class EvaluationMixin:
 
         tech_stack = architecture.get("tech_stack", [])
         file_plan = architecture.get("file_plan", [])
+        # 架构 dict 由 design_architecture 产出，不含 has_backend/has_database；
+        # 真实来源是复杂度分析结果。
+        has_backend = getattr(self.complexity, "has_backend", False) if self.complexity else False
+        has_database = getattr(self.complexity, "has_database", False) if self.complexity else False
 
         if len(file_plan) > 50:
             risks.append({
@@ -250,14 +254,14 @@ class EvaluationMixin:
                 "severity": "medium",
             })
 
-        if not architecture.get("api_spec") and architecture.get("has_backend"):
+        if not architecture.get("api_spec") and has_backend:
             risks.append({
                 "type": "missing_api",
                 "description": "后端项目缺少 API 规范定义",
                 "severity": "high",
             })
 
-        if not architecture.get("db_schema") and architecture.get("has_database"):
+        if not architecture.get("db_schema") and has_database:
             risks.append({
                 "type": "missing_db_schema",
                 "description": "数据库项目缺少 Schema 定义",
