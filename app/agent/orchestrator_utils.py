@@ -31,9 +31,13 @@ class UtilsMixin:
             return False
         for pattern in self.feedback_learner._fix_patterns.values():
             if pattern.is_anti_pattern() and pattern.error_pattern:
-                if re.search(pattern.error_pattern, requirement, re.IGNORECASE):
-                    logger.warning(f"反模式拦截: {pattern.error_type} - {pattern.failure_reason}")
-                    return True
+                try:
+                    if re.search(pattern.error_pattern, requirement, re.IGNORECASE):
+                        logger.warning(f"反模式拦截: {pattern.error_type} - {pattern.failure_reason}")
+                        return True
+                except re.error as e:
+                    # 历史持久化的模式可能不是合法正则，跳过而不是让整条生成链崩溃
+                    logger.warning(f"反模式模式非法，已跳过: {pattern.error_pattern!r} ({e})")
         return False
 
     async def _cache_review_gate(self, cached) -> bool:
