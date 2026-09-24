@@ -40,15 +40,36 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None):
+    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None, cost_tracker=None):
         self.validator = validator
         self.reviewer = reviewer
         self.api_key_token = api_key_token
         self.cancel_event = cancel_event
+        self._cost_tracker = cost_tracker
         self.fix_history: List[FixAttempt] = []
         self.repair_budget = RepairBudget()
         self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
+
+    def _record_llm_cost(self, response: Dict, model: str) -> None:
+        """记录修复循环的 LLM 成本。
+
+        修复链直连 call_llm（不经 LLMClient），若不在此累计，修复消耗不会进入
+        成本汇总。单价取自 LayeredModelRouter.get_model_config 的成本字段。
+        """
+        if not self._cost_tracker:
+            return
+        usage = response.get("usage") if isinstance(response, dict) else None
+        if not usage:
+            return
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        config = LayeredModelRouter.get_model_config(model, task_type="fix")
+        cost_usd = (
+            prompt_tokens * config.get("cost_per_1m_input", 0.0)
+            + completion_tokens * config.get("cost_per_1m_output", 0.0)
+        ) / 1_000_000
+        self._cost_tracker.add_usage(model, prompt_tokens, completion_tokens, cost_usd)
 
     def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
         """加载错误恢复降级链。
@@ -247,6 +268,7 @@ class ErrorRecoveryLoop:
                         api_key_token=self.api_key_token
                     )
                     fix_time = time.time() - start_time
+                    self._record_llm_cost(response, fix_model)
 
                     fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                     code_match = re.search(r'```(?:\w+)?\s*(.*?)\s*```', fixed_content, re.DOTALL)
@@ -383,13 +405,16 @@ class ErrorRecoveryLoop:
         try:
             # 创建临时文件进行审查
             temp_file = file_path.parent / f".temp_quality_{file_path.name}"
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                f.write(code)
+            try:
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(code)
 
-            # 运行轻量级审查（只检查基本问题）
-            validation = await self.validator.validate_single_file(temp_file)
-            if temp_file.exists():
-                temp_file.unlink()
+                # 运行轻量级审查（只检查基本问题）
+                validation = await self.validator.validate_single_file(temp_file)
+            finally:
+                # 即使校验抛异常也要清理，避免 .temp_quality_* 残留项目目录
+                if temp_file.exists():
+                    temp_file.unlink()
 
             if validation["is_valid"]:
                 return 1.0
@@ -625,6 +650,7 @@ class ErrorRecoveryLoop:
                         system_prompt=system_prompt,
                         api_key_token=self.api_key_token
                     )
+                    self._record_llm_cost(response, current_model)
 
                     raw = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', raw)
@@ -656,7 +682,15 @@ class ErrorRecoveryLoop:
                             logger.warning(f"路径穿越检测: {fp} 超出项目范围，跳过")
                             continue
                         if target.exists():
-                            target.write_text(content, encoding='utf-8')
+                            from app.agent.utils import is_valid_code_content, write_file_atomic
+                            is_valid, reason = is_valid_code_content(fp, content)
+                            if not is_valid:
+                                logger.warning(f"测试修复内容无效，跳过 {fp}: {reason}")
+                                continue
+                            # 原子写：避免坏内容直接覆盖源文件，并复用占位符检测
+                            if not write_file_atomic(project_path, fp, content):
+                                logger.warning(f"测试修复写入失败: {fp}")
+                                continue
                             logger.info(f"已应用测试修复: {fp}")
                             self.fix_history.append(FixAttempt(
                                 file_path=str(target),
@@ -684,16 +718,3 @@ class ErrorRecoveryLoop:
         recovery_results["success"] = False
         recovery_results["message"] = f"修复失败，已尝试 {self.MAX_FIX_ATTEMPTS} 次"
         return recovery_results
-
-    def _infer_source_files(self, failed_tests: List[str], project_path: Path) -> List[Path]:
-        """根据测试文件名推断对应的源代码文件"""
-        # e.g., test_user_service -> user_service.py
-        inferred = []
-        for t in failed_tests:
-            # 清理测试名前缀
-            clean = t.replace("test_", "").split("::")[0]
-            # 搜索项目中的匹配文件
-            for f in project_path.rglob(f"*{clean}.py"):
-                if "test" not in f.name and "__pycache__" not in str(f):
-                    inferred.append(f)
-        return list(set(inferred))
