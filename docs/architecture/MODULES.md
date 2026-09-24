@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-09-24 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：71 个 Dart 文件 / 12,334 行
+> 最后更新：2026-09-24 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：71 个 Dart 文件 / 12,358 行
 
 ## 项目结构概览
 
@@ -42,7 +42,7 @@ codingmatrix/
 │   ├── utils/                   # 前端工具；utils/api 下 19 个 API 客户端模块
 │   └── views/                   # 页面视图 (9 视图)
 ├── vscode-extension/            # VS Code Agent Host 客户端 (21 个 TypeScript 文件)
-├── flutter_client/              # Flutter 桌面 Agent 工作台 (71 个 Dart 文件 / 12,334 行)
+├── flutter_client/              # Flutter 桌面 Agent 工作台 (71 个 Dart 文件 / 12,358 行)
 ├── tests/                       # 单元、集成、前端和 E2E 测试
 │   ├── archive/                 # 归档的旧测试
 │   ├── e2e/                     # Playwright E2E (77 spec.js)
@@ -101,7 +101,7 @@ codingmatrix/
 
 | 维度 | 数量 | 备注 |
 |------|------|------|
-| Dart 源码 | **71 / 12,334 行** | `flutter_client/lib/**/*.dart` |
+| Dart 源码 | **71 / 12,358 行** | `flutter_client/lib/**/*.dart` |
 | 页面 | **18** | `lib/presentation/*_page.dart` |
 | 测试文件 | **34** | `flutter_client/test/**/*_test.dart` |
 | 包名 / 版本 | `codingmatrix_desktop` / `1.0.0+1` | `pubspec.yaml` |

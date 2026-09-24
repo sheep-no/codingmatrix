@@ -4,15 +4,15 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 491 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 98 passed / 0 fail，两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 98 passed / 0 fail，两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
 
 ## 已经完成的验证
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 491 passed | `flutter test --no-pub --concurrency=1` |
+| Flutter 全量测试 | 492 passed | `flutter test --no-pub --concurrency=1` |
 | Flutter 静态分析 | No issues found | `flutter analyze lib test` |
-| Flutter 规模 | 71 个 `lib/**/*.dart` / 12,334 行、18 个页面、34 个测试文件 | `flutter_client/` |
+| Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、34 个测试文件 | `flutter_client/` |
 | 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
 | 弹层控制器退场崩溃 | 已修并回归：管理员后台「创建用户」在提交失败（如后端 400）后关闭弹层会整屏红屏。根因是 `showDialog` 返回后立即 `dispose` 了 `TextEditingController`，退场动画期间 `TextField` 重建时 `addListener` 抛 `A TextEditingController was used after being disposed.`，级联为 `'_dependents.isEmpty': is not true.`。新增 `DialogControllers`（在子树的 `State.dispose()` 里释放，晚于退场动画），套用于 6 处弹层 | 回归测试 `test/admin_page_test.dart`「创建用户弹层随退场动画关闭时不释放仍在使用的控制器」；Linux 端实跑 400 场景不再红屏，显示「用户创建失败：请求失败（HTTP 400）…」，成功场景 `POST create_user` 200 且列表刷新 |
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
@@ -36,9 +36,10 @@
 | Android 目标编译 | `flutter build bundle --target-platform android-arm64` 成功 | 产物 `build/flutter_assets` |
 | 应用标识统一 | 三端一致为 `com.codingmatrix.agent` | Android `namespace`/`applicationId`、Linux `APPLICATION_ID`、窗口标题与 Windows 产品名 |
 | 真实 LLM 链路 | SiliconFlow 凭据有效（98 模型）、5 个 agent 角色模型可用、后端 chat 非流式与流式均真实返回、Provider RSA 提交与「测试连接」成功 | 本地后端实跑，详见「待验收项 4」 |
-| 工作台进度契约修复 | 已修并回归：`WorkbenchController` 的 `progress` 分支只读 `stage`/`progress`/`session_id`，而后端 `ProgressMixin._report_progress` 实际发 `step`/`phase`/`current`/`total`/`percentage`（`app/agent/orchestrator_progress.py:150`），故真实运行时进度条恒 0%、阶段停在初始 `connecting`。同一字段缺失也让 `awaiting_user_decision` 判定恒不成立（死分支）：当前后端两种帧顺序下未造成可见故障，但顺序一旦互换就会把已下发的架构决策清空。现统一从 `step`/`phase`、`percentage` 读取，保留旧字段别名 | 新增 `test/agent_delivery_test.dart` 两项确定性用例（按真实 SSE 包封形状构造），修前必失败、修后通过；全量 491 passed、`flutter analyze lib test` 无问题 |
+| 工作台进度契约修复 | 已修并回归：`WorkbenchController` 的 `progress` 分支只读 `stage`/`progress`/`session_id`，而后端 `ProgressMixin._report_progress` 实际发 `step`/`phase`/`current`/`total`/`percentage`（`app/agent/orchestrator_progress.py:150`），故真实运行时进度条恒 0%、阶段停在初始 `connecting`。同一字段缺失也让 `awaiting_user_decision` 判定恒不成立（死分支）：当前后端两种帧顺序下未造成可见故障，但顺序一旦互换就会把已下发的架构决策清空。现统一从 `step`/`phase`、`percentage` 读取，保留旧字段别名 | 新增 `test/agent_delivery_test.dart` 两项确定性用例（按真实 SSE 包封形状构造），修前必失败、修后通过（当次全量 490 passed） |
 | 编排端到端与文件链路 | 真实跑到 `done`（`success=true`，4/4 文件），`done` 载荷形状与客户端一致；客户端文件列表/读取/下载三个接口对同一真实项目实测通过 | 详见「待验收项 4」 |
-| 客户端死代码清理与失败原因展示 | `WorkbenchState.artifacts` / `Artifact`（`unified_models.dart:209`）无后端生产者也无渲染，已整体删除：模型类、状态字段与 `copyWith` 形参、SSE 收集分支、两处自测断言。同时后端 `error` 事件的原因原只存 `task.errorJson` 且 UI 从不读取，现于任务概览卡片展示为「失败原因」+ 可复制文本，仅在 `status == 'failed'` 时出现（`disconnected` 已有专门提示，不重复） | 新增 `test/widget_test.dart`「失败任务在概览卡片展示服务端失败原因」；移除展示代码后该用例在 `expect(find.text('失败原因'), findsOneWidget)` 失败、恢复后通过；全量 491 passed、`flutter analyze lib test` 无问题 |
+| 客户端死代码清理与失败原因展示 | `WorkbenchState.artifacts` / `Artifact`（`unified_models.dart:209`）无后端生产者也无渲染，已整体删除：模型类、状态字段与 `copyWith` 形参、SSE 收集分支、两处自测断言。同时后端 `error` 事件的原因原只存 `task.errorJson` 且 UI 从不读取，现于任务概览卡片展示为「失败原因」+ 可复制文本，仅在 `status == 'failed'` 时出现（`disconnected` 已有专门提示，不重复） | 新增 `test/widget_test.dart`「失败任务在概览卡片展示服务端失败原因」；移除展示代码后该用例在 `expect(find.text('失败原因'), findsOneWidget)` 失败、恢复后通过 |
+| 事件卡不再渲染文件正文 | 已修并回归：`_EventsCard` 原先按 `event.type: event.raw` 整份渲染，而 `file`（`orchestrator_progress.py:196`）与 `file_diff`（`:224`）的载荷内嵌完整 `content` / `old_content` / `new_content`。现对这两类事件只显示 `type · path · operation · file_size_human` 摘要，其余事件保留原文但统一截断到 2000 字符并标注省略量 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」（按后端顶层字段构造真实 SSE 帧，400 行正文）；把摘要分支临时禁用后该用例在 `expect(find.textContaining('12.4 KB'), findsOneWidget)` 失败、恢复后通过；全量 492 passed、`flutter analyze lib test` 无问题 |
 
 ## 客户端代码发现（本范围内）
 
@@ -47,7 +48,7 @@
 | 位置 | 发现 | 证据 |
 |---|---|---|
 | `workbench_controller.dart:146`、`WorkbenchState.artifacts`、`unified_models.dart:209` `Artifact` | **已删除**。不可达死代码：只有当 SSE 事件的 `data.artifact` 存在时才会收集，而后端全部 SSE 生产者都不产出 `artifact` 字段（`rg 'artifact' app` 无 SSE 命中）；且 `artifacts` 自引入起从未在 `lib/presentation` 被渲染（`git log -S artifacts -- flutter_client/lib/presentation` 无结果）。现状只被自身测试引用 | `git log -S artifacts -- flutter_client/lib/application/workbench_controller.dart` → `8f6c261`；删除后 `rg 'Artifact\|artifacts' flutter_client/lib` 无命中 |
-| `agent_home_view.dart:458` | 事件卡按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。当前静态站 4 个小文件未暴露该问题 | `file` 事件字段含 `content`；客户端未做截断 |
+| `agent_home_view.dart:473` | **已修复**。事件卡原先按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文，`file_diff`（`:224`）内嵌 `old_content`/`new_content`。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。现对这两类事件只显示摘要，其余事件截断到 2000 字符 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」；见上文已完成验证表 |
 | `workbench_controller.dart:443`、`agent_home_view.dart:143` | **已修复**。后端 `error` 事件的原因文本原先只存入 `task.errorJson`，UI 从不读取：主状态区只显示 `task.status == 'failed'` 与本地 `actionError`（后者仅覆盖「停止未确认」「决策校验/超时」三种本地失败）。编排中断时的真实原因（如 `unknown file types were not inferred: vue.py`）只能在「实时事件」卡片的原始 JSON 里看到。现于 `_OverviewCard` 展示 `errorJson['error']` | 修复前 `rg errorJson lib/` 只有赋值（`:443`、`:256`、`:275`、`:287`）无读取；新增用例覆盖 |
 
 ## Linux 实跑记录
