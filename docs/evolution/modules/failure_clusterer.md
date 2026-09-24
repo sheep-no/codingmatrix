@@ -63,3 +63,14 @@
 - OT21/OT22 [P2]：TR 双路径（docker 跳过聚类）——聚类只在本地路径触发，docker 分支根本不聚
 - TR/OP/FD 链：聚类输入来自测试结果，输出驱动「减少修复次数」——若 RefinementLoop 不消费 clusters，聚类结果无下游
 - 测试选择四连失效（OT16/IA3/TS1/TS6）：聚类是失败后的补救，但智能选择从未生效时聚类面对的是全量失败
+
+## 修复状态（2026-09-24 复核）
+
+| # | 状态 | 说明 |
+|---|------|------|
+| FC2 | 已修 | `_parse_traceback` 在 `File "..."` 无匹配时回退 pytest 短格式 `file.py:line:`（`_PYTEST_SHORT_LOC`，MULTILINE）；error_type 亦兼容 `FAILED ... - AssertionError:` / `E   AssertionError:` / 末行 `file.py:12: AssertionError`（无冒号）等非行首形态 |
+| FC1 | 已修 | 聚类键位置改用 `_normalize_location`：去行号、只保留路径尾部两级，同一文件同类型错误不再因绝对路径前缀或行号差异分簇 |
+| FC3 | 已修 | 关键词改为从非空行中提取 `E ...` / 含 `Error` / 含 `assert` 的行（每个截断 100 字符，去重取前 5），修掉 traceback 以空行结尾时关键词恒空的问题 |
+| FC5 | 已修 | `result['name']` 改为 `result.get('name', '')`，缺键不再 KeyError |
+
+回归测试：`tests/unit/test_failure_clusterer_fixes.py`（7 项；回退源码 5/7 失败）。
