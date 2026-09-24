@@ -69,6 +69,18 @@
 | TS4 | P3 | 多语言命名不识别 |
 | TS5 | P3 | 冒烟关键字不可配置 |
 
+## 修复状态
+
+扫描后已修复（分支 `260924-fix-test-selector`）：
+
+- **TS1 已修**：`_select_same_directory_tests` 改为「修改文件本身即测试 → 文件名对应（`_test_source_stem` 去 `test_`/`_test`/`.test.`/`.spec.`/`Test`/`IT`/`Spec` 词缀后比对源文件 stem）→ 镜像目录（源码目录前缀替换为 test_location，且仅当目录严格位于测试根之下）」。原 `os.path.join(test_dir, file_dir)` 恒空逻辑删除。
+- **TS2 已修**：高风险命中改 `_path_boundary_match`（按 `/` 路径边界比对，`auth` 不再命中 `my_author.py`）；命中后仅选择关联测试 + 镜像测试子目录下的测试，删除全树 `rglob`。
+- **TS6 已修**：删除冒烟层「不足 5 个补足前几个」的填充逻辑，冒烟层只返回关键字命中项；三层各自返回真实关联集，最终结果不再退化全量。空结果仍回退全量（保留）。
+- **TS4 已修**：`_TEST_FILE_GLOBS` 覆盖 python/js/ts/go/rust/java，未知语言回退 `naming_convention`；测试遍历统一走 `_iter_all_tests` / `_iter_dir_tests`。
+- **TS5 已修**：`TestSelector.__init__` 新增 `smoke_keywords` 形参（默认 `DEFAULT_SMOKE_KEYWORDS`），支持自定义冒烟关键字。
+
+回归测试：`tests/unit/test_test_selector_fixes.py`（17 项）。
+
 ## 关联
 
 - OT16 [P2]：消费方构造失败，select_tests 从未执行——**先修 OT16**

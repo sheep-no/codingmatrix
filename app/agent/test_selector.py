@@ -3,10 +3,10 @@
 
 基于目录关联、高依赖模块和冒烟测试三层策略，选择最小但充分的测试集。
 """
-import os
 import logging
+import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Sequence
 
 from app.utils.performance_metrics import metrics_collector
 from .impact_analyzer import ChangeSummary
@@ -15,11 +15,73 @@ from .project_profiler import ProjectProfile
 logger = logging.getLogger(__name__)
 
 
+# 各语言测试文件命名；缺失时回退到 profile 检测出的 naming_convention
+_TEST_FILE_GLOBS = {
+    "python": ("test_*.py", "*_test.py"),
+    "javascript": (
+        "*.test.js", "*.spec.js", "*.test.jsx", "*.spec.jsx",
+        "*.test.ts", "*.spec.ts", "*.test.tsx", "*.spec.tsx",
+    ),
+    "typescript": (
+        "*.test.js", "*.spec.js", "*.test.jsx", "*.spec.jsx",
+        "*.test.ts", "*.spec.ts", "*.test.tsx", "*.spec.tsx",
+    ),
+    "go": ("*_test.go",),
+    "rust": ("*_test.rs",),
+    "java": ("*Test.java", "*Tests.java", "*IT.java", "*Spec.java"),
+}
+
+# 源码根目录名，映射测试目录时跳过
+_SOURCE_ROOT_NAMES = ("src", "app", "lib", "source")
+
+# 测试文件名去掉测试词缀的规则（作用于去扩展名后的 stem）
+_TEST_AFFIX_PATTERNS = (
+    (re.compile(r"^test_(.+)$"), 1),
+    (re.compile(r"^(.+)_test$"), 1),
+    (re.compile(r"^(.+)\.(?:test|spec)$"), 1),
+    (re.compile(r"^(.+?)(?:Tests?|IT|Spec)$"), 1),
+)
+
+
+def _test_source_stem(test_name: str) -> str:
+    """从测试文件名反推被测源文件 stem（小写）。"""
+    stem = Path(test_name).stem
+    for pattern, group in _TEST_AFFIX_PATTERNS:
+        match = pattern.match(stem)
+        if match:
+            stem = match.group(group)
+            break
+    return stem.lower()
+
+
+def _path_boundary_match(risk: str, path: str) -> bool:
+    """按路径边界判断 risk 是否指向 path，避免 auth 误命中 my_author。"""
+    risk_norm = risk.replace("\\", "/").strip("/")
+    path_norm = path.replace("\\", "/").strip("/")
+    if not risk_norm or not path_norm:
+        return False
+    if risk_norm == path_norm:
+        return True
+    return (
+        path_norm.endswith("/" + risk_norm)
+        or risk_norm.endswith("/" + path_norm)
+    )
+
+
 class TestSelector:
     """智能测试选择器"""
 
-    def __init__(self, project_root: str):
+    DEFAULT_SMOKE_KEYWORDS = ("smoke", "core", "basic", "critical", "essential")
+
+    def __init__(
+        self,
+        project_root: str,
+        smoke_keywords: Optional[Sequence[str]] = None,
+    ):
         self.project_root = Path(project_root)
+        self.smoke_keywords = tuple(
+            kw.lower() for kw in (smoke_keywords or self.DEFAULT_SMOKE_KEYWORDS)
+        )
 
     def select_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> List[str]:
         """
@@ -35,7 +97,7 @@ class TestSelector:
         start_time = metrics_collector.start_timer('TestSelector')
         selected_tests = []
 
-        # 第 1 层：同目录测试
+        # 第 1 层：同源文件关联测试
         same_dir_tests = self._select_same_directory_tests(changes.modified_files, profile)
         selected_tests.extend(same_dir_tests)
 
@@ -51,7 +113,7 @@ class TestSelector:
         unique_tests = list(dict.fromkeys(selected_tests))
 
         # 记录测试覆盖率
-        total_tests = len(self._select_all_tests(profile))
+        total_tests = len(self._iter_all_tests(profile))
         coverage = (len(unique_tests) / total_tests * 100) if total_tests > 0 else 0
         metrics_collector.record_test_coverage('TestSelector', coverage)
         metrics_collector.end_timer('TestSelector', start_time, 'select_tests', {'selected': len(unique_tests), 'coverage': coverage})
@@ -59,7 +121,7 @@ class TestSelector:
         # 回退逻辑：如果没有选择到任何测试，运行全部测试
         if not unique_tests:
             logger.warning("智能测试过滤未选择到任何测试，回退到运行全部测试")
-            unique_tests = self._select_all_tests(profile)
+            unique_tests = [self._to_rel(tf) for tf in self._iter_all_tests(profile)]
 
         logger.info(
             f"智能测试过滤完成 | "
@@ -73,7 +135,12 @@ class TestSelector:
 
     def _select_same_directory_tests(self, modified_files: List[str], profile: ProjectProfile) -> List[str]:
         """
-        选择与修改文件同目录的测试
+        选择与修改文件关联的测试
+
+        匹配策略（按优先级）：
+        1. 修改文件本身即测试文件 → 直接选中
+        2. 文件名对应：`foo.py` ↔ `test_foo.py` / `foo_test.py` / `foo.test.js` 等
+        3. 目录对应：源码目录前缀替换为测试目录后，同目录下的测试文件
 
         Args:
             modified_files: 修改的文件列表
@@ -83,28 +150,35 @@ class TestSelector:
             测试文件列表
         """
         tests = []
-        test_dir = profile.test_patterns.test_location
-        naming = profile.test_patterns.naming_convention
+        all_tests = self._iter_all_tests(profile)
+        all_test_lookup = {self._to_rel(tf): tf for tf in all_tests}
 
+        modified_stems = set()
+        modified_test_files = []
         for file_path in modified_files:
-            # 获取文件所在目录
-            file_dir = os.path.dirname(file_path)
+            rel = file_path.replace("\\", "/")
+            if rel in all_test_lookup:
+                modified_test_files.append(rel)
+            modified_stems.add(Path(rel).stem.lower())
 
-            # 映射到测试目录
-            test_path = os.path.join(test_dir, file_dir)
-            full_test_path = self.project_root / test_path
+        for rel in modified_test_files:
+            tests.append(rel)
 
-            if full_test_path.exists() and full_test_path.is_dir():
-                # 查找测试文件
-                if naming == "test_*.py":
-                    test_files = list(full_test_path.glob('test_*.py'))
-                else:
-                    test_files = list(full_test_path.glob('*_test.py'))
+        # 文件名对应：测试文件 stem 去掉测试词缀后与源文件 stem 一致
+        for tf in all_tests:
+            if _test_source_stem(tf.name) in modified_stems:
+                tests.append(self._to_rel(tf))
 
-                for tf in test_files:
-                    tests.append(str(tf.relative_to(self.project_root)))
+        # 目录对应：镜像目录内的测试文件
+        for file_path in modified_files:
+            mirrored = self._mirrored_test_dir(file_path, profile)
+            if mirrored is None:
+                continue
+            for glob in self._test_globs(profile):
+                for tf in mirrored.glob(glob):
+                    tests.append(self._to_rel(tf))
 
-        return tests
+        return list(dict.fromkeys(tests))
 
     def _select_high_dependency_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> List[str]:
         """
@@ -120,28 +194,27 @@ class TestSelector:
         tests = []
         risk_files = profile.risk_areas.high_dependency + profile.risk_areas.security_critical
 
-        # 检查是否修改了高风险模块
+        # 按路径边界匹配高风险模块，避免子串假阳性
         modified_risk_files = [
             f for f in changes.modified_files
-            if any(risk in f for risk in risk_files)
+            if any(_path_boundary_match(risk, f) for risk in risk_files)
         ]
+        if not modified_risk_files:
+            return tests
 
-        if modified_risk_files:
-            # 选择所有相关测试
-            test_dir = profile.test_patterns.test_location
-            full_test_dir = self.project_root / test_dir
+        # 高风险模块影响面大：除同名测试外，扩大选择其镜像测试目录下的全部测试
+        tests.extend(self._select_same_directory_tests(modified_risk_files, profile))
+        for file_path in modified_risk_files:
+            mirrored = self._mirrored_test_dir(file_path, profile)
+            if mirrored is None:
+                continue
+            # 仅在镜像目录严格位于测试根目录之下时扩大范围，避免退化为全量
+            test_root = self.project_root / profile.test_patterns.test_location
+            if test_root in mirrored.parents:
+                for tf in self._iter_dir_tests(mirrored, profile):
+                    tests.append(self._to_rel(tf))
 
-            if full_test_dir.exists():
-                naming = profile.test_patterns.naming_convention
-                if naming == "test_*.py":
-                    test_files = list(full_test_dir.rglob('test_*.py'))
-                else:
-                    test_files = list(full_test_dir.rglob('*_test.py'))
-
-                for tf in test_files:
-                    tests.append(str(tf.relative_to(self.project_root)))
-
-        return tests
+        return list(dict.fromkeys(tests))
 
     def _select_smoke_tests(self, profile: ProjectProfile) -> List[str]:
         """
@@ -153,63 +226,58 @@ class TestSelector:
         Returns:
             测试文件列表（最多 10 个）
         """
-        smoke_keywords = ['smoke', 'core', 'basic', 'critical', 'essential']
         tests = []
 
-        test_dir = profile.test_patterns.test_location
-        full_test_dir = self.project_root / test_dir
-
-        if not full_test_dir.exists():
-            return tests
-
-        naming = profile.test_patterns.naming_convention
-        if naming == "test_*.py":
-            all_tests = list(full_test_dir.rglob('test_*.py'))
-        else:
-            all_tests = list(full_test_dir.rglob('*_test.py'))
-
         # 优先选择名称包含冒烟关键字的测试
-        for tf in all_tests:
-            if any(kw in tf.name.lower() for kw in smoke_keywords):
-                tests.append(str(tf.relative_to(self.project_root)))
+        for tf in self._iter_all_tests(profile):
+            if any(kw in tf.name.lower() for kw in self.smoke_keywords):
+                tests.append(self._to_rel(tf))
                 if len(tests) >= 10:
                     break
 
-        # 如果冒烟测试不足 5 个，补充前几个测试
-        if len(tests) < 5:
-            for tf in all_tests:
-                test_rel = str(tf.relative_to(self.project_root))
-                if test_rel not in tests:
-                    tests.append(test_rel)
-                    if len(tests) >= 5:
-                        break
+        return tests[:10]
 
-        return tests[:10]  # 最多 10 个
+    def _iter_all_tests(self, profile: ProjectProfile) -> List[Path]:
+        """遍历测试根目录下所有测试文件（按语言 glob）。"""
+        test_root = self.project_root / profile.test_patterns.test_location
+        return self._iter_dir_tests(test_root, profile)
+
+    def _iter_dir_tests(self, directory: Path, profile: ProjectProfile) -> List[Path]:
+        """遍历指定目录下所有测试文件（按语言 glob）。"""
+        if not directory.exists() or not directory.is_dir():
+            return []
+        test_files = []
+        for glob in self._test_globs(profile):
+            test_files.extend(directory.rglob(glob))
+        return sorted(set(test_files))
+
+    def _test_globs(self, profile: ProjectProfile) -> Sequence[str]:
+        """返回该语言对应的测试文件 glob；未知语言回退 naming_convention。"""
+        globs = _TEST_FILE_GLOBS.get(getattr(profile, "language", ""))
+        if globs:
+            return globs
+        return (profile.test_patterns.naming_convention,)
+
+    def _mirrored_test_dir(self, file_path: str, profile: ProjectProfile) -> Optional[Path]:
+        """源码目录映射到测试目录；目录不存在时返回 None。"""
+        parts = list(Path(file_path.replace("\\", "/")).parts[:-1])
+        while parts and parts[0] in _SOURCE_ROOT_NAMES:
+            parts.pop(0)
+        # 源文件位于源码根目录时，镜像目录即测试根目录——交由文件名对应处理
+        if not parts:
+            return None
+        candidate = self.project_root / profile.test_patterns.test_location
+        candidate = candidate.joinpath(*parts)
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+        return None
+
+    def _to_rel(self, path: Path) -> str:
+        return str(path.relative_to(self.project_root))
 
     def _select_all_tests(self, profile: ProjectProfile) -> List[str]:
-        """
-        选择所有测试（回退逻辑）
-
-        Args:
-            profile: 项目指纹
-
-        Returns:
-            所有测试文件列表
-        """
+        """选择所有测试（兼容旧接口，内部走 _iter_all_tests）。"""
         tests = []
-        test_dir = profile.test_patterns.test_location
-        full_test_dir = self.project_root / test_dir
-
-        if not full_test_dir.exists():
-            return tests
-
-        naming = profile.test_patterns.naming_convention
-        if naming == "test_*.py":
-            test_files = list(full_test_dir.rglob('test_*.py'))
-        else:
-            test_files = list(full_test_dir.rglob('*_test.py'))
-
-        for tf in test_files:
-            tests.append(str(tf.relative_to(self.project_root)))
-
+        for tf in self._iter_all_tests(profile):
+            tests.append(self._to_rel(tf))
         return tests
