@@ -8,8 +8,6 @@ from app.utils.security import verify_token
 
 from .schemas import (
     RequirementAssociationRequest,
-    RequirementAssociationConfirmRequest,
-    RequirementAssociationHelpfulnessRequest,
     RequirementAssociationResponse,
 )
 

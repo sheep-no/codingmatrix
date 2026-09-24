@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.v1.ai_agent import generate_endpoints
+from app.api.v1.ai_agent import helpers
 from app.api.v1.ai_agent import orchestrate_endpoints as endpoints
 from app.api.v1.ai_agent.schemas import ModifyRequest
 
@@ -117,6 +118,30 @@ class TestModifyRequestValidation:
 
     def test_accepts_none_session_id(self):
         assert ModifyRequest(session_id=None).session_id is None
+
+
+class TestProjectPathOwnership:
+    """AA7: 归属校验分支收敛为「首段目录 == user_id 或目录名末段 == user_id」"""
+
+    @pytest.mark.parametrize(
+        "project",
+        ["42/desktop-session", "orchestrator/project_42", "project_42"],
+    )
+    def test_accepts_owner_layouts(self, tmp_path, monkeypatch, project):
+        monkeypatch.setattr(helpers, "PROJECTS_BASE_DIR", str(tmp_path))
+        (tmp_path / project).mkdir(parents=True)
+        assert helpers._validate_project_path(project, "42") == tmp_path / project
+
+    @pytest.mark.parametrize(
+        "project",
+        ["99/desktop-session", "orchestrator/project_99", "project_99"],
+    )
+    def test_rejects_other_user_layouts(self, tmp_path, monkeypatch, project):
+        monkeypatch.setattr(helpers, "PROJECTS_BASE_DIR", str(tmp_path))
+        (tmp_path / project).mkdir(parents=True)
+        with pytest.raises(HTTPException) as error:
+            helpers._validate_project_path(project, "42")
+        assert error.value.status_code == 403
 
 
 class TestGenerateIdentity:
