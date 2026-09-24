@@ -87,3 +87,16 @@
 - **`feature_source` 未覆盖向量索引**：`vector_index.add_project` 仍会把 `file_fallback` 项目索引入库（其 `feature_list` 非空），语义检索命中后靠 `layer2_semantic` 兜底过滤；索引层过滤待后续。
 
 新增 `tests/unit/test_project_metadata_hardening.py` 14 用例（JSON 类型校验/多块提取/来源标记与计数/截断标记），回退源码后 11 项失败。
+
+## 8. 持久化与索引过滤（2026-09-24，第三批）
+
+### 已修
+
+- **PM3 已修**：`_save` 改为「同目录 `tempfile.mkstemp` 写临时文件 → `flush` + `os.fsync` → `os.replace` 原子替换」，写失败时清理临时文件并保留上一版 `project_metadata.json`；新增 `_append_and_save`，在模块级 `threading.Lock` 内**重读磁盘最新状态**再追加落盘，杜绝多个 manager 实例并发生成的 last-write-wins 丢历史项目。实例化仍每次 load/mkdir（保持既有行为，未改）。
+- **`feature_source` 索引层过滤已补**：`vector_index` 新增 `_should_index`，`build_from_metadata` 与 `add_project` 均跳过 `feature_source == "file_fallback"` 的项目——伪功能不再进入 FAISS 索引，无需依赖 `layer2_semantic` 事后兜底。
+
+新增 6 用例（原子写无残留临时文件、失败写保留旧文件、20 线程并发追加全部保留、索引短路发生在 embedding 之前、`build_from_metadata` 只索引真实项目）；回退源码后分别 2/3 项失败。
+
+### 仍成立
+
+- **PM6 残项**：`extract_and_save` 的 LLM 降级链（双模型失败）仍无端到端用例，现有覆盖为逐方法。

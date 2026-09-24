@@ -1,4 +1,7 @@
 import json
+import os
+import tempfile
+import threading
 import time
 import uuid
 import logging
@@ -12,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 FEATURE_EXTRACTION_MODEL = DEFAULT_REASONING_MODEL
 FEATURE_EXTRACTION_FALLBACK = DEFAULT_CODE_MODEL
+
+# 多个消费方各自 new 一个 manager 并写同一份 JSON，需串行化读改写避免互相覆盖
+_metadata_lock = threading.Lock()
 
 
 class ProjectMetadataManager:
@@ -33,8 +39,27 @@ class ProjectMetadataManager:
             self._projects = []
 
     def _save(self):
-        with open(METADATA_PATH, "w", encoding="utf-8") as f:
-            json.dump(self._projects, f, ensure_ascii=False, indent=2)
+        # 先写临时文件再 os.replace，避免写一半进程退出后留下损坏的 JSON
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=".project_metadata.", suffix=".tmp", dir=METADATA_PATH.parent
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self._projects, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_name, METADATA_PATH)
+        except BaseException:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+            raise
+
+    def _append_and_save(self, project_meta: Dict) -> None:
+        """在锁内重读磁盘最新状态后追加并原子落盘，避免并发 last-write-wins。"""
+        with _metadata_lock:
+            self._load()
+            self._projects.append(project_meta)
+            self._save()
 
     def total_count(self) -> int:
         return len(self._projects)
@@ -76,8 +101,7 @@ class ProjectMetadataManager:
             "created_at": time.time(),
         }
 
-        self._projects.append(project_meta)
-        self._save()
+        self._append_and_save(project_meta)
 
         try:
             from app.agent.vector_index import VectorIndexManager
