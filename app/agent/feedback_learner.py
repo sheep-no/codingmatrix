@@ -20,8 +20,8 @@ from app.utils.math_utils import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
-# 学习数据存储目录
-LEARNING_DIR = Path("./data/learning_data")
+# 学习数据存储目录：以仓库根为基准，避免依赖进程 CWD 导致读写漂移
+LEARNING_DIR = Path(__file__).resolve().parents[2] / "data" / "learning_data"
 # 会话记录最大数量（超出时自动裁剪最旧的记录）
 MAX_SESSION_RECORDS = 1000
 
@@ -231,6 +231,14 @@ class FeedbackLearner:
             relevant.sort(key=lambda x: x.frequency, reverse=True)
 
         return relevant
+
+    def get_anti_patterns(self) -> List[FixPattern]:
+        """返回已判定为反模式且带错误正则的修复模式（公开查询接口）。"""
+        return [
+            pattern
+            for pattern in self._fix_patterns.values()
+            if pattern.is_anti_pattern() and pattern.error_pattern
+        ]
 
     def get_common_errors(self, file_type: str) -> List[Dict[str, Any]]:
         """获取指定文件类型的常见错误"""

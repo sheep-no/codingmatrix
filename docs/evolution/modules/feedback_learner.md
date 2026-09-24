@@ -77,14 +77,16 @@
 
 ## 修复状态（2026-09-24 复核）
 
-分支 `260924-fix-feedback-learner` 修复 FL1 与 FL3/FL4，新增 `tests/unit/test_feedback_learner_fixes.py`（7 项，回退 4/7 失败）：
+分支 `260924-fix-feedback-learner` 修复 FL1 与 FL3/FL4；后续批次（`260924-fix-feedback-learner-paths`）修复 FL5/FL6。`tests/unit/test_feedback_learner_fixes.py` 累计 9 项，FL1 部分回退 4/7 失败，FL5/FL6 部分回退 2/2 失败：
 
 - **FL1 已缓解**：`_build_error_regex` 由 `"|".join(keywords[:5])`（OR 拆词）改为「每个关键词 `re.escape` + `(?=.*kw)` 前瞻串联」，语义从「命中任一单词」变为「同时包含全部关键词」。实测 `module 'flask' has no attribute 'Foo'` 生成的模式不再命中「用 flask 写一个用户系统」，只有整条签名重现才拦截。同时消除了未转义元字符（`(`/`[`）导致的 `re.error` 注入面。
 - **健壮性补齐**：`orchestrator_utils._is_anti_pattern` 对 `re.search` 包 `try/except re.error`，历史持久化中的非法正则只记 warning 并跳过，不再让整条生成链崩溃。
 - **FL3 已修**：删除零消费的同步版 `_find_relevant_patterns`（与 async 版逻辑分叉的重复实现），保留唯一 `_find_relevant_patterns_async`。
 - **FL4 已修**：删除零消费的 `async_record_fix`/`async_save_patterns` 包装，并移除随之无用的 `import asyncio`。
+- **FL5 已修（路径部分）**：`LEARNING_DIR` 由 `Path("./data/learning_data")` 改为 `Path(__file__).resolve().parents[2] / "data" / "learning_data"`，以仓库根为基准，不再随进程 CWD 漂移；`_session_records` 仅存内存（不持久化）的部分维持原判。
+- **FL6 已修**：新增公开查询接口 `FeedbackLearner.get_anti_patterns()`（:235），`orchestrator_utils._is_anti_pattern` 改走该接口，不再跨模块访问私有 `_fix_patterns`。
 
 **保留待决**：
 
 - FL2（反模式拦截二态失真：低频不触发/高频误伤，缺中间档）：属策略级设计，需产品侧确认「只注入预防提示 vs 拒绝生成」的口径。
-- FL5（`LEARNING_DIR` 相对路径、`_session_records` 不持久化）、FL6（跨模块访问私有 `_fix_patterns`）、FL7（embedding 串行）：与 spec_cache/strategy_evaluator 同族的路径/封装/性能问题，留待专门批次统一处理。
+- FL5（`_session_records` 不持久化）、FL7（embedding 串行）：与 spec_cache/strategy_evaluator 同族的持久化/性能问题，留待专门批次统一处理。
