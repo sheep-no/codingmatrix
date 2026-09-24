@@ -351,6 +351,12 @@ class _OverviewCard extends StatelessWidget {
       'running' => Colors.amberAccent,
       _ => Theme.of(context).colorScheme.primary,
     };
+    // The server sends the failure reason in the error payload. Show it in the
+    // overview so a failed run is diagnosable without reading the raw event log.
+    final rawFailure = status == 'failed' ? task?.errorJson['error'] : null;
+    final failure = rawFailure is String && rawFailure.trim().isNotEmpty
+        ? rawFailure.trim()
+        : null;
     return Card(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -385,6 +391,15 @@ class _OverviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(value: progress, minHeight: 8),
+            if (failure != null) ...[
+              const SizedBox(height: 18),
+              Text('失败原因', style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 6),
+              SelectableText(
+                failure,
+                style: TextStyle(color: statusColor, fontSize: 12),
+              ),
+            ],
           ],
         ),
       ),

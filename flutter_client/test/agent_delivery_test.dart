@@ -155,7 +155,6 @@ void main() {
       expect(controller.state.projectPath, '42/project');
       controller.resetStream();
       expect(controller.state.projectPath, isNull);
-      expect(controller.state.artifacts, isEmpty);
       controller.dispose();
     },
   );

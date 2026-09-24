@@ -32,16 +32,6 @@ void main() {
     });
     expect(event.toJson()['payload_json']['stage'], 'generating');
 
-    final artifact = Artifact.fromJson({
-      'id': 'art-1',
-      'user_id': 9,
-      'task_id': task.taskId,
-      'artifact_type': 'file',
-      'storage_uri': 'file://src/main.dart',
-      'metadata_json': {'language': 'dart'},
-    });
-    expect(artifact.toJson()['metadata_json']['language'], 'dart');
-
     final context = ModelContext.fromJson({
       'schema_version': '1',
       'config_version': '2',

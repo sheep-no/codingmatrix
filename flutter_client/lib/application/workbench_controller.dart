@@ -18,7 +18,6 @@ class WorkbenchState {
     this.task,
     this.modelContext,
     this.events = const <SseEvent>[],
-    this.artifacts = const <Artifact>[],
     this.decisions = const [],
     this.decisionBusy = false,
     this.actionError,
@@ -29,7 +28,6 @@ class WorkbenchState {
   final Task? task;
   final ModelContext? modelContext;
   final List<SseEvent> events;
-  final List<Artifact> artifacts;
   final List<AgentDecision> decisions;
   final bool decisionBusy;
   final String? actionError;
@@ -47,7 +45,6 @@ class WorkbenchState {
     Task? task,
     ModelContext? modelContext,
     List<SseEvent>? events,
-    List<Artifact>? artifacts,
     List<AgentDecision>? decisions,
     bool? decisionBusy,
     String? actionError,
@@ -59,7 +56,6 @@ class WorkbenchState {
       task: task ?? this.task,
       modelContext: modelContext ?? this.modelContext,
       events: events ?? this.events,
-      artifacts: artifacts ?? this.artifacts,
       decisions: decisions ?? this.decisions,
       decisionBusy: decisionBusy ?? this.decisionBusy,
       actionError: clearActionError ? null : actionError ?? this.actionError,
@@ -120,7 +116,6 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
 
     var task = state.task;
     var decisions = state.decisions;
-    final artifacts = List<Artifact>.from(state.artifacts);
     for (final event in parsed) {
       if (const {'success', 'failed', 'cancelled'}.contains(task?.status)) {
         continue;
@@ -143,14 +138,6 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         decisions = [];
       }
       task = _applyEvent(task, event);
-      final artifactPayload = event.data?['artifact'];
-      if (artifactPayload is Map<String, dynamic>) {
-        artifacts.add(Artifact.fromJson(artifactPayload));
-      } else if (artifactPayload is Map) {
-        artifacts.add(
-          Artifact.fromJson(Map<String, dynamic>.from(artifactPayload)),
-        );
-      }
     }
 
     // Heartbeats only keep the connection alive and carry no state, so they
@@ -166,7 +153,6 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
           ? events.sublist(events.length - maxEvents)
           : events,
       task: task,
-      artifacts: artifacts,
       decisions: decisions,
     );
     return parsed;
@@ -325,7 +311,6 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         state = state.copyWith(
           task: state.task?.copyWith(status: 'cancelled'),
           decisions: [],
-          artifacts: [],
         );
       }
     } catch (_) {

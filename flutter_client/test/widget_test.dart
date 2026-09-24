@@ -48,6 +48,19 @@ class StopErrorWorkbench extends WorkbenchController {
   }
 }
 
+class FailedWorkbench extends WorkbenchController {
+  FailedWorkbench() {
+    state = const WorkbenchState(
+      task: Task(
+        taskId: 'local-1',
+        sessionId: 'desktop-1',
+        status: 'failed',
+        errorJson: {'error': 'unknown file types were not inferred: vue.py'},
+      ),
+    );
+  }
+}
+
 void main() {
   testWidgets('stop requires explicit cleanup confirmation', (tester) async {
     final workbench = ExitWorkbenchController();
@@ -465,6 +478,30 @@ void main() {
       isEmpty,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('失败任务在概览卡片展示服务端失败原因', (tester) async {
+    final store = CredentialStore();
+    final workbench = FailedWorkbench();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('失败原因'), findsOneWidget);
+    expect(
+      find.text('unknown file types were not inferred: vue.py'),
+      findsOneWidget,
+    );
   });
 
   test('停止时取消订阅抛错不会逃逸', () async {
