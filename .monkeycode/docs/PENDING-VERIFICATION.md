@@ -35,6 +35,16 @@
 | 应用标识统一 | 三端一致为 `com.codingmatrix.agent` | Android `namespace`/`applicationId`、Linux `APPLICATION_ID`、窗口标题与 Windows 产品名 |
 | 真实 LLM 链路 | SiliconFlow 凭据有效（98 模型）、5 个 agent 角色模型可用、后端 chat 非流式与流式均真实返回、Provider RSA 提交与「测试连接」成功 | 本地后端实跑，详见「待验收项 4」 |
 | 工作台进度契约修复 | 已修并回归：`WorkbenchController` 的 `progress` 分支只读 `stage`/`progress`/`session_id`，而后端 `ProgressMixin._report_progress` 实际发 `step`/`phase`/`current`/`total`/`percentage`（`app/agent/orchestrator_progress.py:150`），故真实运行时进度条恒 0%、阶段停在初始 `connecting`。同一字段缺失也让 `awaiting_user_decision` 判定恒不成立（死分支）：当前后端两种帧顺序下未造成可见故障，但顺序一旦互换就会把已下发的架构决策清空。现统一从 `step`/`phase`、`percentage` 读取，保留旧字段别名 | 新增 `test/agent_delivery_test.dart` 两项确定性用例（按真实 SSE 包封形状构造），修前必失败、修后通过；全量 490 passed、`flutter analyze lib test` 无问题 |
+| 编排端到端与文件链路 | 真实跑到 `done`（`success=true`，4/4 文件），`done` 载荷形状与客户端一致；客户端文件列表/读取/下载三个接口对同一真实项目实测通过 | 详见「待验收项 4」 |
+
+## 客户端代码发现（本范围内）
+
+核对中确认以下客户端问题，尚未改动：
+
+| 位置 | 发现 | 证据 |
+|---|---|---|
+| `workbench_controller.dart:146`、`WorkbenchState.artifacts`、`unified_models.dart:209` `Artifact` | 不可达死代码：只有当 SSE 事件的 `data.artifact` 存在时才会收集，而后端全部 SSE 生产者都不产出 `artifact` 字段（`rg 'artifact' app` 无 SSE 命中）；且 `artifacts` 自引入起从未在 `lib/presentation` 被渲染（`git log -S artifacts -- flutter_client/lib/presentation` 无结果）。现状只被自身测试引用。属可清理项，是否删除待确认 | `git log -S artifacts -- flutter_client/lib/application/workbench_controller.dart` → `8f6c261`；两个测试用例均为自测 |
+| `agent_home_view.dart:458` | 事件卡按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。当前静态站 4 个小文件未暴露该问题 | `file` 事件字段含 `content`；客户端未做截断 |
 
 ## Linux 实跑记录
 
@@ -122,11 +132,17 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 复现方式：`DATABASE_URL=sqlite+aiosqlite:////tmp/opencode/llm_test.db ENV=development SILICONFLOW_API_KEY=<key> python3 -m uvicorn app.main:app --port 8000`，注册/登录后调上述端点。Provider 提交与测试连接依赖 Redis（未起时提交返回 403），需先 `redis-server --port 6379 --save '' --appendonly no --maxmemory 128mb`。
 
-`/api/v1/agent/orchestrate/stream` 端到端已实跑（2026-09-24，真实 SiliconFlow 凭据，session `llm-e2e-1790257115`）：SSE 传输层全通，收到 `pipeline_mode`、`progress`、`step_detail`、`thinking`（1753 条）、`heartbeat`（135 条）、`critical_decisions` 与 `error` 各 1 条；`projects/1/llm-e2e-1790257115/.dep_graph.json` 已落盘（20 文件节点）。但生成在依赖图校验阶段中断，`error` 事件内容为 `unknown file types were not inferred: vue.py`，`projects/1` 无源码产出。
+`/api/v1/agent/orchestrate/stream` 端到端已实跑两次（2026-09-24，真实 SiliconFlow 凭据）。
 
-中断根因（后端，本范围外）：Architect 角色模型对「Python hello world」需求产出了含 `src/main.js`、`src/router.js`、`vue.py` 的 Web 架构（`Qwen/Qwen3.5-4B` 幻觉），`_ensure_file_plan_completeness` 把 `vue.py` 自动补进 file_plan（type=unknown），而 `DependencyGraph._infer_file_type` 对 `.py` 无兜底（`EXTENSION_TYPE_MAP` 缺 `.py`），`_infer_unknown_file_types` 遂抛 `RuntimeError` 中止整轮生成。同一路径下任何非约定命名的 `.py` 都会触发。详见「跨边界发现」。
+第一次（Python 需求，session `llm-e2e-1790257115`）：SSE 传输层全通，收到 `pipeline_mode`、`progress`、`step_detail`、`thinking`（1753 条）、`heartbeat`（135 条）、`critical_decisions` 与 `error` 各 1 条；`.dep_graph.json` 已落盘（20 文件节点），但生成在依赖图校验阶段中断，`error` 为 `unknown file types were not inferred: vue.py`，无源码产出。
 
-仍待验证：GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取（需真实 GitHub Token）；agent 编排需更强 Architect 模型或后端修复后才能跑到 `done`。
+第二次（纯静态站需求，session `llm-static-1790262394`）跑到 `done`，`success=true`：4/4 文件生成成功（`src/index.html`、`src/style.css`、`src/app.js`、`app/command.py`），项目级沙箱验证通过，交叉验证在两版之间选定 A 版。收到的事件类型覆盖 `pipeline_mode`、`progress`(28)、`step_detail`(2)、`thinking`(1867)、`heartbeat`(85)、`model_info`(4)、`file`(4)、`critical_decisions`(1)、`validation_results`(1)、`cost_update`(1)、`performance_metrics`(1)、`done`(1)。`done` 载荷带 `project_path="1/llm-static-1790262394"`、`session_id`、`files`、`validation`、`cost`、`performance` 等 23 个字段，正是客户端 `WorkbenchState.projectPath` 与文件页所依赖的形状。
+
+客户端下游接口对同一真实项目实测通过：`GET /api/v1/agent/generate/files` 返回 4 个文件；`GET /api/v1/agent/generate/read` 返回文件正文；`GET /api/v1/agent/generate/download/1/llm-static-1790262394` 返回 200、3544 字节的合法 zip（`testzip()` 通过）。生成完成后 `agent_home_view.dart:133` 用 `projectPath` 打开文件页的链路完整。
+
+两次运行差异说明（对验收有用）：Python 那次之所以中断，是因为 Architect 模型（`Qwen/Qwen3-8B`）对「hello world」需求幻觉出含 `vue.py` 的 Web 架构，而 `.py` 在 `EXTENSION_TYPE_MAP` 里没有兜底。改用全部扩展名都有兜底的 `.html/.css/.js/.md` 静态站需求后即可跑到 `done`。要在当前后端上拿到 `done`，需求与产物应避开 `unknown` 类型的文件。
+
+仍待验证：GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取（需真实 GitHub Token）。
 
 磁盘守卫：该端点可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且写 `./projects`。本轮已腾出 >3GB 可用后通过。
 
@@ -150,7 +166,10 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | `Dockerfile:23`、`:34` | 基础镜像 `python:3.10-slim`，与文档要求的 Python 3.11+ 不一致 |
 | 应用挂载 | `AiProjectCode.py`、`nginx_ai.py` 未挂载 |
 | `app/agent/dependency_graph.py:1208` + `app/agent/dependency_rules.py:189` | `_infer_file_type` 对 `.py` 无扩展名兜底：`EXTENSION_TYPE_MAP` 没有 `.py`（只有 `.vue`、`.js` 等），Python 适配器的 `infer_file_type` 也只在目录名/文件名命中规则时才给类型。任何非常规命名的 `.py`（`vue.py`，甚至 `hello.py`）推断为 `unknown`，`_infer_unknown_file_types` 随即 `RuntimeError` 中止整轮编排（`spec_first_generate.py:1955`） |
-| `app/agent/architect.py:1341` | `_ensure_file_plan_completeness` 会把 Architect 幻觉出的模块自动补进 file_plan（上例中 Vue 风格的 `vue.py`、`app/api.py`），放大上一条的爆炸半径；本轮弱 Architect 模型（`Qwen/Qwen3.5-4B`）对简单 Python 需求产出了 Web 架构 |
+| `app/agent/architect.py:1341` | `_ensure_file_plan_completeness` 会把 Architect 幻觉出的模块自动补进 file_plan（上例中 Vue 风格的 `vue.py`、`app/api.py`），放大上一条的爆炸半径；角色分配中 architect 是 `Qwen/Qwen3-8B`（`data/unified_model_config.yaml:356`），它对简单 Python 需求产出了 Web 架构 |
+| `app/api/v1/ai_agent/schemas.py:237,239` | `OrchestratorRequest.framework` 与 `runtime` 只在 schema 声明，`app/api/v1/ai_agent/` 全目录无消费点（`rg '\.framework|\.runtime' app/api/v1/ai_agent` 无命中），客户端也不发送。即调用方无法指定目标框架/运行时，架构完全交给模型发挥 |
+| 项目打包 | `GET /api/v1/agent/generate/download/{project}` 打出的 zip 含内部文件与构建残留：本轮含 `.dep_graph.json` 与 `app/__pycache__/command.cpython-311.pyc`（校验时编译产生）。用户下载到的产物里混入平台内部文件，与 `generate/files` 列表接口的过滤行为不一致 |
+| 生成覆盖率 | 静态站那次 `success=true`，但需求要求的根级 `index.html` 与 `README.md` 未按约产出（实际把 `index.html` 放进 `src/`，且完全没有 README），反而多出需求未提的 `app/command.py`。`requirement_coverage` 未据此判失败，属模型质量与覆盖校验缺口 |
 
 ## 本地后端联调方法
 
