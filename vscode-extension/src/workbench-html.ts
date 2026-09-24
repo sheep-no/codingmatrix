@@ -47,11 +47,14 @@ const pending=new Map();
 const $=function(id){return document.getElementById(id);};
 const status=$('status'),messages=$('messages'),approve=$('approve'),reject=$('reject'),prompt=$('prompt'),send=$('send');
 const setStatus=function(text){status.textContent=text;};
+const MAX_MESSAGES=100;
+const QUIET_EVENTS={heartbeat:true};
 const append=function(text,error){
   const item=document.createElement('p');
   item.className='message'+(error?' error':'');
   item.textContent=text;
   messages.appendChild(item);
+  while(messages.childElementCount>MAX_MESSAGES)messages.removeChild(messages.firstElementChild);
   messages.scrollTop=messages.scrollHeight;
 };
 const empty=function(target,text){
@@ -462,8 +465,10 @@ window.addEventListener('message',function(event){
       setStatus(value.type==='error'?'Agent 执行失败':'Agent 已取消');
       send.disabled=false;
     }
-    const text=typeof payload==='string'?payload:payload.message||payload.error||value.type;
-    if(text)append(value.type+'：'+text,value.type==='error');
+    if(QUIET_EVENTS[value.type])return;
+    const source=value.data&&typeof value.data==='object'?value.data:value;
+    const text=typeof payload==='string'?payload:(source.message||source.error||source.description||source.step||source.phase||source.path||source.model||'');
+    append(text?value.type+'：'+text:value.type,value.type==='error');
     return;
   }
   if(data&&data.type!=='agent_host_message')return;
