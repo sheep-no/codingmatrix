@@ -67,3 +67,18 @@
 ## 5. 测试状态
 
 **规则路径弱覆盖、模型路径零覆盖**——91 行 9 用例全绿，但全部走规则路径：`test_classify_basic`/`test_classify_name_error` 只断言 not None + `if hasattr(result, 'error_type')` 条件断言（无属性即通过）；`test_add_to_history` 断言 `hasattr(classifier, 'add_to_history')` 而非行为（方法存在即通过）；**`_model_based_classification` 无任何用例**（LLM 路径零覆盖）。EC1（拼接顺序误判）、EC2（变体漏检）、EC3（三路径兜底 LogicError）全部实测可复现但零用例保护——测试固化「分类器存在」而非「分类正确」（TR2 家族）。
+
+## 6. 修复状态（2026-09-24 复核）
+
+| # | 状态 | 说明 |
+|---|------|------|
+| EC1 | 已修 | `_rule_based_classification` 不再按 `ERROR_PATTERNS` dict 顺序返回首个命中，改为遍历所有 pattern 取 `match.start()` 最小（文本中最先出现）者，与拼接串中错误的实际顺序一致；`test_first_error_wins_typeerror` 由「返回 NameError」修正为 TypeError |
+| EC2 | 已修 | NameError 补无引号变体 `name (\w+) is not defined`；KeyError 补数字键 `KeyError:\s*(\d+)` 与通用 `KeyError:`；LogicError 补英文规则 `logic error` / `business logic error`，规则路径不再对英文错误不可达 |
+| EC3 | 已修 | `_model_based_classification` 改用 `json_parser.extract_first_json_object` 替代贪婪 `\{.*\}`（多 JSON 块/夹带解释文本不再 "Extra data"）；新增 `_coerce_model_result` 校验必需字段与 `error_type` 合法性，非法即视为失败；失败兜底由伪装 LogicError(0.5) 改为显式 `Unknown`(confidence=0.0)，`RepairRouter.route("Unknown")` 落到 `user_confirmation` 不自动修复；`print` 改 `logger.warning` |
+| EC4 | 已修（部分） | `classification_history` 改为 `deque(maxlen=200)`，消除全局单例无界增长。只写不读的消费缺失仍需后续决策（供去重/策略学习或删除） |
+| EC5 | 已修 | 模型路径 confidence 经 `float()` + clamp 到 `[0, 1]`（LLM 返回 5.0 不再透传） |
+| EC6 | 已修 | `_model_based_classification` docstring 由 qwen3.5-4b 更正为 `DEFAULT_CODE_MODEL`；LogicError 的 `fix_strategy` 去掉与实际模型不符的「使用 deepseek-r1」声明 |
+| EC7 | 部分改进 | 新增 `tests/unit/test_error_classifier_fixes.py` 18 项覆盖规则顺序/变体/模型路径（含多 JSON 块、夹带文本、缺字段、非法类型、越界 confidence、异常兜底）；既有弱断言用例未改动 |
+| EC8 | 保留 | `get_fix_strategy_by_type` 仍与 `strategy_evaluator.get_strategy_template` 双实现（仅测试引用），收敛需跨模块决策 |
+
+回归测试：`tests/unit/test_error_classifier_fixes.py`（18 项；回退源码 13/18 失败，其余 5 项为非区分性正向守卫）。
