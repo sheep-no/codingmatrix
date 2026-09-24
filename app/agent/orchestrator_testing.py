@@ -66,7 +66,10 @@ class TestingMixin:
                 "summary": {
                     "passed": result.passed,
                     "failed": result.failed,
-                    "skipped": result.errors,
+                    # skipped 与 errors 是两个独立计数：原先误填 errors，
+                    # 前端「跳过：N」显示的是错误数。TestResult.skipped 由
+                    # OutputParser 解析 skipped 得到。
+                    "skipped": result.skipped,
                     "total": result.total_tests,
                     "coverage": None  # 可以后续扩展覆盖率
                 },
@@ -140,14 +143,20 @@ class TestingMixin:
             for test_name in failed_tests:
                 # 从 logs 中提取 traceback
                 import re
-                pattern = rf"FAILED {test_name}.*?(?=FAILED|PASSED|ERROR|$)"
+                # pytest 参数化名（如 test_x[param]）含 [ ] ( ) 等正则元字符，
+                # 未转义会让 re.search 抛异常或错匹配，聚类静默失效。
+                pattern = rf"FAILED {re.escape(test_name)}.*?(?=FAILED|PASSED|ERROR|$)"
                 match = re.search(pattern, logs, re.DOTALL)
                 traceback = match.group(0) if match else ""
 
+                # 单行 FAILED 日志（无回溯）时 split('\n') 只有一个元素，
+                # 原先取 [-2] 抛 IndexError 使整个聚类回退为空。取最后一条
+                # 非空行作为错误信息。
+                lines = [ln for ln in traceback.split('\n') if ln.strip()]
                 test_results.append({
                     "name": test_name,
                     "traceback": traceback,
-                    "error_message": traceback.split('\n')[-2] if traceback else ""
+                    "error_message": lines[-1] if lines else ""
                 })
 
             clusters = clusterer.cluster(test_results)
