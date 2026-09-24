@@ -66,6 +66,7 @@ class IncrementalGenerateMixin:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         has_failure = False
+        applied_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 self.errors.append(f"文件生成异常：{str(result)}")
@@ -76,12 +77,19 @@ class IncrementalGenerateMixin:
                 has_failure = True
             elif result:
                 self.generated_files.append(result)
+                applied_results.append(result)
 
         # 增量生成失败时回滚
         if has_failure:
             if stashed:
                 logger.warning("[增量生成] 存在失败文件，回滚到备份版本")
                 _git_stash_pop(str(self.output_dir))
+                # 回滚把受影响文件（含已成功修改的）还原到备份版本，
+                # 同步移除本次已记录的成功项，避免报告与磁盘状态不一致
+                applied_ids = {id(r) for r in applied_results}
+                self.generated_files = [
+                    f for f in self.generated_files if id(f) not in applied_ids
+                ]
             raise RuntimeError(
                 "incremental file generation failed: " + "; ".join(self.errors)
             )

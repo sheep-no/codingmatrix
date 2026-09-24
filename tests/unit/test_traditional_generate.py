@@ -165,3 +165,77 @@ def test_integrity_fixes_are_visible_to_subsequent_validation(tmp_path):
         "success": True,
         "size": 0,
     }]
+
+
+class _IncrementalOrchestrator:
+    """IG1 测试脚手架：可控地让部分文件成功、部分失败。"""
+
+    def __init__(self, output_dir, plan, failing):
+        self.output_dir = output_dir
+        self.generated_files = []
+        self.errors = []
+        self.cancel_event = None
+        self.session_id = "s1"
+        self._plan = plan
+        self._failing = set(failing)
+        self.session_manager = types.SimpleNamespace(
+            detect_incremental_changes=self._detect,
+            get_file_plan_for_incremental=lambda _state: plan,
+        )
+
+    async def _detect(self, *_args, **_kwargs):
+        return {
+            "state": types.SimpleNamespace(
+                unchanged_files=[],
+                changed_files=[p["path"] for p in self._plan],
+            )
+        }
+
+    def _report_progress(self, *_args, **_kwargs):
+        return None
+
+    async def _generate_single_file(self, file_info, *_args, **_kwargs):
+        path = file_info["path"]
+        if path in self._failing:
+            return None
+        return {"path": path, "description": "ok", "success": True}
+
+
+def _patch_stash(monkeypatch):
+    from app.agent.orchestrator_generation import incremental_generate as ig
+
+    calls = {"push": 0, "pop": 0, "drop": 0}
+    monkeypatch.setattr(ig, "_git_stash_push", lambda *a, **k: calls.__setitem__("push", calls["push"] + 1) or True)
+    monkeypatch.setattr(ig, "_git_stash_pop", lambda *a, **k: calls.__setitem__("pop", calls["pop"] + 1))
+    monkeypatch.setattr(ig, "_git_stash_drop", lambda *a, **k: calls.__setitem__("drop", calls["drop"] + 1))
+    return ig, calls
+
+
+@pytest.mark.asyncio
+async def test_incremental_rollback_drops_stale_success_entries(tmp_path, monkeypatch):
+    """IG1: 回滚还原受影响文件后，已记录的成功项必须同步移除。"""
+    ig, calls = _patch_stash(monkeypatch)
+    plan = [{"path": "a.py"}, {"path": "b.py"}]
+    orchestrator = _IncrementalOrchestrator(tmp_path, plan, failing={"b.py"})
+
+    with pytest.raises(RuntimeError, match="incremental file generation failed"):
+        await ig.IncrementalGenerateMixin._handle_incremental_generation(
+            orchestrator, "req", plan, {}, 2
+        )
+
+    assert calls == {"push": 1, "pop": 1, "drop": 0}
+    assert orchestrator.generated_files == []
+
+
+@pytest.mark.asyncio
+async def test_incremental_success_keeps_entries_and_drops_stash(tmp_path, monkeypatch):
+    ig, calls = _patch_stash(monkeypatch)
+    plan = [{"path": "a.py"}, {"path": "b.py"}]
+    orchestrator = _IncrementalOrchestrator(tmp_path, plan, failing=set())
+
+    await ig.IncrementalGenerateMixin._handle_incremental_generation(
+        orchestrator, "req", plan, {}, 2
+    )
+
+    assert calls == {"push": 1, "pop": 0, "drop": 1}
+    assert [f["path"] for f in orchestrator.generated_files] == ["a.py", "b.py"]

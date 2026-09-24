@@ -83,4 +83,8 @@
 
 **保留待决**：
 
-- EV5（风险阈值硬编码）、EV6（评价链路无整体超时预算）、EV7（降级静默低分）、IG1（增量回滚后 `generated_files` 仍含已还原的成功项）、GM1（组件每次全量重建）：分别属配置化/超时/报告一致性/性能范畴，留待专门批次。
+- EV5（风险阈值硬编码）、EV6（评价链路无整体超时预算）、EV7（降级静默低分）、GM1（组件每次全量重建）：分别属配置化/超时/性能范畴，留待专门批次。
+
+**后续批次（2026-09-24）**：
+
+- **IG1 已修**：`incremental_generate.py:65-77` 记录本轮成功项到 `applied_results`；`has_failure` 且回滚时（`_git_stash_pop` 之后）按 `id()` 从 `self.generated_files` 移除这些成功项，报告不再包含磁盘上已被还原的文件。`tests/unit/test_traditional_generate.py` 新增两条用例（混合成功/失败回滚后成功项被移除、全成功保留并 drop stash），回退源码后回滚用例失败。
