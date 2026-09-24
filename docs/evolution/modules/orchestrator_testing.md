@@ -162,3 +162,21 @@ test_files.extend(str(f) for f in self.output_dir.glob(pattern))
 - OT16 为代码级确凿（构造签名必填 + 无参调用），无待实测阻塞。
 - OT21/OT22/OT18 为代码级结论（依赖已实测的 FD-OP 失效链与 TR 双路径结论）。
 - OT24-OT26 为代码级结论。
+
+## 6. 修复状态（2026-09-24 复核）
+
+本文档 §3 的行号对应重构前版本（docker 分支 + `_detect_test_command` + `_collect_all_tests` 混编）。当前 `app/agent/orchestrator_testing.py` 仅 168 行，只保留本地测试路径（`runner.run_tests()`）。逐条复核：
+
+| # | 状态 | 说明 |
+|---|------|------|
+| OT16 | 已修 | `18fcb62b`：`_select_tests` 已改为 `ImpactAnalyzer(project_root)` / `TestSelector(project_root)`（:116/:120），智能测试选择可正常执行 |
+| OT21 | 失效 | `b32b928a` 已移除 docker 测试分支，`_run_tests_in_docker`/`_detect_test_command` 不存在，双路径不一致问题消失 |
+| OT22 | 失效 | 同上，docker 分支已移除，不再有 FD-OP 失效链与 `success` 语义矛盾 |
+| OT18 | 失效 | `_detect_test_command` 已随 docker 分支删除，命令探测顺序碰撞不存在 |
+| OT2 | 失效 | docker summary 双语义已随分支删除消失 |
+| OT26 | 失效 | `_collect_all_tests` 仅用于 :123 日志计数；`_detect_test_command` 已删，绝对/相对路径不再拼进命令 |
+| OT24 | 已修 | `_cluster_test_failures` 对 `test_name` 加 `re.escape`；另修复单行 FAILED 日志下 `traceback.split('\n')[-2]` 抛 `IndexError` 致整个聚类回退 `[]` 的问题（改为取最后一条非空行） |
+| OT25 | 已修 | `_report_test_results` 的 `skipped` 由 `result.errors` 改为 `result.skipped`；为此 `ParsedTestResult`/`TestResult` 新增 `skipped` 字段，各 OutputParser 解析器（pytest 文本、JUnit XML/属性、jest/vitest、go、rust、generic）透出真实跳过数 |
+| OT20 | 已修（部分） | 新增 `tests/unit/test_orchestrator_testing_skipped.py` 覆盖 `_cluster_test_failures` 与 `_run_dynamic_tests` 事件输出；`_detect_test_command` 已不存在，其余纯方法的宿主默认值入口未做 |
+
+回归测试：`tests/unit/test_orchestrator_testing_skipped.py`（12 项；回退源码 12/12 失败）。

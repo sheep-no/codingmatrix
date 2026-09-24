@@ -136,6 +136,7 @@ class TestResult:
     method: str = "local_sandbox"
     language: str = "python"
     framework: str = "pytest"
+    skipped: int = 0
 
 
 class IsolatedTestRunner:
@@ -764,6 +765,7 @@ class IsolatedTestRunner:
         result.passed = parsed.passed
         result.failed = parsed.failed
         result.total_tests = parsed.passed + parsed.failed
+        result.skipped = parsed.skipped
 
         if parsed.errors:
             result.errors = len(parsed.errors)
@@ -786,6 +788,9 @@ class IsolatedTestRunner:
             result.failed = failed
             result.errors = errors_count
             result.total_tests = passed + failed + errors_count
+            m_skip = re.search(r'(\d+)\s+(?:skipped|ignored)', result.logs)
+            if m_skip:
+                result.skipped = int(m_skip.group(1))
             result.failed_tests = re.findall(r'FAILED\s+(\S+)', result.logs)
 
         # success 由 subprocess returncode 决定，但部分框架以非标准退出码报告失败。

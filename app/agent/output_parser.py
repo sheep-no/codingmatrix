@@ -31,6 +31,7 @@ class ParsedTestResult:
     """统一测试结果"""
     passed: int = 0
     failed: int = 0
+    skipped: int = 0
     errors: List[str] = field(default_factory=list)
     test_cases: List[TestCaseResult] = field(default_factory=list)
     duration: float = 0.0
@@ -83,6 +84,10 @@ class GenericTextParser:
         if failed_match:
             result.failed = int(failed_match.group(1))
 
+        skipped_match = re.search(r"(\d+)\s+(?:tests?\s+)?(?:skipped|ignored)", raw_output, re.IGNORECASE)
+        if skipped_match:
+            result.skipped = int(skipped_match.group(1))
+
         error_matches = re.findall(r"ERROR[:\s]+(.+)", raw_output, re.IGNORECASE)
         result.errors = error_matches[:20]
 
@@ -118,12 +123,13 @@ def _parse_junit_xml(raw_output: str) -> "ParsedTestResult | None":
         return None
 
     result = ParsedTestResult()
-    passed = failed = 0
+    passed = failed = skipped = 0
     for element in root.iter():
         if _xml_localname(element.tag) != "testcase":
             continue
         name = element.get("name", "") or element.get("classname", "")
         if _xml_child(element, "skipped") is not None:
+            skipped += 1
             continue
         failure = _xml_child(element, "failure")
         error = _xml_child(element, "error")
@@ -142,6 +148,7 @@ def _parse_junit_xml(raw_output: str) -> "ParsedTestResult | None":
 
     result.passed = passed
     result.failed = failed
+    result.skipped = skipped
     return result
 
 
@@ -172,6 +179,10 @@ class PytestXMLParser:
         if error_match:
             result.failed += int(error_match.group(1))
 
+        skipped_match = re.search(r"(\d+)\s+skipped", raw_output)
+        if skipped_match:
+            result.skipped = int(skipped_match.group(1))
+
         for line in raw_output.split("\n"):
             if "FAILED" in line:
                 result.errors.append(line.strip())
@@ -189,12 +200,13 @@ class JestJSONParser:
             data = json.loads(raw_output)
             num_passed = data.get("numPassedTests")
             num_failed = data.get("numFailedTests")
+            num_skipped = data.get("numPendingTests")
 
             if num_passed is None or num_failed is None:
                 # vitest 等 JSON reporter 不保证 jest 的顶层计数字段，
                 # 按 assertionResults[].status 统计（skipped/pending 不计通过）。
                 # 原实现直接 .get(..., 0) → vitest 风格输出恒为 0（OP3）。
-                num_passed = num_failed = 0
+                num_passed = num_failed = num_skipped = 0
                 for test_result in data.get("testResults", []):
                     for assertion in test_result.get("assertionResults", []):
                         status = assertion.get("status")
@@ -202,9 +214,14 @@ class JestJSONParser:
                             num_passed += 1
                         elif status == "failed":
                             num_failed += 1
+                        elif status in ("pending", "skipped", "todo", "disabled"):
+                            num_skipped += 1
+            elif num_skipped is None:
+                num_skipped = 0
 
             result.passed = num_passed
             result.failed = num_failed
+            result.skipped = num_skipped
 
             test_results = data.get("testResults", [])
             for test_result in test_results:
@@ -252,6 +269,7 @@ class JUnitXMLParser:
         # JUnit 的 tests 包含 skipped，必须扣除，否则 passed 虚高（OP2）
         result.passed = max(0, total - failures - errors_count - skipped)
         result.failed = failures + errors_count
+        result.skipped = skipped
 
         failure_matches = re.findall(r"<failure[^>]*>(.*?)</failure>", raw_output, re.DOTALL)
         result.errors = [f[:200] for f in failure_matches]
@@ -275,6 +293,7 @@ class GoTestParser:
 
         result.passed = pass_count
         result.failed = max(fail_count, len(package_failures))
+        result.skipped = len(re.findall(r"--- SKIP:", raw_output))
 
         for line in raw_output.split("\n"):
             if "--- FAIL:" in line:
@@ -293,11 +312,14 @@ class RustTestParser:
 
         passed_match = re.search(r"(\d+)\s+passed", raw_output)
         failed_match = re.search(r"(\d+)\s+failed", raw_output)
+        ignored_match = re.search(r"(\d+)\s+ignored", raw_output)
 
         if passed_match:
             result.passed = int(passed_match.group(1))
         if failed_match:
             result.failed = int(failed_match.group(1))
+        if ignored_match:
+            result.skipped = int(ignored_match.group(1))
 
         for line in raw_output.split("\n"):
             if line.strip().startswith("test result:"):
