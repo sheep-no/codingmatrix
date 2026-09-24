@@ -1,0 +1,46 @@
+# =============================================================================
+# Docker 构建上下文排除规则
+#
+# 缺少该文件时构建上下文会包含 src/node_modules（约 415 MB）、logs、data、
+# .git 等，每次构建都要向 daemon 传输数 GB 数据。更严重的是 frontend-builder
+# 阶段的 `COPY src/ .` 会用宿主机的 node_modules 覆盖容器内 `npm ci` 的安装
+# 结果，在 macOS 或依赖版本不一致的机器上会直接破坏前端构建。
+# =============================================================================
+
+# 版本控制与平台元数据
+.git
+.github
+.gitignore
+.gitattributes
+
+# 依赖目录：容器内由 npm ci / pip install 生成
+node_modules
+.venv
+venv
+__pycache__
+*.py[cod]
+
+# 前端构建产物：镜像内由 `npm run build` 生成
+src/dist
+dist
+
+# 运行时数据与日志：由 compose 卷或 bind mount 提供
+logs
+data
+uploads
+pptx_output
+generated_images
+projects
+
+# 测试与文档：镜像运行不需要
+tests
+docs
+
+# 编辑器与 Agent 工作区元数据
+.monkeycode
+.claude
+.kiro
+
+# 本地环境文件：配置通过挂载或环境变量注入，避免密钥进入镜像层
+.env
+.env.*
