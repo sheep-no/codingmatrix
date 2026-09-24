@@ -11,7 +11,6 @@ FeedbackLearner - 模型反馈学习
 import json
 import logging
 import re
-import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from pathlib import Path
@@ -276,10 +275,15 @@ class FeedbackLearner:
         return text[:100]
 
     def _build_error_regex(self, error_msg: str) -> str:
-        """构建错误模式的正则表达式"""
-        # 简单实现：提取关键词
+        """构建错误模式的正则表达式。
+
+        抽取的关键词全部转义后用前瞻串成「同时包含」语义，而不是裸的 `kw1|kw2`
+        或分支。否则单个常见词（如错误消息里的 "flask"）就会命中任何含该词的
+        需求文本，把整单误拦截。
+        """
         keywords = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z_]+', error_msg)
-        return "|".join(keywords[:5])
+        escaped = [re.escape(kw) for kw in keywords[:5]]
+        return "".join(f"(?=.*{kw})" for kw in escaped)
 
     def _extract_fix_description(
         self,
@@ -337,44 +341,6 @@ class FeedbackLearner:
                 logger.warning(f"错误 embedding 失败: {error_msg[:50]}, {e}")
         return result
 
-    def _find_relevant_patterns(
-        self,
-        file_path: str,
-        file_type: str,
-        query_embedding: Optional[List[float]] = None
-    ) -> List[FixPattern]:
-        """
-        查找相关的修复模式（向量化匹配优化）
-
-        优化：
-        - 如果有 query_embedding，用余弦相似度匹配
-        - 否则用传统的文件类型匹配
-        """
-        relevant = []
-
-        if query_embedding is not None:
-            # 向量化匹配
-            scored_patterns = []
-            for pattern_key, pattern in self._fix_patterns.items():
-                if pattern.error_embedding is not None and pattern.success_rate > 0.3:
-                    similarity = self._cosine_similarity(query_embedding, pattern.error_embedding)
-                    if similarity > 0.7:  # 相似度阈值
-                        scored_patterns.append((similarity, pattern))
-
-            # 按相似度排序
-            scored_patterns.sort(key=lambda x: x[0], reverse=True)
-            relevant = [p for _, p in scored_patterns[:10]]
-        else:
-            # 传统匹配：频率 > 1 且成功率 > 0.5
-            for pattern in self._fix_patterns.values():
-                if pattern.frequency > 1 and pattern.success_rate > 0.5:
-                    if file_type in pattern.file_types or file_type == "unknown":
-                        relevant.append(pattern)
-
-            relevant.sort(key=lambda x: x.frequency, reverse=True)
-
-        return relevant
-
     def _load_patterns(self):
         """加载修复模式"""
         patterns_file = self.learning_dir / "fix_patterns.json"
@@ -416,13 +382,3 @@ class FeedbackLearner:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存修复模式失败: {e}")
-
-    # ===== 异步包装方法 =====
-
-    async def async_record_fix(self, *args, **kwargs):
-        """异步记录修复（非阻塞事件循环）"""
-        return await asyncio.to_thread(self.record_fix, *args, **kwargs)
-
-    async def async_save_patterns(self):
-        """异步保存修复模式"""
-        return await asyncio.to_thread(self._save_patterns)
