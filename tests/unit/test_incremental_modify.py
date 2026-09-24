@@ -265,3 +265,85 @@ async def test_generate_file_with_model_accepts_empty_dotfile(tmp_path, monkeypa
 
     assert content == ""
     assert (tmp_path / "assets" / ".gitkeep").read_text(encoding="utf-8") == ""
+
+
+# ---------- IM2: 端点"已满足"必须是真实路由注册 ----------
+
+class _ContentCheckHarness(IncrementalModifyMixin):
+    def __init__(self):
+        pass
+
+
+@pytest.mark.parametrize("content", [
+    '# /health 端点待实现\n',
+    'HEALTH_PATH = "/health"\n',
+    'def describe():\n    return "添加 /health 端点"\n',
+])
+def test_content_satisfies_rejects_mere_keyword(content):
+    harness = _ContentCheckHarness()
+    assert harness._content_already_satisfies(
+        content, "添加 /health 端点并返回数据库状态", "需求"
+    ) is False
+
+
+@pytest.mark.parametrize("content", [
+    '@app.get("/health")\nasync def health():\n    return {"ok": True}\n',
+    '@router.route("/health")\ndef health():\n    return "ok"\n',
+    'app.add_url_rule("/health", view_func=health)\n',
+])
+def test_content_satisfies_accepts_registered_route(content):
+    harness = _ContentCheckHarness()
+    assert harness._content_already_satisfies(content, "添加 /health 端点", "需求") is True
+
+
+
+def test_content_satisfies_requires_all_requested_endpoints():
+    harness = _ContentCheckHarness()
+    content = '@app.get("/health")\ndef health():\n    return "ok"\n'
+    assert harness._content_already_satisfies(
+        content, "添加 /health 与 /status 端点", "需求"
+    ) is False
+
+
+def test_content_satisfies_framework_only_reason_still_skips():
+    harness = _ContentCheckHarness()
+    content = "from fastapi import FastAPI\n"
+    assert harness._content_already_satisfies(content, "接入 FastAPI", "需求") is True
+
+
+# ---------- IM4: 非 Python 文件的 import 走语言适配器 ----------
+
+def test_extract_imports_handles_javascript(tmp_path):
+    harness = _ContentCheckHarness()
+    harness.output_dir = tmp_path
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "utils.js").write_text("export const x = 1;\n", encoding="utf-8")
+
+    imports = harness._extract_imports_from_content(
+        "import { x } from './utils';\n", "src/main.js"
+    )
+    assert "src/utils.js" in imports
+
+
+def test_extract_imports_handles_typescript_alias(tmp_path):
+    harness = _ContentCheckHarness()
+    harness.output_dir = tmp_path
+    (tmp_path / "src" / "api").mkdir(parents=True)
+    (tmp_path / "src" / "api" / "client.ts").write_text("export const c = 1;\n", encoding="utf-8")
+
+    imports = harness._extract_imports_from_content(
+        "import { c } from '@/api/client';\n", "src/view.ts"
+    )
+    assert "src/api/client.ts" in imports
+
+
+def test_extract_imports_python_behavior_unchanged(tmp_path):
+    harness = _ContentCheckHarness()
+    harness.output_dir = tmp_path
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "utils.py").write_text("A = 1\n", encoding="utf-8")
+
+    imports = harness._extract_imports_from_content(
+        "from utils import A\n", "src/main.py"
+    )
+    assert "src/utils.py" in imports

@@ -148,5 +148,7 @@ engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
 - **IM5 已失效**：`_retry_with_fallback_model` 方法已不存在，重试统一走 `_retry_generate_file`。
 - **IM6 已修**：闭包内 `model_semaphores`/`MAX_CONCURRENT_PER_MODEL` 局部死代码已移除，并发上限仅 `_get_model_semaphore`（:1016-1024）单处定义。
 - **IM9 已失效**：`generate_with_spec_first` 在本文件中已无引用，原「依赖图缺失/计划为空静默回退全量生成」路径不复存在。
-- **IM2/IM4/IM7 仍成立**：`_content_already_satisfies`（:806+）仍为关键词启发式（命中 `/health`/`fastapi` 等字符串即判满足）；`_extract_imports_from_content`（:750-797）仍只解析 Python `import`/`from`；`generate_single_file(file_path, tracker=None)`（:548）调用处不传 tracker（:587），`tracker` 恒 None。
+- **IM2 已修**：`_content_already_satisfies`（:842）不再"字符串出现即判满足"——需求要求新增端点时，必须每个端点都匹配到真实路由注册（`@x.get("/health")` / `@x.route("/health")` / `add_url_rule("/health")`，`_route_registered` :893）才返回 True，否则返回 False 走生成（宁可多生成一次也不误跳过）；仅当需求只提框架且未要求端点时，才以框架引入判满足。
+- **IM4 已修**：`_extract_imports_from_content`（:750）按文件类型分派——`.py` 保留历史逻辑（`_extract_python_imports` :772），其余语言经 `LanguageAdapterRegistry.get_adapter_for_file` + `parse_imports`/`resolve_import_to_file` 解析（`_extract_imports_via_adapter` :813）；`_get_all_file_paths`（:835）不再限定 `*.py`，JS/TS/Go 等的 import 可正确映射到依赖图节点。
+- **IM7 仍成立**：`generate_single_file(file_path, tracker=None)`（:548）调用处不传 tracker，`tracker` 恒 None。
 - **IM8 未复核**：变更计划缓存 key 生成逻辑经重构后位置变动，未逐一核对。
