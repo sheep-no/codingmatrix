@@ -200,3 +200,13 @@ p = fi.get("priority", 3)
 ## 5. 待实测项
 
 - OU1-OU12 均为代码级结论。OU4（reviewer 类型）已实码确认 CodeReviewer；OU3 为 AC6 位置确认。无待实测阻塞项。
+
+## 6. 修复状态（2026-09-24 复核）
+
+按当前 `app/agent/orchestrator_utils.py`（436 行）逐项核实：
+
+- **OU2 已修**：`_validate_file_plan`（:74）先 `path.replace('\\', '/')` 统一分隔符，再以 `re.search(r'[^\w\-./]', normalized)` 校验——`\w` 为 Unicode 语义，中文等 UTF-8 文件名不再被「跳过非法路径」；新增 `'..' in normalized.split('/')` 显式阻断路径穿越（旧正则允许 `.`/`/`，`../x` 可穿过）；`depth` 与 `startswith('/')` 判定改用归一化路径，原 `count('\\')`/`startswith('\\')` 死分支随之消除。归一化后的路径回写 `file_info["path"]`，下游 `Path(path).suffix` 与包结构检查按统一分隔符工作。
+- **OU2 测试防线（部分 OU12）**：新增 `tests/unit/test_orchestrator_utils_file_plan.py` 6 例，覆盖中文路径放行、反斜杠归一化、前导斜杠剥离、路径穿越拒绝、非法字符仍拒、过深路径拒绝；以最小宿主 `_Host(UtilsMixin)` 注入 `self.warnings` 绕过 mixin 不可独立实例化限制。回退源码后 3 例失败。
+- **TG5 已修（关联）**：`_cache_review_gate`（:43）异常分支已由放行 `return True` 改为重新生成 `return False`（PR #261）。
+- **OU5 仍成立**：`_is_anti_pattern`（:29）仍直接迭代 `self.feedback_learner._fix_patterns` 并调用其 pattern 对象方法，未改走公开接口。
+- **OU1/OU3/OU4/OU6/OU7/OU8/OU9/OU10/OU11 未复核**：本轮仅处理文件计划路径校验维度，其余项维持原判待后续批次。
