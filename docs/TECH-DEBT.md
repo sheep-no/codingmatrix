@@ -79,7 +79,7 @@
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离，如需更强保护可改为带口令私钥 + 环境变量注入口令 |
-| P3 | `tests/e2e/` 下有 99 个 spec，含大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 仍在；`e2e.yml` 只把 5 个稳定 spec 作为门禁，其余建议按用途清理或归档到 `tests/archive/` |
+| P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），spec 数 99→96。其余候选均触及 Agent 子系统，按范围约定不动。`e2e.yml` 仍只把 5 个稳定 spec 作为门禁 |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 仍在；与 4 个死文件一同核实出，因功能语义与 Agent 相邻暂保留，待确认是否属于预留能力 |
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突：runner.py 依据 `Base.metadata` 建表补列但不写 `alembic_version`，`upgrade head` 在空库与 runner.py 管理过的库上均失败（`app.db` 副本复现 `duplicate column name: lifecycle_status`，且 SQLite DDL 非事务可能半应用） | `migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 仍在；需决定保留哪一套作为唯一 schema 演进机制（拆除另一套或让迁移幂等），当前指南只允许 `stamp head` 对齐版本、禁止 `upgrade head` |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
