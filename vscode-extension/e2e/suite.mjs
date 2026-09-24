@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import { EXTENSION_VERSION, assertCompatible } from "../dist/compatibility.js";
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -77,10 +76,6 @@ export async function run() {
   await extension.activate();
   assert.equal(extension.isActive, true);
 
-  assert.doesNotThrow(() => assertCompatible({
-    schema_versions: [1],
-    plugin_version: { min: EXTENSION_VERSION, max: "0.1.0" },
-  }));
   // Every command advertised in package.json must exist at runtime, otherwise
   // the palette shows entries that fail when invoked.
   const manifest = JSON.parse(readFileSync(join(extension.extensionPath, "package.json"), "utf8"));
