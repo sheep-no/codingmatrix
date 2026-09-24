@@ -69,6 +69,7 @@
 | P1 | RSA 私钥被 git 跟踪，而该密钥用于登录凭据传输与 API Key 密文解密 | `keys/rsa_private.pem`、`keys/rsa_public.pem`、`app/utils/encryption.py`、`app/utils/crypto.py` | 已解决；完成密钥轮换（旧密钥备份后作废），`git rm --cached` 停止跟踪并加 `.gitignore` 的 `keys/*.pem`，补 2 项忽略契约回归用例。仓库历史中的旧私钥视为已泄露 |
 | P1 | 生产编排未提供模型/系统配置，且各容器可能各自生成 RSA 密钥；运行期静默回退硬编码默认模型 | `Dockerfile`、`docker-compose.prod.yml`、`docker-compose.yml`、`app/main.py` | 已解决；两个编排显式挂载 `unified_model_config.yaml`、`agent_model_config.yaml`、`system_config.json`，三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR=/app/keys`，镜像内 COPY `system_config.json` 兜底，生产启动缺配置即报错，补 5 项编排守卫与 3 项启动校验用例 |
 | P3 | `e2e.yml` 与 `backend-ci.yml` 触发分支写作 `main`（默认分支 `master`），从不运行 | `.github/workflows/e2e.yml`、`.github/workflows/backend-ci.yml` | 已解决；`backend-ci.yml` 与 `ci.yml` 完全重复（测试与 pip-audit 均已覆盖）且 `ruff check app/` 在无 ruff 配置下默认规则报 8297 个错误，已删除；`e2e.yml` 重写为可运行门禁 |
+| P3 | 4 个模块全库零生产引用：`ppxRequest.py`（PPT 链实际用端点内联模型）、`nginx_ai.py`（路由从未挂载）、`resume_manager.py`、`hot_reload.py` | `app/schema/ppxRequest.py`、`app/api/v2/nginx_ai.py`、`app/utils/resume_manager.py`、`app/utils/hot_reload.py` | 已解决；确认零生产引用（含符号名）后删除，同步裁剪 14 项仅针对这些模块的单测并重命名 `test_hot_reload_and_package_filter.py` 为 `test_dynamic_package_filter.py` |
 
 ### 仍需决策
 
@@ -76,12 +77,13 @@
 |---|---|---|---|
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离，如需更强保护可改为带口令私钥 + 环境变量注入口令 |
 | P3 | `tests/e2e/` 下有 99 个 spec，含大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 仍在；`e2e.yml` 只把 5 个稳定 spec 作为门禁，其余建议按用途清理或归档到 `tests/archive/` |
+| P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 仍在；与 4 个死文件一同核实出，因功能语义与 Agent 相邻暂保留，待确认是否属于预留能力 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml` | 仍在；存在写竞争与锁等待风险，生产建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动，API 实际以 root 运行 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 仍在；镜像设计以 appuser 运行 API，但两个编排都用 `command` 覆盖，需决策是否补 `user:`（本地 compose 的 bind mount 属主需一并处理） |
 
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4591 passed, 2 skipped, 0 failed`（236s；2026-09-23 生产编排与 CI 门禁加固后重跑，运行结束开发库 `app.db` 仍为 41 张表 / 3 个种子账号）。带 `--cov=app` 的门禁运行 `4591 passed, 2 skipped`，覆盖率 `62.47%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
+- 后端 unit/integration 最近完整记录：`4585 passed, 2 skipped, 0 failed`（194s；2026-09-23 死代码清理后重跑，运行结束开发库 `app.db` 仍为 41 张表 / 3 个种子账号）。清理前的 `--cov=app` 门禁运行覆盖率 `62.47%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
 - 前端全量 Vitest：`50 files / 251 passed`；`npm run build` 成功（39s）；`npm run budget:check` 四项预算全部通过。
 - 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。

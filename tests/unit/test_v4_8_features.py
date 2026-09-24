@@ -245,44 +245,6 @@ class TestDynamicChunker:
         assert chunker.consecutive_failures == 0
 
 
-class TestResumeManager:
-    """REQ-4 Part A: 断点续传测试"""
-
-    @pytest.fixture
-    def resume_mgr(self):
-        from app.utils.resume_manager import ResumeManager
-        temp_dir = Path(tempfile.mkdtemp())
-        mgr = ResumeManager(resume_dir=temp_dir)
-        yield mgr
-        shutil.rmtree(temp_dir)
-
-    def test_save_and_get_state(self, resume_mgr):
-        """测试保存和获取状态"""
-        import asyncio
-        asyncio.run(resume_mgr.save_chunk_state("test_upload", 0, "hash0"))
-        asyncio.run(resume_mgr.save_chunk_state("test_upload", 1, "hash1"))
-
-        state = asyncio.run(resume_mgr.get_resume_state("test_upload", 5))
-        assert 0 in state.completed_chunks
-        assert 1 in state.completed_chunks
-        assert state.next_chunk_index == 2
-
-    def test_empty_resume_state(self, resume_mgr):
-        """测试空状态"""
-        import asyncio
-        state = asyncio.run(resume_mgr.get_resume_state("nonexistent", 10))
-        assert len(state.completed_chunks) == 0
-        assert state.next_chunk_index == 0
-
-    def test_clear_state(self, resume_mgr):
-        """测试清除状态"""
-        import asyncio
-        asyncio.run(resume_mgr.save_chunk_state("test_clear", 0, "hash0"))
-        asyncio.run(resume_mgr.clear_state("test_clear"))
-        state = asyncio.run(resume_mgr.get_resume_state("test_clear", 10))
-        assert len(state.completed_chunks) == 0
-
-
 class TestConcurrentLimitManager:
     """REQ-4 Part B: 并发限制动态管理测试"""
 
