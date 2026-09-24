@@ -91,6 +91,21 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
   // A long generation emits thousands of frames; the UI only needs the tail,
   // and keeping every raw frame would grow the event log without bound.
   static const maxEvents = 100;
+
+  // The orchestrate stream wraps ProgressMixin._report_progress payloads as
+  // {"type":"progress","data":{step,phase,current,total,percentage,...}}.
+  // Read those canonical names, keeping the legacy stage/progress aliases so
+  // older frames keep working.
+  static String? _stageOf(Map<String, dynamic>? data) {
+    final stage = data?['step'] ?? data?['phase'] ?? data?['stage'];
+    return stage is String ? stage : null;
+  }
+
+  static int? _percentOf(Map<String, dynamic>? data) {
+    final value = data?['percentage'] ?? data?['progress'];
+    return value is num ? value.toInt() : null;
+  }
+
   int _generation = 0;
   int _decisionVersion = 0;
   StreamSubscription<String>? _streamSubscription;
@@ -124,7 +139,7 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         }
       } else if (const {'done', 'error', 'cancelled'}.contains(event.type) ||
           (event.type == 'progress' &&
-              event.data?['stage'] != 'awaiting_user_decision')) {
+              _stageOf(event.data) != 'awaiting_user_decision')) {
         decisions = [];
       }
       task = _applyEvent(task, event);
@@ -407,13 +422,14 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
           sessionId: event.data?['session_id'] as String? ?? task.sessionId,
         );
       case 'progress':
+        final stage = _stageOf(event.data);
         return task.copyWith(
           sessionId: event.data?['session_id'] as String? ?? task.sessionId,
-          status: event.data?['stage'] == 'awaiting_user_decision'
+          status: stage == 'awaiting_user_decision'
               ? 'awaitingDecision'
               : 'running',
-          progress: (event.data?['progress'] as num?)?.toInt() ?? task.progress,
-          stage: event.data?['stage'] as String? ?? task.stage,
+          progress: _percentOf(event.data) ?? task.progress,
+          stage: stage ?? task.stage,
         );
       case 'done':
         return task.copyWith(

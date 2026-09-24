@@ -181,6 +181,68 @@ void main() {
     controller.dispose();
   });
 
+  // The orchestrate SSE wraps ProgressMixin._report_progress frames as
+  // {"type":"progress","data":{step,phase,current,total,percentage,...}}.
+  // The client must read those canonical field names, otherwise the progress
+  // bar and stage label never advance during a real run.
+  test('backend progress frames drive task progress and stage', () async {
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi((_, __, ___) async => {'status': 'ok'}),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    controller.ingestSseChunk(
+      event('progress', {
+        'type': 'progress',
+        'step': '初始化专家角色',
+        'phase': 'analyzing',
+        'current': 3,
+        'total': 5,
+        'percentage': 60.0,
+        'elapsed_seconds': 0.4,
+        'eta_seconds': 0.3,
+      }),
+    );
+    expect(controller.state.task?.progress, 60);
+    expect(controller.state.task?.stage, '初始化专家角色');
+    controller.dispose();
+  });
+
+  test(
+    'awaiting_user_decision progress frame keeps decisions pending',
+    () async {
+      final controller = WorkbenchController(
+        projectClient: AgentProjectClient(
+          DeliveryApi((_, __, ___) async => {'status': 'ok'}),
+        ),
+      );
+      controller.bindTask(
+        const Task(taskId: 't', sessionId: 's', status: 'running'),
+      );
+      controller.ingestSseChunk(
+        event('critical_decisions', {
+          'decisions': [question],
+        }),
+      );
+      expect(controller.state.decisions, hasLength(1));
+      controller.ingestSseChunk(
+        event('progress', {
+          'type': 'progress',
+          'step': 'awaiting_user_decision',
+          'phase': 'analyzing',
+          'current': 4,
+          'total': 6,
+          'percentage': 66.7,
+        }),
+      );
+      expect(controller.state.decisions, hasLength(1));
+      controller.dispose();
+    },
+  );
+
   test('file list/read preserve project and file query parameters', () async {
     final client = AgentProjectClient(
       DeliveryApi((path, method, body) async {
