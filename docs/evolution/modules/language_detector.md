@@ -95,3 +95,18 @@
 - **「存在≠正确」验证链延伸**：语言决策（LD1/LD2 漏检 → 错误语言/默认 python）→ architect prompt 语言规则错误 → 生成错误语言代码 → 验证执行端（UT5 空转）不拦截 —— 检测端 + 验证端双失效叠加
 - **LLM 契约双轨**：detect 返回 dataclass（契约正确方），但 LLM 分支 JSON 契约（`r'\{[^{}]+\}'` 只匹配无嵌套对象 :576）与 AR3 同类脆弱；规则层优先 0.95 恒定，LLM 辅助因死代码（LD3）永不竞争
 - **§5.6 支柱 1（契约先行）**：语言检测是所有生成链的入口决策，应作为统一协议首验对象；LD3/LD4 是「检测结果可能冲突→LLM 裁决」缺失契约的直接后果
+
+## 修复状态（2026-09-24 复核）
+
+分支 `260924-fix-language-detector` 修复 LD2/LD4/LD5/LD8，新增 `tests/unit/test_language_detector_fixes.py`（8 项，回退 5/8 失败）：
+
+- **LD1 复核已修**：关键词匹配改走 `requirement_signals` 的否定感知边界匹配，实测「请用 C# 写一个项目」「用C#开发工具」均返回 csharp 0.95，不再降级默认 python。
+- **LD2 已修**：策略 3 扩展名正则由 `\.(\w+)(?:\s|，|。|,|\.|$)` 改为 `\.([A-Za-z0-9_]+)(?=...|[\u4e00-\u9fff])`，`\w` 贪婪吞中文的通路消除；实测「处理 data.csv 和 main.rs文件」现由扩展名策略识出 rust 0.85（'rs' 非语言关键词，此前完全漏检）。
+- **LD4/LD8 已修**：`_detect_with_llm` 的别名表把 `ts`/`typescript` 统一归一为 `javascript`（与规则层把 TypeScript 归入 javascript 同口径），LLM 返回 typescript 不再被 `valid_languages` 校验拒绝。
+- **LD5 已修**：`LANGUAGE_EXTENSION_MAP` 补 `"csharp": ".cs"` 与 `"typescript": ".ts"`；`get_language_specific_rules("csharp"/"typescript")` 现返回具体扩展名与入口点，不再 `needs_clarification=True`。architect/backend_engineer 的语言规则注入（活跃消费方）因此拿到真实规则而非「请根据语言最佳实践组织代码结构」。
+
+**保留待决**：
+
+- LD3（`_detect_with_llm_sync`/`_detect_with_llm` 零调用方，LLM 裁决未接线）：属功能接线需求，且需同时定义「何时触发 LLM 仲裁」的策略，保留。
+- LD6（`\bgo\b` 命中英文动词 "go"）：删除裸 `go` 关键词会回归「用 Go 写」的中文场景，降权/上下文判定属策略级改造，保留。
+- LD7（冲突只记录不裁决）：与 LD3 同源，保留。
