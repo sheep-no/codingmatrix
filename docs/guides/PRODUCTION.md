@@ -127,25 +127,27 @@ PYTHONPATH=/workspace python3 -m app.db.scheduler_runner
 
 ## 数据库迁移
 
-`configs/alembic.ini` 将迁移脚本定位到 `migrations/`，`migrations/env.py` 会把数据库 URL 固定为仓库根目录 `app.db` 的 SQLite 异步 URL，并覆盖 `configs/alembic.ini` 中的占位 URL。该迁移实现不读取 `DATABASE_URL`。当前 Alembic 头为 `20260902_ppt_quality_state`，该迁移包含 PPT 大纲、质量报告和任务字段变更。
+`configs/alembic.ini` 将迁移脚本定位到 `migrations/`（`script_location = %(here)s/../migrations`），`migrations/env.py` 读取统一的 `settings.DATABASE_URL`：生产由环境变量注入、本地默认仓库根 `app.db`。镜像将 ini 复制到 `/app/configs/alembic.ini`，与 `COPY migrations/ ./migrations/` 配套，因此容器内 alembic 命中与 API 相同的库。当前 Alembic 头为 `20260918_unique_tasks_task_id`。
 
-所有迁移命令必须显式指定配置文件：
+应用启动由 `migrations/runner.py` 依据 `Base.metadata` 幂等建表并补列，它不写 `alembic_version`。于是仓库里存在两套并行的 schema 演进机制，直接混用会冲突：
+
+- 全新空库无法 `upgrade head`：`a1b2c3d4e5f6_add_performance_indexes` 等修订假设 `user` 等基础表已存在，而这些表由 runner.py 在应用启动时创建。
+- runner.py 管理过的库不能直接 `upgrade head`：runner.py 已提前补过部分列（如 `project_sessions.lifecycle_status`），再执行对应修订会因 `duplicate column name` 失败；SQLite 的 DDL 非事务，失败可能留下半应用状态。这一点已在 `app.db` 副本上复现。
+
+在 runner.py 管理的库上，让 alembic 仅对齐版本记录、不执行任何迁移：
 
 ```bash
 # 查看当前迁移头
 alembic -c configs/alembic.ini heads
 
-# 查看当前数据库版本
+# 登记当前库为 head（不执行 DDL）
+alembic -c configs/alembic.ini stamp head
+
+# 复核
 alembic -c configs/alembic.ini current
-
-# 已由应用初始化的既有数据库首次接入 Alembic 时登记基线
-alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state
-
-# 登记基线后执行幂等升级校验，或用于普通数据库升级
-alembic -c configs/alembic.ini upgrade head
 ```
 
-`make migrate` 当前仍调用未带 `-c configs/alembic.ini` 的 `alembic upgrade head`，因此不作为本文档的迁移命令。`stamp 20260902_ppt_quality_state` 只适用于数据库表结构已经与当前 ORM 模型一致、仅缺少 Alembic 版本记录的既有数据库；普通旧库直接执行 `upgrade head`。迁移前备份实际使用的 `app.db`。
+`make migrate` 调用的是未带 `-c configs/alembic.ini` 的 `alembic upgrade head`，在 runner.py 管理的库上会命中上述冲突，不作为本文档的迁移命令。迁移前备份实际使用的 `app.db`。
 
 ## 健康检查端点
 
@@ -263,7 +265,9 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 | ~~SQLite 路径分裂且持久化缺失~~ | 2026-09-23 已修复：两份 Compose 注入 `DATABASE_URL`，默认落在 `api-data` 卷内 | 已消除 |
 | ~~运行期模型与系统配置缺失~~ | 2026-09-23 已修复：显式挂载模型/系统配置，生产启动缺文件即报错 | 已消除 |
 | ~~各容器各自生成 RSA 密钥~~ | 2026-09-23 已修复：三服务共享 `api-keys` 卷并统一 `RSA_KEY_DIR` | 已消除 |
-| 容器内 Alembic 路径失配 | Dockerfile 将 ini 复制到 `/app/alembic.ini`，相对脚本路径解析到 `/migrations` | 镜像内无法按仓库标准命令执行迁移 |
+| ~~容器内 Alembic 路径失配~~ | 2026-09-23 已修复：ini 复制到 `/app/configs/alembic.ini`，`%(here)s` 相对解析恢复为 `/app/migrations` 与 `/app` | 已消除 |
+| ~~Alembic 忽略 `DATABASE_URL`~~ | 2026-09-23 已修复：`migrations/env.py` 改用 `settings.DATABASE_URL`，容器内 alembic 与 API 命中同一库 | 已消除 |
+| Alembic 与 runner.py 双轨冲突 | runner.py 依据 `Base.metadata` 建表补列且不写 `alembic_version`；`upgrade head` 在空库与 runner.py 管理过的库上均失败（副本复现 `duplicate column name: lifecycle_status`） | 两套演进机制并存，`upgrade head` 不可用，需决定保留哪一套 |
 | 运行时版本差异 | Dockerfile 使用 Python 3.10；项目说明和本地依赖上下文使用 Python 3.11+ | Docker 与本地运行时行为可能存在差异 |
 | 迁移快捷命令路径不足 | `Makefile` 的 `make migrate` 未指定 Alembic 配置 | 命令依赖当前工作目录和默认配置发现行为 |
 

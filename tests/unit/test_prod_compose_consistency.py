@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_PATH = ROOT / "docker-compose.prod.yml"
 LOCAL_COMPOSE_PATH = ROOT / "docker-compose.yml"
 DOCKERFILE_PATH = ROOT / "Dockerfile"
+ALEMBIC_INI_PATH = ROOT / "configs" / "alembic.ini"
+ALEMBIC_ENV_PATH = ROOT / "migrations" / "env.py"
 APP_SERVICES = ("api", "celery", "scheduler")
 LOCAL_APP_SERVICES = ("api", "celery")
 SHARED_DB_PATH = "/app/data/app.db"
@@ -204,3 +206,28 @@ def test_non_production_startup_skips_config_file_check(tmp_path, monkeypatch):
     monkeypatch.setattr(main_mod.settings, "ENV", "development")
     monkeypatch.setattr(main_mod, "BASE_DIR", tmp_path)
     main_mod._validate_production_config_files()
+
+
+def test_dockerfile_places_alembic_ini_under_configs():
+    """alembic.ini 的 script_location 与 prepend_sys_path 均以 %(here)s 相对定位。
+
+    镜像内 `/app` 即仓库根，ini 必须落在 `/app/configs`：此时 `%(here)s/../migrations`
+    解析为 `/app/migrations`、`%(here)s/..` 解析为 `/app`，与 `COPY migrations/
+    ./migrations/` 一致。若按旧实现复制到 `/app/alembic.ini`，二者会解析到
+    `/migrations` 与 `/`，容器内迁移命令不可用。
+    """
+    content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    assert "COPY configs/alembic.ini ./configs/" in content
+    assert "COPY migrations/ ./migrations/" in content
+
+    ini = ALEMBIC_INI_PATH.read_text(encoding="utf-8")
+    assert "script_location = %(here)s/../migrations" in ini
+    assert "prepend_sys_path = %(here)s/.." in ini
+
+
+def test_alembic_env_reads_database_url_from_settings():
+    """env.py 硬编码 BASE_DIR/app.db 会让容器内 alembic 迁移到与 API 不同的库。"""
+    content = ALEMBIC_ENV_PATH.read_text(encoding="utf-8")
+
+    assert "settings.DATABASE_URL" in content
+    assert 'Path(BASE_DIR) / "app.db"' not in content

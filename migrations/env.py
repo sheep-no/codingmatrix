@@ -11,7 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
 
-from app.core.config import BASE_DIR
+from app.core.config import settings
 from app.models.base import Base
 
 from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, AicloudAuditLog
@@ -40,9 +40,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 动态构建数据库 URL
-db_path = Path(BASE_DIR) / "app.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
+# 使用统一配置中的数据库 URL：生产由 DATABASE_URL 注入，硬编码 BASE_DIR/app.db
+# 会让容器内的 alembic 命令迁移到与 API 不同的空库
+DATABASE_URL = settings.DATABASE_URL
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 target_metadata = Base.metadata
