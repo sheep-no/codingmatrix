@@ -196,11 +196,17 @@ class UtilsMixin:
 
         if self.error_recovery:
             for fix_attempt in self.error_recovery.fix_history:
+                file_type = (
+                    "frontend"
+                    if self._is_frontend_file(fix_attempt.file_path)
+                    else "backend"
+                )
                 self.feedback_learner.record_fix(
                     file_path=fix_attempt.file_path,
-                    file_type="python",
-                    original_content="",
-                    fixed_content="",
+                    file_type=file_type,
+                    # 真实样本：修复循环在 FixAttempt 上保留了原始/修复后内容
+                    original_content=fix_attempt.original_content or "",
+                    fixed_content=fix_attempt.fixed_content or "",
                     errors={"validation_error": [fix_attempt.error_message]},
                     model_name=self.model_assignment.backend_model if self.model_assignment else "",
                     success=fix_attempt.fix_applied,

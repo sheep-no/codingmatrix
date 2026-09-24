@@ -209,4 +209,5 @@ p = fi.get("priority", 3)
 - **OU2 测试防线（部分 OU12）**：新增 `tests/unit/test_orchestrator_utils_file_plan.py` 6 例，覆盖中文路径放行、反斜杠归一化、前导斜杠剥离、路径穿越拒绝、非法字符仍拒、过深路径拒绝；以最小宿主 `_Host(UtilsMixin)` 注入 `self.warnings` 绕过 mixin 不可独立实例化限制。回退源码后 3 例失败。
 - **TG5 已修（关联）**：`_cache_review_gate`（:43）异常分支已由放行 `return True` 改为重新生成 `return False`（PR #261）。
 - **OU5 已修**：`_is_anti_pattern`（:29）改走 `FeedbackLearner.get_anti_patterns()` 公开接口，不再访问 `self.feedback_learner._fix_patterns` 私有属性（与 FL6 同批）。
-- **OU1/OU3/OU4/OU6/OU7/OU8/OU9/OU10/OU11 未复核**：本轮仅处理文件计划路径校验与反模式封装维度，其余项维持原判待后续批次。
+- **OU4 已修**：`FixAttempt` 新增 `original_content`/`fixed_content` 可选字段；`error_recovery._smart_fix_loop` 成功路径（:308）填原始 `content` 与修复后 `fixed_content`，失败路径（:375）填 `original_content`，`fix_from_test_logs` 修复路径（:695）填 `fixed_content`。`_record_learning_data`（:179）改为透传这两个真实样本（缺失时回落空串），`fix_example` 不再恒空；`file_type` 由硬编码 `"python"` 改为按 `self._is_frontend_file` 推断 `frontend`/`backend`（与 `orchestrator_files.py:2530` 记录口径一致）。新增 `tests/unit/test_orchestrator_utils_learning.py` 3 例，回退源码后 2 例失败。
+- **OU1/OU3/OU6/OU7/OU8/OU9/OU10/OU11 未复核**：其余项维持原判待后续批次。

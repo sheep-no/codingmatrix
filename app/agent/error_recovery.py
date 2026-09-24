@@ -33,6 +33,8 @@ class FixAttempt:
     fix_applied: bool
     attempts: int
     model_used: Optional[str] = None
+    original_content: Optional[str] = None
+    fixed_content: Optional[str] = None
 
 
 class ErrorRecoveryLoop:
@@ -311,7 +313,9 @@ class ErrorRecoveryLoop:
                             error_message="; ".join(self._extract_error_messages(errors)),
                             fix_applied=True,
                             attempts=attempt + 1,
-                            model_used=fix_model
+                            model_used=fix_model,
+                            original_content=content,
+                            fixed_content=fixed_content,
                         ))
 
                         # 记录成功评估结果
@@ -377,7 +381,8 @@ class ErrorRecoveryLoop:
             error_type=classification.error_type,
             error_message="多次修复失败: " + "; ".join(self._extract_error_messages(errors)),
             fix_applied=False,
-            attempts=attempts_used
+            attempts=attempts_used,
+            original_content=content,
         ))
 
         # 记录最终失败评估结果
@@ -698,7 +703,8 @@ class ErrorRecoveryLoop:
                                 error_message="pytest failed",
                                 fix_applied=True,
                                 attempts=attempt + 1,
-                                model_used=current_model
+                                model_used=current_model,
+                                fixed_content=content,
                             ))
 
                     # 重新运行测试验证
