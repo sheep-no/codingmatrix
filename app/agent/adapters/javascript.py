@@ -380,7 +380,8 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
             # 箭头函数: const xxx = () => / const xxx = async () =>
             arrow_match = re.match(
-                r'^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>',
+                r'^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?'
+                r'(?:<[^>]*>\s*)?(?:\([^)]*\)|\w+)\s*(?::\s*[^=\n]*)?=>',
                 stripped
             )
             if arrow_match:

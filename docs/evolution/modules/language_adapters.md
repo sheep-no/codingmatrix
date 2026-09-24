@@ -70,3 +70,19 @@ LanguageAdapter 是生成链依赖推断的**入口语法层**（architect 依�
 ## 5. 测试状态
 
 **近零测试覆盖**——grep `tests/` 中 adapters 相关用例：`LanguageAdapterRegistry`/`PythonLanguageAdapter`/`JavaScriptLanguageAdapter`/`GenericLanguageAdapter` 直接断言几乎没有（对比 multi_language_parser 597 行测试——其测试全绿的正是被本体系取代的旧实现，而本体系本身无直接测试）。AD1/AD2/AD9/AD11 四个 P2 项均实测可一次调用复现，但无任何用例保护——「生产正主无测试、被取代者测试全绿」是本模块测试状态最突出特征（multi_language_parser 详档「测试全绿 ≠ 解析正确」的反向印证）。
+
+## 6. 修复状态（2026-09-24 复核）
+
+分支 `260924-fix-language-adapters` 修复 AD11/AD3/AD6/AD10，新增 `tests/unit/test_language_adapter_relative_imports.py`（9 项，回退 7/9 失败）：
+
+- **AD11 已修**：`ImportInfo` 新增 `level` 字段；Python `parse_imports` 保留前导点个数（`level = len(module) - len(module.lstrip('.'))`），不再 `lstrip('.')` 后丢失层级；`resolve_import_to_file` 按 `level - 1` 逐级回溯父目录，`from ..models` 在 `app/api/users.py` 现解析为 `app/models.py`（原先错配 `app/api/models.py`）。
+- **AD3 部分已修**：`from . import utils`（module 为空）现按符号名解析同包子模块（`app/api/utils.py` / `app/api/utils/__init__.py`），不再返回空候选。多行 import / 行尾注释剥离仍保留待办。
+- **AD6 已修**：`extract_definitions` 增加 `is_top_level`（行首非空白）判定，类内方法与嵌套函数不再被提为顶层符号。
+- **AD10 部分已修**：JS/TS 箭头函数正则支持泛型前缀 `<T>` 与返回类型标注 `(): T =>`；`export default function` 经复核在 `:366` 已支持。
+
+**保留待决**（需项目上下文/独立设计，未在本批改动）：
+
+- AD1/AD2/AD9：`is_project_module` 的「项目根包名/JS 根导入」判定需要项目根/文件集合上下文，直接改「非 stdlib/第三方即项目内」会让未列入 `COMMON_THIRD_PARTY` 的外部库被判为项目模块，牵连 integrity/cross 校验产生假阳性，需专门设计。
+- AD12：`_file_plan_data` 类级状态的真正隔离需 `DependencyGraph` 持有独立 adapter 实例，属架构级改造。
+- AD8：混合语言项目回 generic 属阈值策略选择。
+- AD5/AD13：go/java 适配器现已存在（`go.py`/`java.py`/`rust.py`），AD13 静默降级不再成立。
