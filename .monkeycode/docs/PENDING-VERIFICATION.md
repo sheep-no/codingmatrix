@@ -1,6 +1,6 @@
 # 待环境验收清单
 
-> 核对日期：2026-09-22 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
+> 核对日期：2026-09-22 ~ 2026-09-24 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
@@ -33,6 +33,7 @@
 | 堆叠表单项浮动标签压边框 | 已修并回归：`workflow_page`、`image_generation_page`、`dynamic_provider_page`、`virtual_girl_page`（新建角色弹层）、`admin_page`（创建/编辑用户弹层）、`agent_history_page`（并发限制弹层）中相邻的 outlined 输入框之间没有间距，下一条字段的浮动标签会压在上一条边框上并被裁切。按仓库既有写法（`login_page`、`provider_settings_page`）在字段间补 `SizedBox(height: 12)` | 回归测试 `test/workflow_test.dart`「堆叠表单项之间保留间距，浮动标签不压住上方边框」；移除间距后该用例失败、加回后通过。Linux 端对「图片生成」「工作流执行」「动态 Provider」实跑截图放大核对 |
 | Android 目标编译 | `flutter build bundle --target-platform android-arm64` 成功 | 产物 `build/flutter_assets` |
 | 应用标识统一 | 三端一致为 `com.codingmatrix.agent` | Android `namespace`/`applicationId`、Linux `APPLICATION_ID`、窗口标题与 Windows 产品名 |
+| 真实 LLM 链路 | SiliconFlow 凭据有效（98 模型）、5 个 agent 角色模型可用、后端 chat 非流式与流式均真实返回、Provider RSA 提交与「测试连接」成功 | 本地后端实跑，详见「待验收项 4」 |
 
 ## Linux 实跑记录
 
@@ -105,13 +106,24 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 解除条件：Windows 主机加 VS Build Tools 与 Flutter SDK。
 
-### 4. 真实 Provider、GitHub 与 LLM 联调
+### 4. 真实 Provider 与 LLM 联调（LLM 部分已完成）
 
-现象：本环境无真实凭据，客户端层只用 Mock HTTP 与 fixture 验证。
+2026-09-24 用真实 SiliconFlow 凭据对本地后端实跑，以下链路已通：
 
-待验证项：`/api/v1/agent/orchestrate/stream` 与七个生成开关的真实链路；Provider 密钥的 RSA 加密提交（`encrypted_api_key`）与管理接口；GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取。
+| 链路 | 结果 |
+|---|---|
+| Key 有效性 | `GET /v1/models` 200，98 个模型 |
+| 角色模型可用性 | 5 个 agent 角色模型全部 200：`Qwen/Qwen3-8B`、`deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`、`Qwen/Qwen3.5-4B`、`THUDM/GLM-Z1-9B-0414`（以及 `deepseek-ai/DeepSeek-V4-Flash`） |
+| 后端 chat 非流式 | `POST /api/v1/chat` → 200，真实返回「1+1 等于2。」 |
+| 后端 chat 流式 | `stream:true` → 200，真实 SSE chunk，`model=Qwen/Qwen2.5-7B-Instruct` |
+| Provider 提交 | `GET /api/v1/public-key` → RSA-OAEP/SHA-256 加密 → `POST /api/v1/agent/apikey` → 200「API Key 提交成功」 |
+| Provider 测试连接 | `POST /api/v1/agent/apikey/test` → 200 `{success:true, message:"连接成功"}`，与客户端「测试连接」按钮同路径 |
 
-解除条件：真实 Provider 凭据、GitHub Token 与可用的 LLM 端点。
+复现方式：`DATABASE_URL=sqlite+aiosqlite:////tmp/opencode/llm_test.db ENV=development SILICONFLOW_API_KEY=<key> python3 -m uvicorn app.main:app --port 8000`，注册/登录后调上述端点。Provider 提交与测试连接依赖 Redis（未起时提交返回 403），需先 `redis-server --port 6379 --save '' --appendonly no --maxmemory 128mb`。
+
+仍待验证：`/api/v1/ai-agent/orchestrate/stream` 与七个生成开关的真实端到端生成，以及 GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取。
+
+阻塞原因（agent 编排）：该端点有磁盘守卫，可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且会写 `./projects`。本机根分区 20G 常年 92% 占用，需先腾出 >2GB 可用。GitHub 侧需真实 Token。
 
 ### 5. GitHub 设置页验证状态不持久
 
