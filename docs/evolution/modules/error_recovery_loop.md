@@ -121,3 +121,20 @@ if temp_file.exists():
 - **职责归位**：本模块与子包 ErrorRecoveryMixin（33 行 ReAct 自动修复）同属「错误恢复」域但两套实现并存——演化应收敛为统一错误恢复服务，按触发源（文件级验证 / 测试失败 / ReAct 循环）分策略
 - **RE1/ERR 链关联**：子包 `_try_react_auto_fix` 调用链（ERR1/ERR2）修复后，传统链路 `traditional_generate.py:297` 的 ReAct 自动修复恢复——本模块的 `fix_from_test_logs` 与 ReAct 修复是「测试失败后两条修复路径」，需明确分工
 - **基础设施**：ERL5 全局单例污染 → 对应演化蓝图「全局状态显式注入」（§1 工具层 ToolRuntime 注入方向）；ERL4 成本 → 对应 LC1 客户端收敛后统一观测层
+
+## 7. 修复状态（2026-09-23 复核）
+
+当前文件 720 行（本文档 §1 曾记 797 行，因 ERL1/ERL7 死代码已删）。逐条复核结论：
+
+| # | 状态 | 说明 |
+|---|------|------|
+| ERL1 | 已修 | `_build_error_context` 已不存在（全库无引用）；上下文构建收敛为 `_build_targeted_error_context` + `_build_targeted_error_context_with_template` 单一实现 |
+| ERL2 | 已修 | `_build_default_fix_template`（:438）改为纯策略说明，不再含 `{content}`/`{error_context}` 占位符；模板注入由 `_build_targeted_error_context_with_template`（:451）显式 `replace("{error_context}", ...)` 完成 |
+| ERL3 | 已修 | `_evaluate_code_quality`（:395）临时文件写入/校验/清理包进 `try/finally`，校验器抛异常也删除 `.temp_quality_*` |
+| ERL4 | 已修 | `ErrorRecoveryLoop.__init__` 新增 `cost_tracker` 形参（:43），`_record_llm_cost`（:54）从 `response["usage"]` 取 token、按 `LayeredModelRouter.get_model_config` 的 `cost_per_1m_input/output` 计价后 `add_usage`；`_smart_fix_loop` 与 `fix_from_test_logs` 两处 `call_llm` 返回后均调用；`mixin.py:90` 传入既有 `cost_tracker` |
+| ERL5 | 待决 | `error_classifier`/`strategy_evaluator` 仍是模块级单例，跨请求状态污染属架构级改造（依赖「全局状态显式注入」蓝图），本批保留 |
+| ERL6 | 已修 | `fix_from_test_logs`（:757 附近）写盘前先 `is_valid_code_content` 校验，再走 `write_file_atomic`；无效/写入失败均 `continue`，不再用 `Path.write_text` 直接覆盖源文件 |
+| ERL7 | 已修 | `_infer_source_files` 死代码已删除 |
+| ERL8 | 待决 | `_smart_fix_loop` 仍无总时长/token 预算，属产品策略决策，本批保留 |
+
+回归测试：`tests/unit/test_error_recovery_loop_fixes.py`（7 项，覆盖 ERL3/ERL4/ERL6/ERL7；回退源码 6 项失败）。
