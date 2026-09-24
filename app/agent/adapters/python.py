@@ -182,19 +182,21 @@ class PythonLanguageAdapter(LanguageAdapter):
             if match:
                 module = match.group(1)
                 symbols_str = match.group(2)
-                is_relative = module.startswith('.') or module == ''
+                level = len(module) - len(module.lstrip('.'))
+                is_relative = level > 0
 
                 # 解析导入的符号
                 symbols = self._parse_import_symbols(symbols_str)
 
-                # 处理相对导入
+                # 保留相对导入层级（去掉前导点），供 resolve 回溯上层目录
                 if is_relative:
-                    module = module.lstrip('.')
+                    module = module[level:]
 
                 imports.append(ImportInfo(
                     module=module,
                     symbols=symbols,
                     is_relative=is_relative,
+                    level=level,
                     raw_line=stripped
                 ))
                 continue
@@ -635,15 +637,20 @@ class PythonLanguageAdapter(LanguageAdapter):
         module = import_info.module
 
         if not module:
+            # `from . import utils` 没有模块名，符号名本身可能是同包子模块
+            if import_info.is_relative:
+                base_dir = self._relative_import_base(import_info, current_file)
+                for symbol in import_info.symbols:
+                    candidates.append(f"{base_dir}/{symbol}.py")
+                    candidates.append(f"{base_dir}/{symbol}/__init__.py")
             return candidates
 
         # 相对导入处理
         if import_info.is_relative:
-            current_dir = str(Path(current_file).parent)
-            base_path = current_dir if current_dir != '.' else ''
-            if base_path:
-                candidates.append(f"{base_path}/{module.replace('.', '/')}.py")
-                candidates.append(f"{base_path}/{module.replace('.', '/')}/__init__.py")
+            base_dir = self._relative_import_base(import_info, current_file)
+            target = f"{base_dir}/{module.replace('.', '/')}".lstrip('/')
+            candidates.append(f"{target}.py")
+            candidates.append(f"{target}/__init__.py")
             return candidates
 
         # 绝对导入
@@ -656,6 +663,15 @@ class PythonLanguageAdapter(LanguageAdapter):
         candidates.append(init_path)
 
         return candidates
+
+    @staticmethod
+    def _relative_import_base(import_info: ImportInfo, current_file: str) -> str:
+        """按相对导入层级回溯目录，返回不含尾斜杠的基础目录。"""
+        base = Path(current_file).parent
+        # level=1 指向当前包目录，每多一级上溯一层父目录
+        for _ in range(max(import_info.level - 1, 0)):
+            base = base.parent
+        return "" if str(base) == "." else str(base)
 
     def infer_file_type(self, file_path: str) -> str:
         """根据文件路径推断文件类型"""
@@ -713,9 +729,12 @@ class PythonLanguageAdapter(LanguageAdapter):
             if stripped.startswith('#'):
                 continue
 
+            # 只有模块级定义才算顶层符号，类/函数内部的方法不应被提为顶层
+            is_top_level = line[:1] not in (' ', '\t')
+
             # 函数定义
             func_match = re.match(r'^(?:async\s+)?def\s+(\w+)\s*\((.*?)\)', stripped)
-            if func_match:
+            if is_top_level and func_match:
                 func_name = func_match.group(1)
                 signature = func_match.group(2)
                 definitions[func_name] = SymbolDefinition(
@@ -729,7 +748,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
             # 类定义
             class_match = re.match(r'^class\s+(\w+)(?:\s*\([^)]*\))?\s*:', stripped)
-            if class_match:
+            if is_top_level and class_match:
                 class_name = class_match.group(1)
                 definitions[class_name] = SymbolDefinition(
                     name=class_name,
@@ -740,7 +759,7 @@ class PythonLanguageAdapter(LanguageAdapter):
                 continue
 
             # 变量定义（模块级别）
-            if not line.startswith(' ') and not line.startswith('\t'):
+            if is_top_level:
                 # 兼容带类型注解的赋值：NAME: Final[str] = value
                 var_match = re.match(r'^(\w+)\s*(?::[^=\n]+)?=', stripped)
                 if var_match:

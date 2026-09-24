@@ -27,6 +27,7 @@ class ImportInfo:
     module: str                  # 模块路径 (e.g., "app.models", "github.com/org/repo")
     symbols: List[str] = field(default_factory=list)  # 导入的符号 (e.g., ["User", "Base"])
     is_relative: bool = False    # 是否是相对导入
+    level: int = 0               # 相对导入层级（`.` 的个数），绝对导入为 0
     alias: Optional[str] = None  # 别名 (e.g., "import numpy as np")
     raw_line: str = ""           # 原始行内容
 
