@@ -36,7 +36,7 @@
 
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
-| P1 | CORS host 字符串直接拼为正则 | `app/main.py` | 仍在 |
+| P1 | CORS host 字符串直接拼为正则 | `app/core/config.py`、`app/main.py` | 已解决；`cors_origin_regex` 对每个 host 做 `re.escape` 并整体锚定，仅允许精确 host 匹配（可选 scheme 前缀与端口后缀），消除子串误放行与未转义点号（CFG4） |
 | P2 | 开发测试使用 Python 3.11，Dockerfile 使用 3.10 | `Dockerfile` | 已解决；`Dockerfile` 两阶段均基于 `python:3.11-slim`，无 3.10 残留 |
 | P2 | lifespan 与 startup hook 并存 | `app/main.py` | 仍在 |
 | P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 仍在 |
