@@ -71,9 +71,13 @@ class TestFrameworkDetector:
         shutil.rmtree(project_dir)
 
     def test_detect_python_pytest(self, temp_project):
-        """测试检测 Python pytest 项目"""
+        """测试检测 Python pytest 项目（FD9：用真实 pyproject 配置验证检测逻辑，
+        而非依赖空项目走默认 fallback）。"""
         from app.agent.framework_detector import FrameworkDetector
-        (temp_project / "requirements.txt").write_text("pytest\nflask\n")
+        (temp_project / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\naddopts = \"-q\"\n",
+            encoding="utf-8",
+        )
         fd = FrameworkDetector()
         config = fd.detect(temp_project)
         assert config.language == "python"
