@@ -282,6 +282,30 @@ class _PromptCard extends StatelessWidget {
   }
 }
 
+/// The event log renders every frame, but `file` and `file_diff` payloads embed
+/// whole file bodies. Summarize those and cap everything else so a large
+/// project cannot make one list item lay out an entire source file.
+String _eventLabel(SseEvent event) {
+  final data = event.data;
+  if (data != null && (event.type == 'file' || event.type == 'file_diff')) {
+    final path = data['path'];
+    if (path is String && path.isNotEmpty) {
+      final operation = data['operation'];
+      final size = data['file_size_human'];
+      return [
+        event.type,
+        path,
+        if (operation is String && operation.isNotEmpty) operation,
+        if (size is String && size.isNotEmpty) size,
+      ].join(' · ');
+    }
+  }
+  final text = '${event.type}: ${event.raw}';
+  const limit = 2000;
+  if (text.length <= limit) return text;
+  return '${text.substring(0, limit)}…（已截断 ${text.length - limit} 字符）';
+}
+
 class _GenerationFlagsPanel extends ConsumerWidget {
   const _GenerationFlagsPanel();
 
@@ -471,7 +495,7 @@ class _EventsCard extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final event = events[index];
                         return SelectableText(
-                          '${event.type}: ${event.raw}',
+                          _eventLabel(event),
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 12,

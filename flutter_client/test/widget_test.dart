@@ -504,6 +504,43 @@ void main() {
     );
   });
 
+  testWidgets('文件事件只展示路径与大小，不渲染源码正文', (tester) async {
+    final store = CredentialStore();
+    final workbench = WorkbenchController();
+    workbench.bindTask(
+      const Task(taskId: 't1', sessionId: 's1', status: 'running'),
+    );
+    final body = List.generate(
+      400,
+      (index) => 'final line$index = "generated source";',
+    ).join('\n');
+    final frame = jsonEncode({
+      'type': 'file',
+      'path': 'lib/generated.dart',
+      'content': body,
+      'operation': 'create',
+      'file_size_human': '12.4 KB',
+    });
+    workbench.ingestSseChunk('data: $frame\n\n');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('lib/generated.dart'), findsOneWidget);
+    expect(find.textContaining('12.4 KB'), findsOneWidget);
+    expect(find.textContaining('final line399'), findsNothing);
+  });
+
   test('停止时取消订阅抛错不会逃逸', () async {
     final store = CredentialStore();
     final token = store.storeAccessToken('test-access');
