@@ -43,6 +43,50 @@ async def test_pending_stream_allows_cancel_before_db(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_queue_hit_without_owner_requires_db_ownership(monkeypatch):
+    """FRESCAN-06: 无 owner 记录时命中审批/决策队列不得绕过归属校验。"""
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {})
+    monkeypatch.setattr(endpoints, "_approval_queues", {"sess": asyncio.Queue()})
+    monkeypatch.setattr(endpoints, "_decision_queues", {})
+    monkeypatch.setattr(endpoints, "_cancel_events", {"sess": asyncio.Event()})
+    monkeypatch.setattr(endpoints, "_active_tasks", {})
+
+    seen = {}
+
+    async def fake_verify(db, session_id, user_id):
+        seen["args"] = (db, session_id, user_id)
+        raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
+
+    monkeypatch.setattr(
+        "app.api.v1.ai_agent.helpers.verify_session_ownership", fake_verify
+    )
+    db = object()
+    with pytest.raises(HTTPException) as error:
+        await endpoints._verify_session_ownership_or_queue("sess", "99", db=db)
+    assert error.value.status_code == 404
+    assert seen["args"] == (db, "sess", "99")
+
+
+@pytest.mark.asyncio
+async def test_register_pending_stream_rejects_foreign_owner(monkeypatch):
+    """FRESCAN-06: 不得用请求中的 session_id 覆盖他人已注册的 owner。"""
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
+    monkeypatch.setattr(endpoints, "_cancel_events", {})
+    with pytest.raises(HTTPException) as error:
+        endpoints._register_pending_stream("sess", "99")
+    assert error.value.status_code == 404
+    assert endpoints._pending_stream_owners["sess"] == "42"
+
+
+@pytest.mark.asyncio
+async def test_register_pending_stream_allows_same_owner(monkeypatch):
+    event = asyncio.Event()
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
+    monkeypatch.setattr(endpoints, "_cancel_events", {"sess": event})
+    assert endpoints._register_pending_stream("sess", "42") is event
+
+
+@pytest.mark.asyncio
 async def test_session_cancel_succeeds_for_pending_stream(monkeypatch):
     event = asyncio.Event()
     monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
@@ -147,3 +191,55 @@ async def test_disconnect_watcher_keeps_generation_running():
         generation_task.cancel()
         await asyncio.gather(generation_task, return_exceptions=True)
         endpoints._active_tasks.pop("watch", None)
+
+
+@pytest.mark.asyncio
+async def test_delete_session_stops_task_and_clears_memory_state(monkeypatch):
+    """FRESCAN-07: 删除会话需停止运行任务并清理内存态，避免回写已删会话。"""
+    cancel_event = asyncio.Event()
+
+    async def worker():
+        await asyncio.Event().wait()
+
+    generation_task = asyncio.create_task(worker())
+    monkeypatch.setattr(endpoints, "_cancel_events", {"sess": cancel_event})
+    monkeypatch.setattr(
+        endpoints, "_active_tasks", {"sess": {"gen_task": generation_task}}
+    )
+    monkeypatch.setattr(endpoints, "_approval_queues", {"sess": asyncio.Queue()})
+    monkeypatch.setattr(endpoints, "_decision_queues", {"sess": asyncio.Queue()})
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
+
+    sm = SimpleNamespace(_lock=asyncio.Lock(), _active_sessions={"sess": object()})
+    monkeypatch.setattr(endpoints, "get_session_manager", AsyncMock(return_value=sm))
+
+    unregistered = []
+
+    class _FakeConcurrentLimit:
+        def unregister_session(self, role):
+            unregistered.append(role)
+
+    monkeypatch.setattr(
+        "app.utils.dynamic_concurrent.ConcurrentLimitManager",
+        lambda: _FakeConcurrentLimit(),
+    )
+
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(rowcount=1)),
+        commit=AsyncMock(),
+    )
+    try:
+        result = await endpoints.delete_session_endpoint(
+            "sess", token={"sub": "42", "role": "user"}, db=db
+        )
+        assert result["success"] is True
+        assert cancel_event.is_set()
+        assert generation_task.done()
+        assert "sess" not in endpoints._approval_queues
+        assert "sess" not in endpoints._decision_queues
+        assert "sess" not in endpoints._active_tasks
+        assert "sess" not in sm._active_sessions
+        assert unregistered == ["user"]
+    finally:
+        generation_task.cancel()
+        await asyncio.gather(generation_task, return_exceptions=True)
