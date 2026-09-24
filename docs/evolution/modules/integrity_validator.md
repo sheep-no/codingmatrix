@@ -214,3 +214,15 @@ if parent in [str(Path(m).parent) for m in result.missing_files if m != missing]
 - API 契约校验（IV3/IV4）是「前端与后端契约一致性」方向（CV4 前端 API 一致性检查空操作同主线）——当前契约校验方法维度缺失 + 前缀误判，实际是**误报（IV2）与漏报（IV3/IV4）并存**。
 - IV5 前缀白名单误判与 CV3（code_validator project_root 只认 src/tests）、DG9（JS 别名）归入「项目边界判定」收敛主线——统一改为「以生成文件集合动态判定项目根」。
 - `_check_package_init` 的 adapter 中途切换（IV2）是「语言适配器职责边界」问题——adapter 应随文件分派而非全局单一，与 test_runner 的 FrameworkDetector（单语言检测）同一设计约束。
+
+## 7. 修复状态（2026-09-24 复核）
+
+按当前 `app/agent/integrity_validator.py` 逐项核实：
+
+- **IV3 已修**：`_api_endpoint_exists`（:391）删除 `startswith` 前缀匹配——改为路径正则全匹配。`{param}` 段先按 `re.split(r'\{[^}]+\}')` 切分，再用 `re.escape` 转义各字面段并以 `[^/]+` 连接，最后 `re.match(f'^{pattern}$')` 锚定比对。`/api/users` 与 `/api/user/123` 不再误命中 `/api/user`；`/api/v1.0` 的 `.` 作为字面量不再匹配 `/api/v1x0`（`re.escape` 在 `{param}` 替换前的问题一并规避）。
+- **IV4 已修**：契约比对改为 (method, path) 二元组。`_extract_frontend_api_calls`（:355）为每个调用记录 `method`——`fetch(...)` 缺省 `GET`，`\.(get|post|put|delete|patch)\s*\(` 取方法名大写；查询串/锚点（`?`/`#`）在比对前剥离。`_api_endpoint_exists`（:391）要求 `api['method'] == method` 才继续路径匹配，`_validate_api_contracts`（:309）告警与建议文案含 `GET /api/x` 形式。
+- **IV3/IV4 测试防线已补部分 IV10**：新增 `tests/unit/test_integrity_validator_api_contracts.py` 7 例，覆盖精确命中、`{param}` 单段命中、资源名前缀误判回归、多余段不命中父路径、method 不匹配上报、查询串剥离、`re.escape` 特殊字符；回退源码后 4 例失败。
+- **IV1 仍成立**：`_validate_imports` 的 missing_module 仍未 append 进 `result.missing_files`，`generate_fixes` 补缺闭环未打通。
+- **IV2 仍成立**：`_check_package_init`（:133 起）仍在中途覆盖 `self.language_adapter`（有 `.js` 即整体切 JavaScript，无 python 分支），混合项目后端校验仍会静默失效。
+- **IV5/IV6/IV7/IV8/IV9 未复核**：本轮仅处理 API 契约维度，其余项维持原判。
+- **IV10 部分已补**：本轮新增 API 契约测试，IV1/IV2/IV5-IV9 仍无测试覆盖。
