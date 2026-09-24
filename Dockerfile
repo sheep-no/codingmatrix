@@ -78,6 +78,17 @@ RUN apt-get update && \
 COPY configs/nginx.conf /etc/nginx/nginx.conf
 COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf
 
+# 文档转换工具链：PPT 转 PDF 调用 libreoffice（app/api/v1/aiGeneratorPptx.py），
+# PDF 转 PNG 预览与成品质量复审调用 pdftoppm（app/services/ppt_quality_orchestrator.py、
+# app/services/ppt_template_samples.py），中文 PPT 渲染依赖 CJK 字体。
+# 缺任一项时 PDF 导出返回 501、质量视觉复审抛错。该层使镜像增大约 0.7-1 GB。
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libreoffice-impress \
+        poppler-utils \
+        fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create necessary directories and set permissions
 # 必须覆盖 compose 中所有 appuser 需要写入的挂载点：Docker 为缺失的挂载路径
 # 创建 root 属主的目录，若不预建并 chown，非 root 的 appuser 将无法写入
