@@ -188,3 +188,26 @@ def test_detect_python_pytest(self, temp_project):
 - FD3 已实测（pytest+mvn CI→pytest）。
 - FD6 已实测（VERSION=test Makefile→make）。
 - FD5/FD7/FD8/FD9 为代码级结论。
+
+## 6. 状态校准（2026-09-24 修复批次）
+
+本批次修复 FD1/FD2/FD4/FD6/FD9，并落地回归测试 `tests/unit/test_framework_detector_fixes.py`
+（14 例，回退源码后 11 例失败）。
+
+- **FD1 已修**：vitest 分支 `output_format` 由 `jest_json` 改为语义明确的 `vitest_json`；
+  `OutputParser` 注册 `"vitest_json": JestJSONParser`（复用已覆盖 assertionResults 的统计分支），
+  格式标签与实际解析器一致。
+- **FD2 已修**：`_check_package_manifests` 不再「存在 test script 即判 jest」。
+  jest/jest-* 依赖 → jest；vitest 依赖 → vitest；新增 `_detect_js_runner` 按依赖与 script 识别
+  mocha/ava/node --test（`generic_text` 解析）；无法识别的 runner 落 `framework="npm"` +
+  `generic_text`，不再伪装 jest；空 `scripts.test` 不构成 JavaScript 证据。
+- **FD4 已修**：pyproject.toml 改用 `tomllib` 解析，以 `[tool.pytest...]` 配置节为准（注释里的
+  pytest 不再误判，非法 TOML 返回 False）；tox.ini/setup.cfg 由「存在即 pytest」改为读取内容、
+  必须真的出现 pytest；CI workflow 解析返回 None 时继续检查 pyproject。
+- **FD6 已修**：Makefile 由 `"test" in content` 改为 `re.search(r"(?m)^test\s*:", content)`，
+  `VERSION = test`、注释等不再误判为 cpp_make。
+- **FD9 已修**：`test_v4_8_features.py::test_detect_python_pytest` 改为写入真实
+  `[tool.pytest.ini_options]` 验证检测逻辑，默认 fallback 由 `test_detect_default_pytest` 覆盖。
+- **仍成立**：FD3（`_parse_ci_config` 关键词顺序碰撞，monorepo 多语言 CI 误判）、FD5
+  （`_check_source_patterns` rglob 全量 + 顺序敏感）、FD7（CI 只查单个 workflow 文件）、
+  FD8（`detect` Optional 返回类型消费方无兜底）。

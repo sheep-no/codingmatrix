@@ -55,6 +55,9 @@ class OutputParser:
         parsers = {
             "pytest_xml": PytestXMLParser,
             "jest_json": JestJSONParser,
+            # vitest 的 JSON reporter 结构与 jest 不同，但统计逻辑已由
+            # JestJSONParser 的 assertionResults 分支覆盖，这里仅提供语义明确的别名。
+            "vitest_json": JestJSONParser,
             "junit_xml": JUnitXMLParser,
             "go_json": GoTestParser,
             "rust_text": RustTestParser,

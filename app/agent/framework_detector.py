@@ -9,6 +9,8 @@ v4.8.0 新增：
 
 import json
 import logging
+import re
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -59,28 +61,40 @@ class FrameworkDetector:
 
     def _check_explicit_config(self, project_path: Path) -> Optional[TestFrameworkConfig]:
         """检查显式配置文件"""
-        config_files = {
-            "tox.ini": "python_pytest",
-            "setup.cfg": "python_pytest",
-            ".github/workflows/test.yml": None,
-        }
-
-        for file_name, preset_key in config_files.items():
+        for file_name in ("tox.ini", "setup.cfg"):
             file_path = project_path / file_name
             if file_path.exists():
-                if preset_key:
-                    return FRAMEWORK_PRESETS.get(preset_key)
-
+                # 文件存在不等于配置了 pytest：必须真的出现 pytest（FD4）。
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
-                return self._parse_ci_config(content)
+                if "pytest" in content:
+                    return FRAMEWORK_PRESETS["python_pytest"]
+
+        test_workflow = project_path / ".github/workflows/test.yml"
+        if test_workflow.exists():
+            content = test_workflow.read_text(encoding="utf-8", errors="ignore")
+            result = self._parse_ci_config(content)
+            if result:
+                return result
 
         pyproject = project_path / "pyproject.toml"
-        if pyproject.exists():
-            content = pyproject.read_text(encoding="utf-8", errors="ignore")
-            if "pytest" in content:
-                return FRAMEWORK_PRESETS["python_pytest"]
+        if pyproject.exists() and self._pyproject_declares_pytest(pyproject):
+            return FRAMEWORK_PRESETS["python_pytest"]
 
         return None
+
+    @staticmethod
+    def _pyproject_declares_pytest(pyproject: Path) -> bool:
+        """判断 pyproject.toml 是否真的声明了 pytest 配置。
+
+        原实现用 `"pytest" in content`，注释或描述里的 pytest 也会误判（FD4）。
+        这里解析 TOML，以 `[tool.pytest...]` 配置节为准。
+        """
+        try:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8", errors="ignore"))
+        except (tomllib.TOMLDecodeError, OSError):
+            return False
+        tool = data.get("tool", {})
+        return isinstance(tool, dict) and "pytest" in tool
 
     def _check_package_manifests(self, project_path: Path) -> Optional[TestFrameworkConfig]:
         """检查包清单文件"""
@@ -104,10 +118,23 @@ class FrameworkDetector:
                         test_command="npm run test",
                         setup_commands=["npm install"],
                         docker_image=config.docker_image,
-                        output_format="jest_json",
+                        output_format="vitest_json",
                     )
-                if "test" in data.get("scripts", {}):
-                    return FRAMEWORK_PRESETS["javascript_jest"]
+                test_script = data.get("scripts", {}).get("test", "")
+                runner = self._detect_js_runner(all_deps, test_script)
+                if runner:
+                    return runner
+                if test_script:
+                    # 有 test script 但依赖里没有可识别的框架：仍执行 npm test，
+                    # 但用通用文本解析，不再伪装成 jest（FD2）。
+                    return TestFrameworkConfig(
+                        language="javascript",
+                        framework="npm",
+                        test_command="npm test",
+                        setup_commands=["npm install"],
+                        docker_image=FRAMEWORK_PRESETS["javascript_jest"].docker_image,
+                        output_format="generic_text",
+                    )
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -137,7 +164,8 @@ class FrameworkDetector:
         makefile = project_path / "Makefile"
         if makefile.exists():
             content = makefile.read_text(encoding="utf-8", errors="ignore")
-            if "test" in content:
+            # 只认 test target，避免 `VERSION=test` 之类的变量/注释误判（FD6）。
+            if re.search(r"(?m)^test\s*:", content):
                 return FRAMEWORK_PRESETS["cpp_make"]
 
         cmake = project_path / "CMakeLists.txt"
@@ -151,6 +179,31 @@ class FrameworkDetector:
                 output_format="cpp_text",
             )
 
+        return None
+
+    @staticmethod
+    def _detect_js_runner(
+        all_deps: dict, test_script: str
+    ) -> Optional[TestFrameworkConfig]:
+        """按依赖与 test script 识别 jest 之外的 JS 测试运行器（FD2）。"""
+        docker_image = FRAMEWORK_PRESETS["javascript_jest"].docker_image
+
+        def build(framework: str, command: str) -> TestFrameworkConfig:
+            return TestFrameworkConfig(
+                language="javascript",
+                framework=framework,
+                test_command="npm test" if test_script else command,
+                setup_commands=["npm install"],
+                docker_image=docker_image,
+                output_format="generic_text",
+            )
+
+        if any(dep == "mocha" or dep.startswith("mocha") for dep in all_deps):
+            return build("mocha", "npx mocha")
+        if "ava" in all_deps:
+            return build("ava", "npx ava")
+        if re.search(r"\bnode\s+--test\b|\bnode\s+--experimental-test\b", test_script):
+            return build("node_test", "node --test")
         return None
 
     def _check_source_patterns(self, project_path: Path) -> Optional[TestFrameworkConfig]:
