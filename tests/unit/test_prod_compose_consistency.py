@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_PATH = ROOT / "docker-compose.prod.yml"
 LOCAL_COMPOSE_PATH = ROOT / "docker-compose.yml"
 DOCKERFILE_PATH = ROOT / "Dockerfile"
+DOCKERIGNORE_PATH = ROOT / ".dockerignore"
 ALEMBIC_INI_PATH = ROOT / "configs" / "alembic.ini"
 ALEMBIC_ENV_PATH = ROOT / "migrations" / "env.py"
 APP_SERVICES = ("api", "celery", "scheduler")
@@ -246,3 +247,28 @@ def test_dockerfile_installs_document_conversion_toolchain():
 
     for package in DOCUMENT_TOOLCHAIN_PACKAGES:
         assert package in content, f"Dockerfile 未安装 {package}"
+
+
+BUILD_CONTEXT_NOISE = ("node_modules", ".git", "logs", "data")
+REQUIRED_BUILD_INPUTS = ("app", "configs", "migrations", "src", "pyproject.toml")
+
+
+def test_dockerignore_trims_context_without_hiding_build_inputs():
+    """缺少 .dockerignore 时，frontend-builder 阶段的 `COPY src/ .` 会用宿主机
+    node_modules 覆盖容器内 `npm ci` 的安装结果（macOS 或依赖版本不一致时直接
+    破坏构建），同时把 logs/data/.git 等数 GB 无关内容发给 daemon。
+
+    这是文本层守卫：真实效果仍需 `docker build`，本地无 daemon 时无法验证。
+    """
+    assert DOCKERIGNORE_PATH.exists(), "缺少 .dockerignore，构建上下文未收敛"
+    patterns = {
+        line.strip()
+        for line in DOCKERIGNORE_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+
+    missing = [item for item in BUILD_CONTEXT_NOISE if item not in patterns]
+    assert not missing, f".dockerignore 未排除构建上下文冗余: {missing}"
+
+    hidden = [item for item in REQUIRED_BUILD_INPUTS if item in patterns]
+    assert not hidden, f".dockerignore 误排除 Dockerfile 必需输入: {hidden}"
