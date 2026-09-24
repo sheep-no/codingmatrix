@@ -134,6 +134,8 @@ class LanguageDetector:
         "go": ".go",
         "ruby": ".rb",
         "php": ".php",
+        "typescript": ".ts",
+        "csharp": ".cs",
         "r": ".r",
         "zig": ".zig",
         "nim": ".nim",
@@ -324,7 +326,12 @@ class LanguageDetector:
                 )
 
         # 策略 3: 文件扩展名
-        ext_matches = re.findall(r'\.(\w+)(?:\s|，|。|,|\.|$)', requirement)
+        # 扩展名只允许 ASCII 词字符，避免 \w 贪婪吞掉紧贴的中文（"app.py文件"）
+        # 并以空白/标点/中文字符/行尾作为终止边界。
+        ext_matches = re.findall(
+            r'\.([A-Za-z0-9_]+)(?=\s|[，。；;,.、]|$|[\u4e00-\u9fff])',
+            requirement,
+        )
         ext_language_map = {
             'py': 'python', 'pyw': 'python',
             'js': 'javascript', 'jsx': 'javascript',
@@ -627,7 +634,10 @@ class LanguageDetector:
                 lang_aliases = {
                     "py": "python",
                     "js": "javascript",
-                    "ts": "typescript",
+                    "ts": "javascript",
+                    # 规则层把 TypeScript 归入 javascript（见 LANGUAGE_KEYWORDS），
+                    # LLM 层返回 typescript 时做同口径归一，避免被 valid 校验拒绝。
+                    "typescript": "javascript",
                     "node": "javascript",
                     "nodejs": "javascript",
                 }
