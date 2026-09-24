@@ -86,6 +86,7 @@
   - Android 原生/Kotlin/Manifest 改动在本环境无法编译验证：`:app` 在配置阶段即报 `NDK not configured`，`flutter build bundle` 只编译 Dart 资产、不触发 Kotlin。安全探测用 `./gradlew :app:compileDebugKotlin --offline`，会快速失败而不下载 2.9G NDK；这类改动只能靠静态一致性核对（namespace == Kotlin `package` == 源码目录路径，Manifest 用 `.MainActivity` 相对 namespace 解析）。
   - Android SDK 不入库且 `/tmp` 会被清理：`android/local.properties` 的 `sdk.dir` 指向 `/tmp/opencode/android-sdk`，重建需 cmdline-tools 11076708 加 `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`，并设 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`。
   - Linux 桌面产物验证：`flutter build linux --debug`（工具链 clang/cmake/ninja/gtk+-3.0 齐全）产出 `build/linux/x64/debug/bundle/flutter_client`；无 GPU 时用 `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe` 加自建 `Xvfb :99 -screen 0 1280x800x24` 启动，用 `xwininfo -root -tree` 确认 1280x720 窗口已映射、进程存活、日志无 Dart 异常即为通过。注意 shell 里 `cmd &` 会绑定整个 `&&` 链导致工作目录错乱，后台任务用 `( cmd & )` 分组。
+  - 桌面 bundle 有陈旧装配陷阱：bundle 里的 Dart 代码在 `data/flutter_assets/kernel_blob.bin`，`flutter_client` 可执行文件本身几乎不变，所以「构建成功」不等于产物已更新。实测改动 `lib/**` 后 `flutter build linux --debug` 仍打印 `✓ Built ...` 却不重建 `kernel_blob.bin`（mtime 停在旧时间，`touch` 源码也无效）。做界面功能验证前必须比对 `kernel_blob.bin` 的 mtime 是否晚于最后一次源码改动，用 `flutter run -d linux` 可强制重新编译并 `Syncing files to device`，且它的日志能实时捕获 Dart 异常（`textEditingController used after being disposed` 等），比后台跑打包产物更可靠。
   - 无 keyring 的环境（容器/WSL/纯 WM）会打印 `libsecret_error: Failed to unlock the keyring`：安全存储读写失败会让登录与服务会话全链路不可用（`CloudAuthClient._accept` 里 `saveSession` 抛错即 `logout()`），所以这不是能忽略的噪声。凭据层已把它归类为 `SecureStorageUnavailableException` 并给出对应提示。要在本环境实跑登录，需先 `apt-get install -y gnome-keyring libsecret-1-0 libsecret-tools dbus-x11`，用 `eval "$(dbus-launch --sh-syntax)"` 建立会话总线，`printf 'testpass' | gnome-keyring-daemon --unlock --replace --components=secrets` 解锁，再在同一 DBUS 会话里启动客户端。注意 `dbus-launch` 会把总线地址写进 X11 根窗口属性，同一 DISPLAY 上后续启动的进程仍能找到该总线并弹出「解锁密钥环」对话框；密钥环处于锁定态时该读取会一直挂起，应用停在启动加载态。
   - headless UI 实测：`apt-get install -y xdotool`。截图用 `python3 -c "from PIL import ImageGrab; ImageGrab.grab(xdisplay=':99').save(p)"`（无需 ImageMagick/xwd），点击与输入用 `xdotool mousemove X Y click 1` / `xdotool type`。无窗口管理器时 `xdotool windowactivate` 因缺 `_NET_ACTIVE_WINDOW` 报错，坐标点击仍有效。
   - 验证内置字体是否真的生效：临时用 `FONTCONFIG_FILE` 指向只含 Latin 目录（dejavu/liberation）的自定义 fonts.conf 启动，`fc-list` 确认看不到任何 CJK 字体后再截图。这样不必卸载系统字体。字体族在 `app.dart` 里按 `Platform.isLinux` 选择，Android 渲染行为不变；但 pubspec 声明的字体资源会打进所有平台产物，Android APK 同样 +3.1MB。`flutter build bundle` 可单独校验资源打包（比整包构建快得多，磁盘紧张时优先用）。
@@ -110,6 +111,7 @@
   - 后端 `reconnectable` 仅当前进程存活、未结束、且无订阅连接；恢复只重放未消费事件，已消费事件/决策不可重放。
   - 流式空闲超时与普通请求分离：`sendJsonStream` 用独立 `streamTimeout`（默认 5 分钟，逐事件重置），不复用 `auth.timeout`（20s），否则首个 token 静默 >20s 会被误判为「响应连接中断」。
   - 工作台模块入口来自 `lib/application/capability_registry.dart`；组件测试打开模块用 `capabilityNav_<id>` 键（窄屏先点 `Icons.menu` 打开抽屉）。
+  - 用户名可重复、邮箱唯一：`POST /api/v2/Controller/create_user`（`app/api/v2/user_manage.py:123` 明确写「用户名可重复，邮箱唯一」）只校验邮箱是否已存在，同名用户可共存；后台用户列表/编辑/重置密码弹层都以 username 作标题和主标识，重名时出现多行同名、弹层标题无法区分。这不是缺陷，判断后台 UX 与清理测试数据时先确认。
 
 ### 后端关键链路与结构
 - Date: 2026-05-12 ~ 2026-09-06
