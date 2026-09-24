@@ -47,6 +47,7 @@
 |---|---|---|
 | `workbench_controller.dart:146`、`WorkbenchState.artifacts`、`unified_models.dart:209` `Artifact` | 不可达死代码：只有当 SSE 事件的 `data.artifact` 存在时才会收集，而后端全部 SSE 生产者都不产出 `artifact` 字段（`rg 'artifact' app` 无 SSE 命中）；且 `artifacts` 自引入起从未在 `lib/presentation` 被渲染（`git log -S artifacts -- flutter_client/lib/presentation` 无结果）。现状只被自身测试引用。属可清理项，是否删除待确认 | `git log -S artifacts -- flutter_client/lib/application/workbench_controller.dart` → `8f6c261`；两个测试用例均为自测 |
 | `agent_home_view.dart:458` | 事件卡按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。当前静态站 4 个小文件未暴露该问题 | `file` 事件字段含 `content`；客户端未做截断 |
+| `workbench_controller.dart:443`、`agent_home_view.dart:143` | 后端 `error` 事件的原因文本存入 `task.errorJson`，但 UI 从不读取：主状态区只显示 `task.status == 'failed'` 与本地 `actionError`（后者仅覆盖「停止未确认」「决策校验/超时」三种本地失败）。编排中断时的真实原因（如 `unknown file types were not inferred: vue.py`）只能在「实时事件」卡片的原始 JSON 里看到。生产环境下用户难以判断失败原因，是否在主状态区展示 `errorJson['error']` 待确认 | `rg errorJson lib/` 只有赋值（`:443`、`:256`、`:275`、`:287`）无读取；`_OverviewCard` 仅渲染 会话/任务/阶段/状态/进度 |
 
 ## Linux 实跑记录
 
