@@ -49,6 +49,8 @@ async def generate_project(
         db: AsyncSession = Depends(get_db),
 ):
     user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not str(user_id).isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
     # 使用毫秒级时间戳 + UUID 前 8 位避免并发同秒冲突
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     unique_id = uuid.uuid4().hex[:8]

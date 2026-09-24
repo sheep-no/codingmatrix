@@ -91,3 +91,19 @@
 - **路径校验收敛（§5.6 支柱 1）**：AA4 与 GH4/SB1/validate_path_safety 双实现——统一到「resolve + is_relative_to」边界语义。
 - **死代码收敛（§5.4）**：AA6 的 7 个死 schema 与 validators 包级孤立同模式——「定义存在但零消费」在 API 层的新证据。
 - **下轮候选**：`app/api/v1/AiProjectCode.py`（本包依赖的上游，create_agent_session/log_tool_execution/update_model_stats 未建档）或 `app/utils/pptx/` 12 文件。
+
+## 七、修复状态（2026-09-24 复核）
+
+分支 `260924-fix-ai-agent-authz` 修复 AA2/AA3/AA10，新增 `tests/unit/test_ai_agent_endpoint_authz.py`（15 项，回退 13/15 失败）：
+
+- **AA2 已修**：`list_snapshots` / `rollback_to_snapshot` / `diff_snapshots` 三端点新增 `db` 依赖与统一鉴权 `_authorize_snapshot_access`——先按 `Path(session_id).name != session_id` 拒绝含路径分隔/回溯的 session_id（400），再 `verify_session_ownership(db, session_id, user_id)` 做归属校验（越权返回 404，匿名返回 403），随后才拼 `orchestrator/{session_id}` 路径。
+- **AA3 已修**：`ModifyRequest.session_id` 新增 `@field_validator` 调用 `validate_session_id`（`[a-zA-Z0-9_-]{5,128}`），`../foo`/`a.b` 等非法取值在入参阶段被拒，堵住 delete 端点的 rmtree 路径注入来源。
+- **AA10 已修**：`generate_project` 新增 `user_id.isdigit()` 校验，非数字/匿名身份返回 403，不再直接拼进 `./projects/{ts}_{uuid}_{user_id}`。
+- **AA4 复核已修**：`_validate_project_path` 现用 `Path.resolve()` + `is_relative_to(base_dir)` 做边界校验（`helpers.py:48-51`），不再是 startswith 前缀匹配。
+- **AA1 复核已修**：新增 `_pending_stream_owners`，`_verify_session_ownership_or_queue` 先按 owner 精确匹配（不匹配返回 404）；队列/取消/活跃任务短路仅在 owner 已知且匹配时可达（流均在启动时经 `_register_pending_stream` 登记 owner）。
+
+**保留待决**：
+
+- AA8（`/cache/clear` 无 admin 门禁）：前端 `useAgentBackend` 以普通用户调用该端点，改为 `verify_admin_token` 会破坏既有能力，需产品侧确认。
+- AA9（`generate` 无 rate limit/磁盘检查）：属防护增强，需确认是否与既有配额策略统一。
+- AA5/AA6/AA7：反馈归属（内存态 tracker）、7 个死 schema、`_validate_project_path` 冗余分支，属清理/未接线类，留待专门批次。
