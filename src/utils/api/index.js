@@ -26,7 +26,7 @@
  * 3. 刷新失败时自动清除
  */
 import { API_CONFIG } from './config'
-import { createBaseClient, apiUrl, normalizeApiError } from './base'
+import { createBaseClient, apiUrl, normalizeApiError, getValidToken } from './base'
 import { createAuthClient } from './auth'
 import { createProjectClient } from './project'
 import { createAgentClient } from './agent'
@@ -49,6 +49,7 @@ export {
   createBaseClient as createApiClient,
   normalizeApiError,
   apiUrl,
+  getValidToken,
   createAuthClient,
   createProjectClient,
   createAgentClient,

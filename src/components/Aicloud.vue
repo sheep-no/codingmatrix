@@ -264,7 +264,8 @@
   import Modal from './ui/Modal.vue'
   import Button from './ui/Button.vue'
   import { useApiKeyStore } from '@/stores/apikey'
-  import { api } from '@/utils/api/index'
+  import { api, getValidToken } from '@/utils/api/index'
+  import { getCsrfToken } from '@/utils/csrf'
   import { ElMessage, ElMessageBox } from 'element-plus'
 
   const router = useRouter()
@@ -304,13 +305,8 @@
 
   const loadKnowledgeDocs = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/aicloud/knowledge/docs', {
-        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-      })
-      if (response.ok) {
-        knowledgeDocs.value = await response.json()
-      }
+      const docs = await api.aicloud.listKnowledgeDocs()
+      knowledgeDocs.value = Array.isArray(docs) ? docs : docs?.docs || []
     } catch (error) {
       console.error('加载知识库文档失败:', error)
     }
@@ -336,11 +332,15 @@
     formData.append('file', file)
 
     try {
-      const token = localStorage.getItem('access_token')
+      const token = getValidToken()
       const xhr = new XMLHttpRequest()
       xhr.open('POST', '/api/v1/aicloud/knowledge/upload')
       if (token) {
         xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      }
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        xhr.setRequestHeader('X-CSRF-Token', csrfToken)
       }
 
       xhr.upload.onprogress = e => {
@@ -387,14 +387,8 @@
     }
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`/api/v1/aicloud/knowledge/docs/${docId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-      })
-      if (response.ok) {
-        await loadKnowledgeDocs()
-      }
+      await api.aicloud.deleteKnowledgeDoc(docId)
+      await loadKnowledgeDocs()
     } catch (error) {
       console.error('删除文档失败:', error)
     }
@@ -407,20 +401,7 @@
     codeError.value = ''
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/aicloud/execute', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({
-          code: codeInput.value,
-          language: codeLanguage.value
-        })
-      })
-
-      const data = await response.json()
+      const data = await api.aicloud.executeCode(codeInput.value, codeLanguage.value)
       executionTime.value = data.execution_time?.toFixed(2) || 0
 
       if (data.success) {
@@ -437,19 +418,9 @@
 
   const loadModels = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/aicloud/models', {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        availableModels.value = data.models || []
-        selectedModel.value = data.default_model || data.models?.[0]?.id
-      }
+      const data = await api.aicloud.getModels()
+      availableModels.value = data.models || []
+      selectedModel.value = data.default_model || data.models?.[0]?.id
     } catch (error) {
       console.error('加载模型列表失败:', error)
     }
@@ -472,29 +443,18 @@
     currentSessionId.value = sessionId
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`/api/v1/aicloud/history?days=10`, {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        }
-      })
+      const sessions = await api.aicloud.getHistory()
+      historySessions.value = sessions || []
 
-      if (response.ok) {
-        const sessions = await response.json()
-        historySessions.value = sessions || []
-
-        const currentSession = sessions?.find(s => s.id === sessionId)
-        if (currentSession?.messages) {
-          messages.value = currentSession.messages.map(msg => ({
-            role: msg.role,
-            content: msg.content,
-            created_at: msg.created_at
-          }))
-        } else {
-          messages.value = []
-        }
+      const currentSession = sessions?.find(s => s.id === sessionId)
+      if (currentSession?.messages) {
+        messages.value = currentSession.messages.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          created_at: msg.created_at
+        }))
+      } else {
+        messages.value = []
       }
     } catch (error) {
       console.error('加载会话失败:', error)
@@ -504,19 +464,8 @@
 
   const loadHistory = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`/api/v1/aicloud/history?days=10`, {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        historySessions.value = data || []
-      }
+      const data = await api.aicloud.getHistory()
+      historySessions.value = data || []
     } catch (error) {
       console.error('加载历史失败:', error)
     }
@@ -568,20 +517,15 @@
     let buffer = ''
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/aicloud/chat/stream', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({
-          message: userMessage.content,
+      const response = await api.aicloud.chatStream(
+        userMessage.content,
+        null,
+        {
           session_id: sessionId,
-          model_id: selectedModel.value,
-          api_key_token: apiKeyStore.siliconflowKey?.token
-        })
-      })
+          model_id: selectedModel.value
+        },
+        apiKeyStore.siliconflowKey?.token
+      )
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
@@ -640,19 +584,8 @@
 
   const loadPendingReviews = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/aicloud/reviews', {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        }
-      })
-
-      if (response.ok) {
-        const reviews = await response.json()
-        pendingReview.value = Array.isArray(reviews) && reviews.length > 0
-      }
+      const reviews = await api.aicloud.getReviews()
+      pendingReview.value = Array.isArray(reviews) && reviews.length > 0
     } catch (error) {
       console.error('检查待审查项失败:', error)
     }

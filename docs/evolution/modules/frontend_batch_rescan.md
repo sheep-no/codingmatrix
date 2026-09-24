@@ -174,3 +174,14 @@ Vite 代理使用 `selfHandleResponse` 手动写 SSE，生产 Nginx 依赖全局
 新增 `tests/unit/test_stream_cancel_reconnect.py` 四例（队列命中无 owner 需归属校验、拒绝覆盖他人 owner、同 owner 允许、删除会话停止任务并清内存态）。
 
 FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及为每个订阅者分配独立队列，需改动流式事件分发结构，风险较高，保留待专项处理。
+
+### 前端认证批次（2026-09-24 复核）
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FESURF-002 | 已修（前批） | `src/utils/request.ts` 已删除，`src/api/apikey.js` 改用统一 `api.request`。 |
+| FRESCAN-13 | 已修（复核） | `src/api/apikey.js:124-126` 的 `batchExport` 已改为 `URLSearchParams` 手拼 `?format=`，不再依赖已删除的 `request.ts` 的 params 处理，CSV/JSON 分支可达。 |
+| FRESCAN-15 | 已修 | `src/utils/api/workflow.js` 的 `executeWorkflowStream` 改用统一客户端 `client.stream`（原为原生 `fetch` + 四处 localStorage/sessionStorage 自拼 token），并删除 `executeWorkflow` 中未使用的 token 读取；`src/components/Aicloud.vue` 八处原生 `fetch`（知识库列表/删除、代码执行、模型列表、会话与历史、流式聊天、待审查）全部改为 `api.aicloud.*`；知识库上传的 XHR 因需上传进度而保留，但 token 改走统一入口并补 `X-CSRF-Token`。`base.js` 导出 `getValidToken` 作为统一取用入口。 |
+| FRESCAN-03 | 部分收敛 | 组件与 workflow 客户端不再直读 `localStorage.access_token`，token 读取统一收口到 `base.js:getValidToken`。存储侧三轨（`tokenManager.js` 同时写内存/sessionStorage/localStorage）未动，因涉及登录、刷新与清理全链路，保留待专项。 |
+
+`aicloud.js`、`file.js` 在本轮复核时已全部使用统一客户端（`client.*`），FRESCAN-15 原文对应行号已漂移。
