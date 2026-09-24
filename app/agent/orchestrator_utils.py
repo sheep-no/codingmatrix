@@ -78,18 +78,28 @@ class UtilsMixin:
             if not path:
                 continue
 
-            if re.search(r'[^a-zA-Z0-9_\-./]', path):
+            # 统一分隔符，兼容 Windows 风格路径；随后按段校验
+            normalized = path.replace('\\', '/')
+
+            # 允许 Unicode 文件名（含中文）与路径分隔符，其余视为非法
+            if re.search(r'[^\w\-./]', normalized):
                 self.warnings.append(f"跳过非法路径: {path}")
                 continue
 
-            depth = path.count('/') + path.count('\\')
+            # 阻断路径穿越
+            if '..' in normalized.split('/'):
+                self.warnings.append(f"跳过非法路径: {path}")
+                continue
+
+            depth = normalized.count('/')
             if depth > 5:
                 self.warnings.append(f"跳过过深路径: {path}")
                 continue
 
-            if path.startswith('/') or path.startswith('\\'):
-                path = path.lstrip('/\\')
-                file_info["path"] = path
+            if normalized.startswith('/'):
+                normalized = normalized.lstrip('/')
+            path = normalized
+            file_info["path"] = path
 
             ext = Path(path).suffix.lower()
             if ext not in _SUPPORTED_PLAN_EXTENSIONS:
