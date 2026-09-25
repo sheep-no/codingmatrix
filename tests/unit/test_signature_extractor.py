@@ -118,3 +118,61 @@ class B {
     assert "first()" in signatures
     assert "class B {" in signatures
     assert "second()" in signatures
+
+
+def test_ts_multiline_method_params_are_preserved():
+    """SE5 剩余：TS 类方法多行参数此前只取到首行 ``async fetch(``。"""
+    ts = """export class Service {
+  async fetch(
+    id: number,
+    retries: string,
+  ): Promise<string> {
+    return doThing(id);
+  }
+}
+"""
+
+    signatures = extract_signatures("service.ts", ts)
+
+    assert signatures is not None
+    assert "id: number" in signatures
+    assert "retries: string" in signatures
+    assert "Promise<string>" in signatures
+    assert "doThing" not in signatures
+
+
+def test_js_multiline_function_params_are_preserved():
+    """SE5 剩余：顶层 JS 多行函数签名此前只取到首行。"""
+    js = """function longFunc(
+  a,
+  b,
+) {
+  return a + b;
+}
+"""
+
+    signatures = extract_signatures("util.js", js)
+
+    assert signatures is not None
+    assert "function longFunc(" in signatures
+    assert "a," in signatures
+    assert "b," in signatures
+    assert "return a + b" not in signatures
+
+
+def test_js_multiline_arrow_signature_is_preserved():
+    js = """const handler = (
+  req,
+  res,
+) => {
+  return res.send(req);
+};
+"""
+
+    signatures = extract_signatures("route.js", js)
+
+    assert signatures is not None
+    assert "handler" in signatures
+    assert "req" in signatures
+    assert "res" in signatures
+    assert "res.send" not in signatures

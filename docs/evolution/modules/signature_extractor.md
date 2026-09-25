@@ -66,13 +66,13 @@
 - **字段修饰符前缀**：`_is_class_field` 的 JS/TS 分支去掉 `public/private/static/readonly` 等修饰符前缀后再匹配，`private name: string;`、`static count: number = 0;` 可识别。
 - **SE1 已消解（Python 侧）**：`_extract_python_signatures` 已改用 AST 且仅遍历 `ClassDef.body` 直接成员，方法体内局部变量不会进入字段列表；实测 `class Order` 中 `def calc` 内的 `x: int` / `total: float` 不再输出。JS/TS 侧方法体污染由上述 `method_body_indent` 修复。
 - **SE3 已消解**：`extract_signatures` 对 `.py`/`.pyi` 统一走 AST 路径（:143），`.pyi` 走 `_extract_python_signatures`，字段与函数签名正常提取（实测 `class User` 的 `id: int` / `name: str` 与 `def get_name(self) -> str:` 均输出），不再依赖 `.pyi` 正则键。
-- **SE5 部分消解**：Python 多行签名的参数由 `ast.unparse` 合并（实测 `def long_func(a: int, b: str) -> bool:`）；JS/TS 多行参数仍只取首行，保留待决。
+- **SE5 已修（2026-09-25，JS/TS 剩余部分）**：Python 多行签名由 `ast.unparse` 合并；JS/TS 侧新增 `_joined_signature_line`——方法/顶层函数签名首行括号未闭合时，向后拼接后续行（按 `(`/`)` 计数至深度归零，最多 50 行）成单行再交 `_line_signature` 处理，并用 `skip_until` 跳过已并入的续行避免重复收集。实测 `async fetch(\n id: number,\n retries: string,\n ): Promise<string> {`、顶层 `function longFunc(\n a,\n b,\n ) {` 与箭头 `const handler = (\n req,\n res,\n ) => {` 的参数与返回类型均保留，方法体调用（`doThing`/`res.send`）不泄漏。
 - **SE6 已修**：类体收集原用单一 `class_indent`/`collecting_class_body` 变量，嵌套类会把 `class_indent` 覆盖为内层缩进，内层类结束后外层类的方法/字段因 `indent <= class_indent` 被判为「已退出类体」，外层方法落入顶层函数分支且不匹配 `function` pattern 而丢失。现改为缩进栈 `class_indents`——每行先按缩进收敛栈（`indent <= 栈顶` 出栈），类声明入栈，类体判定用 `indent > 栈顶`，方法体状态随出栈重置。实测 `class Outer { name; class Inner { id; run(){} } outerMethod(){} outerField; }` 中 `outerMethod()` 与 `outerField` 恢复收集，同级 `class A`/`class B` 方法各自归属。
 - **SE2 已消解（文档记录过时）**：原记录 `preview = signatures if signatures else content[:budget]` 完全不按预算截断，实际该路径已于 `ca384478` 移除；现行 `get_context_package_for_file`（`dependency_graph.py:1209-1211`）先算 `signature_budget = int(budget * 0.75)`，`signature_text = signatures[:signature_budget]`，`remaining_budget` 扣减受控，不再出现签名溢出使后续依赖被 `break` 丢弃。
 
 **仍未处理**：
 
 - **SE7 [P3]**：多处 `[:200]` 截断无标记。保留。
-- **SE5 剩余**：JS/TS 多行参数签名仍只取首行（Python 侧已由 `ast.unparse` 合并）。
+- **SE5 已全部消解**：同上一批次修复 JS/TS 多行签名。
 
-**回归**：`tests/unit/test_signature_extractor.py` 由 4 项扩到 6 项（新增 SE6 嵌套类外层方法恢复、同级类各自归属），回退 `signature_extractor.py` 后 SE6 用例失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。
+**回归**：`tests/unit/test_signature_extractor.py` 由 6 项扩到 9 项（新增 SE5 TS 多行方法、JS 多行函数、JS 多行箭头 3 项），回退 `signature_extractor.py` 后新增 3 项全部失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。
