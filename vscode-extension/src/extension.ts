@@ -104,6 +104,26 @@ const controller = new AgentWorkbenchController({
       await controller.publishWorkbenchEvent({ type: "error", data: { error: error instanceof Error ? error.message : "会话控制失败" } });
     }
   },
+  // The chat panel's connect button asks the host to (re)establish the Agent
+  // Host session; report the real outcome instead of leaving the button silent.
+  onReady: async () => {
+    try {
+      await vscode.commands.executeCommand("codingmatrix.reconnectAgentSession");
+      if (cloudConnection) {
+        await controller.publishWorkbenchEvent({ type: "progress", data: { message: "本地 Agent Host 已连接" } });
+      } else {
+        await controller.publishWorkbenchEvent({
+          type: "error",
+          data: { error: "请先配置 codingmatrix.agent.apiUrl 与 accessToken 再连接本地 Agent Host" },
+        });
+      }
+    } catch (error) {
+      await controller.publishWorkbenchEvent({
+        type: "error",
+        data: { error: error instanceof Error ? error.message : "连接本地 Agent Host 失败" },
+      });
+    }
+  },
   onRequest: async (request) => {
     if (!cloudConnection) throw new Error("云端 Agent 尚未连接");
     if (request.resource === "cache_clear" && request.params.mode === "all") {

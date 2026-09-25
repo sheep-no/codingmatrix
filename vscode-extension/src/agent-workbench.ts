@@ -89,6 +89,7 @@ export interface AgentWorkbenchControllerOptions {
   onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
   onPrompt?: (prompt: string, options: WorkbenchPromptOptions) => void | Promise<void>;
   onControl?: (action: "pause" | "resume" | "cancel") => void | Promise<void>;
+  onReady?: () => void | Promise<void>;
   onRequest?: (request: WorkbenchRequest) => unknown | Promise<unknown>;
 }
 
@@ -98,12 +99,14 @@ export class AgentWorkbenchController {
   private readonly onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
   private readonly onPrompt?: AgentWorkbenchControllerOptions["onPrompt"];
   private readonly onControl?: AgentWorkbenchControllerOptions["onControl"];
+  private readonly onReady?: () => void | Promise<void>;
   private readonly onRequest?: AgentWorkbenchControllerOptions["onRequest"];
 
   constructor(options: AgentWorkbenchControllerOptions = {}) {
     this.onMessage = options.onMessage;
     this.onPrompt = options.onPrompt;
     this.onControl = options.onControl;
+    this.onReady = options.onReady;
     this.onRequest = options.onRequest;
   }
 
@@ -131,6 +134,9 @@ export class AgentWorkbenchController {
       }
       if (value.type === "workbench_control" && (value.action === "pause" || value.action === "resume" || value.action === "cancel")) {
         void this.onControl?.(value.action);
+      }
+      if (value.type === "workbench_ready") {
+        void this.onReady?.();
       }
       const request = this.parseRequest(message);
       if (request) void this.handleRequest(panel, request);

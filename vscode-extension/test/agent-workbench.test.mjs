@@ -234,3 +234,13 @@ test("forwards workbench session controls", async () => {
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(controls, ["pause", "resume", "cancel"]);
 });
+
+test("routes the workbench connect button to the ready handler", async () => {
+  let ready = 0;
+  const controller = new AgentWorkbenchController({ onReady: () => { ready += 1; } });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({ type: "workbench_ready" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ready, 1);
+});
