@@ -444,3 +444,12 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `ruff==0.16.8` 声明在 `configs/requirements-test.txt`，调用统一用 `python3 -m ruff`（`ruff` 可执行文件不一定在 PATH）。
   - 当前无 `--per-file-ignores` 豁免，全 `app` 全覆盖。曾豁免的 `app/api/v1/aicloud.py` `full_prompt`（RAG 检索结果未接入）已于 2026-09-20 修复：新增 `_compose_system_prompt` 把 `knowledge_context` 注入 `system_prompt`，豁免同步移除。
   - 已知遗留待决策：`orchestrate_endpoints.get_token_usage_stats` 查询了今日/本月的 prompt/completion token 但响应模型无对应字段（前端仅消费 total/prompt/completion，结论为维持现状）。`file_upload` 分片链已按用户隔离（`_scoped_chunk_dir`），FL1 修复。
+
+### 混用换行文件的编辑方式
+- Date: 2026-09-25
+- Context: Agent 修改 `app/api/v2/guardian_router.py` 时发现 apply_patch 会破坏换行
+- Category: 环境配置
+- Instructions:
+  - 仓库部分文件为 CRLF 或 CRLF/LF 混合（如 `app/api/v2/guardian_router.py`、`app/schema/guardian.py`）。判断方式：`crlf = d.count(b"\r\n")`，`bare_lf = d.count(b"\n") - crlf`，`bare_lf > 0` 即混合。
+  - `apply_patch` 会把新增行写成 LF，使文件混入裸 LF 并让 `git diff` 出现大量噪声；也不能把整个文件统一成 CRLF，因为原来就有裸 LF 行，会一并被改掉。
+  - 正确做法：先 `git show HEAD:<path> > <path>` 取回原字节，再用 Python 按字节精确替换目标片段（新增行显式拼 `b"\r\n"`），最后核对 `git diff --numstat` 只含预期增删行数。
