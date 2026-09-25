@@ -359,7 +359,10 @@ class IncrementalModifyMixin:
         # 生成顺序
         try:
             layers = dep_graph.get_generation_layers()
-            order = [f for layer in layers for f in layer]
+            # 层内文件本就可并行、顺序无意义，但 get_generation_layers 的层内
+            # 顺序来自 set 迭代（受 PYTHONHASHSEED 影响），渲染前排序才能保证
+            # 摘要文本稳定（IM8）。
+            order = [f for layer in layers for f in sorted(layer)]
             lines.append(f"\n## 生成顺序")
             for i, f in enumerate(order, 1):
                 lines.append(f"{i}. {f}")
