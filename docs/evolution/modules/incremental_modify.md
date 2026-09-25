@@ -156,3 +156,12 @@ engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
   `_generate_file_with_model` 透传给工程师 LLM 调用（与 `orchestrator_files` 生成路径一致），
   恢复流式思考/停滞检测。回归测试 `test_incremental_wires_heartbeat_tracker`（回退源码后失败）。
 - **IM8 未复核**：变更计划缓存 key 生成逻辑经重构后位置变动，未逐一核对。
+- **IM8 已修（2026-09-25）**：`_build_project_summary_from_graph`（:346）改为对
+  `dep_graph.nodes.items()` 与 `adjacency` 的依赖集合排序后再拼接，消除节点插入顺序
+  /set 迭代顺序带来的摘要抖动；「生成顺序」段落对 `get_generation_layers()` 的每一层
+  层内排序（层内文件本可并行、顺序无意义，但其内部来自 set 迭代，受 `PYTHONHASHSEED`
+  影响），使摘要文本与 `cache_key`（:380）完全稳定，缓存命中不再依赖构造顺序或哈希种子
+  （CI 曾因未排序层内顺序而 flaky）。
+  `_save_cached_change_plan`（:490）写入前过滤 `timestamp` 超过 24h 的条目，`.cache/change_plans.json`
+  不再只增不减。回归测试 `test_project_summary_is_stable_across_insertion_order` /
+  `test_change_plan_cache_key_is_stable` / `test_save_cached_change_plan_prunes_expired`（回退源码后 3 项全失败）。
