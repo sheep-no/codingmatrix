@@ -124,7 +124,7 @@ if imp.is_relative or not self.language_adapter.is_project_module(imp.module):
 - **影响**：与 CV3（code_validator project_root 只认 src/tests）、DG9（JS 别名）同类——「项目边界误判」主线。大量真实项目的顶层包名非白名单。
 - **验证方式**：`from myproject.mod import x` 且 myproject 无对应文件 → 不报 issue（实码可证）。
 
-### IV6 [P3] 无 adapter 时 fallback 硬编码 index.js 作为入口文件
+### IV6 [P3] 无 adapter 时 fallback 硬编码 index.js 作为入口文件（已修）
 
 - **Bug 代码**：
 
@@ -152,7 +152,7 @@ pattern = r'@(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["
 - **影响**：后端 API 提取覆盖率低，契约校验基线不准。
 - **验证方式**：`@bp.get("/api/x")`（蓝图）→ 不被提取（实码可证）。
 
-### IV8 [P3] `_extract_top_level_symbols` 用正则提取符号，非 AST
+### IV8 [P3] `_extract_top_level_symbols` 用正则提取符号，非 AST（已修）
 
 - **Bug 代码**：
 
@@ -165,7 +165,7 @@ re.finditer(r'^(?:async\s+)?def\s+(\w+)\s*\(|^class\s+(\w+)', content, re.MULTIL
 - **影响**：修复本身可能制造 import 错误，降低补缺修复可信度。
 - **验证方式**：`# def fake():` 注释 → 被提取（实码可证）。
 
-### IV9 [P3] `generate_fixes` 父目录跳过逻辑语义错误（不触发但意图错）
+### IV9 [P3] `generate_fixes` 父目录跳过逻辑语义错误（不触发但意图错）（已修）
 
 - **Bug 代码**：
 
@@ -225,4 +225,22 @@ if parent in [str(Path(m).parent) for m in result.missing_files if m != missing]
 - **IV1 仍成立**：`_validate_imports` 的 missing_module 仍未 append 进 `result.missing_files`，`generate_fixes` 补缺闭环未打通。
 - **IV2 仍成立**：`_check_package_init`（:133 起）仍在中途覆盖 `self.language_adapter`（有 `.js` 即整体切 JavaScript，无 python 分支），混合项目后端校验仍会静默失效。
 - **IV5/IV6/IV7/IV8/IV9 未复核**：本轮仅处理 API 契约维度，其余项维持原判。
-- **IV10 部分已补**：本轮新增 API 契约测试，IV1/IV2/IV5-IV9 仍无测试覆盖。
+- **IV10 部分已补**：本轮新增 API 契约测试（IV3/IV4）；IV6/IV8/IV9 于 §8 批次补齐，
+  IV1/IV2/IV5/IV7 仍无测试覆盖。
+
+## 8. 状态校准（2026-09-25 修复批次）
+
+回归测试 `tests/unit/test_integrity_validator_fixes.py`（10 例；回退源码后 7 例失败）。
+
+- **IV6 [P3] 已修**：`_check_package_init` 无 adapter 的 fallback 分支不再硬编码
+  `index.js`，改为按项目文件扩展名推断入口（`.py → __init__.py`、`.ts/.tsx → index.ts`、
+  `.js/.jsx → index.js`，其余无可靠约定则跳过）。纯 Python 项目不再被误报缺 `app/index.js`。
+- **IV8 [P3] 已修**：`_extract_top_level_symbols` 改用 `ast.parse` 遍历模块顶层
+  `FunctionDef/AsyncFunctionDef/ClassDef`，模块 docstring 与三引号字符串内的
+  `class Fake:`/`def fake():` 不再被误提取，语法错误返回空列表。
+- **IV9 [P3] 已修**：`generate_fixes` 的父目录跳过逻辑改为真实意图——仅当
+  「没有任何已生成文件位于该父目录下」时跳过，避免为缺失父目录生成孤立入口；
+  原「另一 missing 文件父目录相同」条件恒 False 的死逻辑删除。
+- **IV1/IV2/IV5/IV7 仍成立**：missing_module 补缺闭环、混合项目 adapter 中途切换、
+  `is_project_module` 前缀白名单、后端 API 提取覆盖率未在本批触及（IV1/IV2/IV5
+  涉及补缺语义与项目边界判定，待专项批次）。

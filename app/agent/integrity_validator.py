@@ -11,6 +11,7 @@ IntegrityValidator - 完整性验证器
 4. 验证前端与后端的 API 契约一致性
 """
 
+import ast
 import re
 import logging
 from typing import Dict, List, Optional
@@ -173,8 +174,19 @@ class IntegrityValidator:
                         ))
                         result.missing_files.append(init_path)
             else:
-                # Fallback: 使用通用包结构检查
-                init_file = "index.js"  # 通用默认值
+                # Fallback: 使用通用包结构检查。
+                # 无适配器时按项目文件扩展名推断入口文件名，避免对 Python 项目
+                # 硬编码 index.js 造成假阳性与错误语言的补缺文件。
+                extensions = {Path(f).suffix for f in files}
+                if '.py' in extensions:
+                    init_file = "__init__.py"
+                elif extensions & {'.ts', '.tsx'}:
+                    init_file = "index.ts"
+                elif extensions & {'.js', '.jsx'}:
+                    init_file = "index.js"
+                else:
+                    # 无可靠通用入口约定（如 Go/Java），跳过该包
+                    continue
                 init_path = f"{pkg}/{init_file}"
                 if init_path not in files:
                     result.add_issue(IntegrityIssue(
@@ -426,10 +438,13 @@ class IntegrityValidator:
         # 生成缺失的包入口文件
         for missing in result.missing_files:
             if missing not in generated_files:
-                # 确认是包入口文件（通过检查父目录是否存在）
+                # 父目录本身缺失（没有任何已生成文件位于其下）时不生成孤立入口，
+                # 交由父级入口一并补缺。
                 parent = str(Path(missing).parent)
-                if parent in [str(Path(m).parent) for m in result.missing_files if m != missing]:
-                    continue  # 跳过，父目录也是缺失的
+                if parent and parent != '.' and not any(
+                    f != missing and f.startswith(parent + '/') for f in generated_files
+                ):
+                    continue
                 # 生成入口文件内容
                 init_filename = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
                 if init_filename and missing.endswith(init_filename):
@@ -501,11 +516,14 @@ class IntegrityValidator:
 
     @staticmethod
     def _extract_top_level_symbols(content: str) -> list:
-        """从 Python 文件中提取顶层类和函数名"""
-        import re
+        """从 Python 文件中提取顶层类和函数名（AST 解析，忽略注释/字符串）"""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return []
         symbols = []
-        for match in re.finditer(r'^(?:async\s+)?def\s+(\w+)\s*\(|^class\s+(\w+)', content, re.MULTILINE):
-            name = match.group(1) or match.group(2)
-            if name and not name.startswith('_'):
-                symbols.append(name)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if not node.name.startswith('_'):
+                    symbols.append(node.name)
         return symbols
