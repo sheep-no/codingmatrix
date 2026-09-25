@@ -185,7 +185,14 @@ if comment_ratio < 0.05:
 仍未处理：
 
 - **OP2（P2）**：`_report_file_event` 仍推全量 content。截断会破坏前端 `generatedFiles` 的文件内容预览（`useAgentStreaming.js:159` 直接取 `data.content`），属产品口径权衡，保留。
-- **OP5（P3）**：11 个 `_report_*` 的 callback 调用块仍未收敛到 `_emit_event`（本轮仅收敛 task 登记），属纯重构，与行为无关，保留。
+- **OP5 已修（2026-09-25）**：`_report_progress` / `_report_file_event` / `_report_file_diff_event` /
+  `_report_model_info` / `_report_done_event` / `_report_thinking` / `_report_test_results` /
+  `_report_validation_results` / `_report_cost_update` / `_report_performance_metrics` 共 10 个方法的
+  callback 调用 + 协程任务管理 + 异常日志块全部删除，统一改为构造 event 后调用
+  `_emit_event(event, label=...)`；`_emit_event` 新增可选 `callback` 参数，保留
+  `_report_progress` 原有的 `callback or self.callback` 覆盖语义。全文件仅 `_emit_event`
+  内部保留一处 `self.callback(json.dumps(...))`。回归测试 `TestEmitEventConvergence`（5 项），
+  回退源码后 3 项失败。
 - **OP7（P3）**：`low_comments` factor 仍不计入 score。计入会改变所有「注释占比 <5%」文件的复杂度等级（前端展示与潜在决策依赖），需产品确认，保留。
 
-回归：`tests/unit/test_orchestrator_progress_fixes.py`（15 项，覆盖 OP3/OP4/OP6/OP8）；回退 `app/agent/orchestrator_progress.py` 后 11 项失败。
+回归：`tests/unit/test_orchestrator_progress_fixes.py`（20 项，覆盖 OP3/OP4/OP5/OP6/OP8）；回退 OP5 源码后 `TestEmitEventConvergence` 3 项失败。
