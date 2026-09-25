@@ -103,6 +103,7 @@
 
 - 后端 unit/integration 最近完整记录：`4943 passed, 2 skipped, 0 failed`（471s；2026-09-25 含本轮 5 项修复后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
 - 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。
+- 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `750e976b`）：全部 `app` `67.99%`；**非 Agent `app` `62.73%`**（33711 statements；`app/agent/**` 29494 statements 占全部 `app` 的 46%，按范围约定不计入结论）。非 Agent 分模块：`services 75.20%`、`models 99.67%`、`schema 96.47%`、`db 74.32%`、`utils 64.84%`、`core 63.81%`、`api 55.04%`、`tasks 49.74%`、`adapter 25.45%`。改进优先级最低三块：`adapter`、`tasks`、`api`。
 - 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 成功（25.6s），四项预算全部通过（首屏 JS 87.7/450 KiB、CSS 55.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB）。
 - 前端 ESLint：`0 errors / 385 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
