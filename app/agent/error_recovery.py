@@ -181,7 +181,12 @@ class ErrorRecoveryLoop:
 
         # 分析错误类型以选择最佳修复策略
         error_messages = "; ".join(self._extract_error_messages(errors))
-        classification = await error_classifier.classify_error(error_messages, content)
+        classification = await error_classifier.classify_error(
+            error_messages,
+            content,
+            api_key_token=self.api_key_token,
+            cancel_event=self.cancel_event,
+        )
         error_classifier.add_to_history(classification)
         route = RepairRouter.route(classification.error_type, error_messages)
         if not route.auto_apply:
