@@ -252,3 +252,24 @@ if parent in [str(Path(m).parent) for m in result.missing_files if m != missing]
   （`@router.get("/items")` + `prefix="/api"` → `/api/items`，斜杠冗余已归一化）。
   路径字符的 `re.escape`/`{param}` 转换已在 IV3 批次完成，本批不再涉及。
   回归测试 `TestBackendApiExtraction`（6 例，回退源码后 6 例失败）。
+
+## 9. 状态校准（2026-09-25，IV2 批次）
+
+回归测试 `tests/unit/test_integrity_validator_adapter_dispatch.py`（7 例；回退源码后 4 例失败）。
+
+- **IV2 [P2] 已修**：根因是 `_check_package_init` 在校验途中改写
+  `self.language_adapter`，且推断逻辑「有 `.js` 即整体切 JavaScript」无 python
+  分支。现把推断上移到 `validate()` 入口的 `_ensure_language_adapter`，只执行一次，
+  并按**后端语言优先**（python → go → java）择一，仅当无任何后端语言文件时才回退
+  JavaScript。`_check_package_init` 不再写 `self.language_adapter`，消除状态残留。
+  实测混合项目（`app/main.py` + `web/index.js`，不传 adapter）：修复前选
+  JavaScriptLanguageAdapter，后端 `missing_module` 零上报且后端已存在的
+  `GET /api/todo` 被误报「前端调用端点不存在」；修复后选 PythonLanguageAdapter，
+  后端缺失导入正确上报、已存在端点不再误报。纯前端项目仍选 JavaScript，
+  显式传入的 adapter 不再被覆盖。
+- **IV1 仍未处理（需语义决策）**：`missing_module` 仍未进 `result.missing_files`。
+  直接把候选模块路径追加进去会经 `generate_fixes` 生成空 stub——对
+  `from app.missing_module import x` 而言新文件仍不导出 `x`，只是把「模块不存在」
+  换成「符号不存在」，属补缺语义（生成什么内容才算修复）的产品决策，保留待决。
+- **IV5 仍未处理**：`is_project_module` 前缀白名单未改。修改签名需同步
+  `declarative_contracts`/`cross_validator`/`python.py` 内部等多处调用点，属跨模块专项。
