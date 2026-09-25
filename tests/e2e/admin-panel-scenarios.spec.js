@@ -116,7 +116,8 @@ test.describe('管理员界面浏览器场景', () => {
     await expect(admin.locator('.header-info')).toContainText(login.username)
     await expect(admin.getByRole('heading', { name: '系统监控仪表板' })).toBeVisible()
     await expect(admin.getByRole('heading', { name: 'CPU 使用率' })).toBeVisible()
-    await expect(admin.locator('.nav-item', { hasText: '模型管理' })).toHaveCount(0)
+    // 模型管理仅超级管理员可见，当前登录账号即超级管理员，应存在
+    await expect(admin.locator('.nav-item', { hasText: '模型管理' })).toHaveCount(1)
     await expect(admin.locator('.nav-item', { hasText: '代码沙箱' })).toHaveCount(0)
 
     const search = admin.locator('.search-input')

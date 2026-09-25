@@ -79,7 +79,7 @@
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离。升级路径（按成本从低到高）：①带口令私钥 + 环境变量注入口令；②私钥改由 docker/k8s secret 挂载只读卷、不以文件落盘；③接入 KMS/Secret Manager，私钥不出后端服务边界。生产部署建议至少做到 ② |
-| P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），当前 `tests/e2e/` 下 95 个 spec。其余候选均触及 Agent 子系统，按范围约定不动。`e2e.yml` 门禁本轮由 5 个扩到 9 个稳定非 Agent spec（新增 `theme-switcher`、`10-admin`、`tools`、`capability-center`，已在串行与默认并行两种模式下各跑一遍确认零失败）；其余 spec 或依赖外部模型、或选择器待修，仍不进 CI |
+| P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），当前 `tests/e2e/` 下 95 个 spec。`e2e.yml` 门禁本轮由 5 个扩到 11 个稳定非 Agent spec：新增 `theme-switcher`/`10-admin`/`tools`/`capability-center`（串行与默认并行各跑一遍，`28 passed`），以及修复后复跑全绿的 `tools-panel`（11 项）与 `admin-panel-scenarios`（2 项）。**剩余非 Agent spec 的失败已逐条定性**：`03-chat.spec.js` 的 6 项失败为纯负载型 flaky（本机负载 7.5 时超时；负载 1.8 时 11 项全过），非产品缺陷；`tools-panel`（2 项过期工具清单选择器）、`admin-panel-scenarios`（错误断言 `模型管理` 不存在，实为 superadmin 有意保留）已修复；`system-monitor`（7 项）、`upload-file`（5 项）、`sprint-1-rbac`（17 项）三类为「断言不存在功能」的过期 spec（详见下方说明），待处置 |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 已裁定保留；判定为 Agent 相邻的预留能力，按本轮「不触碰 Agent 子系统」的范围约定保留，不计入死代码，其 3 个相关测试一并保留 |
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
@@ -99,6 +99,21 @@
 
 上述前四项由对全部非 Agent GET 端点（87 个）与选定变更端点（61 个）的运行时冒烟定位：GET 冒烟初测出 2 处 500，修复后 61 个变更端点探测结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。备份端点副作用则通过比对 `data/backups/` 冒烟前后的新增文件发现。
 
+### 非 Agent E2E spec 失败定性（2026-09-25）
+
+对本机全量跑中出现失败的非 Agent spec 逐条复跑定性，结论分三类：
+
+| spec | 失败项 | 定性 | 证据 |
+|---|---|---|---|
+| `03-chat.spec.js` | 6 | 负载型 flaky，非产品缺陷 | 系统负载 7.5 时输入框 `click()` 超时；负载 1.8 时 11 项全过（1.9m） |
+| `tools-panel.spec.js` | 2 | 过期断言，已修 | 断言的工具清单含 5 个已下线工具（`系统检测`/`任务队列`/`AI 云助手`/`系统监控`，`AI 虚拟姬` 实为 `虚拟姬`）；`新建会话` 断言的 `.chat-messages` 首页从无此类。改按真实菜单（12 项）与待机区域断言，现 11 项全过 |
+| `admin-panel-scenarios.spec.js` | 1 | 过期断言，已修 | 断言 superadmin 不应看到 `模型管理`，而该入口自 2026-07 起即由 `isSuperUser` 有意保留；改为断言其存在，现 2 项全过 |
+| `system-monitor.spec.js` | 7 | 断言不存在功能 | 入口 `工具集 > 系统监控` 已从产品移除（系统监控现在 AdminPanel 内）；7 项全部卡在该点击 |
+| `upload-file.spec.js` | 5 | 断言不存在功能 | 断言 `.upload-preview`/`.upload-progress`/`.upload-error`/`.upload-cancel-btn` 与 `aria-label="上传文件"`（真实为 `上传文件或图片`），首页均不存在 |
+| `sprint-1-rbac.spec.js` | 17 | 断言不存在功能 | 断言角色管理/部门管理/多租户/审计日志/安全设置/2FA/密码策略，产品仅实现 `permission_level`（normal/admin/superadmin），全库无这些页面；其「通过」的 14 项也多为 `readyState` 或 `if count>0` 的空断言 |
+
+`system-monitor`、`upload-file`、`sprint-1-rbac` 三类断言产品从未实现或已移除的功能，即使运行也提供不了有效信号，建议移入 `tests/archive/playwright/`；处置前需确认这些能力是否为路线图内待建项。
+
 ## 当前验收基线
 
 - 后端 unit/integration 最近完整记录：`4943 passed, 2 skipped, 0 failed`（471s；2026-09-25 含本轮 5 项修复后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
@@ -108,7 +123,7 @@
 - 前端 ESLint：`0 errors / 385 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
-- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login`、`theme-switcher`、`10-admin`、`tools`、`capability-center` 共 `72` 项；`CI=1`（单 worker + 2 次重试）下稳定通过。新增 4 个 spec 是本机 `tests/e2e/` 全量跑中零失败的非 Agent 集合，串行与默认并行各复跑一遍均 `28 passed`。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
+- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login`、`theme-switcher`、`10-admin`、`tools`、`tools-panel`、`capability-center`、`admin-panel-scenarios` 共 `85` 项；`CI=1`（单 worker + 2 次重试）下运行。所有纳入 spec 均经本机复跑确认全绿：前四批 `28 passed`（串行与默认并行各一遍），`tools-panel` `11 passed`，`admin-panel-scenarios` `2 passed`。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
 
 ## 历史修复记录
