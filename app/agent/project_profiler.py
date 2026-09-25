@@ -15,6 +15,7 @@ import os
 import time
 import hashlib
 import logging
+import functools
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional, Set
@@ -23,6 +24,17 @@ from collections import defaultdict
 from app.utils.performance_metrics import metrics_collector
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=16)
+def _keyword_pattern(keywords: frozenset) -> re.Pattern:
+    """把关键字集合编译成整词正则（避免 'db' 命中任意含 db 的子串，PP8）。"""
+    alternation = "|".join(re.escape(k) for k in sorted(keywords))
+    return re.compile(rf"\b(?:{alternation})\b")
+
+
+def _contains_keyword(content: str, keywords: frozenset) -> bool:
+    return bool(_keyword_pattern(keywords).search(content))
 
 
 # ==================== 语言配置 ====================
@@ -173,7 +185,7 @@ class ProjectProfiler:
     """
 
     # 安全关键字（跨语言通用，含语言特定的关键字）
-    SECURITY_KEYWORDS = {
+    SECURITY_KEYWORDS = frozenset({
         # 通用
         'auth', 'permission', 'security', 'validate', 'verify',
         'token', 'password', 'credential', 'session', 'middleware',
@@ -184,10 +196,10 @@ class ProjectProfiler:
         'spring-security', 'shiro', 'oauth',
         # Go 框架相关
         'gorilla', 'gin-auth', 'casbin',
-    }
+    })
 
     # 数据库关键字
-    DATABASE_KEYWORDS = {
+    DATABASE_KEYWORDS = frozenset({
         'database', 'session', 'transaction', 'commit', 'rollback',
         'query', 'orm', 'model', 'migration', 'db',
         # JS ORM
@@ -198,7 +210,7 @@ class ProjectProfiler:
         'hibernate', 'mybatis', 'jpa', 'jooq',
         # Rust ORM
         'diesel', 'sqlx', 'sea-orm',
-    }
+    })
 
     # 分层架构的目录名模式（跨语言通用）
     LAYER_PATTERNS = {
@@ -332,7 +344,8 @@ class ProjectProfiler:
     def _is_test_dir(self, dirpath: str) -> bool:
         """判断目录是否是测试目录（按语言的目录名）"""
         dir_name = os.path.basename(dirpath).lower()
-        return any(t in dir_name for t in self.profile_rules.test_dir_names)
+        # 整名匹配：避免 "contest"/"latested" 因含 "test" 子串被误判（PP5）。
+        return dir_name in self.profile_rules.test_dir_names
 
     # ---------- 架构分析 ----------
 
@@ -504,9 +517,9 @@ class ProjectProfiler:
                 with open(src_file, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read().lower()
                 rel_path = os.path.relpath(src_file, root)
-                if any(kw in content for kw in self.SECURITY_KEYWORDS):
+                if _contains_keyword(content, self.SECURITY_KEYWORDS):
                     security_files.add(rel_path)
-                if any(kw in content for kw in self.DATABASE_KEYWORDS):
+                if _contains_keyword(content, self.DATABASE_KEYWORDS):
                     data_files.add(rel_path)
             except Exception as e:
                 logger.debug(f"风险扫描失败 {src_file}: {e}")
@@ -536,7 +549,7 @@ class ProjectProfiler:
                     if not module:
                         continue
                     # 跳过标准库/外部包启发：项目内模块通常以小写字母开头、不含点（python）/不含反斜杠
-                    if self._is_project_module(module):
+                    if self._is_project_module(module, root):
                         import_counts[module] += 1
             except Exception as e:
                 logger.debug(f"import 统计失败 {src_file}: {e}")
@@ -544,7 +557,7 @@ class ProjectProfiler:
 
         return import_counts
 
-    def _is_project_module(self, module: str) -> bool:
+    def _is_project_module(self, module: str, root: Optional[Path] = None) -> bool:
         """粗略判断是否是项目内模块（避免被大量外部 import 污染）"""
         if not module:
             return False
@@ -570,6 +583,12 @@ class ProjectProfiler:
         for prefix in prefixes:
             if module == prefix or module.startswith(prefix + ".") or module.startswith(prefix + "/"):
                 return False
+        # Python：第三方包（flask/requests/numpy）与项目模块在模块名上无法区分，
+        # 用「项目内是否存在对应源文件」判据把它们排除，避免污染 high_dependency（PP10）。
+        if self.language == "python" and root is not None:
+            rel = module.replace('.', '/')
+            candidates = (root / f"{rel}.py", root / rel / "__init__.py")
+            return any(c.is_file() for c in candidates)
         return True
 
     def _module_to_filename(self, module: str) -> str:
