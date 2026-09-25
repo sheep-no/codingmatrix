@@ -114,6 +114,11 @@ class IntegrityValidator:
         """
         result = IntegrityResult()
 
+        # 0. 未显式传入适配器时按项目语言自动推断（仅一次，避免在校验中途
+        #    改写 self.language_adapter 造成状态残留——混合项目里前端 JS 文件
+        #    曾把后端校验整体切到 JavaScript）。
+        self._ensure_language_adapter(generated_files)
+
         # 1. 检查包的入口文件
         self._check_package_init(generated_files, result)
 
@@ -130,24 +135,37 @@ class IntegrityValidator:
 
         return result
 
+    def _ensure_language_adapter(self, files: Dict[str, str]) -> None:
+        """未传入适配器时，按项目文件扩展名推断语言适配器。后端语言优先。
+
+        - 仅在后端语言（python/go/java）中择一：混合前后端项目里不能因为
+          存在前端 `.js` 文件就把后端导入校验与 API 提取整体切到 JavaScript。
+        - 纯前端项目（无后端语言文件）才回退到 JavaScript 适配器。
+        """
+        if self.language_adapter:
+            return
+        from app.agent.adapters.language_adapter import LanguageAdapterRegistry
+
+        extensions = {Path(f).suffix for f in files}
+        for lang, exts in (
+            ("python", {".py"}),
+            ("go", {".go"}),
+            ("java", {".java"}),
+        ):
+            if extensions & exts:
+                adapter = LanguageAdapterRegistry.get_adapter(lang)
+                if adapter:
+                    self.language_adapter = adapter
+                    return
+        if extensions & {".js", ".jsx", ".ts", ".tsx"}:
+            self.language_adapter = LanguageAdapterRegistry.get_adapter("javascript")
+
     def _check_package_init(self, files: Dict[str, str], result: IntegrityResult):
         """检查包的入口文件是否存在（支持多语言）"""
         packages = set()
 
-        # 自动检测语言适配器（如果未提供）
+        # 适配器已在 validate 入口统一推断，这里不再改写 self.language_adapter
         adapter = self.language_adapter
-        if not adapter:
-            from app.agent.adapters.language_adapter import LanguageAdapterRegistry
-            # 从文件扩展名推断语言
-            extensions = {Path(f).suffix for f in files}
-            if extensions & {'.js', '.jsx', '.ts', '.tsx'}:
-                adapter = LanguageAdapterRegistry.get_adapter('javascript')
-            elif extensions & {'.go'}:
-                adapter = LanguageAdapterRegistry.get_adapter('go')
-            elif extensions & {'.java'}:
-                adapter = LanguageAdapterRegistry.get_adapter('java')
-            if adapter:
-                self.language_adapter = adapter
 
         # 提取所有包路径
         for file_path in files:
