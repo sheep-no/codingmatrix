@@ -194,6 +194,11 @@ def test_apply_patch_failure(self, patcher): ...
 **仍未处理**：
 
 - **CP10 [P2]**：`CrossFilePatcher.primary_result` 多文件循环覆盖 + `_apply_patches_incremental` 无入口（OF10 死代码）。整链路不可达，属结构性/接线项，保留。
-- **CP4/CP5/CP6/CP7 [P3]**：`.bak` 残留、非原子写、裸空行截断 hunk、第三 fallback 过度提取，均为代码级结论，保留。
+- **CP4/CP5/CP7 [P3]**：`.bak` 残留、非原子写、第三 fallback 过度提取，均为代码级结论，保留。
 
 **回归**：`tests/unit/test_code_patcher.py` 由 6 项扩到 13 项（新增多 hunk 漂移、上下文不匹配拒绝/匹配通过、新文件创建无残留错误、fuzzy 偏移优先级）；回退 `code_patcher.py` 后新增用例 4 项失败。全量 4600+ passed / 3 skipped / cov 62.7%。
+
+## 7. CP6 修复（2026-09-25）
+
+- **CP6 [P3] 已修**：`_parse_patch` 的 hunk body 收集原为 `while lines[i].startswith(('+','-',' '))`——LLM 生成 diff 时若把空上下文行的尾随空格去掉（形成裸空行 `''`），收集会在该行提前终止，hunk 被截断、后续 body 行被当作非 hunk 行跳过。实测 patch `@@ -1,4 +1,4 @@` 含裸空行时，`_apply_hunks` 返回 None、`_apply_hunks_fuzzy` 仅应用首行，`apply_patch` 却置 `success=True` 并把 `"a\n\nc\nd"` 静默写成 `"a"`。现把裸空行按空上下文行处理（归一化为 `' '`），并以 `old_count`/`new_count` 预算判定 body 何时收集完毕——达到声明计数立即收束，不再吞并后续文本。同时 `_parse_patch` 的 `split('\n')` 改为 `splitlines()`，避免以换行结尾的 patch 多出的合成空串被误当作空上下文行吞入。
+- **回归**：`tests/unit/test_code_patcher.py` 新增 `test_bare_empty_context_line_does_not_truncate_hunk`（14 项），回退 `code_patcher.py` 后该项失败。全量 `4954 passed, 3 skipped`，覆盖率 `64.45%`。

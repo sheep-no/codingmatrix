@@ -349,7 +349,9 @@ class CodePatcher:
     def _parse_patch(self, patch: str) -> List[Dict]:
         """解析 patch 为 hunks"""
         hunks = []
-        lines = patch.split('\n')
+        # 用 splitlines 而非 split('\n')：后者对以换行结尾的 patch 会多出一个
+        # 合成空串，在容忍裸空行后会被误当作空上下文行吞入 hunk（CP6）。
+        lines = patch.splitlines()
         i = 0
 
         while i < len(lines):
@@ -360,11 +362,35 @@ class CodePatcher:
                 new_start = int(match.group(3))
                 new_count = int(match.group(4)) if match.group(4) else 1
 
+                # 收集 hunk body。标准上下文行为单个空格开头，但 LLM 生成 diff 时
+                # 常把空上下文行的尾随空格一并去掉，形成裸空行（''）。此前裸空行会
+                # 提前终止收集，使 hunk 被截断、后续行被当作非 hunk 行跳过，最终
+                # 静默写出被截断的内容且 success=True（CP6）。这里把裸空行按空
+                # 上下文行处理，并用 old_count/new_count 预算判定 body 收集完毕。
                 hunk_lines = []
                 i += 1
-                while i < len(lines) and lines[i].startswith(('+', '-', ' ')):
-                    hunk_lines.append(lines[i])
+                ctx = deleted = added = 0
+                while i < len(lines):
+                    line = lines[i]
+                    if line.startswith('+'):
+                        added += 1
+                    elif line.startswith('-'):
+                        deleted += 1
+                    elif line.startswith(' '):
+                        ctx += 1
+                    elif line == '':
+                        ctx += 1
+                        line = ' '  # 归一化为标准空上下文行
+                    else:
+                        break
+
+                    hunk_lines.append(line)
                     i += 1
+
+                    if (ctx + deleted == old_count
+                            and ctx + added == new_count
+                            and ctx + deleted + added > 0):
+                        break
 
                 hunks.append({
                     'old_start': old_start,
