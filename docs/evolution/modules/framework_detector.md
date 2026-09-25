@@ -211,3 +211,22 @@ def test_detect_python_pytest(self, temp_project):
 - **仍成立**：FD3（`_parse_ci_config` 关键词顺序碰撞，monorepo 多语言 CI 误判）、FD5
   （`_check_source_patterns` rglob 全量 + 顺序敏感）、FD7（CI 只查单个 workflow 文件）、
   FD8（`detect` Optional 返回类型消费方无兜底）。
+
+## 7. 状态校准（2026-09-24 第二批）
+
+本批修复 FD3/FD5/FD7，并顺带消除 FD8 的运行时前提，回归测试
+`tests/unit/test_framework_detector_ci_scan.py`（10 例，回退源码后 7 例失败）。
+
+- **FD3 已修**：`_parse_ci_config` 改为用词边界正则（`\bpytest\b`、`\bnpm\s+test\b` 等）
+  收集全部命中。唯一命中才返回；多语言命中（同一 CI 文件含 pytest+mvn 等）返回 None，
+  交由后续「按项目文件证据」的检查项裁决，不再被固定顺序的第一个关键词带偏。
+  `pytest_plugins` 之类同前缀词因词边界不再误命中。
+- **FD5 已修**：`_check_source_patterns` 改用 `os.walk` 并跳过
+  `node_modules/.venv/venv/vendor/target/build/dist/__pycache__` 等依赖与构建目录，
+  按测试文件数量裁决（并列时沿用 go→java→py→rust 顺序）。vendored 的 `*_test.go`
+  不再压过项目内真实测试；多语言仓库按数量取多数派。
+- **FD7 已修**：`_check_explicit_config` 扫描 `.github/workflows/*.yml` 与 `*.yaml`
+  全部 workflow（此前只认硬编码的 `test.yml`）。
+- **FD8 已消解**：`detect` 的三级检查全部返回具体 preset 或 None，全 None 时
+  `get_default_config()` 兜底，运行时恒返回非 None；同时上一批已移除
+  `FRAMEWORK_PRESETS.get(preset_key)` 这一可在内部产生 None 的调用点。
