@@ -15,10 +15,15 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from pathlib import Path
+import ast
 import re
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 纯标识符保护项按整词匹配（避免 "id" 命中 "identifier" 等子串，GC6）；
+# 含 @ / . 等的模式（如 "@router.get"）仍按子串匹配。
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class Severity:
@@ -174,42 +179,100 @@ class GuardContracts:
             ),
         ]
 
-    def check_file(self, file_path: str, content: str) -> List[Violation]:
+    def check_file(
+        self,
+        file_path: str,
+        content: str,
+        original_content: Optional[str] = None,
+    ) -> List[Violation]:
         """
         检查文件变更是否违反守护合约
 
         Args:
             file_path: 文件路径
             content: 文件内容（变更后的）
+            original_content: 变更前的文件内容（可选）。提供后 existence 检查才能
+                判定「保护项被删除」，signature 检查才能判定「签名变更」。
 
         Returns:
             违规项列表
         """
         violations = []
+        # 仅在确有对应规则时解析 AST，避免无谓开销
+        needs_signature = any(
+            r.check_type == "signature" and re.match(r.file_pattern, file_path)
+            for r in self.rules
+        )
+        new_signatures = self._extract_signatures(content) if needs_signature else None
+        old_signatures = (
+            self._extract_signatures(original_content)
+            if needs_signature and original_content is not None
+            else None
+        )
 
         for rule in self.rules:
             if not re.match(rule.file_pattern, file_path):
                 continue
 
-            violation = self._check_rule(rule, file_path, content)
+            violation = self._check_rule(
+                rule, file_path, content, original_content, new_signatures, old_signatures
+            )
             if violation:
                 violations.append(violation)
 
         return violations
 
-    def _check_rule(self, rule: GuardRule, file_path: str, content: str) -> Optional[Violation]:
+    def _pattern_present(self, pattern: str, content: str) -> bool:
+        """保护项是否存在于内容中（标识符整词匹配，其余子串匹配）。"""
+        if _IDENTIFIER_RE.match(pattern):
+            return re.search(rf"\b{re.escape(pattern)}\b", content) is not None
+        return pattern in content
+
+    def _extract_signatures(self, content: str) -> Dict[str, str]:
+        """解析函数/类定义签名（参数列表 / 基类），供「签名变更」比对。"""
+        try:
+            tree = ast.parse(content)
+        except (SyntaxError, ValueError):
+            return {}
+        signatures: Dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                try:
+                    args = ast.unparse(node.args)
+                except Exception:
+                    args = ""
+                signatures.setdefault(node.name, f"def({args})")
+            elif isinstance(node, ast.ClassDef):
+                bases = ",".join(ast.unparse(b) for b in node.bases)
+                signatures.setdefault(node.name, f"class({bases})")
+        return signatures
+
+    def _check_rule(
+        self,
+        rule: GuardRule,
+        file_path: str,
+        content: str,
+        original_content: Optional[str] = None,
+        new_signatures: Optional[Dict[str, str]] = None,
+        old_signatures: Optional[Dict[str, str]] = None,
+    ) -> Optional[Violation]:
         """检查单条规则"""
         for pattern in rule.protected_patterns:
             if rule.check_type == "existence":
-                # 检查保护的模式是否存在于文件中
-                if pattern not in content:
-                    return Violation(
-                        rule_id=rule.id,
-                        severity=rule.severity,
-                        description=f"[{rule.description}] 保护项 '{pattern}' 可能已被删除",
-                        file_path=file_path,
-                        suggestion=f"请确认是否有意移除 '{pattern}'。如确认，请在提交时说明原因。",
-                    )
+                if self._pattern_present(pattern, content):
+                    continue
+                # 无变更前基线时无法证明「删除」，不报存在性违规（避免假阳性，GC1）
+                if original_content is None:
+                    continue
+                if not self._pattern_present(pattern, original_content):
+                    continue
+                return Violation(
+                    rule_id=rule.id,
+                    severity=rule.severity,
+                    description=f"[{rule.description}] 保护项 '{pattern}' 可能已被删除",
+                    file_path=file_path,
+                    suggestion=f"请确认是否有意移除 '{pattern}'。如确认，请在提交时说明原因。",
+                )
 
             elif rule.check_type == "signature":
                 # 检查函数/类定义是否存在
@@ -222,6 +285,18 @@ class GuardContracts:
                         file_path=file_path,
                         suggestion=f"请确认是否有意修改 '{pattern}'。签名变更可能影响下游依赖。",
                     )
+                # 有基线时进一步比对签名，识别「函数仍在但签名被改」（GC3）
+                if original_content is not None and old_signatures is not None:
+                    old_sig = old_signatures.get(pattern)
+                    new_sig = (new_signatures or {}).get(pattern)
+                    if old_sig is not None and new_sig is not None and old_sig != new_sig:
+                        return Violation(
+                            rule_id=rule.id,
+                            severity=rule.severity,
+                            description=f"[{rule.description}] 保护函数/类 '{pattern}' 签名已变更",
+                            file_path=file_path,
+                            suggestion=f"'{pattern}' 由 {old_sig} 变为 {new_sig}，请确认下游依赖兼容。",
+                        )
 
         return None
 
@@ -259,10 +334,14 @@ def get_guard_contracts() -> GuardContracts:
     return _contracts
 
 
-def check_file_against_contracts(file_path: str, content: str) -> List[Violation]:
+def check_file_against_contracts(
+    file_path: str,
+    content: str,
+    original_content: Optional[str] = None,
+) -> List[Violation]:
     """便捷函数：检查文件是否违反守护合约"""
     contracts = get_guard_contracts()
-    return contracts.check_file(file_path, content)
+    return contracts.check_file(file_path, content, original_content)
 
 
 def get_applicable_rules(file_path: str) -> List[Dict]:
