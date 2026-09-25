@@ -18,6 +18,8 @@
 
 2026-09-25 修复对话页「连接本地 Agent Host」死控件：「连接本地 Agent Host」按钮 post `workbench_ready`，但宿主 `AgentWorkbenchController` 只处理 `workbench_prompt`、`workbench_control`、`workbench_request`，该消息自引入（`b92280c`）起无接收方，点击只改本地状态文案、不触发任何连接。现新增 `onReady` 回调并在 `extension.ts` 接到已有的 `codingmatrix.reconnectAgentSession`，按真实结果发布 `progress`（「本地 Agent Host 已连接」）或 `error`（未配置凭据时提示先配置 `apiUrl` 与 `accessToken`）。回归用例 `test/agent-workbench.test.mjs`「routes the workbench connect button to the ready handler」修前失败、修后通过；插件单测 100 → 101 passed / 0 fail。宿主内实点按钮后日志显示 `progress：本地 Agent Host 已连接`。截图见 `/tmp/opencode/host_tabs_host6/connect.png`。VSIX 已再次重新打包。
 
+2026-09-25 修复插件错误信息丢失后端可操作文案：`CloudConnection.request()` 在非 2xx 时直接抛 `cloud request failed with status <code>`，丢弃响应体里后端的说明。实测编排流在磁盘守卫不满足时返回 `507` 加 `{"message":"磁盘空间不足（可用：0.78 GB）"}`，用户侧只看到状态码。现新增 `describeFailure()`：尽力解析 JSON 错误体，取 `message` 或 `detail` 拼到通用信息后（非 JSON 或不可读时回退原信息，不影响既有分支）。回归用例 `test/connection.test.mjs`「surfaces the backend error message for non-retryable failures」修前失败、修后通过；插件单测 101 → 102 passed / 0 fail。宿主内实发需求复验：对话页错误为 `cloud request failed with status 507: 磁盘空间不足（可用：0.74 GB）`。截图见 `/tmp/opencode/host_tabs_drv5/send-error.png`。
+
 | 项 | 结果 | 证据 |
 |---|---|---|
 | Flutter 全量测试 | 492 passed | `flutter test --no-pub --concurrency=1` |
