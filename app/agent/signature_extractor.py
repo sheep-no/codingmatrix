@@ -83,6 +83,29 @@ def _line_signature(line: str) -> str:
     return sig[:200]
 
 
+def _joined_signature_line(lines: list, start: int, max_lines: int = 50) -> tuple:
+    """把跨行的函数/方法签名合并为单行文本，返回 (text, consumed)。
+
+    首行括号已闭合时原样返回。否则向后拼接后续行（最多 ``max_lines`` 行）
+    直到括号深度归零，避免多行参数签名被截成 ``function foo(``（SE5 的
+    JS/TS 剩余场景）。仅按 ``(``/``)`` 计数做启发式，与 ``_line_signature``
+    的括号匹配保持一致。
+    """
+    first = lines[start]
+    depth = first.count('(') - first.count(')')
+    if depth <= 0:
+        return first, 1
+
+    parts = [first.strip()]
+    j = start + 1
+    while j < len(lines) and (j - start) < max_lines and depth > 0:
+        part = lines[j].strip()
+        parts.append(part)
+        depth += part.count('(') - part.count(')')
+        j += 1
+    return ' '.join(parts), j - start
+
+
 # 签名提取正则（与 specialist_base._SYMBOL_PATTERNS 一致）
 SIGNATURE_PATTERNS = {
     ".py": {
@@ -158,8 +181,12 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
             # 同级或更浅时出栈，避免嵌套类覆盖外层类的缩进状态（SE6）。
             class_indents = []
             method_body_indent = None
+            skip_until = -1
 
-            for line in lines:
+            for idx, line in enumerate(lines):
+                # 多行签名合并时后续行已并入签名，跳过，避免被当作字段/方法重复收集
+                if idx <= skip_until:
+                    continue
                 stripped = line.strip()
                 if not stripped or stripped.startswith('#') or stripped.startswith('//'):
                     continue
@@ -191,8 +218,10 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                     # 方法签名行
                     fn_match = patterns.get("method", patterns["function"]).search(line)
                     if fn_match:
-                        result_parts.append(f"  {_line_signature(line)}")
+                        sig_src, span = _joined_signature_line(lines, idx)
+                        result_parts.append(f"  {_line_signature(sig_src)}")
                         method_body_indent = indent
+                        skip_until = idx + span - 1
                         continue
 
                     # 字段定义行（Python: name: Type = default, JS: name = value）
@@ -212,7 +241,9 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 # 顶层函数
                 fn_match = patterns["function"].search(line)
                 if fn_match and not class_indents:
-                    result_parts.append(_line_signature(line))
+                    sig_src, span = _joined_signature_line(lines, idx)
+                    result_parts.append(_line_signature(sig_src))
+                    skip_until = idx + span - 1
 
             if result_parts:
                 return '\n'.join(result_parts)
