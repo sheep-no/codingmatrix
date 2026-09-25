@@ -180,14 +180,7 @@ class ProgressMixin:
             "eta_seconds": round(eta_seconds, 1),
             **kwargs
         }
-        cb = callback or self.callback
-        if cb:
-            try:
-                result = cb(json.dumps(progress, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"进度回调失败: {e}")
+        self._emit_event(progress, label="进度回调", callback=callback)
 
     def _report_file_event(self, file_path: str, content: str, description: str = "", file_type: str = "", operation: str = "create", **kwargs):
         """增强的文件事件，包含文件大小和复杂度"""
@@ -207,13 +200,7 @@ class ProgressMixin:
             "line_count": content.count('\n') + 1,
             **kwargs
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"文件事件推送失败: {e}")
+        self._emit_event(event, label="文件事件")
 
     def _report_file_diff_event(self, file_path: str, old_content: str, new_content: str, operation: str = "create"):
         """增强的文件差异事件"""
@@ -229,13 +216,7 @@ class ProgressMixin:
             "new_line_count": new_content.count('\n') + 1 if new_content else 0,
             "size_delta": len(new_content.encode('utf-8')) - len(old_content.encode('utf-8')) if old_content else len(new_content.encode('utf-8'))
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"文件差异事件推送失败: {e}")
+        self._emit_event(event, label="文件差异事件")
 
     def _report_model_info(self, agent: str, model: str, **kwargs):
         """增强的模型信息事件"""
@@ -246,26 +227,14 @@ class ProgressMixin:
             "timestamp": time.time(),
             **kwargs
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"模型信息事件推送失败: {e}")
+        self._emit_event(event, label="模型信息事件")
 
     def _report_done_event(self, result_data: dict):
         event = {
             "type": "done",
             **result_data
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"完成事件推送失败: {e}")
+        self._emit_event(event, label="完成事件")
 
     def _report_thinking(self, agent: str, message: str, **kwargs):
         """增强的思考事件，支持推理步骤和置信度"""
@@ -276,13 +245,7 @@ class ProgressMixin:
             "timestamp": time.time(),
             **kwargs
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"思考事件推送失败: {e}")
+        self._emit_event(event, label="思考事件")
 
     def _report_test_results(self, test_results: Dict[str, Any]):
         """测试结果事件"""
@@ -291,13 +254,7 @@ class ProgressMixin:
             "timestamp": time.time(),
             **test_results
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"测试结果事件推送失败: {e}")
+        self._emit_event(event, label="测试结果事件")
 
     def _report_validation_results(self, validation_results: Dict[str, Any]):
         """验证结果事件"""
@@ -306,13 +263,7 @@ class ProgressMixin:
             "timestamp": time.time(),
             **validation_results
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"验证结果事件推送失败: {e}")
+        self._emit_event(event, label="验证结果事件")
 
     def _report_cost_update(self, cost_data: Dict[str, Any]):
         """成本更新事件"""
@@ -321,13 +272,7 @@ class ProgressMixin:
             "timestamp": time.time(),
             **cost_data
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"成本更新事件推送失败: {e}")
+        self._emit_event(event, label="成本更新事件")
 
     def _report_performance_metrics(self, metrics: Dict[str, Any]):
         """性能指标事件"""
@@ -336,13 +281,7 @@ class ProgressMixin:
             "timestamp": time.time(),
             **metrics
         }
-        if self.callback:
-            try:
-                result = self.callback(json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    self._track_task(asyncio.create_task(result))
-            except Exception as e:
-                logger.error(f"性能指标事件推送失败: {e}")
+        self._emit_event(event, label="性能指标事件")
 
     def _report_warning(self, message: str, code: str = "", **kwargs):
         """警告事件
@@ -395,16 +334,18 @@ class ProgressMixin:
         }
         self._emit_event(event, label="步骤详情事件")
 
-    def _emit_event(self, event: Dict[str, Any], label: str = "事件"):
-        """统一事件推送入口（P2 充实新增）
+    def _emit_event(self, event: Dict[str, Any], label: str = "事件", callback: Optional[Callable] = None):
+        """统一事件推送入口。
 
-        把 _report_warning / _report_file_rejected / _report_step_detail
-        共用的 callback 调用 + asyncio 任务管理逻辑抽出来。
+        所有 `_report_*` 方法共用此处的 callback 调用 + asyncio 任务管理逻辑，
+        推送侧改动（超时/节流等）只需改这一处。`callback` 参数用于 `_report_progress`
+        临时覆盖 `self.callback`（保持原有 `callback or self.callback` 语义）。
         """
-        if not self.callback:
+        cb = callback or self.callback
+        if not cb:
             return
         try:
-            result = self.callback(json.dumps(event, ensure_ascii=False))
+            result = cb(json.dumps(event, ensure_ascii=False))
             if asyncio.iscoroutine(result):
                 self._track_task(asyncio.create_task(result))
         except Exception as e:

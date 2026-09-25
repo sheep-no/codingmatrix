@@ -166,3 +166,90 @@ class TestLlmCallCount:
         assert metrics["llm_calls"] == 1
         assert events[0]["type"] == "performance_metrics"
         assert events[0]["llm_calls"] == 1
+
+
+class TestEmitEventConvergence:
+    """OP5: 所有 `_report_*` 的推送逻辑收敛到 `_emit_event`。"""
+
+    def _spy(self):
+        reporter = _Reporter()
+        calls = []
+
+        def _emit_event(event, label="事件", callback=None):
+            calls.append((event, label, callback))
+
+        reporter._emit_event = _emit_event
+        return reporter, calls
+
+    def test_every_report_method_routes_through_emit_event(self):
+        reporter, calls = self._spy()
+
+        reporter._report_progress("s", 1, 2)
+        reporter._report_file_event("a.py", "x = 1\n", file_type="utils")
+        reporter._report_file_diff_event("a.py", "a\n", "b\n")
+        reporter._report_model_info("agent", "model")
+        reporter._report_done_event({"success": True})
+        reporter._report_thinking("agent", "msg")
+        reporter._report_test_results({"passed": 1})
+        reporter._report_validation_results({"ok": True})
+        reporter._report_cost_update({"cost": 1})
+        reporter._report_performance_metrics({"x": 1})
+        reporter._report_warning("w")
+        reporter._report_file_rejected("a.py", "no")
+        reporter._report_step_detail("desc")
+
+        assert [call[0]["type"] for call in calls] == [
+            "progress",
+            "file",
+            "file_diff",
+            "model_info",
+            "done",
+            "thinking",
+            "test_results",
+            "validation_results",
+            "cost_update",
+            "performance_metrics",
+            "warning",
+            "file_rejected",
+            "step_detail",
+        ]
+        assert all(call[1] for call in calls)
+
+    def test_report_progress_forwards_explicit_callback_override(self):
+        reporter, calls = self._spy()
+        explicit = object()
+
+        reporter._report_progress("s", 1, 2, callback=explicit)
+
+        assert calls[0][2] is explicit
+
+    def test_emit_event_prefers_explicit_callback(self):
+        reporter = _Reporter()
+        seen = []
+        default_cb = lambda raw: seen.append(("default", raw))
+        override_cb = lambda raw: seen.append(("override", raw))
+        reporter.callback = default_cb
+
+        reporter._emit_event({"type": "x"}, callback=override_cb)
+
+        assert len(seen) == 1 and seen[0][0] == "override"
+
+    @pytest.mark.asyncio
+    async def test_emit_event_uses_self_callback_and_schedules_coroutine(self):
+        reporter = _Reporter()
+        seen = []
+
+        async def cb(raw):
+            seen.append(json.loads(raw))
+
+        reporter.callback = cb
+        reporter._emit_event({"type": "y"})
+
+        assert reporter._pending_tasks
+        await asyncio.gather(*reporter._pending_tasks)
+        assert seen == [{"type": "y"}]
+
+    def test_emit_event_no_callback_is_noop(self):
+        reporter = _Reporter()
+        reporter._emit_event({"type": "z"})
+        assert getattr(reporter, "_pending_tasks", None) is None
