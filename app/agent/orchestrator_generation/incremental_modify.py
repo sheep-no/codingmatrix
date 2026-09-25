@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Any
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.topology_scheduler import HeartbeatTracker
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 
 logger = logging.getLogger(__name__)
@@ -584,7 +585,13 @@ class IncrementalModifyMixin:
             # 并行生成当前层的所有文件
             tasks = []
             for file_path in layer_files:
-                tasks.append(generate_single_file(file_path))
+                # 每个文件独立心跳跟踪器，与 orchestrator_files 的生成路径一致：
+                # tracker 经由 _generate_file_with_model 透传给工程师的 LLM 调用，
+                # 用于流式思考与停滞检测（此前恒为 None，心跳追踪未接线）。
+                tracker = HeartbeatTracker(
+                    timeout=float(getattr(self, "heartbeat_timeout", 120.0))
+                )
+                tasks.append(generate_single_file(file_path, tracker))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
