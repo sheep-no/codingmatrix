@@ -74,6 +74,29 @@ def test_history_summary_is_included_in_prompt():
     assert "用户之前在准备发布计划。" in prompt
 
 
+@pytest.mark.asyncio
+async def test_background_task_keeps_strong_reference():
+    """GIR1 残留：fire-and-forget 任务必须持有强引用，避免完成前被 GC。"""
+    import asyncio
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def work():
+        started.set()
+        await release.wait()
+
+    task = girl_module._track_background_task(work())
+    await started.wait()
+
+    assert task in girl_module._BACKGROUND_TASKS
+
+    release.set()
+    await task
+    await asyncio.sleep(0)
+    assert task not in girl_module._BACKGROUND_TASKS
+
+
 def test_llm_response_validation_allows_missing_usage():
     content, tokens = _extract_llm_response({
         "choices": [{"message": {"content": "有效回复"}}]

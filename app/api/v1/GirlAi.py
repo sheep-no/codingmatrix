@@ -62,6 +62,18 @@ from app.services.girlai_companion_memory import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 后台任务强引用集合：asyncio 仅持弱引用，未保存句柄的 fire-and-forget 任务
+# 可能在完成前被垃圾回收（表现为静默取消）。模块级集合持有引用直到任务结束。
+_BACKGROUND_TASKS: set = set()
+
+
+def _track_background_task(coro) -> asyncio.Task:
+    """调度后台任务并保持强引用，任务结束后自动从集合移除。"""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 # 并发限制
 _max_concurrent_calls = asyncio.Semaphore(10)
 
@@ -634,7 +646,7 @@ async def generate_message(
             logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
 
             # 异步提取用户偏好（不阻塞响应）
-            asyncio.create_task(
+            _track_background_task(
                 _extract_user_preferences(user_id, body.prompt, ai_content)
             )
 
