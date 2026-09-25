@@ -257,3 +257,92 @@ class TestHunkApplicationFixes:
         assert result.success is True
         assert result.patched_content.splitlines() == ["a", "", "b", "c", "d"]
         assert result.errors == []
+
+
+class TestApplyPatchToFileAtomicWrite:
+    """CP5: apply_patch_to_file 采用临时文件 + os.replace 原子写。"""
+
+    @pytest.fixture
+    def patcher(self):
+        from app.agent.code_patcher import CodePatcher
+
+        return CodePatcher()
+
+    def _temp_files(self, directory):
+        return [p for p in directory.iterdir() if p.suffix == ".tmp"]
+
+    def test_writes_patched_content_and_backup(self, patcher, tmp_path):
+        target = tmp_path / "a.py"
+        target.write_text("line1\nline2\nline3\n", encoding="utf-8")
+        patch = (
+            "--- a/a.py\n"
+            "+++ b/a.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            "-line1\n"
+            "+modified\n"
+            " line2\n"
+            " line3\n"
+        )
+
+        result = asyncio.run(
+            patcher.apply_patch_to_file(target, patch, output_dir=tmp_path)
+        )
+
+        assert result.success is True
+        assert target.read_text(encoding="utf-8") == "modified\nline2\nline3"
+        backup = tmp_path / "a.py.bak"
+        assert backup.read_text(encoding="utf-8") == "line1\nline2\nline3\n"
+        # 原子写不得留下临时文件
+        assert self._temp_files(tmp_path) == []
+
+    def test_failed_patch_leaves_file_untouched_and_no_backup(self, patcher, tmp_path):
+        target = tmp_path / "a.py"
+        target.write_text("line1\n", encoding="utf-8")
+
+        result = asyncio.run(
+            patcher.apply_patch_to_file(target, "invalid patch", output_dir=tmp_path)
+        )
+
+        assert result.success is False
+        assert target.read_text(encoding="utf-8") == "line1\n"
+        assert not (tmp_path / "a.py.bak").exists()
+        assert self._temp_files(tmp_path) == []
+
+    def test_write_does_not_depend_on_path_write_text(self, patcher, tmp_path, monkeypatch):
+        """CP5: 直接写文本在中途失败时会污染目标文件；原子写走临时文件 + os.replace。"""
+        target = tmp_path / "a.py"
+        target.write_text("line1\nline2\nline3\n", encoding="utf-8")
+        patch = (
+            "--- a/a.py\n"
+            "+++ b/a.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            "-line1\n"
+            "+modified\n"
+            " line2\n"
+            " line3\n"
+        )
+
+        def broken_write_text(self, data, encoding=None, errors=None, newline=None):
+            raise OSError("simulated crash mid-write")
+
+        monkeypatch.setattr(Path, "write_text", broken_write_text)
+
+        result = asyncio.run(
+            patcher.apply_patch_to_file(target, patch, output_dir=tmp_path)
+        )
+
+        assert result.success is True
+        assert target.read_text(encoding="utf-8") == "modified\nline2\nline3"
+
+    def test_rejects_path_outside_output_dir(self, patcher, tmp_path):
+        safe = tmp_path / "safe"
+        safe.mkdir()
+        outside = tmp_path / "outside.py"
+        outside.write_text("x = 1\n", encoding="utf-8")
+
+        result = asyncio.run(
+            patcher.apply_patch_to_file(outside, "--- a/a.py\n", output_dir=safe)
+        )
+
+        assert result.success is False
+        assert outside.read_text(encoding="utf-8") == "x = 1\n"

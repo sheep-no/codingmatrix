@@ -18,14 +18,36 @@ CodePatcher - 代码补丁生成器
 4. 验证 patch 应用结果
 """
 
+import os
 import re
 import logging
 import difflib
+import tempfile
 from typing import Dict, List, Optional
 from pathlib import Path
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """同目录写临时文件 + fsync + os.replace，避免中断留下半写文件（CP5）。"""
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 @dataclass
@@ -276,12 +298,12 @@ class CodePatcher:
         result = await self.apply_patch(str(file_path), original_content, patch)
 
         if result.success:
-            # 备份原文件
+            # 备份原文件（原子写，避免备份与写入之间中断留下半写 .bak）
             backup_path = file_path.with_suffix(file_path.suffix + '.bak')
-            backup_path.write_text(original_content, encoding='utf-8')
+            _atomic_write_text(backup_path, original_content)
 
-            # 写入 patch 后的内容
-            file_path.write_text(result.patched_content, encoding='utf-8')
+            # 原子写入 patch 后的内容：进程中断不会留下半写文件
+            _atomic_write_text(file_path, result.patched_content)
 
         return result
 
