@@ -3154,6 +3154,13 @@ async def get_template_sample(template_id: str, page: int):
     if page < 1 or page > 3:
         raise HTTPException(status_code=422, detail="样张页码必须为 1 到 3")
     from app.services.ppt_template_samples import ensure_template_sample, _paths
+    from app.utils.pptx.templates.manager import TemplateManager
+    try:
+        # 解析别名到规范 id，保证缓存目录与 _paths 命中同一位置
+        template_id = TemplateManager().select_template(template_id)
+    except KeyError:
+        # 未知模板是请求侧问题，返回 404 而不是让 KeyError 冒泡成 500
+        raise HTTPException(status_code=404, detail="模板不存在")
     await ensure_template_sample(template_id)
     path = _paths(template_id)["png_dir"] / f"slide-{page}.png"
     if not path.is_file():
