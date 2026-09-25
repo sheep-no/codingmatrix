@@ -109,3 +109,103 @@ def test_grep_reports_no_undecodable_for_valid_files(tmp_path):
 
     assert result["undecodable_files"] == []
     assert result["matched_files"] == 1
+
+
+class TestReadStreaming:
+    """FO5: read 流式分页，不依赖 readlines 全量载入。"""
+
+    def _operator(self, root: Path) -> FileOperator:
+        return FileOperator(base_path=str(root), allow_protected_paths=True)
+
+    def test_paging_matches_expected_semantics(self, tmp_path):
+        (tmp_path / "data.txt").write_text(
+            "\n".join(f"line{i}" for i in range(1, 11)) + "\n", encoding="utf-8"
+        )
+        operator = self._operator(tmp_path)
+
+        first = operator.read("data.txt", offset=0, limit=3)
+        assert first["total_lines"] == 10
+        assert first["offset"] == 0
+        assert first["has_more"] is True
+        assert first["content"] == "line1\nline2\nline3\n"
+
+        tail = operator.read("data.txt", offset=8, limit=5)
+        assert tail["offset"] == 8
+        assert tail["has_more"] is False
+        assert tail["content"] == "line9\nline10\n"
+
+    def test_offset_beyond_eof_clamps_to_total(self, tmp_path):
+        (tmp_path / "data.txt").write_text("a\nb\n", encoding="utf-8")
+        operator = self._operator(tmp_path)
+
+        result = operator.read("data.txt", offset=99, limit=10)
+
+        assert result["offset"] == 2
+        assert result["has_more"] is False
+        assert result["content"] == ""
+
+    def test_does_not_call_readlines(self, tmp_path, monkeypatch):
+        """FO5: 大文件读取不应触发 readlines（一次性全量载入）。"""
+        (tmp_path / "data.txt").write_text("x\ny\nz\n", encoding="utf-8")
+        operator = self._operator(tmp_path)
+
+        real_open = open
+
+        class NoReadlines:
+            def __init__(self, handle):
+                self._handle = handle
+
+            def __iter__(self):
+                return iter(self._handle)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return self._handle.__exit__(*exc)
+
+            def readlines(self):
+                raise AssertionError("read 不应调用 readlines")
+
+        def fake_open(*args, **kwargs):
+            return NoReadlines(real_open(*args, **kwargs))
+
+        monkeypatch.setattr("builtins.open", fake_open)
+
+        result = operator.read("data.txt", offset=1, limit=1)
+
+        assert result["total_lines"] == 3
+        assert result["content"] == "y\n"
+
+    def test_stats_counts_lines_without_readlines(self, tmp_path, monkeypatch):
+        """FO5: stats 逐文件计数改为流式，仍能正确统计行数。"""
+        (tmp_path / "a.txt").write_text("1\n2\n3\n", encoding="utf-8")
+        (tmp_path / "b.txt").write_text("x\n", encoding="utf-8")
+        operator = self._operator(tmp_path)
+
+        real_open = open
+
+        class NoReadlines:
+            def __init__(self, handle):
+                self._handle = handle
+
+            def __iter__(self):
+                return iter(self._handle)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return self._handle.__exit__(*exc)
+
+            def readlines(self):
+                raise AssertionError("stats 不应调用 readlines")
+
+        monkeypatch.setattr(
+            "builtins.open", lambda *a, **k: NoReadlines(real_open(*a, **k))
+        )
+
+        result = operator.stats(".")
+
+        assert result["total_files"] == 2
+        assert result["total_lines"] == 4
