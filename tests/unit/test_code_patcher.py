@@ -346,3 +346,45 @@ class TestApplyPatchToFileAtomicWrite:
 
         assert result.success is False
         assert outside.read_text(encoding="utf-8") == "x = 1\n"
+
+
+class TestExtractPatchFromResponse:
+    """CP7: 无 fenced 块时，第三 fallback 只提取 diff 行，不吞并解释文字。"""
+
+    @pytest.fixture
+    def patcher(self):
+        from app.agent.code_patcher import CodePatcher
+
+        return CodePatcher()
+
+    def test_trailing_prose_is_excluded(self, patcher):
+        response = (
+            "Here is the diff:\n"
+            "--- a/a.py\n"
+            "+++ b/a.py\n"
+            "@@ -1 +1 @@\n"
+            "-x\n"
+            "+y\n"
+            "\n"
+            "This change renames x to y.\n"
+        )
+
+        patch = patcher._extract_patch_from_response(response)
+
+        assert patch is not None
+        assert "--- a/a.py" in patch
+        assert "-x" in patch
+        assert "+y" in patch
+        assert "This change renames" not in patch
+
+    def test_multiple_file_diff_is_kept(self, patcher):
+        response = (
+            "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x\n+y\n"
+            "--- a/b.py\n+++ b/b.py\n@@ -1 +1 @@\n-p\n+q\n"
+        )
+
+        patch = patcher._extract_patch_from_response(response)
+
+        assert patch is not None
+        assert "a/b.py" in patch and "b/b.py" in patch
+        assert "+q" in patch

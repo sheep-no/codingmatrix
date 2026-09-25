@@ -203,8 +203,10 @@ def test_apply_patch_failure(self, patcher): ...
 - **CP6 [P3] 已修**：`_parse_patch` 的 hunk body 收集原为 `while lines[i].startswith(('+','-',' '))`——LLM 生成 diff 时若把空上下文行的尾随空格去掉（形成裸空行 `''`），收集会在该行提前终止，hunk 被截断、后续 body 行被当作非 hunk 行跳过。实测 patch `@@ -1,4 +1,4 @@` 含裸空行时，`_apply_hunks` 返回 None、`_apply_hunks_fuzzy` 仅应用首行，`apply_patch` 却置 `success=True` 并把 `"a\n\nc\nd"` 静默写成 `"a"`。现把裸空行按空上下文行处理（归一化为 `' '`），并以 `old_count`/`new_count` 预算判定 body 何时收集完毕——达到声明计数立即收束，不再吞并后续文本。同时 `_parse_patch` 的 `split('\n')` 改为 `splitlines()`，避免以换行结尾的 patch 多出的合成空串被误当作空上下文行吞入。
 - **回归**：`tests/unit/test_code_patcher.py` 新增 `test_bare_empty_context_line_does_not_truncate_hunk`（14 项），回退 `code_patcher.py` 后该项失败。全量 `4954 passed, 3 skipped`，覆盖率 `64.45%`。
 
-## 8. CP5 修复（2026-09-25）
+## 8. CP5/CP7 修复（2026-09-25）
 
 - **CP5 [P3] 已修**：`apply_patch_to_file` 原先 `backup_path.write_text(...)` 与 `file_path.write_text(...)` 直接覆盖写，进程中断会留下半写文件（备份与实际内容不一致）。新增模块级 `_atomic_write_text`——同目录 `tempfile.mkstemp` → `flush` + `os.fsync` → `os.replace` 原子替换，失败时清理临时文件；备份与新内容均走该原子写。
-- **回归**：`tests/unit/test_code_patcher.py` 新增 `TestApplyPatchToFileAtomicWrite`（3 项：写入内容与备份、失败不动原文件且无 `.bak`、原子写不依赖 `Path.write_text`），回退 `code_patcher.py` 后「不依赖 `Path.write_text`」项失败（旧路径在备份阶段抛 `OSError`）。`apply_patch_to_file` 此前零用例。
+- **CP7 [P3] 已修**：`_extract_patch_from_response` 的第三 fallback 原先 `return '\n'.join(lines[start_idx:])`，把首个 `--- ` 起至响应末尾整段当 patch，LLM 在 diff 后附带的解释文字会混入。现只收集 diff 行（`--- `/`+++ `/`@@ `/上下文/`+`/`-`/`\`/裸空行），遇到非 diff 行即停止。`_parse_patch` 对非 hunk 行本会跳过，故此前多数场景无害，修复使返回的 `diff` 字段不再污染。
+- **回归**：`tests/unit/test_code_patcher.py` 新增 `TestApplyPatchToFileAtomicWrite`（3 项）+ `TestExtractPatchFromResponse`（2 项）。回退 `code_patcher.py` 后「原子写不依赖 `Path.write_text`」与「trailing prose 不混入」两项失败（旧路径分别在备份阶段抛 `OSError`、把响应剩余整段带入）。`apply_patch_to_file` 此前零用例。
 - **CP4 [P3] 仍未处理**：`.bak` 备份文件按设计保留（供人工回滚），其残留/只留最后一版属「是否删除备份或改用临时目录」的产品决策，保留待决。
+- **CP10 [P2] 仍未处理**：`CrossFilePatcher.primary_result` 多文件循环覆盖 + `_apply_patches_incremental` 无入口，属结构性/接线项。
