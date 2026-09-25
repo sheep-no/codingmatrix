@@ -223,7 +223,7 @@ const loadModels=function(){
     if(!roleKeys.length){empty(rolesTarget,'未配置角色模型');}
     roleKeys.forEach(function(key){
       const role=roles[key]||{};
-      rolesTarget.appendChild(row(key,role.model||role.model_id||role.name||'-'));
+      rolesTarget.appendChild(row(key,typeof role==='string'?role:(role.model||role.model_id||role.name||'-')));
     });
     const usageTarget=$('model-usage');
     usageTarget.textContent='';
@@ -314,7 +314,11 @@ const loadLearning=function(){
     if(!patterns.length){empty(errorTarget,'暂无常见错误');}
     patterns.forEach(function(item){
       const meta=[item.error_message||'','频次 '+String(item.frequency||0),'成功率 '+percent(item.success_rate)+'%'];
-      if(item.fix_description)meta.push('修复：'+item.fix_description);
+      // Backend fix descriptions already carry a "修复" prefix; strip it so the
+      // rendered row does not read "修复：修复: ...".
+      // The inline script is a template literal, so the whitespace escape needs
+      // a doubled backslash or it collapses to a plain "s".
+      if(item.fix_description)meta.push('修复：'+item.fix_description.replace(/^修复[：:\\s]*/,''));
       errorTarget.appendChild(listItem(item.error_type||'未知错误',meta.join(' · ')));
     });
     setStatus('学习统计已更新');
@@ -510,7 +514,7 @@ export function createAgentWorkbenchHtml(): string {
 <div class="panel"><button id="models-refresh">刷新模型与用量</button><div id="model-roles"></div><div id="model-usage"></div><div id="model-detail"></div></div>
 </section>
 <section class="tab-panel" id="tab-versions">
-<div class="panel"><p>留空时使用最近一次 Agent 会话的 ID。</p><input type="text" id="version-session" placeholder="会话 ID"><button id="versions-load">读取版本</button><div id="version-list"></div><div id="version-diff"></div></div>
+<div class="panel"><p>填写 Agent 会话 ID；留空时使用本工作台最近完成生成会话的 ID。</p><input type="text" id="version-session" placeholder="会话 ID"><button id="versions-load">读取版本</button><div id="version-list"></div><div id="version-diff"></div></div>
 </section>
 <section class="tab-panel" id="tab-performance">
 <div class="panel"><button id="performance-refresh">刷新性能</button><div id="performance-body"></div><div id="performance-trends"></div></div>
