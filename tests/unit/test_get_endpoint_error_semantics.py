@@ -1,4 +1,4 @@
-"""GET 端点不得因「资源不存在 / 结果为空」返回 500。
+"""GET 端点不得因「资源不存在 / 结果为空 / 可选依赖缺失」返回 500。
 
 运行时冒烟（对全部非 Agent GET 端点做占位参数探测）发现两处 500：
 
@@ -10,12 +10,18 @@
   `TemplateManager.select_template` 的 `KeyError` 冒泡成 500；同一个
   未解析的 id 还会传给 `_paths`，使别名（`business` → `business_report`）
   命中错误目录而误报「样张暂不可用」。
+- `GET /api/v2/Controller/admin/docker/containers`：Docker SDK 属可选依赖
+  （未列入 requirements.txt），缺失时被泛化的 `except Exception` 转成 500
+  `INTERNAL_ERROR`。依赖不可用应报 503。
 """
+
+import sys
 
 import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import aiGeneratorPptx, aicloud
+from app.api.v2 import guardian_router
 from app.schema.aicloud import SessionResponse
 
 
@@ -90,3 +96,15 @@ async def test_template_preview_resolves_alias_before_locating_sample(monkeypatc
 
     assert captured == {"ensure": "business_report", "paths": "business_report"}
     assert str(response.path) == str(tmp_path / "slide-1.png")
+
+
+@pytest.mark.asyncio
+async def test_docker_containers_missing_sdk_returns_503(monkeypatch):
+    """可选依赖缺失是服务不可用（503），而不是内部错误（500）。"""
+    # sys.modules 中置 None 会让 `import docker` 抛 ImportError
+    monkeypatch.setitem(sys.modules, "docker", None)
+
+    with pytest.raises(HTTPException) as exc:
+        await guardian_router.list_docker_containers(token={"sub": "1"})
+
+    assert exc.value.status_code == 503

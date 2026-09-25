@@ -381,6 +381,14 @@ async def list_docker_containers(token: dict = Depends(require_admin)):
     """
     try:
         import docker
+    except ImportError:
+        # Docker SDK 属可选依赖（未列入 requirements.txt），缺失时按服务不可用处理
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Docker SDK 未安装，容器列表功能不可用",
+        )
+
+    try:
         client = docker.from_env()
 
         containers = client.containers.list(
