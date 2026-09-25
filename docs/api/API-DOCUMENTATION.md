@@ -441,7 +441,7 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 | PUT | `/api/v2/Controller/admin/log-config/level` | 更新日志级别 | super |
 | PUT | `/api/v2/Controller/admin/log-config/global-level` | 全局日志级别 | super |
 | GET | `/api/v2/Controller/admin/memory` | 内存统计 | super |
-| GET | `/api/v2/Controller/admin/backup` | 创建备份 | super |
+| POST | `/api/v2/Controller/admin/backup` | 创建备份 | super |
 | GET | `/api/v2/Controller/admin/backup/list` | 备份列表 | super |
 | GET | `/api/v2/Controller/admin/backup/{timestamp}` | 下载备份 | super |
 | POST | `/api/v2/Controller/admin/backup/restore` | 恢复备份 | super |
@@ -748,7 +748,7 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 - [x] PUT /api/v2/Controller/admin/log-config/level - 更新日志级别
 - [x] PUT /api/v2/Controller/admin/log-config/global-level - 全局日志级别
 - [x] GET /api/v2/Controller/admin/memory - 内存统计
-- [x] GET /api/v2/Controller/admin/backup - 创建备份
+- [x] POST /api/v2/Controller/admin/backup - 创建备份
 - [x] GET /api/v2/Controller/admin/backup/list - 备份列表
 - [x] GET /api/v2/Controller/admin/backup/{timestamp} - 下载备份
 - [x] POST /api/v2/Controller/admin/backup/restore - 恢复备份
