@@ -193,7 +193,7 @@ def test_apply_patch_failure(self, patcher): ...
 
 **仍未处理**：
 
-- **CP10 [P2]**：`CrossFilePatcher.primary_result` 多文件循环覆盖 + `_apply_patches_incremental` 无入口（OF10 死代码）。整链路不可达，属结构性/接线项，保留。
+- **CP10 [P2]**：`CrossFilePatcher.primary_result` 多文件循环覆盖语义已于 2026-09-25 修复（见 §9）；`_apply_patches_incremental` 无入口（OF10 死代码）仍属结构性/接线项，保留待决。
 - **CP4/CP5/CP7 [P3]**：`.bak` 残留、非原子写、第三 fallback 过度提取，均为代码级结论，保留。
 
 **回归**：`tests/unit/test_code_patcher.py` 由 6 项扩到 13 项（新增多 hunk 漂移、上下文不匹配拒绝/匹配通过、新文件创建无残留错误、fuzzy 偏移优先级）；回退 `code_patcher.py` 后新增用例 4 项失败。全量 4600+ passed / 3 skipped / cov 62.7%。
@@ -209,4 +209,10 @@ def test_apply_patch_failure(self, patcher): ...
 - **CP7 [P3] 已修**：`_extract_patch_from_response` 的第三 fallback 原先 `return '\n'.join(lines[start_idx:])`，把首个 `--- ` 起至响应末尾整段当 patch，LLM 在 diff 后附带的解释文字会混入。现只收集 diff 行（`--- `/`+++ `/`@@ `/上下文/`+`/`-`/`\`/裸空行），遇到非 diff 行即停止。`_parse_patch` 对非 hunk 行本会跳过，故此前多数场景无害，修复使返回的 `diff` 字段不再污染。
 - **回归**：`tests/unit/test_code_patcher.py` 新增 `TestApplyPatchToFileAtomicWrite`（3 项）+ `TestExtractPatchFromResponse`（2 项）。回退 `code_patcher.py` 后「原子写不依赖 `Path.write_text`」与「trailing prose 不混入」两项失败（旧路径分别在备份阶段抛 `OSError`、把响应剩余整段带入）。`apply_patch_to_file` 此前零用例。
 - **CP4 [P3] 仍未处理**：`.bak` 备份文件按设计保留（供人工回滚），其残留/只留最后一版属「是否删除备份或改用临时目录」的产品决策，保留待决。
-- **CP10 [P2] 仍未处理**：`CrossFilePatcher.primary_result` 多文件循环覆盖 + `_apply_patches_incremental` 无入口，属结构性/接线项。
+- **CP10 [P2] 部分已修**：`primary_result` 多文件循环覆盖语义见 §9；`_apply_patches_incremental` 无入口属结构性/接线项，保留。
+
+## 9. CP10 修复（2026-09-25）
+
+- **CP10 [P2] 语义部分已修**：`generate_cross_file_patches` 原在 `for changed_file in changed_files` 中对**每个**成功应用都执行 `result.primary_result = patch_result`，导致多文件变更时 `primary_result` 指向最后一个文件，而 `primary_file` 声明的是 `changed_files[0]`，二者错位。现仅在 `changed_file == result.primary_file` 时写入 `primary_result`，其余直接变更文件结果收集到新增字段 `CrossFilePatchResult.changed_results`，`dependent_results` 仍专用于下游受影响文件；日志补 `changed=` 计数。
+- **残留**：整条跨文件补丁链路的入口 `_apply_patches_incremental`（orchestrator_files.py）仍无调用方（OF10 死代码），属结构性/接线决策（接线或删除），保留待决。
+- **回归**：`tests/unit/test_code_patcher.py` 新增 `test_cross_file_patcher_primary_result_tracks_primary_file`（21 项），回退源码后该用例断言 `primary_result.file_path == 'third.py'` 失败。

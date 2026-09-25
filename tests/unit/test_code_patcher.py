@@ -90,6 +90,43 @@ class TestCodePatcher:
                 file_contents={"a.py": "x = 1\n"},
             ))
 
+    def test_cross_file_patcher_primary_result_tracks_primary_file(self):
+        """CP10: primary_result 必须对应 changed_files[0]，不被后续文件覆盖。"""
+        from app.agent.code_patcher import CrossFilePatcher, PatchResult
+
+        class SuccessPatcher:
+            async def generate_patch_from_requirement(self, *args, **kwargs):
+                return "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-x\n+y\n"
+
+            async def apply_patch(self, file_path, content, patch):
+                return PatchResult(
+                    success=True,
+                    file_path=file_path,
+                    original_content=content,
+                    patched_content=content,
+                    diff="",
+                    errors=[],
+                    warnings=[],
+                )
+
+        patcher = CrossFilePatcher(SuccessPatcher())
+        result = asyncio.run(patcher.generate_cross_file_patches(
+            requirement="rename x",
+            changed_files=["first.py", "second.py", "third.py"],
+            affected_files={},
+            project_path=Path("."),
+            file_contents={
+                "first.py": "x = 1\n",
+                "second.py": "y = 1\n",
+                "third.py": "z = 1\n",
+            },
+        ))
+
+        assert result.primary_file == "first.py"
+        assert result.primary_result is not None
+        assert result.primary_result.file_path == "first.py"
+        assert [r.file_path for r in result.changed_results] == ["second.py", "third.py"]
+
     def test_apply_incremental_change_raises_when_file_missing(self, tmp_path):
         from app.agent.code_patcher import apply_incremental_change
 
