@@ -227,9 +227,7 @@ from .helpers import (
     _detect_and_clean_zombie_sessions, cleanup_session_files,
 )
 from app.agent.conversation_store import get_conversation_store
-from app.utils.guardrails import (
-    check_disk_space, check_rate_limit, validate_session_id
-)
+from app.utils.guardrails import check_disk_space, check_rate_limit
 from app.core.paths import PROJECTS_BASE_DIR
 from .single_file_generation import generate_single_file
 

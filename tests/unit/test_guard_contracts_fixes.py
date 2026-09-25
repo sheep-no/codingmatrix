@@ -98,3 +98,24 @@ class TestSignatureComparison:
         contracts = _signature_contracts()
         changed = "def verify_token(user):\n    return True\n"
         assert contracts.check_file("app/auth/service.py", changed) == []
+
+
+class TestRuleCleanup:
+    """GC5：移除死字段与空操作规则。"""
+
+    def test_guard_rule_has_no_allowed_changes_field(self):
+        rule = GuardRule(
+            id="GC-TEST",
+            severity=Severity.WARNING,
+            description="测试规则",
+            file_pattern=r".*\.py",
+            protected_patterns=["foo"],
+        )
+        assert not hasattr(rule, "allowed_changes")
+
+    def test_default_rules_have_no_empty_placeholder(self):
+        rules = GuardContracts().rules
+        assert rules, "默认规则集不应为空"
+        # 空 protected_patterns 的规则在 existence 检查下永不触发，属占位噪音
+        assert all(rule.protected_patterns for rule in rules)
+        assert {rule.id for rule in rules}.isdisjoint({"GC-009", "GC-010"})

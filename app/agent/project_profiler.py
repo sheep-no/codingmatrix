@@ -76,6 +76,14 @@ def _make_import_pattern(language: str) -> re.Pattern:
     return re.compile(r"^\s*(?:import|use|require|include)\s+[\"']?([\w./@-]+)")
 
 
+# 语言别名：TypeScript 与 JavaScript 共用同一套分析规则
+_LANGUAGE_ALIASES: Dict[str, str] = {
+    "typescript": "javascript",
+    "ts": "javascript",
+    "js": "javascript",
+}
+
+
 LANGUAGE_PROFILES: Dict[str, LanguageProfile] = {
     "python": LanguageProfile(
         extensions=(".py",),
@@ -245,6 +253,8 @@ class ProjectProfiler:
     ):
         self.project_root = Path(project_root)
         self.language = (language or "python").lower()
+        # 与 detect_project_language 保持一致：TypeScript 项目按 JavaScript 规则分析
+        self.language = _LANGUAGE_ALIASES.get(self.language, self.language)
         if self.language not in LANGUAGE_PROFILES:
             logger.warning(f"不支持的语言 '{self.language}'，回退到 'python'")
             self.language = "python"
@@ -595,7 +605,7 @@ class ProjectProfiler:
         """将模块名转回文件路径（按语言）"""
         if self.language == "python":
             return f"{module.replace('.', '/')}.py"
-        if self.language in ("javascript", "typescript"):
+        if self.language == "javascript":
             # 简单回退：保留原样（实际可能需特殊处理 index.*）
             return f"{module}.js"
         if self.language == "go":
@@ -651,7 +661,7 @@ class ProjectProfiler:
             prefix = sum(1 for f in test_files if f.name.startswith("test_"))
             suffix = sum(1 for f in test_files if f.name.endswith("_test.py"))
             return "test_*.py" if prefix >= suffix else "*_test.py"
-        if self.language in ("javascript", "typescript"):
+        if self.language == "javascript":
             spec = sum(1 for f in test_files if ".spec." in f.name)
             test = sum(1 for f in test_files if ".test." in f.name)
             return "*.spec.js" if spec >= test else "*.test.js"

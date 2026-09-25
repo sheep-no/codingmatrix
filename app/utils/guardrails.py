@@ -16,7 +16,7 @@ import re
 import threading
 import shutil
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Set
+from typing import Optional, Dict, Any
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -131,49 +131,6 @@ class PromptInjectionDetector:
             return True
         
         return False
-
-
-# ============================================================================
-# 会话 ID 验证
-# ============================================================================
-
-class SessionIdValidator:
-    """验证会话 ID 格式和安全性"""
-    
-    # 允许的字符模式
-    VALID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
-    
-    # 长度限制
-    MIN_LENGTH = 5
-    MAX_LENGTH = 128
-    
-    # 保留前缀（防止与系统内部 ID 冲突）
-    RESERVED_PREFIXES = ("sys_", "admin_", "internal_", "test_")
-    
-    @classmethod
-    def validate(cls, session_id: Optional[str]) -> tuple[bool, str]:
-        """
-        验证会话 ID
-        
-        Returns:
-            (is_valid, error_message)
-        """
-        if not session_id:
-            return False, "会话 ID 不能为空"
-        
-        if len(session_id) < cls.MIN_LENGTH:
-            return False, f"会话 ID 长度不能少于 {cls.MIN_LENGTH} 个字符"
-        
-        if len(session_id) > cls.MAX_LENGTH:
-            return False, f"会话 ID 长度不能超过 {cls.MAX_LENGTH} 个字符"
-        
-        if not cls.VALID_PATTERN.match(session_id):
-            return False, "会话 ID 只能包含字母、数字、下划线和连字符"
-        
-        if session_id.lower().startswith(cls.RESERVED_PREFIXES):
-            return False, "会话 ID 不能使用保留前缀"
-        
-        return True, ""
 
 
 # ============================================================================
@@ -398,7 +355,6 @@ class InMemoryRateLimiter:
 class GuardrailContext:
     """防护上下文"""
     prompt_injection_detector: PromptInjectionDetector = field(default_factory=PromptInjectionDetector)
-    session_id_validator: SessionIdValidator = field(default_factory=SessionIdValidator)
     path_security_checker: PathSecurityChecker = field(default_factory=PathSecurityChecker)
     disk_space_monitor: DiskSpaceMonitor = field(default_factory=DiskSpaceMonitor)
     rate_limiter: InMemoryRateLimiter = field(default_factory=lambda: InMemoryRateLimiter(
@@ -440,13 +396,6 @@ def check_prompt_safety(text: str) -> tuple[bool, str]:
         return False, f"检测到潜在的注入攻击（风险等级：{result['risk_level']}）"
     
     return True, ""
-
-
-def validate_session_id(session_id: Optional[str]) -> tuple[bool, str]:
-    """验证会话 ID"""
-    if session_id is None or session_id == "":
-        return False, "会话 ID 不能为空"
-    return SessionIdValidator.validate(session_id)
 
 
 def check_path_safety(path: str, base_dir: Optional[str] = None) -> tuple[bool, str]:

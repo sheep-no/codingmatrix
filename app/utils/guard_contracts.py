@@ -12,8 +12,8 @@
     violations = check_file_against_contracts(file_path, changes)
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 from pathlib import Path
 import ast
 import re
@@ -40,7 +40,6 @@ class GuardRule:
     description: str
     file_pattern: str  # 正则匹配文件路径
     protected_patterns: List[str]  # 保护的函数/类/变量名
-    allowed_changes: List[str] = field(default_factory=list)  # 允许变更的白名单
     check_type: str = "existence"  # existence, signature, type_check
 
 
@@ -160,23 +159,6 @@ class GuardContracts:
                 check_type="existence",
             ),
 
-            # 🟢 通知：记录变更
-            GuardRule(
-                id="GC-009",
-                severity=Severity.NOTICE,
-                description="工具函数变更已记录",
-                file_pattern=r".*utils.*.py",
-                protected_patterns=[],
-                check_type="existence",
-            ),
-            GuardRule(
-                id="GC-010",
-                severity=Severity.NOTICE,
-                description="Schema 变更已记录",
-                file_pattern=r".*schema.*.py",
-                protected_patterns=[],
-                check_type="existence",
-            ),
         ]
 
     def check_file(

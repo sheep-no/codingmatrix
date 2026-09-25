@@ -64,12 +64,14 @@
 - **Bug 代码**：:26-35 INJECTION_PATTERNS——`(?i)(execute|run|eval)\s*(code|command|script|shell|python)` 命中正常开发指令「run python script」；`(?i)(泄露|暴露|显示|输出|告诉)\s*(密码|密钥|令牌|凭证|配置|系统)`——「告诉系统」「配置」等宽词命中普通需求；`_has_abnormal_structure`（:118-133）奇数个 ```（单 ``` 代码标记）+ markdown 表格（special_chars>10%）判结构异常 +0.2。
 - **影响**：因 GRD1 未接线目前无实际影响；**一旦接线即把合法开发需求判注入**（FCT3/PP8 子串误伤家族）——接线前需重设计规则（词边界 + 白名单豁免 + 结构检测去特征化）。
 
-### GRD6 [P3] `validate_session_id` 同名单函数两处异构（SCT6 双轨家族）
+### GRD6 [P3] `validate_session_id` 同名单函数两处异构（SCT6 双轨家族，已修）
 
 - **Bug 代码**：guardrails.py:426-430 `validate_session_id`（零消费）vs schemas.py:25 `validate_session_id(v, field_name="session_id")`（:248-249 活跃消费的自定义实现）——同名异构双轨。
 - **影响**：两实现规则不一致（schemas 版带 field_name 参数错误消息），未来误引 guardrails 版行为漂移（与 DR3/SCT6 双份实现家族一致）。
+- **修复**：删除 guardrails 侧零消费的 `SessionIdValidator` 类、`validate_session_id` 函数及
+  `GuardrailContext.session_id_validator` 字段，会话 ID 校验收敛到 schemas.py 唯一实现。
 
-### GRD7 [P3] PathSecurityChecker/SessionIdValidator 全库零消费 + FORBIDDEN_PATTERNS 误伤风险（能力未接线方法级）
+### GRD7 [P3] PathSecurityChecker 全库零消费 + FORBIDDEN_PATTERNS 误伤风险（能力未接线方法级）
 
 - **Bug 代码**：:183-228 PathSecurityChecker——`^/` 绝对路径全拒 + `\.(env|ini|conf|cfg)$` 配置文件全拒 + `(^|/|\\)(etc|proc|sys|dev|var/run|var/log)` 系统目录；全 app/ 零消费（路径安全实际由 FileContract 承担，FCT 详档 FCT3 同源子串误伤）。
 - **影响**：若接线，项目内 `.env`/`config.py` 等合法文件路径被拒（FCT3 同款）；当前零消费无影响——**方法与便捷函数层的能力未接线**（GC6/SCT5 家族）。
@@ -85,14 +87,14 @@
 - **接线决策**：Prompt 注入检测（GRD1）应接在需求入口（architect/orchestrate_endpoints 的 requirement 参数），但 GRD5 规则需先重构（词边界 + 白名单 + 中文模式收窄）再接线，避免误伤合法需求
 - **限流升级**（GRD2）：内存级 → 持久化/分布式（Redis 计数，与 conversation_store 的 Redis 基础设施复用）；key 治理（按 user+endpoint 组合 + TTL 过期清理）；单 worker 部署则至少加 LRU 上限
 - **磁盘检查**（GRD3）：路径改为显式 projects 根（复用 orchestrator 的 PROJECTS_BASE_DIR）或绝对路径；「检查失败」与「空间不足」两态分离（失败时拒绝还是放行需显式配置，当前静默放行掩盖故障）
-- **收敛**：guardrails.validate_session_id 与 schemas 版合并单一来源（GRD6）；防护层与 FileContract 的路径安全职责边界明确（GRD7）
+- **收敛**：~~guardrails.validate_session_id 与 schemas 版合并单一来源~~（GRD6 已修，guardrails 侧零消费实现已删除）；防护层与 FileContract 的路径安全职责边界明确（GRD7）
 
 ## 5. 主线关联
 
 - **能力未接线家族**：GRD1/GRD7（六项声称防护四项未接线）加入 SCT5/EC8/UPL1/CD1——docstring 声明能力与接线状态的系统性偏差
 - **DGV1 放行家族**：GRD3（磁盘检查失败放行）与 UT5（沙箱恒通过）/SCM2（健康失败当通过）同族——防护/验证「失败放行」
 - **全局单例**：GRD2 加入 SM1/MCP1/ERL5 家族
-- **双轨实现**：GRD6（validate_session_id 同名异构）加入 DR3/SCT6 家族
+- **双轨实现**：GRD6（validate_session_id 同名异构）加入 DR3/SCT6 家族（已收敛为 schemas 单一来源）
 - **与 docker 测试链**：guardrails 限流/磁盘检查是编排端点侧防护，docker 测试链（docker_runner/service_container_manager）是执行侧——两侧防护均存在「未接线」（GRD1）与「失败放行」（GRD3/SCM2）双重失真
 
 ## 6. 测试状态
@@ -103,7 +105,7 @@
 ## 7. 状态校准（2026-09-24 修复批次）
 
 回归测试 `tests/unit/test_guardrails_disk_space_fixes.py`（6 例，回退源码后 6 例失败）；
-既有 `tests/unit/test_guardrails.py` 42 例继续通过。
+既有 `tests/unit/test_guardrails.py`（GRD6 清理后 30 例）继续通过。
 
 - **GRD3 已修（部分）**：
   - 新增 `_resolve_existing_path`：目录尚未创建时（如首次运行的 `./projects`）向上解析到
@@ -114,6 +116,9 @@
     单一常量。
   - 仍未处理：`PROJECTS_BASE_DIR` 本身仍是相对路径（`"./projects"`），CWD 漂移问题
     需把该常量改为基于 `__file__` 的绝对路径，属跨模块改造，留待专项。
-- **GRD1/GRD2/GRD4/GRD5/GRD6/GRD7/GRD8 仍成立**：能力未接线（GRD1/GRD7）、
+- **GRD6 [P3] 已修**：删除 guardrails 侧零消费的 `SessionIdValidator`/`validate_session_id`
+  与 `GuardrailContext.session_id_validator` 字段，单一来源为 schemas.py；回归测试
+  `tests/unit/test_guardrails.py::TestSessionIdValidationDeduplication`（3 例，回退源码后 2 例失败）。
+- **GRD1/GRD2/GRD4/GRD5/GRD7/GRD8 仍成立**：能力未接线（GRD1/GRD7）、
   跨进程限流失效（GRD2）、默认限流过严（GRD4）、注入正则误报（GRD5）、
-  `validate_session_id` 双轨（GRD6）、同步调用阻塞 async（GRD8）均未在本批触及。
+  同步调用阻塞 async（GRD8）均未在本批触及。

@@ -44,10 +44,12 @@
 - **Bug 代码**：:262-265/:268-280——check_file_against_contracts 零生产调用（code_tasks.py:170 import 但用 contracts.check_file 方法链，双路径并存）；get_applicable_rules 零调用。
 - **影响**：与 GRD7/ASK1 同族——便捷函数层能力未接线；helpers.py 知识库注入的 to_dict 规则**只给 LLM 看**——LLM 是否按正则串规则自主约束行为无机制验证（规则执行与规则知识两轨分离）。
 
-### GC5 [P3] 规则硬编码 + allowed_changes 死字段 + NOTICE 规则空操作（MCP1/SCT6 家族）
+### GC5 [P3] 规则硬编码 + allowed_changes 死字段 + NOTICE 规则空操作（MCP1/SCT6 家族，部分已修）
 
 - **Bug 代码**：:45-175 `_load_default_rules` 硬编码 10 条规则——无 YAML/DB 外部化（改规则需改代码重发布）；:25 `allowed_changes` 白名单字段定义但 :202-226 检查逻辑从不引用——白名单机制从未实现；GC-009/GC-010（NOTICE 级）protected_patterns=[] → existence 循环空迭代 → **永不产生违规**——两条规则是空操作占位。
 - **影响**：规则治理无配置化途径；「允许变更的白名单」设计承诺未落地；两条 NOTICE 规则形同虚设。
+- **修复（部分）**：删除 `GuardRule.allowed_changes` 死字段与 GC-009/GC-010 空操作规则；
+  规则 YAML 外部化（治理配置化）仍待专项决策。
 
 ### GC6 [P3] 保护项子串匹配语义失真——GC-003 保护 "id" 恒不触发（FCT3/PP8 家族）
 
@@ -66,7 +68,7 @@
 
 - **DGV1 违规放行家族**：GC2（违规只记录不阻断）与 DR2（docker 安全扫描只告警）/SCM2（健康失败当通过）/GRD3（磁盘检查失败放行）同族——**防护层全线「检测不拦截」**：注入检测（GRD1 未接线）、路径安全（FCT 承担）、守护合约（GC2 记录不阻断）——三条防护轨道的共同失效模式
 - **假阳性家族**：GC1（无基线误报删除）/GC6（"id" 恒不触发）加入 TR1/MAR8/PP8 判定失真族
-- **能力未接线方法级**：GC4（便捷函数零消费）+ GC5（allowed_changes 死字段）加入 GRD7/ASK1/SCT6 家族
+- **能力未接线方法级**：GC4（便捷函数零消费）加入 GRD7/ASK1/SCT6 家族（GC5 的 `allowed_changes` 死字段已删）
 - **接线状态分档新基准**：guard_contracts 是**活跃接线**模块（code_tasks:243 真实执行）——与 guardrails（2/6 接线）、agent_skills（0/5 接线）形成「防护层接线度」三分：活跃/部分/全死——守护合约是唯一真实执行的防护，但执行结果不阻断（GC2）使其效力归零
 
 ## 6. 测试状态
@@ -76,7 +78,7 @@
 
 ## 7. 状态校准（2026-09-25 修复批次）
 
-回归测试 `tests/unit/test_guard_contracts_fixes.py`（10 例；回退源码后 9 例失败）。
+回归测试 `tests/unit/test_guard_contracts_fixes.py`（12 例；GC1/GC3/GC6 部分回退源码后 9 例失败）。
 
 - **GC1 [P2] 已修**：`check_file` 新增可选 `original_content`。existence 检查现仅在
   「新内容不含保护项 **且** 基线含该保护项」时判删除；无基线时不再声称「可能已被删除」，
@@ -89,5 +91,8 @@
   `original_content`，因此 existence 规则（GC-003/004/005/008）在该处不再产生违规——
   这是有意的（原输出为假阳性）。signature 规则（GC-001/002/006/007）的删除/重命名检查
   不受影响。若要恢复 existence 语义，需在调用点提供变更前快照。
-- **GC2 [P2] 仍成立**：违规只记录不阻断未变；**GC4 [P3] / GC5 [P3] 仍成立**：
-  便捷函数零消费、规则硬编码与 `allowed_changes` 死字段未在本批触及。
+- **GC5 [P3] 部分已修**：删除 `GuardRule.allowed_changes` 死字段与 GC-009/GC-010 空操作
+  规则（回归测试 `TestRuleCleanup`，2 例，回退源码后 2 例失败）。规则外部化（YAML/DB）
+  仍成立，属治理配置化专项。
+- **GC2 [P2] 仍成立**：违规只记录不阻断未变；**GC4 [P3] 仍成立**：
+  便捷函数零消费未在本批触及。
