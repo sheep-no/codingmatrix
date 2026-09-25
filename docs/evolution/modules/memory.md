@@ -70,3 +70,28 @@ Agent 记忆系统：三类记忆（对话/知识/反思）+ `AgentMemory` 整�
 - **embedding 依赖链**：MEM1（不写入）+ MEM3（入口不可用）双断——memory/session_manager（SM2/SM3）共用 AiCodeUtil.get_embedding，该链上所有语义能力从未真实生效；「存在≠正确」在语义检索层
 - **SB1（specialist 无 memory）关联**：react_agent :97 实例化 AgentMemory，但 specialist_base 生成链（SB1 已证 full 模式无 memory 传递）——记忆在编排层存在、在生成层未接线
 - **§5.6 支柱 4（Store/Checkpointer）映射**：MEM6 无持久化 + MEM2 无主动压缩策略——LangGraph Store 需剪枝策略（§5.4 已标注），memory 的「压缩 vs 截断」正是 Store 剪枝的雏形，当前阈值颠倒
+
+## 状态校准（2026-09-24 修复批次）
+
+本批修复 MEM4/MEM5/MEM6/MEM7，回归测试 `tests/unit/test_memory_context_fixes.py`
+（6 例，回退源码后 5 例失败）。
+
+- **MEM4 已修**：新增 `_estimate_tokens`（CJK 1 字符≈1 token，其余按 ~4 字符/token），
+  `ConversationMemory.get_with_context` 由按字符数改为按估算 token 数截断，英文上下文
+  不再被压缩到远超预算的程度。
+- **MEM5 已修（部分）**：`_compress_old_entries` 先在压缩前过滤掉 `type == "summary"`
+  的历史摘要条目，摘要再压缩时不再把上一条摘要的正文计入数量与「主要话题」，消除逐轮
+  嵌套退化。摘要关键词对中文无效（`content.split()`）与英文停用词噪声仍未处理，属独立项。
+- **MEM6 已修（部分）**：`AgentMemory.session_id` 与 `clear_session` 由秒级
+  `int(time.time())` 改为 `time.time_ns()`，同秒多实例不再冲突。纯内存无持久化（无序列化
+  出口）仍未处理，需与 DB 记忆层接线专项。
+- **MEM7 已修**：`KnowledgeMemory.add` 同 key 覆盖时保留 `max(新 importance, 旧 importance)`，
+  高价值旧知识不再被默认 0.5 的新条目降级。
+- **MEM3 已消解（复核）**：`AiCodeUtil.get_embedding` 现已在入口检查
+  `settings.SILICONFLOW_API_KEY`，缺失时直接抛 401，`search_async` 捕获后立即回退字符串
+  搜索，不再出现「每次先发一次必失败的 API 调用」。原记录的行号与「无 key 保护」结论已过时。
+- **MEM1 仍成立**：`MemoryEntry.embedding` 无任何赋值路径，语义搜索依赖 embedding 的分支
+  恒空（本环境叠加 MEM3 的 key 缺失时走字符串回退），需 embedding 写入接线专项。
+- **MEM2 仍成立（待产品决策）**：`COMPRESSION_THRESHOLD = 15` 与
+  `AgentMemory(conversation_max=100)` 的 `max_entries` 仍不匹配，16 条即摘要化。调整阈值
+  会改变压缩时机与既有测试预期，属行为级决策。
