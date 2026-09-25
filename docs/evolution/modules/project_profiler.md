@@ -82,3 +82,21 @@
 - TS1/TS2/TS4 [P2]：TestSelector 直接消费本模块产出——**PP10 污染 high_dependency → TS2 高风险判定失真**；PP14 的 test_location → TS1 同目录映射
 - 多语言主线（IA2/TS4/AR16）：本模块是唯一有多语言规则的地方，但 `_detect_naming_convention` 的 typescript 分支死（PP15）
 - 演化方向（EVOLUTION.md §5.6 支柱 4）：风险区分析应与共享真相源（依赖图）一致——本模块 import 计数与 DG 依赖图重复实现
+
+## 状态校准（2026-09-25 修复批次）
+
+回归测试 `tests/unit/test_project_profiler_fixes.py`（9 例）。旧代码实测复现：
+`high_dependency=['flask.py','helpers.py']`、`_is_test_dir('contest')=True`、
+`data_critical=['webapp.py']`（内容 `dbserver`）；修复后三者均纠正。
+
+- **PP10 [P2] 已修**：`_is_project_module` 新增 `root` 参数，Python 下以「项目内是否存在
+  对应源文件（`{rel}.py` 或 `{rel}/__init__.py`）」判据区分第三方包与项目模块；外部包
+  （flask/requests/numpy 等）不再进入 `high_dependency`。`_count_imports` 传入 `root`。
+  非 Python 语言保留原启发式（其 import 语法与项目布局差异大，需单独设计）。
+- **PP8 [P2] 已修**：新增模块级 `_keyword_pattern`（`lru_cache` 编译整词正则）与
+  `_contains_keyword`，`SECURITY_KEYWORDS`/`DATABASE_KEYWORDS` 改为 `frozenset`；
+  `_analyze_risk_areas` 改用整词匹配，`db` 不再命中 `dbserver`/`mongodb` 等子串。
+- **PP5 [P3] 已修**：`_is_test_dir` 由子串匹配改为目录名整名匹配，
+  `contest`/`latested` 不再误判为测试目录。
+- **PP15 / PP6 / PP3 / PP14 [P3] 仍成立**：typescript 死分支、`_module_to_filename`
+  映射近似、单语言选择、`test_location` 取首个测试目录均未在本批触及。
