@@ -8,13 +8,15 @@
 
 ## 已经完成的验证
 
-2026-09-25 插件补充核对：工作台实际为 7 个 tab，15 指请求资源数量。复用 `CloudConnection` 与 `dispatchWorkbenchRequest` 从真实后端取数，替换消息传输后在 Chromium 中执行原始 webview HTML，7 页均完成 DOM 读取与截图，无 JavaScript 异常。删除、回滚、清空缓存等写操作未执行。文件版本读取仍返回已知的 404。
+2026-09-25 插件补充核对：工作台实际为 7 个 tab、14 个请求资源（`WORKBENCH_RESOURCES` 与 `dispatchWorkbenchRequest` 的 14 个分支、webview 脚本内 14 处 `request`/`runRequest` 一一对应）；`performance` 资源同时请求 `/agent/performance` 与 `/agent/performance/trends`，故真实后端 HTTP 调用为 15 次。复用 `CloudConnection` 与 `dispatchWorkbenchRequest` 从真实后端取数，替换消息传输后在 Chromium 中执行原始 webview HTML，7 页均完成 DOM 读取与截图，无 JavaScript 异常。删除、回滚、清空缓存等写操作未执行。文件版本读取仍返回已知的 404。
 
 本轮发现模型页把后端 `roles` 的字符串值当对象读取，五个角色均显示 `-`。已支持字符串映射，新增脚本级回归用例在修复前失败、修复后通过；TypeScript 构建通过，全量插件单测为 99 passed / 0 fail。Chromium 复验显示五个角色对应的真实模型标识。截图位于 `/tmp/opencode/tabs/`。
 
 2026-09-25 真实 VS Code 宿主内逐页验收：用 CDP（`--remote-debugging-port=9222` + Node 全局 WebSocket）连接扩展宿主里 webview 的内层内容 frame，逐 tab 触发刷新并读取 DOM。7/7 页均无横向溢出、无 console error，状态行分别为「会话历史已更新」「模型配置已更新」「性能指标已更新」「学习统计已更新」「缓存与并发配置已更新」，空会话 ID 时「文件版本」页为「请先填写会话 ID」。截图见 `/tmp/opencode/host_tabs_host3/`（`Page.captureScreenshot` 以 webview 元素矩形为 clip）。
 
 同轮修复两处 webview 显示缺陷并复验：学习页后端 `fix_description` 自带「修复」前缀，渲染后出现「修复：修复: …」，现剥离重复前缀；「文件版本」页提示语原称留空即用最近会话 ID，实际只在本次工作台完成生成后才自动填入，已改为与行为一致的文案。注意内联脚本位于模板字符串内，正则里的 `\s` 必须写成 `\\s`，否则会被折叠成字面 `s`（该缺陷先由新用例暴露）。回归用例 `test/workbench-log.test.mjs`「does not duplicate the fix prefix in learning stats」修前失败、修后通过；插件单测 99 → 100 passed / 0 fail。宿主内复验：学习页显示「修复：error1」；文件版本页填入 `llm-static-1790262394` 后状态为 `cloud request failed with status 404`（后端缺陷，见跨边界）；会话历史点「查看」加载出 `你：… / Agent：…`。截图见 `/tmp/opencode/host_tabs_host5/`。VSIX 已重新打包（54 files, 74.89 KB）。
+
+2026-09-25 修复对话页「连接本地 Agent Host」死控件：「连接本地 Agent Host」按钮 post `workbench_ready`，但宿主 `AgentWorkbenchController` 只处理 `workbench_prompt`、`workbench_control`、`workbench_request`，该消息自引入（`b92280c`）起无接收方，点击只改本地状态文案、不触发任何连接。现新增 `onReady` 回调并在 `extension.ts` 接到已有的 `codingmatrix.reconnectAgentSession`，按真实结果发布 `progress`（「本地 Agent Host 已连接」）或 `error`（未配置凭据时提示先配置 `apiUrl` 与 `accessToken`）。回归用例 `test/agent-workbench.test.mjs`「routes the workbench connect button to the ready handler」修前失败、修后通过；插件单测 100 → 101 passed / 0 fail。宿主内实点按钮后日志显示 `progress：本地 Agent Host 已连接`。截图见 `/tmp/opencode/host_tabs_host6/connect.png`。VSIX 已再次重新打包。
 
 | 项 | 结果 | 证据 |
 |---|---|---|
