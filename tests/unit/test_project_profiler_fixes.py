@@ -8,7 +8,24 @@
 
 from __future__ import annotations
 
-from app.agent.project_profiler import ProjectProfiler, _contains_keyword
+from app.agent.project_profiler import (
+    ProjectProfiler,
+    _contains_keyword,
+    LANGUAGE_PROFILES,
+)
+
+
+class TestLanguageNormalization:
+    def test_typescript_uses_javascript_profile(self, tmp_path):
+        profiler = ProjectProfiler(str(tmp_path), language="typescript")
+        assert profiler.language == "javascript"
+        assert profiler.profile_rules is LANGUAGE_PROFILES["javascript"]
+
+    def test_ts_alias_uses_javascript_profile(self, tmp_path):
+        assert ProjectProfiler(str(tmp_path), language="ts").language == "javascript"
+
+    def test_unknown_language_still_falls_back_to_python(self, tmp_path):
+        assert ProjectProfiler(str(tmp_path), language="cobol").language == "python"
 
 
 class TestKeywordMatching:

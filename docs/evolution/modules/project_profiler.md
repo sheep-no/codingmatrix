@@ -45,10 +45,13 @@
 - 实测：`_is_test_dir('/x/contest')` = True、`_is_test_dir('/x/latested')` = True——含 "test" 子串的任意目录判为测试目录
 - 另：Go 的 test_dir_names=() 空 → 该函数对 Go 恒 False
 
-### PP15 [P3] `"typescript"` 分支死代码
+### PP15 [P3] `"typescript"` 分支死代码（已修）
 
 - 位置：:635-638 `if self.language in ("javascript", "typescript")` + :579 同款
 - 实测：`ProjectProfiler(root, language="typescript")` → `__init__` :236 不在 LANGUAGE_PROFILES → 回退 python——**typescript 分支不可达**（传 typescript 已回退）
+- 修复：新增 `_LANGUAGE_ALIASES`（`typescript`/`ts`/`js` → `javascript`），`__init__` 在
+  LANGUAGE_PROFILES 成员校验前先归一化语言；随后 `_module_to_filename`/`_detect_naming_convention`
+  的 `("javascript", "typescript")` 去重为 `"javascript"`。TypeScript 项目按 JS 规则分析。
 
 ### PP6 [P3] `_module_to_filename` 多语言映射近似
 
@@ -85,7 +88,7 @@
 
 ## 状态校准（2026-09-25 修复批次）
 
-回归测试 `tests/unit/test_project_profiler_fixes.py`（9 例）。旧代码实测复现：
+回归测试 `tests/unit/test_project_profiler_fixes.py`（12 例）。旧代码实测复现：
 `high_dependency=['flask.py','helpers.py']`、`_is_test_dir('contest')=True`、
 `data_critical=['webapp.py']`（内容 `dbserver`）；修复后三者均纠正。
 
@@ -98,5 +101,8 @@
   `_analyze_risk_areas` 改用整词匹配，`db` 不再命中 `dbserver`/`mongodb` 等子串。
 - **PP5 [P3] 已修**：`_is_test_dir` 由子串匹配改为目录名整名匹配，
   `contest`/`latested` 不再误判为测试目录。
-- **PP15 / PP6 / PP3 / PP14 [P3] 仍成立**：typescript 死分支、`_module_to_filename`
+- **PP15 [P3] 已修**：新增 `_LANGUAGE_ALIASES` 并在 `__init__` 归一化语言，`typescript`/`ts`
+  归一到 `javascript`，typescript 分支可达；`_module_to_filename`/`_detect_naming_convention`
+  的重复分支合并。回归测试 `TestLanguageNormalization`（3 例，旧代码 2 例失败）。
+- **PP6 / PP3 / PP14 [P3] 仍成立**：`_module_to_filename`
   映射近似、单语言选择、`test_location` 取首个测试目录均未在本批触及。

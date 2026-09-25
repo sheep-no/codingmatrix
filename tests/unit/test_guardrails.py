@@ -18,13 +18,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from app.utils.guardrails import (
     PromptInjectionDetector,
-    SessionIdValidator,
     PathSecurityChecker,
     DiskSpaceMonitor,
     InMemoryRateLimiter,
     get_guardrail_context,
     check_prompt_safety,
-    validate_session_id,
     check_path_safety,
     check_disk_space,
     check_rate_limit,
@@ -77,55 +75,6 @@ class TestPromptInjectionDetector:
         """不闭合的代码块应该被检测"""
         result = self.detector.detect("Here is code: ```python\nprint('hello')")
         assert result["score"] > 0
-
-
-# ============================================================================
-# 2. 会话 ID 验证测试
-# ============================================================================
-
-class TestSessionIdValidator:
-    """测试会话 ID 验证"""
-    
-    def test_valid_session_id(self):
-        """有效的会话 ID 应该通过"""
-        is_valid, msg = SessionIdValidator.validate("project_user_123")
-        assert is_valid is True
-    
-    def test_valid_session_id_with_hyphen(self):
-        """带连字符的会话 ID 应该通过"""
-        is_valid, msg = SessionIdValidator.validate("project-2024-01-15")
-        assert is_valid is True
-    
-    def test_too_short(self):
-        """太短的会话 ID 应该失败"""
-        is_valid, msg = SessionIdValidator.validate("abc")
-        assert is_valid is False
-        assert "不能少于" in msg
-    
-    def test_too_long(self):
-        """太长的会话 ID 应该失败"""
-        long_id = "a" * 129
-        is_valid, msg = SessionIdValidator.validate(long_id)
-        assert is_valid is False
-        assert "不能超过" in msg
-    
-    def test_special_characters(self):
-        """包含特殊字符的会话 ID 应该失败"""
-        is_valid, msg = SessionIdValidator.validate("project/id=test")
-        assert is_valid is False
-        assert "只能包含" in msg
-    
-    def test_reserved_prefix(self):
-        """保留前缀的会话 ID 应该失败"""
-        is_valid, msg = SessionIdValidator.validate("sys_internal_test")
-        assert is_valid is False
-        assert "保留前缀" in msg
-    
-    def test_none_session_id(self):
-        """None 应该失败"""
-        is_valid, msg = SessionIdValidator.validate(None)
-        assert is_valid is False
-        assert "不能为空" in msg
 
 
 # ============================================================================
@@ -286,16 +235,6 @@ class TestConvenienceFunctions:
         is_safe, msg = check_prompt_safety("")
         assert is_safe is False
     
-    def test_validate_session_id_valid(self):
-        """有效 session_id 应该通过"""
-        is_valid, msg = validate_session_id("my_session_123")
-        assert is_valid is True, f"应该有效：{msg}"
-    
-    def test_validate_session_id_invalid(self):
-        """无效 session_id 应该失败"""
-        is_valid, msg = validate_session_id("invalid/session/id")
-        assert is_valid is False
-    
     def test_check_path_safety_valid(self):
         """安全路径应该通过"""
         is_safe, msg = check_path_safety("projects/output")
@@ -313,6 +252,33 @@ class TestConvenienceFunctions:
         test_limiter = InMemoryRateLimiter(max_requests=100, window_seconds=60)
         is_allowed, msg = test_limiter.check("test_user")
         assert is_allowed is True
+
+
+# ============================================================================
+# 7. 会话 ID 校验职责去重（GRD6）
+# ============================================================================
+
+class TestSessionIdValidationDeduplication:
+    """GRD6：会话 ID 校验只保留 schemas 中的唯一实现，guardrails 不再重复提供。"""
+
+    def test_guardrail_context_has_no_session_id_validator(self):
+        from app.utils.guardrails import GuardrailContext
+
+        context = GuardrailContext()
+        assert not hasattr(context, "session_id_validator")
+
+    def test_guardrails_module_does_not_export_session_validator(self):
+        from app.utils import guardrails
+
+        assert not hasattr(guardrails, "SessionIdValidator")
+        assert not hasattr(guardrails, "validate_session_id")
+
+    def test_canonical_schema_validator_still_rejects_invalid(self):
+        from app.api.v1.ai_agent.schemas import validate_session_id
+
+        assert validate_session_id("my_session_123") == "my_session_123"
+        with pytest.raises(ValueError):
+            validate_session_id("invalid/session/id")
 
 
 if __name__ == "__main__":
