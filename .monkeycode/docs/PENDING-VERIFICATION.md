@@ -4,9 +4,17 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 98 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 100 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
 
 ## 已经完成的验证
+
+2026-09-25 插件补充核对：工作台实际为 7 个 tab，15 指请求资源数量。复用 `CloudConnection` 与 `dispatchWorkbenchRequest` 从真实后端取数，替换消息传输后在 Chromium 中执行原始 webview HTML，7 页均完成 DOM 读取与截图，无 JavaScript 异常。删除、回滚、清空缓存等写操作未执行。文件版本读取仍返回已知的 404。
+
+本轮发现模型页把后端 `roles` 的字符串值当对象读取，五个角色均显示 `-`。已支持字符串映射，新增脚本级回归用例在修复前失败、修复后通过；TypeScript 构建通过，全量插件单测为 99 passed / 0 fail。Chromium 复验显示五个角色对应的真实模型标识。截图位于 `/tmp/opencode/tabs/`。
+
+2026-09-25 真实 VS Code 宿主内逐页验收：用 CDP（`--remote-debugging-port=9222` + Node 全局 WebSocket）连接扩展宿主里 webview 的内层内容 frame，逐 tab 触发刷新并读取 DOM。7/7 页均无横向溢出、无 console error，状态行分别为「会话历史已更新」「模型配置已更新」「性能指标已更新」「学习统计已更新」「缓存与并发配置已更新」，空会话 ID 时「文件版本」页为「请先填写会话 ID」。截图见 `/tmp/opencode/host_tabs_host3/`（`Page.captureScreenshot` 以 webview 元素矩形为 clip）。
+
+同轮修复两处 webview 显示缺陷并复验：学习页后端 `fix_description` 自带「修复」前缀，渲染后出现「修复：修复: …」，现剥离重复前缀；「文件版本」页提示语原称留空即用最近会话 ID，实际只在本次工作台完成生成后才自动填入，已改为与行为一致的文案。注意内联脚本位于模板字符串内，正则里的 `\s` 必须写成 `\\s`，否则会被折叠成字面 `s`（该缺陷先由新用例暴露）。回归用例 `test/workbench-log.test.mjs`「does not duplicate the fix prefix in learning stats」修前失败、修后通过；插件单测 99 → 100 passed / 0 fail。宿主内复验：学习页显示「修复：error1」；文件版本页填入 `llm-static-1790262394` 后状态为 `cloud request failed with status 404`（后端缺陷，见跨边界）；会话历史点「查看」加载出 `你：… / Agent：…`。截图见 `/tmp/opencode/host_tabs_host5/`。VSIX 已重新打包（54 files, 74.89 KB）。
 
 | 项 | 结果 | 证据 |
 |---|---|---|
@@ -18,12 +26,12 @@
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
 | Provider 测试连接错误文案 | 设计内行为，非缺陷：`ProviderKeyClient.test()` 丢弃后端 `message`，页面统一显示「Provider Key 测试失败，请重试」。既有测试 `test/provider_key_test.dart:551`「测试连接网络断开显示测试失败」明确断言不出现 `connection lost` 与 `sensitive-token`，即刻意不向 UI 回显后端/网络细节。与 `dynamic_provider_client.dart:68`、`github_controller.dart:125-126` 展示后端原文的做法不同，属产品选择，不改 | `test/provider_key_test.dart:551-583` |
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
-| VS Code 插件单测 | 98 passed / 0 fail | `npm test`（全局 `tsc` + `node --test test/*.test.mjs`，无需 `node_modules`） |
+| VS Code 插件单测 | 100 passed / 0 fail | `npm test`（全局 `tsc` + `node --test test/*.test.mjs`，无需 `node_modules`） |
 | VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
 | VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
 | VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
 | VS Code 插件孤儿模块清理 | 删除生产代码零引用的 `src/compatibility.ts`（65 行）与 `src/status-view.ts`（177 行）及各自单测；两者只被自身测试 import，`compatibility` 的握手校验与生产实际逻辑（`agent-host.ts:204` 的 `protocol_version` 单值比对）不一致，且 `EXTENSION_VERSION` 与 `package.json` 版本重复。同时移除 e2e 里「自造对象自测」的假断言（它从未触及真实握手路径） | 单测 103 → 95；`rg` 全仓引用计数为 0；删后 tsc 退出 0、两套 e2e 仍通过 |
-| VS Code 插件重新打包 | `vsce package` 重建本地 vsix：包内 51 个 `dist/` 文件与当前源码 1:1，不再含已删模块（旧包为 9 月 7 日产物，`extension.js` 缺后续 52 行改动）。注意 tsc 不清理已删源码的 `dist/` 残留，打包前需手动清理 | `codingmatrix-local-validation-0.1.0.vsix`（54 files, 74.57 KB） |
+| VS Code 插件重新打包 | `vsce package` 重建本地 vsix：包内 51 个 `dist/` 文件与当前源码 1:1，不再含已删模块（旧包为 9 月 7 日产物，`extension.js` 缺后续 52 行改动）。注意 tsc 不清理已删源码的 `dist/` 残留，打包前需手动清理 | `codingmatrix-local-validation-0.1.0.vsix`（54 files, 74.89 KB） |
 | VS Code 插件工作台事件解包 | 已修并回归：编排流混用两种封包。`PASSTHROUGH_SSE_EVENTS`（thinking、file、file_diff、step_detail、model_info、pipeline_mode 等）原样透传、字段在顶层，而 progress、done、error、critical_decisions 包在 `{type, data}`。webview 只读 `value.data`，透传帧因此全部丢载荷：thinking 退化成 `thinking：thinking`（`orchestrator_progress.py:282` 的 `message` 在顶层，实测单轮约 2000 行），progress 丢掉 `step`/`phase`/`percentage`。现按有无 `data` 解包、扩展文本回退链、过滤 heartbeat，并把消息列表上限设为 100 条（与 Flutter 客户端 `workbench_controller.dart:93,160` 一致） | 新增 `test/workbench-log.test.mjs` 3 项（自建最小 DOM 直接执行内联脚本，覆盖 heartbeat 过滤、thinking/progress/file/step_detail 解包、100 条上限）；单测 95 → 98；`xvfb-run -a node e2e/run.mjs` 仍退出 0 |
 | VS Code 插件接口契约核对 | 对真实本地后端逐个调用工作台 15 个请求：`history`、`conversation/history`、`models/agent-config`、`agent/token-usage`、`learning/stats`、`performance(+trends)`、`concurrent-limits/recommended`、`cache/stats`、`snapshots/{session}`。字段与插件解析层全部匹配（`connection.ts` 的 `optional*` 容错未触发静默回退）。唯一不可用的是「文件版本」tab，根因在后端 | 探测脚本 `/tmp/opencode/probe_workbench.py`；快照 404 详见「跨边界发现」 |
 | Linux 桌面构建与运行 | `flutter build linux --debug` 成功；Xvfb 下窗口已映射 | 窗口标题 `CodingMatrix Agent`，WM_CLASS `com.codingmatrix.agent` |
