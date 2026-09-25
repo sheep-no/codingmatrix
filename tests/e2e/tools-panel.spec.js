@@ -27,25 +27,28 @@ test.describe('工具集面板', () => {
 
   test('工具列表完整性', async ({ page }) => {
     await page.locator('#toolkit').click();
-    
+
+    const menu = page.locator('#toolkit-menu');
+    await expect(menu).toBeVisible();
+
+    // 未登录态下工具集菜单的真实条目；管理员面板仅超级管理员可见，登录后才出现
     const expectedTools = [
+      '项目',
+      '能力',
+      '文档',
+      '设置',
       '图表编辑器',
-      'Nginx 配置',
       'Docker 配置',
-      '系统检测',
-      'AI 虚拟姬',
+      'Nginx 配置',
+      '虚拟姬',
       'PPT 生成',
       'AI 绘画',
-      '任务队列',
-      'AI 云助手',
-      '系统监控',
-      'AI 项目生成',
       '临时工作流',
       '搜索历史'
     ];
-    
+
     for (const tool of expectedTools) {
-      await expect(page.locator(`text=${tool}`)).toBeVisible();
+      await expect(menu.locator('.toolkit-item', { hasText: tool }).first()).toBeVisible();
     }
   });
 
@@ -111,7 +114,9 @@ test.describe('工具集面板', () => {
 
   test('新建会话', async ({ page }) => {
     await page.locator('#newSpeak').click();
-    
-    await expect(page.locator('.chat-messages')).toBeEmpty();
+
+    // 新建会话后回到对话待机画面，不应残留任何消息
+    await expect(page.getByRole('region', { name: '对话待机画面' })).toBeVisible();
+    await expect(page.locator('.message')).toHaveCount(0);
   });
 });
