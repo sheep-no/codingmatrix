@@ -63,7 +63,7 @@
 ### GIR1 [P2] fire-and-forget 复用请求级 session（GirlAi.py:533-535）（已修复）
 - `asyncio.create_task(_extract_user_preferences(user_id, body.prompt, ai_content, db))` 把请求级 AsyncSession 传入后台任务
 - 响应返回后 get_db teardown 关闭 session → 任务内 execute 恒败（:316 except 吞掉）→ 偏好提取静默恒败；任务句柄未保存可被 GC
-- **已修复**：`_extract_user_preferences` 不再接收 `db`，内部 `async with async_session() as db` 自建会话，调用点同步去掉 `db` 实参。残留次要项：`create_task` 句柄仍未保存引用
+- **已修复**：`_extract_user_preferences` 不再接收 `db`，内部 `async with async_session() as db` 自建会话，调用点同步去掉 `db` 实参。残留次要项已于 2026-09-25 收口：`GirlAi.py` 新增 `_track_background_task`，以模块级 `_BACKGROUND_TASKS` 集合持有任务强引用并在 done 回调中移除，fire-and-forget 任务不再可能因缺少引用被 GC；回归 `tests/unit/test_girlai_refactor.py::test_background_task_keeps_strong_reference`
 - Backlog：#1200
 
 ### SKY1 [P2] skills 全端点零认证（skills.py 全文件）（已修复）
