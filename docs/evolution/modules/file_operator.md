@@ -90,3 +90,15 @@
 - **FO3 扩展名白名单仅 create 生效**——write/delete/move 均 `check_extension=False`，且白名单本身超全，属安全语义不一致；统一需评估各消费方行为，暂缓。
 - **FO4 无 base_path 实例（multi_model_agent / workflow file_processing）可越界读写非系统路径**——强制 base_path 需改 Agent 消费方（multi_model_agent）与工作流节点语义，Agent 侧不碰，暂缓。
 - **FO5 read 全量 readlines、FO6 隐藏目录全跳、FO7 grep/search errors='ignore'**——性能/可见性/静默丢弃问题维持原判定，改造需专项口径。
+
+## 8. 状态更新（2026-09-25 逐条核实）
+
+### 本轮修复
+
+- **FO7 grep/search 静默丢弃不可解码文件**——两处原先以 `errors='ignore'` 读取：含非法 UTF-8 字节的文件内容被静默丢弃后参与搜索，结果不完整且无任何告警（`grep` 的 `except UnicodeDecodeError` 分支因 `ignore` 永不触发，属死分支）。修复：改为严格按 UTF-8 解码；`search` 改为先累积单文件匹配、整体成功后并入结果，`UnicodeDecodeError` 时记录路径到新增的 `undecodable_files` 并整体跳过（避免半截结果），`grep` 同法记录；两者返回值新增 `undecodable_files` 列表，`agent_core` 的 `search_files`/`grep_files` 工具原样透传给 LLM，消费者可知搜索结果不完整。
+
+测试：`tests/unit/test_file_operator.py` 新增 3 项（grep/search 记录不可解码文件、正常文件不误报），该文件共 10 项；回退源码后 3 项失败（`KeyError: 'undecodable_files'`）。
+
+### 仍开放（未改）
+
+- **FO2/FO3/FO4/FO5/FO6** 维持原判定（关闭开关、扩展名语义不一致、无 base_path 越界、read 全量读、隐藏目录全跳），均需跨消费方或专项口径。
