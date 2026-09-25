@@ -85,11 +85,26 @@
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 已解决；`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，Dockerfile 已 `chown -R appuser:appuser /app` 并预建全部挂载点、bind mount 源文件 644 可读。本地 `docker-compose.yml` 因 bind mount 属主保持 root 并加注释。补 2 项守卫用例。注意：既有 root 属主的 named volume 需重建或手工 `chown` |
 
+## 2026-09-25 生产就绪复核新增项
+
+### 本轮已修复
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | Celery broker 可达但无 worker 响应时，`/health/detailed` 的 celery 项仍报 `healthy`，掩盖调度中断 | `app/services/health_checker.py` | 已解决；`inspect.stats()` 为空时报 `degraded`「未发现可用的 Celery worker」，补 1 项回归，PR #274 |
+| P2 | `GET /api/v1/aicloud/history` 空结果返回 `None`，与单个 `SessionResponse` 的 `response_model` 冲突，任何无历史的用户都触发 500 | `app/api/v1/aicloud.py` | 已解决；`response_model` 改 `list[SessionResponse]` 并返回会话列表（前端本就按数组消费 `sessions.find`），PR #280 |
+| P2 | `GET /api/v1/pptx/templates/{id}/preview/{page}` 未捕获 `select_template` 的 `KeyError`，未知模板冒泡成 500；别名（`business` → `business_report`）未解析还会命中错误目录 | `app/api/v1/aiGeneratorPptx.py` | 已解决；先解析别名，未知模板返回 404，PR #280 |
+| P2 | `GET /api/v2/Controller/admin/docker/containers` 把可选依赖 `import docker` 与业务逻辑同放一个 `try`，SDK 缺失被泛化 `except` 转成 500 | `app/api/v2/guardian_router.py` | 已解决；`ImportError` 返回 503「Docker SDK 未安装」，其余异常仍为 500，PR #281 |
+| P2 | `GET /api/v2/Controller/admin/backup` 有副作用：写入备份文件并按 mtime 淘汰第 5 个以外的历史备份，预取/重试/监控探测都会触发轮转 | `app/api/v2/guardian_router.py`、`src/utils/api/admin.js` | 已解决；创建备份改为 `POST`（前端 `client.post` 自动带 `X-CSRF-Token`），补路由方法守卫用例，PR #283 |
+
+上述前四项由对全部非 Agent GET 端点（87 个）与选定变更端点（61 个）的运行时冒烟定位：GET 冒烟初测出 2 处 500，修复后 61 个变更端点探测结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。备份端点副作用则通过比对 `data/backups/` 冒烟前后的新增文件发现。
+
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4585 passed, 2 skipped, 0 failed`（194s；2026-09-23 死代码清理后重跑，运行结束开发库 `app.db` 仍为 41 张表 / 3 个种子账号）。清理前的 `--cov=app` 门禁运行覆盖率 `62.47%`，门槛 `58%`；`test_process_guard_restart` 在高负载下偶发 1 次失败，单跑 `5 passed`。
-- 前端全量 Vitest：`50 files / 251 passed`；`npm run build` 成功（39s）；`npm run budget:check` 四项预算全部通过。
-- 前端 ESLint：`0 errors / 390 warnings`（console/unused-var）。
+- 后端 unit/integration 最近完整记录：`4943 passed, 2 skipped, 0 failed`（471s；2026-09-25 含本轮 5 项修复后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
+- 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。
+- 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 成功（25.6s），四项预算全部通过（首屏 JS 87.7/450 KiB、CSS 55.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB）。
+- 前端 ESLint：`0 errors / 385 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
 - 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login` 共 `44` 项；`CI=1`（单 worker + 2 次重试）下稳定通过。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
