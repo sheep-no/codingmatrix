@@ -230,6 +230,7 @@ from app.agent.conversation_store import get_conversation_store
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
+from app.core.paths import PROJECTS_BASE_DIR
 from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
@@ -553,7 +554,7 @@ async def modify_project(
         raise HTTPException(status_code=429, detail=rate_msg)
 
     # 防护：检查磁盘空间
-    disk_ok, disk_msg = check_disk_space("./projects")
+    disk_ok, disk_msg = check_disk_space(PROJECTS_BASE_DIR)
     if not disk_ok:
         raise HTTPException(status_code=507, detail=disk_msg)
 
@@ -992,7 +993,7 @@ async def orchestrate_project_stream(
         raise HTTPException(status_code=429, detail=rate_msg)
 
     # 防护：检查磁盘空间
-    disk_ok, disk_msg = check_disk_space("./projects")
+    disk_ok, disk_msg = check_disk_space(PROJECTS_BASE_DIR)
     if not disk_ok:
         raise HTTPException(status_code=507, detail=disk_msg)
 
