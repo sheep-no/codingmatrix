@@ -139,7 +139,7 @@ init_path = f"{pkg}/{init_file}"
 - **影响**：仅无 adapter 场景触发（生产调用方都传 adapter），假阳性误导补缺。
 - **验证方式**：见实测。
 
-### IV7 [P3] `_extract_backend_apis` 正则仅匹配 `@app.`/`@router.` 且不转义路径
+### IV7 [P3] `_extract_backend_apis` 正则仅匹配 `@app.`/`@router.` 且不转义路径（已修）
 
 - **Bug 代码**：
 
@@ -241,6 +241,14 @@ if parent in [str(Path(m).parent) for m in result.missing_files if m != missing]
 - **IV9 [P3] 已修**：`generate_fixes` 的父目录跳过逻辑改为真实意图——仅当
   「没有任何已生成文件位于该父目录下」时跳过，避免为缺失父目录生成孤立入口；
   原「另一 missing 文件父目录相同」条件恒 False 的死逻辑删除。
-- **IV1/IV2/IV5/IV7 仍成立**：missing_module 补缺闭环、混合项目 adapter 中途切换、
-  `is_project_module` 前缀白名单、后端 API 提取覆盖率未在本批触及（IV1/IV2/IV5
-  涉及补缺语义与项目边界判定，待专项批次）。
+- **IV1/IV2/IV5 仍成立**：missing_module 补缺闭环、混合项目 adapter 中途切换、
+  `is_project_module` 前缀白名单未在本批触及（涉及补缺语义与项目边界判定，待专项批次）。
+
+### IV7 补充修复（2026-09-25，独立批次）
+
+- **IV7 [P3] 已修**：`_extract_backend_apis` 装饰器变量名由硬编码 `app|router` 放宽为
+  任意标识符（`@bp.get`、`@api_router.post` 等蓝图/自定义 router 均可提取）；新增
+  `APIRouter(prefix=...)` 的变量名→前缀映射，装饰器路径自动拼接前缀
+  （`@router.get("/items")` + `prefix="/api"` → `/api/items`，斜杠冗余已归一化）。
+  路径字符的 `re.escape`/`{param}` 转换已在 IV3 批次完成，本批不再涉及。
+  回归测试 `TestBackendApiExtraction`（6 例，回退源码后 6 例失败）。

@@ -1,6 +1,15 @@
-"""IntegrityValidator 补缺/符号提取修复回归（IV6/IV8/IV9）。"""
+"""IntegrityValidator 补缺/符号提取/API 提取修复回归（IV6/IV7/IV8/IV9）。"""
 
+from app.agent.adapters import PythonLanguageAdapter
 from app.agent.integrity_validator import IntegrityResult, IntegrityValidator
+
+
+def _api_mismatches(files):
+    validator = IntegrityValidator(
+        project_type="python", language_adapter=PythonLanguageAdapter()
+    )
+    result = validator.validate(files)
+    return [i for i in result.issues if i.issue_type == "api_mismatch"]
 
 
 class TestFallbackInitFile:
@@ -77,3 +86,68 @@ class TestGenerateFixesParentSkip:
         fixes = validator.generate_fixes(result, {"other/mod.py": "def f():\n    pass\n"})
         assert fixes == {}
         assert result.fixed_files == []
+
+
+class TestBackendApiExtraction:
+    """IV7：路由装饰器变量名不限 app/router，并拼接 APIRouter(prefix=...)。"""
+
+    def _apis(self, content):
+        validator = IntegrityValidator(language_adapter=PythonLanguageAdapter())
+        return validator._extract_backend_apis({"app/routes.py": content})
+
+    def test_arbitrary_router_variable_is_extracted(self) -> None:
+        apis = self._apis('@bp.get("/api/x")\ndef h():\n    pass\n')
+        assert apis == [{"method": "GET", "path": "/api/x", "file": "app/routes.py"}]
+
+    def test_api_router_post_is_extracted_with_method(self) -> None:
+        apis = self._apis('@api_router.post("/api/y")\ndef h():\n    pass\n')
+        assert len(apis) == 1
+        assert apis[0]["method"] == "POST"
+        assert apis[0]["path"] == "/api/y"
+
+    def test_apirouter_prefix_is_prepended(self) -> None:
+        content = (
+            'router = APIRouter(prefix="/api")\n\n'
+            '@router.get("/items")\n'
+            "def h():\n"
+            "    pass\n"
+        )
+        assert self._apis(content)[0]["path"] == "/api/items"
+
+    def test_prefix_and_path_slashes_are_normalized(self) -> None:
+        content = (
+            'r = APIRouter(prefix="/api/")\n\n'
+            '@r.get("items")\n'
+            "def h():\n"
+            "    pass\n"
+        )
+        assert self._apis(content)[0]["path"] == "/api/items"
+
+    def test_prefixed_route_matches_frontend_call(self) -> None:
+        issues = _api_mismatches(
+            {
+                "app/routes.py": (
+                    'router = APIRouter(prefix="/api")\n\n'
+                    '@router.get("/items")\n'
+                    "def h():\n"
+                    "    pass\n"
+                ),
+                "static/api.js": 'fetch("/api/items")',
+            }
+        )
+        assert issues == []
+
+    def test_missing_prefix_is_reported(self) -> None:
+        issues = _api_mismatches(
+            {
+                "app/routes.py": (
+                    'router = APIRouter(prefix="/api")\n\n'
+                    '@router.get("/items")\n'
+                    "def h():\n"
+                    "    pass\n"
+                ),
+                "static/api.js": 'fetch("/items")',
+            }
+        )
+        assert len(issues) == 1
+        assert "GET /items" in issues[0].message
