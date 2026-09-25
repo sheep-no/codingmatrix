@@ -150,5 +150,9 @@ engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
 - **IM9 已失效**：`generate_with_spec_first` 在本文件中已无引用，原「依赖图缺失/计划为空静默回退全量生成」路径不复存在。
 - **IM2 已修**：`_content_already_satisfies`（:842）不再"字符串出现即判满足"——需求要求新增端点时，必须每个端点都匹配到真实路由注册（`@x.get("/health")` / `@x.route("/health")` / `add_url_rule("/health")`，`_route_registered` :893）才返回 True，否则返回 False 走生成（宁可多生成一次也不误跳过）；仅当需求只提框架且未要求端点时，才以框架引入判满足。
 - **IM4 已修**：`_extract_imports_from_content`（:750）按文件类型分派——`.py` 保留历史逻辑（`_extract_python_imports` :772），其余语言经 `LanguageAdapterRegistry.get_adapter_for_file` + `parse_imports`/`resolve_import_to_file` 解析（`_extract_imports_via_adapter` :813）；`_get_all_file_paths`（:835）不再限定 `*.py`，JS/TS/Go 等的 import 可正确映射到依赖图节点。
-- **IM7 仍成立**：`generate_single_file(file_path, tracker=None)`（:548）调用处不传 tracker，`tracker` 恒 None。
+- **IM7 已修（2026-09-25）**：`generate_single_file(file_path, tracker=None)` 的调用处此前不传
+  tracker，导致 `tracker` 恒 None，心跳追踪整条未接线。现每层并行为每个文件创建
+  `HeartbeatTracker(timeout=getattr(self, "heartbeat_timeout", 120.0))` 并经
+  `_generate_file_with_model` 透传给工程师 LLM 调用（与 `orchestrator_files` 生成路径一致），
+  恢复流式思考/停滞检测。回归测试 `test_incremental_wires_heartbeat_tracker`（回退源码后失败）。
 - **IM8 未复核**：变更计划缓存 key 生成逻辑经重构后位置变动，未逐一核对。

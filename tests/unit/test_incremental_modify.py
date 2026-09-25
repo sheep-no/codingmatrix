@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 from pathlib import Path
 
@@ -347,3 +348,55 @@ def test_extract_imports_python_behavior_unchanged(tmp_path):
         "from utils import A\n", "src/main.py"
     )
     assert "src/utils.py" in imports
+
+
+# ---------- IM7: 增量生成接线心跳跟踪器 ----------
+
+@pytest.mark.asyncio
+async def test_incremental_wires_heartbeat_tracker(tmp_path):
+    """IM7：tracker 参数此前恒为 None，现每个文件创建 HeartbeatTracker 并透传。"""
+    from app.agent.dependency_graph import DependencyGraph
+    from app.agent.topology_scheduler import HeartbeatTracker
+
+    captured = []
+
+    class _Harness(IncrementalModifyMixin):
+        def __init__(self, output_dir):
+            self.output_dir = output_dir
+            self.cancel_event = None
+            self.errors = []
+            self.warnings = []
+
+        def _report_progress(self, *_args, **_kwargs):
+            return None
+
+        def _select_engineer(self, _path):
+            return object()
+
+        def _select_model_for_file(self, _path):
+            return "test-model"
+
+        def _get_model_semaphore(self, _model_name):
+            return asyncio.Semaphore(1)
+
+        async def _generate_file_with_model(self, *args, **_kwargs):
+            captured.append(args[9] if len(args) > 9 else _kwargs.get("tracker"))
+            return "print('ok')\n"
+
+    graph = DependencyGraph()
+    graph.add_file("main.py")
+    harness = _Harness(tmp_path)
+
+    result = await harness._generate_with_dynamic_topology_incremental(
+        ctx=None,
+        dep_graph=graph,
+        spec_generator=None,
+        requirement="add entry",
+        project_context={},
+        generated_contents={},
+        file_plan=[{"path": "main.py", "description": "entry", "action": "add"}],
+    )
+
+    assert result["files_generated"] == 1
+    assert len(captured) == 1
+    assert isinstance(captured[0], HeartbeatTracker)
