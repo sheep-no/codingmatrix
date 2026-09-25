@@ -603,7 +603,8 @@ def test_guardian(s):
 
     # 10.7 Docker 容器列表
     r = s.get(f"{B}/Controller/admin/docker/containers")
-    ok = r.status_code in (200, 500)
+    # 503 = Docker SDK 未安装（可选依赖）
+    ok = r.status_code in (200, 500, 503)
     record("guardian", "Docker 容器列表", ok, f"status={r.status_code}")
 
     # 10.8 WebSocket 统计
