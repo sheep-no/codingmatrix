@@ -130,3 +130,18 @@ def test_trace_id_propagation(self): ...  # set/get 同一 context
 - TT2 已实测确认（OTEL_ENABLED=1 未装包降级 noop 路径）。
 - TT3 默认 noop 下 get_current_trace_id 恒 None 已实测。
 - TT4/TT5/TT6 为代码级结论，启用路径需 mock 包后实测。
+
+## 6. 状态校准（2026-09-25 修复批次）
+
+回归测试 `tests/unit/test_tracing_env_parse.py`（19 例，回退源码后 13 failed / 7 errors）；
+既有 `tests/unit/test_tracing.py` 2 例继续通过。
+
+- **TT1 [P2] 已修**：新增 `_env_float` / `_env_int`（非法值回退默认并 warning，不在模块级抛错）
+  与 `_parse_sampling_rate`（在 `_env_float` 基础上对非有限值回退 1.0、超出 [0,1] 夹紧）。
+  `_sampling_rate` 改为 `_parse_sampling_rate()`，非法 `OTEL_SAMPLING_RATE`（如 `abc`、空串、
+  `nan`）不再让模块 import 崩溃；同时 `_make_batch_processor` 的
+  `OTEL_BATCH_MAX_QUEUE` / `OTEL_BATCH_SCHEDULE_DELAY` / `OTEL_BATCH_MAX_EXPORT`
+  也改走同一组安全解析（原先非法值会在 `OTEL_ENABLED=1` 时抛未捕获的 ValueError）。
+- **TT2 [P2] 未处理**：启用路径零测试 + 模块级副作用仍需延迟初始化或 mock 包覆盖，属专项。
+- **TT3 [P3] / TT4 [P3] / TT5 [P3] / TT6 [P3] 仍成立**：四个 API 未接线、span 粒度静态、
+  async 子任务 context 不传播、启用路径无单测，均未在本批触及。
