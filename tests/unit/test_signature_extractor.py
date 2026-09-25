@@ -176,3 +176,23 @@ def test_js_multiline_arrow_signature_is_preserved():
     assert "req" in signatures
     assert "res" in signatures
     assert "res.send" not in signatures
+
+
+def test_long_signature_truncation_is_marked():
+    """SE7: 超长签名被截断时附可见标记，下游可感知。"""
+    long_params = ", ".join(f"param{i}: int" for i in range(40))
+    ts = f"class S {{\n  run({long_params}): void {{}}\n}}\n"
+
+    signatures = extract_signatures("s.ts", ts)
+
+    assert signatures is not None
+    assert "...[truncated]" in signatures
+
+
+def test_short_signature_has_no_truncation_marker():
+    ts = "class S {\n  run(): void {}\n}\n"
+
+    signatures = extract_signatures("s.ts", ts)
+
+    assert signatures is not None
+    assert "...[truncated]" not in signatures

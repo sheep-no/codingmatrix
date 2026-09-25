@@ -72,7 +72,7 @@
 
 **仍未处理**：
 
-- **SE7 [P3]**：多处 `[:200]` 截断无标记。保留。
+- **SE7 已修（2026-09-25）**：新增 `_clip_signature`（超 200 字符时截断并附 ` ...[truncated]` 标记），`_line_signature` 及类声明/字段/装饰器/通用兜底的 8 处 `[:200]` 全部改走该函数；下游（如依赖上下文注入）现可感知签名信息被截断。
 - **SE5 已全部消解**：同上一批次修复 JS/TS 多行签名。
 
-**回归**：`tests/unit/test_signature_extractor.py` 由 6 项扩到 9 项（新增 SE5 TS 多行方法、JS 多行函数、JS 多行箭头 3 项），回退 `signature_extractor.py` 后新增 3 项全部失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。
+**回归**：`tests/unit/test_signature_extractor.py` 由 9 项扩到 11 项（新增 SE7 超长签名带标记、短签名无标记 2 项），覆盖 SE4/SE5/SE6/SE7；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。

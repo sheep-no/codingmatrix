@@ -43,6 +43,16 @@ _JS_METHOD_PATTERN = re.compile(
     r"\s*(?:<[^>]*>)?\s*\("
 )
 
+_SIGNATURE_LIMIT = 200
+_TRUNCATION_MARKER = " ...[truncated]"
+
+
+def _clip_signature(text: str, limit: int = _SIGNATURE_LIMIT) -> str:
+    """截断超长签名并附可见标记，下游可感知信息被截断（SE7）。"""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + _TRUNCATION_MARKER
+
 
 def _line_signature(line: str) -> str:
     """截取单行签名：从行首到闭括号，含同行返回类型，最多 200 字符。
@@ -55,7 +65,7 @@ def _line_signature(line: str) -> str:
     stripped = line.strip()
     paren_idx = line.find('(')
     if paren_idx < 0:
-        return stripped[:200]
+        return _clip_signature(stripped)
 
     depth = 0
     end = None
@@ -68,7 +78,7 @@ def _line_signature(line: str) -> str:
                 end = j + 1
                 break
     if end is None:
-        return stripped[:200]
+        return _clip_signature(stripped)
 
     sig = line[len(line) - len(line.lstrip()):end]
     tail = line[end:]
@@ -80,7 +90,7 @@ def _line_signature(line: str) -> str:
     tail = tail[:cut].strip()
     if tail:
         sig = f"{sig}{'' if tail.startswith(':') else ' '}{tail}"
-    return sig[:200]
+    return _clip_signature(sig)
 
 
 def _joined_signature_line(lines: list, start: int, max_lines: int = 50) -> tuple:
@@ -203,7 +213,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 if cls_match:
                     class_indents.append(indent)
                     method_body_indent = None
-                    result_parts.append(stripped[:200])
+                    result_parts.append(_clip_signature(stripped))
                     continue
 
                 # 在类体内：收集字段定义和方法签名
@@ -227,12 +237,12 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                     # 字段定义行（Python: name: Type = default, JS: name = value）
                     # 匹配 "identifier: type" 或 "identifier = value" 模式
                     if _is_class_field(stripped, ext):
-                        result_parts.append(f"  {stripped[:200]}")
+                        result_parts.append(f"  {_clip_signature(stripped)}")
                         continue
 
                     # 装饰器行（@property, @classmethod 等）
                     if stripped.startswith('@'):
-                        result_parts.append(f"  {stripped[:200]}")
+                        result_parts.append(f"  {_clip_signature(stripped)}")
                         continue
 
                     # 跳过方法体内的其他行（pass, return, if 等）
@@ -256,7 +266,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
             if not stripped or stripped.startswith('#') or stripped.startswith('//'):
                 continue
             if _GENERIC_IMPORT.search(line):
-                imports.append(stripped[:200])
+                imports.append(_clip_signature(stripped))
             elif _GENERIC_DEF.search(line):
                 sig = stripped
                 for sep in ['{', ':']:
@@ -264,7 +274,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                     if idx > 0:
                         sig = sig[:idx].rstrip()
                         break
-                defs.append(sig[:200])
+                defs.append(_clip_signature(sig))
 
         if imports or defs:
             parts = imports[:30] + defs[:50]
