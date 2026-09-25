@@ -241,6 +241,25 @@ test("classifies authentication failures without retrying", async () => {
   assert.equal(attempts, 1);
 });
 
+test("surfaces the backend error message for non-retryable failures", async () => {
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    fetchImpl: async () =>
+      response({ code: "HTTP_ERROR", message: "磁盘空间不足（可用：0.78 GB）" }, 507),
+  });
+
+  await assert.rejects(
+    connection.fetchPendingActions(),
+    (error) =>
+      error instanceof CloudConnectionError &&
+      error.status === 507 &&
+      error.message.includes("磁盘空间不足"),
+  );
+});
+
 test("retries transient failures", async () => {
   let attempts = 0;
   const connection = new CloudConnection({

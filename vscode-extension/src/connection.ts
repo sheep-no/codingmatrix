@@ -608,7 +608,7 @@ export class CloudConnection {
         if (!response.ok) {
           const error = new CloudConnectionError(
             "request_failed",
-            `cloud request failed with status ${response.status}`,
+            await this.describeFailure(response),
             response.status,
           );
           if (!this.isRetryableStatus(response.status) || attempt === this.maxRetries) {
@@ -644,6 +644,24 @@ export class CloudConnection {
     } catch {
       throw new CloudConnectionError("request_failed", "cloud response is not valid JSON", response.status);
     }
+  }
+
+  // Surface the backend's actionable message (for example the disk-space guard)
+  // instead of an opaque status code, while tolerating non-JSON error bodies.
+  private async describeFailure(response: HttpResponseLike): Promise<string> {
+    const fallback = `cloud request failed with status ${response.status}`;
+    try {
+      const parsed: unknown = JSON.parse(await response.text());
+      if (this.isRecord(parsed)) {
+        const detail = parsed.message ?? parsed.detail;
+        if (typeof detail === "string" && detail.trim()) {
+          return `${fallback}: ${detail.trim()}`;
+        }
+      }
+    } catch {
+      // Non-JSON or unreadable error body; keep the generic message.
+    }
+    return fallback;
   }
 
   private isRetryableStatus(status: number): boolean {
