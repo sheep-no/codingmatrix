@@ -69,3 +69,10 @@
 - **§5.3 Evaluator-optimizer 主线**：strategy_evaluator 本应是「生成器-评估器」中评估侧的落点（修复模板的自动择优），但 SE1（无数据）+ SE3（学习器无入口）使该方向**零落地**——这是除五支柱结构外最大的架构承诺缺口
 - **错误恢复闭环**：error_recovery（顶层恢复循环执行器）的修复模板恒默认（SE1）→ 修复效果仅靠单模板 + refinement_loop（RL1 空操作）→ 修复循环质量端无任何自适应
 - **§5.6 支柱 4（检查点）**：策略库是「经验检查点」，与 spec_cache SC1（重启全丢）同源的持久化路径/加载问题家族
+
+## 状态更新（2026-09-25）
+
+- **SE4 [P3] 已修**：`_load_strategies`/`_save_strategies`/`_check_strategy_promotion` 的三处 `print` 改为模块 `logger`（加载/保存失败 `warning`、策略提升 `info`）。此前 `print` 直接写 stdout，会污染 SSE 输出流且脱离日志链路。回归 `tests/unit/test_strategy_evaluator_fixes.py::test_save_and_load_do_not_write_stdout`。
+- **SE6 [P3] 已修**：默认策略库路径由 `Path("repair_strategies.json")`（随进程 CWD 漂移）改为 `DEFAULT_STRATEGIES_FILE = <repo>/data/repair_strategies.json`（基于 `__file__` 的绝对路径），与 `feedback_learner.LEARNING_DIR` 的 `data/` 约定一致；`.gitignore` 同步忽略运行时生成的 `data/repair_strategies.json`。回归 `test_default_file_is_absolute_and_cwd_independent`。
+- **写安全（CEC6 一部分）已修**：`_save_strategies` 由直接 `open(...,'w')` 覆盖改为「同目录 `tempfile.mkstemp` → `flush` + `os.fsync` → `os.replace` 原子替换」，失败时保留上一版文件并清理临时文件。回归 `test_save_is_atomic_and_leaves_no_temp`、`test_save_failure_preserves_previous_file`。
+- **SE1/SE2/SE3/SE5 仍成立**：策略库恒空（`create_or_update_strategy` 无生产调用方）、promotion 相邻配对判定、`strategy_learner.py` 死模块、`_save_strategies` 无跨实例锁——均为接线/架构项，本轮未触及。

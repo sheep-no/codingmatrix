@@ -2,11 +2,23 @@
 策略评估器 - 修复策略的 A/B 测试和自动优化框架
 """
 import json
+import logging
+import os
+import tempfile
 import time
 import random
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
+
+
+# 默认策略库固定到仓库 data 目录，避免随进程 CWD 漂移导致读到/写到不同文件
+DEFAULT_STRATEGIES_FILE = (
+    Path(__file__).resolve().parents[2] / "data" / "repair_strategies.json"
+)
 
 
 
@@ -49,7 +61,7 @@ class StrategyEvaluator:
     """
 
     def __init__(self, strategies_file: Path = None):
-        self.strategies_file = strategies_file or Path("repair_strategies.json")
+        self.strategies_file = Path(strategies_file) if strategies_file else DEFAULT_STRATEGIES_FILE
         self.strategies: Dict[str, List[RepairStrategy]] = {}
         self.evaluation_history: List[StrategyEvaluationResult] = []
         self.N_CONSECUTIVE_BETTER = 3  # 连续 N 次表现更好就替换
@@ -68,19 +80,37 @@ class StrategyEvaluator:
                             for strategy_data in strategies_data
                         ]
             except Exception as e:
-                print(f"加载修复策略失败: {e}")
+                logger.warning("加载修复策略失败: %s", e)
 
     def _save_strategies(self):
-        """保存策略到文件"""
+        """保存策略到文件（临时文件 + fsync + os.replace，避免写一半留下损坏 JSON）"""
+        strategies_dict = {
+            error_type: [asdict(strategy) for strategy in strategies]
+            for error_type, strategies in self.strategies.items()
+        }
+        fd = None
+        temporary_name = None
         try:
-            strategies_dict = {
-                error_type: [asdict(strategy) for strategy in strategies]
-                for error_type, strategies in self.strategies.items()
-            }
-            with open(self.strategies_file, 'w', encoding='utf-8') as f:
+            self.strategies_file.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{self.strategies_file.name}.",
+                suffix=".tmp",
+                dir=self.strategies_file.parent,
+            )
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                fd = None
                 json.dump(strategies_dict, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_name, self.strategies_file)
+            temporary_name = None
         except Exception as e:
-            print(f"保存修复策略失败: {e}")
+            logger.warning("保存修复策略失败: %s", e)
+        finally:
+            if fd is not None:
+                os.close(fd)
+            if temporary_name is not None and os.path.exists(temporary_name):
+                os.unlink(temporary_name)
 
     def get_best_strategy(self, error_type: str) -> Optional[RepairStrategy]:
         """
@@ -261,7 +291,12 @@ class StrategyEvaluator:
 
                         if consecutive_better >= self.N_CONSECUTIVE_BETTER:
                             # 提升候选策略为主策略
-                            print(f"策略提升: {candidate.strategy_id} 替换 {current_main.strategy_id} 作为 {error_type} 的主策略")
+                            logger.info(
+                                "策略提升: %s 替换 %s 作为 %s 的主策略",
+                                candidate.strategy_id,
+                                current_main.strategy_id,
+                                error_type,
+                            )
                             current_main.is_active = False
                             candidate.version += 1
                             self._save_strategies()

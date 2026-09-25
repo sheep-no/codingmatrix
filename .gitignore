@@ -180,6 +180,7 @@ specs/
 # 依赖图缓存
 # =============================================================================
 data/dependency_graph.json
+data/repair_strategies.json
 data/*.json.bak
 data/agent_host_sessions/
 
