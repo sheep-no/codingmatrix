@@ -400,3 +400,61 @@ async def test_incremental_wires_heartbeat_tracker(tmp_path):
     assert result["files_generated"] == 1
     assert len(captured) == 1
     assert isinstance(captured[0], HeartbeatTracker)
+
+
+# ---------- IM8: 变更计划缓存 key 稳定 + 过期条目清理 ----------
+
+def _build_graph(order):
+    from app.agent.dependency_graph import DependencyGraph
+
+    graph = DependencyGraph()
+    for path in order:
+        graph.add_file(path, priority=2, description=f"desc-{path}")
+    graph.add_dependency("b.py", "a.py")
+    graph.add_dependency("c.py", "a.py")
+    return graph
+
+
+def test_project_summary_is_stable_across_insertion_order():
+    """IM8: 同一依赖图不同构造顺序应产出相同摘要（缓存 key 因此稳定）。"""
+    harness = _ContentCheckHarness()
+
+    first = harness._build_project_summary_from_graph(_build_graph(["a.py", "b.py", "c.py"]))
+    second = harness._build_project_summary_from_graph(_build_graph(["c.py", "a.py", "b.py"]))
+
+    assert first == second
+    assert "-> a.py" in first
+
+
+def test_change_plan_cache_key_is_stable():
+    import hashlib
+
+    harness = _ContentCheckHarness()
+    summary_a = harness._build_project_summary_from_graph(_build_graph(["a.py", "b.py"]))
+    summary_b = harness._build_project_summary_from_graph(_build_graph(["b.py", "a.py"]))
+
+    key_a = hashlib.sha256(f"add shout:{summary_a}".encode()).hexdigest()
+    key_b = hashlib.sha256(f"add shout:{summary_b}".encode()).hexdigest()
+
+    assert key_a == key_b
+
+
+def test_save_cached_change_plan_prunes_expired(tmp_path):
+    """IM8: 保存时清理 24h 过期条目，缓存文件不再只增不减。"""
+    import time
+
+    harness = _ContentCheckHarness()
+    harness.output_dir = tmp_path
+    cache_dir = tmp_path / ".cache"
+    cache_dir.mkdir()
+    (cache_dir / "change_plans.json").write_text(json.dumps({
+        "stale": {"plan": [{"action": "add", "path": "old.py"}], "timestamp": time.time() - 90000},
+        "fresh": {"plan": [{"action": "add", "path": "keep.py"}], "timestamp": time.time()},
+    }), encoding="utf-8")
+
+    harness._save_cached_change_plan("newkey", [{"action": "modify", "path": "main.py"}])
+
+    saved = json.loads((cache_dir / "change_plans.json").read_text(encoding="utf-8"))
+    assert "stale" not in saved
+    assert "fresh" in saved
+    assert "newkey" in saved

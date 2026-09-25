@@ -347,8 +347,10 @@ class IncrementalModifyMixin:
         """从依赖图构建项目摘要（给架构师看）"""
         lines = []
         lines.append("## 已有项目文件")
-        for path, node in dep_graph.nodes.items():
-            deps = dep_graph.adjacency.get(path, set())
+        # 按路径排序输出，依赖也排序：nodes 插入顺序与 set 迭代顺序不稳定，
+        # 会让摘要文本随进程/构造顺序变化，进而使变更计划缓存 key 失效（IM8）。
+        for path, node in sorted(dep_graph.nodes.items()):
+            deps = sorted(dep_graph.adjacency.get(path, set()))
             dep_str = f" -> {', '.join(deps)}" if deps else ""
             lines.append(f"- {path} (type={node.file_type}, priority={node.priority}){dep_str}")
             if node.description:
@@ -499,9 +501,15 @@ class IncrementalModifyMixin:
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     cache = json.load(f)
 
+            # 写入前清理过期条目（24h），避免 change_plans.json 只增不减（IM8）。
+            now = time.time()
+            cache = {
+                k: v for k, v in cache.items()
+                if now - (v or {}).get("timestamp", 0) < 86400
+            }
             cache[cache_key] = {
                 "plan": plan,
-                "timestamp": time.time()
+                "timestamp": now,
             }
 
             with open(cache_file, 'w', encoding='utf-8') as f:
