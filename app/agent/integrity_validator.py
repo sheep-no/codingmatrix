@@ -350,12 +350,22 @@ class IntegrityValidator:
             if Path(file_path).suffix not in backend_extensions:
                 continue
 
-            # 匹配 FastAPI/Flask 路由装饰器
-            # @app.get("/xxx") 或 @router.get("/xxx")
-            pattern = r'@(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']'
+            # APIRouter(prefix="/xxx") 的变量名 -> 前缀映射；装饰器路径需拼接前缀
+            prefixes = {
+                m.group(1): m.group(2)
+                for m in re.finditer(
+                    r'(\w+)\s*=\s*(?:[\w.]*\.)?APIRouter\s*\(\s*prefix\s*=\s*["\']([^"\']+)["\']',
+                    content,
+                )
+            }
+
+            # 匹配 FastAPI 路由装饰器，变量名不限于 app/router（如 @bp.get、@api_router.post）
+            pattern = r'@(\w+)\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']'
             for match in re.finditer(pattern, content):
-                method = match.group(1).upper()
-                path = match.group(2)
+                router_var, method, path = match.group(1), match.group(2).upper(), match.group(3)
+                prefix = prefixes.get(router_var, '')
+                if prefix:
+                    path = prefix.rstrip('/') + '/' + path.lstrip('/')
                 apis.append({
                     'method': method,
                     'path': path,
