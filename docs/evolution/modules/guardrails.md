@@ -99,3 +99,21 @@
 
 - **零单元测试**：tests/ 下无任何 guardrails/PromptInjectionDetector/check_rate_limit 引用
 - GRD1/GRD2 两个 P2 项全库确认零用例保护；注入检测（GRD5 误报规则）与限流语义（GRD2 跨进程）均无测试约束
+
+## 7. 状态校准（2026-09-24 修复批次）
+
+回归测试 `tests/unit/test_guardrails_disk_space_fixes.py`（6 例，回退源码后 6 例失败）；
+既有 `tests/unit/test_guardrails.py` 42 例继续通过。
+
+- **GRD3 已修（部分）**：
+  - 新增 `_resolve_existing_path`：目录尚未创建时（如首次运行的 `./projects`）向上解析到
+    最近已存在祖先再 `shutil.disk_usage`，不再直接对不存在路径统计并落到 fail-open。
+  - `DiskSpaceStatus` 新增 `check_failed: bool = False`，把「检查失败」与「空间不足」
+    两态分离；仅当底层统计真正抛错时才置位，消费方据此可显式感知故障。
+  - `orchestrate_endpoints` 两处硬编码 `"./projects"` 改为引用 `app.core.paths.PROJECTS_BASE_DIR`
+    单一常量。
+  - 仍未处理：`PROJECTS_BASE_DIR` 本身仍是相对路径（`"./projects"`），CWD 漂移问题
+    需把该常量改为基于 `__file__` 的绝对路径，属跨模块改造，留待专项。
+- **GRD1/GRD2/GRD4/GRD5/GRD6/GRD7/GRD8 仍成立**：能力未接线（GRD1/GRD7）、
+  跨进程限流失效（GRD2）、默认限流过严（GRD4）、注入正则误报（GRD5）、
+  `validate_session_id` 双轨（GRD6）、同步调用阻塞 async（GRD8）均未在本批触及。

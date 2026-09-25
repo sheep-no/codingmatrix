@@ -241,6 +241,24 @@ class DiskSpaceStatus:
     usage_percent: float
     is_low_space: bool
     available_for_new_session: bool
+    # 检查本身是否失败（与「空间不足」是两种状态，便于消费方区分并告警）。
+    check_failed: bool = False
+
+
+def _resolve_existing_path(path: str) -> str:
+    """返回 path 或其最近的已存在祖先。
+
+    磁盘用量按文件系统统计，目录尚未创建（如首次运行时的 ./projects）不代表磁盘
+    不可用。原实现直接对不存在路径调用 shutil.disk_usage 会抛异常并落到
+    「检查失败=放行」，使磁盘检查静默失效（GRD3）。
+    """
+    current = Path(path)
+    while not current.exists():
+        parent = current.parent
+        if parent == current:
+            return "."
+        current = parent
+    return str(current)
 
 
 class DiskSpaceMonitor:
@@ -253,7 +271,7 @@ class DiskSpaceMonitor:
     def check(self, path: str = ".") -> DiskSpaceStatus:
         """检查指定路径的磁盘空间"""
         try:
-            stat = shutil.disk_usage(path)
+            stat = shutil.disk_usage(_resolve_existing_path(path))
             usage_percent = (stat.used / stat.total) * 100 if stat.total > 0 else 100
             free_percent = 100 - usage_percent
             
@@ -280,7 +298,8 @@ class DiskSpaceMonitor:
                 free_bytes=0,
                 usage_percent=0.0,
                 is_low_space=False,  # 无法检查时不阻止
-                available_for_new_session=True
+                available_for_new_session=True,
+                check_failed=True,
             )
 
 
