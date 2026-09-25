@@ -101,4 +101,10 @@
 
 ### 仍开放（未改）
 
-- **FO2/FO3/FO4/FO5/FO6** 维持原判定（关闭开关、扩展名语义不一致、无 base_path 越界、read 全量读、隐藏目录全跳），均需跨消费方或专项口径。
+- **FO2/FO3/FO4/FO6** 维持原判定（关闭开关、扩展名语义不一致、无 base_path 越界、隐藏目录全跳），均需跨消费方或专项口径。
+
+### FO5 修复（2026-09-25）
+
+- **FO5 [P3] 已修（内存维度）**：`read` 原 `f.readlines()` 一次性把整个文件载入内存后再切片，现改为逐行遍历、只保留目标页（`start <= idx < end`），`total_lines` 仍逐行统计但内存占用与文件大小无关；`offset` 超出总行数时仍收敛到 `total_lines`、页内容为空，返回字段语义与旧实现一致。`stats` 的 `len(f.readlines())` 一并改为 `sum(1 for _ in f)` 流式计数。
+- **回归**：`tests/unit/test_file_operator.py` 新增 `TestReadStreaming`（4 项：分页语义、offset 超界收敛、read 不调用 `readlines`、stats 流式计数），回退 `file_operator.py` 后「read 不调用 readlines」项失败。该文件共 14 项。
+- **FO5 剩余**：未引入文件大小上限（超限拒绝/截断属产品口径），保留待决。

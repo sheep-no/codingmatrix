@@ -211,13 +211,21 @@ class FileOperator:
         if not target.is_file():
             raise FileNotFoundError(f"不是文件: {path}")
 
+        # 流式分页：只保留目标页的行，避免大文件一次性 readlines 全量入内存（FO5）。
+        # 仍需逐行遍历以统计 total_lines，但内存占用与文件大小无关。
+        start = max(0, offset)
+        end = start + limit
+        page_lines: List[str] = []
+        total_lines = 0
         with open(target, 'r', encoding=encoding, errors='replace') as f:
-            lines = f.readlines()
+            for idx, line in enumerate(f):
+                if start <= idx < end:
+                    page_lines.append(line)
+                total_lines = idx + 1
 
-        total_lines = len(lines)
-        start = min(offset, total_lines)
+        # 保持原语义：offset 超出总行数时收敛到 total_lines，页内容为空。
+        start = min(start, total_lines)
         end = min(start + limit, total_lines)
-        page_lines = lines[start:end]
 
         return {
             "path": path,
@@ -681,7 +689,8 @@ class FileOperator:
 
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    line_count = len(f.readlines())
+                    # 流式计数，避免逐个文件 readlines 全量入内存（FO5）。
+                    line_count = sum(1 for _ in f)
                     stats["total_lines"] += line_count
                     stats["by_extension"][ext]["lines"] += line_count
             except (IOError, OSError):
