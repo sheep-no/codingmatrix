@@ -364,7 +364,17 @@ class CodePatcher:
                 break
 
         if start_idx is not None:
-            return '\n'.join(lines[start_idx:])
+            # 只收集 diff 行（文件头 / hunk 头 / 上下文 / 增删 / 无换行标记 / 裸空行），
+            # 遇到 LLM 附带的说明文字即停止，避免把响应剩余内容整段当 patch（CP7）。
+            collected = []
+            for line in lines[start_idx:]:
+                if line == '' or line.startswith(
+                    ('--- ', '+++ ', '@@ ', ' ', '+', '-', '\\')
+                ):
+                    collected.append(line)
+                else:
+                    break
+            return '\n'.join(collected)
 
         return None
 
