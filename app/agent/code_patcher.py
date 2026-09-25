@@ -574,6 +574,7 @@ class CrossFilePatchResult:
     primary_file: str
     primary_result: Optional[PatchResult] = None
     dependent_results: List[PatchResult] = field(default_factory=list)
+    changed_results: List[PatchResult] = field(default_factory=list)
     failed_patches: List[str] = field(default_factory=list)
     dependency_chain: Dict[str, List[str]] = field(default_factory=dict)
 
@@ -640,7 +641,12 @@ class CrossFilePatcher:
                     changed_file, content, patch
                 )
                 if patch_result.success:
-                    result.primary_result = patch_result
+                    # primary_result 必须对应 primary_file（changed_files[0]）。
+                    # 此前每个成功都覆盖它，多文件变更时它指向最后一个文件（CP10）。
+                    if changed_file == result.primary_file:
+                        result.primary_result = patch_result
+                    else:
+                        result.changed_results.append(patch_result)
                 else:
                     errors = "; ".join(patch_result.errors or ["apply_patch failed"])
                     raise RuntimeError(f"failed to apply patch to {changed_file}: {errors}")
@@ -691,6 +697,7 @@ class CrossFilePatcher:
         logger.info(
             f"跨文件 patch 生成完成: "
             f"primary={result.primary_result is not None}, "
+            f"changed={len(result.changed_results)}, "
             f"dependents={len(result.dependent_results)}, "
             f"failed={len(result.failed_patches)}"
         )
