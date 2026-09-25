@@ -234,3 +234,26 @@ class TestHunkApplicationFixes:
             "l4",
             "l5",
         ]
+
+    def test_bare_empty_context_line_does_not_truncate_hunk(self, patcher):
+        """CP6: LLM 去掉空上下文行尾随空格形成的裸空行不应截断 hunk。"""
+        patch = (
+            "--- a/test.py\n"
+            "+++ b/test.py\n"
+            "@@ -1,4 +1,4 @@\n"
+            " a\n"
+            "\n"
+            "+b\n"
+            " c\n"
+            " d\n"
+        )
+
+        hunks = patcher._parse_patch(patch)
+        assert len(hunks) == 1
+        assert hunks[0]["lines"] == [" a", " ", "+b", " c", " d"]
+
+        result = asyncio.run(patcher.apply_patch("test.py", "a\n\nc\nd\n", patch))
+
+        assert result.success is True
+        assert result.patched_content.splitlines() == ["a", "", "b", "c", "d"]
+        assert result.errors == []
