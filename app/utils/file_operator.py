@@ -487,6 +487,7 @@ class FileOperator:
 
         results = []
         files_searched = 0
+        undecodable_files: List[str] = []
 
         for rel_path in self._collect_files(target):
             if not name_pattern.match(rel_path.name):
@@ -495,25 +496,31 @@ class FileOperator:
             files_searched += 1
             file_path = target / rel_path
 
+            file_matches = []
             try:
                 # 跳过超大文件（>10MB），防止搜索卡住
                 if file_path.stat().st_size > 10 * 1024 * 1024:
                     continue
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     for line_num, line in enumerate(f, 1):
                         if search_pattern.search(line):
                             match = search_pattern.search(line)
-                            results.append({
+                            file_matches.append({
                                 'file': str(rel_path),
                                 'line': line_num,
                                 'content': line.rstrip(),
                                 'match': line[match.start():match.end()]
                             })
-                            if len(results) >= max_results:
+                            if len(results) + len(file_matches) >= max_results:
                                 break
+            except UnicodeDecodeError:
+                # 无法按 UTF-8 解码：记录并整体跳过，避免静默丢弃内容
+                undecodable_files.append(str(rel_path))
+                continue
             except (IOError, OSError):
                 continue
 
+            results.extend(file_matches)
             if len(results) >= max_results:
                 break
 
@@ -521,6 +528,7 @@ class FileOperator:
             "pattern": pattern,
             "files_searched": files_searched,
             "matches_found": len(results),
+            "undecodable_files": undecodable_files,
             "results": results[:max_results],
         }
 
@@ -551,6 +559,7 @@ class FileOperator:
 
         results = []
         files_searched = 0
+        undecodable_files: List[str] = []
 
         for rel_path in self._collect_files(target):
             if allowed_types and not any(rel_path.name.endswith(t) for t in allowed_types):
@@ -560,7 +569,7 @@ class FileOperator:
             file_path = target / rel_path
 
             try:
-                content = file_path.read_text(encoding='utf-8', errors='ignore')
+                content = file_path.read_text(encoding='utf-8')
 
                 search_content = content if case_sensitive else content.lower()
                 search_keyword = keyword if case_sensitive else keyword.lower()
@@ -579,7 +588,11 @@ class FileOperator:
                         "total_matches": search_content.count(search_keyword),
                         "preview": matches
                     })
-            except (IOError, OSError, UnicodeDecodeError):
+            except UnicodeDecodeError:
+                # 无法按 UTF-8 解码：记录并整体跳过，避免静默丢弃内容
+                undecodable_files.append(str(rel_path))
+                continue
+            except (IOError, OSError):
                 continue
 
             if len(results) >= 50:
@@ -589,6 +602,7 @@ class FileOperator:
             "keyword": keyword,
             "files_searched": files_searched,
             "matched_files": len(results),
+            "undecodable_files": undecodable_files,
             "results": results,
         }
 

@@ -3,6 +3,8 @@
 覆盖已建档缺陷：
 - FO1 PROTECTED_FILES 子串匹配误伤：".env" 命中任意含该子串的路径，
   导致 SAFE_EXTENSIONS 明确允许的 ".env.example" 模板被拒。
+- FO7 grep/search 以 errors='ignore' 读取：含非法字节的文件内容被静默
+  丢弃，搜索结果不完整且无任何提示。
 """
 
 from pathlib import Path
@@ -67,3 +69,43 @@ def test_git_config_substring_path_is_not_misflagged():
         )
         is False
     )
+
+
+def _make_undecodable(root: Path) -> Path:
+    """写入含非法 UTF-8 字节的文本文件（内容中含可搜索的 ASCII 关键字）。"""
+    bad = root / "broken.txt"
+    bad.write_bytes("needle here\n".encode("utf-8") + b"\xff\xfe\x80 invalid\n")
+    return bad
+
+
+def test_grep_reports_undecodable_file(tmp_path):
+    """FO7：grep 不应静默跳过无法解码的文件。"""
+    _make_undecodable(tmp_path)
+    operator = FileOperator(base_path=str(tmp_path), allow_protected_paths=True)
+
+    result = operator.grep("needle", path=".")
+
+    assert result["undecodable_files"] == ["broken.txt"]
+    assert result["matched_files"] == 0
+
+
+def test_search_reports_undecodable_file(tmp_path):
+    """FO7：search 不应静默跳过无法解码的文件。"""
+    _make_undecodable(tmp_path)
+    operator = FileOperator(base_path=str(tmp_path), allow_protected_paths=True)
+
+    result = operator.search("needle", path=".")
+
+    assert result["undecodable_files"] == ["broken.txt"]
+    assert result["matches_found"] == 0
+
+
+def test_grep_reports_no_undecodable_for_valid_files(tmp_path):
+    """FO7：正常 UTF-8 文件不进入 undecodable 列表。"""
+    (tmp_path / "ok.txt").write_text("needle here\n", encoding="utf-8")
+    operator = FileOperator(base_path=str(tmp_path), allow_protected_paths=True)
+
+    result = operator.grep("needle", path=".")
+
+    assert result["undecodable_files"] == []
+    assert result["matched_files"] == 1
