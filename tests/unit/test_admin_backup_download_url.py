@@ -1,11 +1,13 @@
-"""管理端备份接口的 download_url 与真实路由一致性回归。
+"""管理端备份接口的 download_url、路由方法与真实语义一致性回归。
 
-原实现两处问题：
+原实现几处问题：
 1. /admin/backup/list 返回的 download_url 形如
    /api/v2/Controller/admin/backup/download/{filename}，但实际下载端点是
    /api/v2/Controller/admin/backup/{timestamp}，按该字段请求必然 404；
 2. 创建备份时的保留期清理对每个候选文件直接 unlink，并发创建下另一请求
    已删掉同一文件会抛 FileNotFoundError，冒泡成「创建备份失败」500。
+3. 创建备份挂在 GET /admin/backup 上：GET 有副作用，预取/重试/监控探测都会
+   轮转备份，可能淘汰管理员刻意保留的历史备份；创建备份应为 POST。
 """
 
 import os
@@ -22,6 +24,16 @@ def _registered_paths() -> set[str]:
     from app.main import app
 
     return {route.path for route in app.routes if hasattr(route, "path")}
+
+
+def _route_methods(path: str) -> set[str]:
+    from app.main import app
+
+    methods: set[str] = set()
+    for route in app.routes:
+        if getattr(route, "path", None) == path:
+            methods |= set(getattr(route, "methods", None) or set())
+    return methods
 
 
 def _write_backups(directory: Path, timestamps) -> None:
@@ -122,3 +134,11 @@ async def test_retention_never_evicts_the_backup_it_just_created(tmp_path, monke
     remaining = sorted(p.name for p in backup_dir.glob("config_backup_*.json"))
     assert len(remaining) == 5
     assert Path(result["backup_file"]).name in remaining
+
+
+def test_create_backup_route_is_post_only():
+    """创建备份有副作用，必须是 POST；GET /admin/backup 不得再存在。"""
+    methods = _route_methods("/api/v2/Controller/admin/backup")
+
+    assert "POST" in methods
+    assert "GET" not in methods

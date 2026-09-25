@@ -422,7 +422,7 @@ export function createAdminClient(client) {
     // ========== 备份管理 ==========
     async createBackup() {
       try {
-        const response = await client.get('/api/v2/Controller/admin/backup')
+        const response = await client.post('/api/v2/Controller/admin/backup')
         if (response.ok) {
           return await response.json()
         }

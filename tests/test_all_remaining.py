@@ -677,7 +677,7 @@ def test_guardian(s):
     record("guardian", "备份列表", ok, f"{r.status_code}")
 
     # 10.21 创建备份
-    r = s.get(f"{B}/Controller/admin/backup")
+    r = s.post(f"{B}/Controller/admin/backup")
     ok = r.status_code == 200
     record("guardian", "创建备份", ok, f"{r.status_code}")
 

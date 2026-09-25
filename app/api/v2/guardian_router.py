@@ -590,7 +590,7 @@ def _get_memory_suggestions(sys_percent: float, proc_percent: float) -> list:
     return suggestions
 
 
-@router.get("/admin/backup")
+@router.post("/admin/backup")
 async def create_backup(token: dict = Depends(require_superadmin)):
     """
     创建配置文件备份
