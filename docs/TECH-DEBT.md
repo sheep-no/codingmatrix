@@ -79,7 +79,7 @@
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离。升级路径（按成本从低到高）：①带口令私钥 + 环境变量注入口令；②私钥改由 docker/k8s secret 挂载只读卷、不以文件落盘；③接入 KMS/Secret Manager，私钥不出后端服务边界。生产部署建议至少做到 ② |
-| P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），spec 数 99→96。其余候选均触及 Agent 子系统，按范围约定不动。`e2e.yml` 仍只把 5 个稳定 spec 作为门禁 |
+| P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），当前 `tests/e2e/` 下 95 个 spec。其余候选均触及 Agent 子系统，按范围约定不动。`e2e.yml` 门禁本轮由 5 个扩到 9 个稳定非 Agent spec（新增 `theme-switcher`、`10-admin`、`tools`、`capability-center`，已在串行与默认并行两种模式下各跑一遍确认零失败）；其余 spec 或依赖外部模型、或选择器待修，仍不进 CI |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 已裁定保留；判定为 Agent 相邻的预留能力，按本轮「不触碰 Agent 子系统」的范围约定保留，不计入死代码，其 3 个相关测试一并保留 |
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
@@ -107,7 +107,7 @@
 - 前端 ESLint：`0 errors / 385 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
-- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login` 共 `44` 项；`CI=1`（单 worker + 2 次重试）下稳定通过。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
+- 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login`、`theme-switcher`、`10-admin`、`tools`、`capability-center` 共 `72` 项；`CI=1`（单 worker + 2 次重试）下稳定通过。新增 4 个 spec 是本机 `tests/e2e/` 全量跑中零失败的非 Agent 集合，串行与默认并行各复跑一遍均 `28 passed`。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
 - 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
 
 ## 历史修复记录
