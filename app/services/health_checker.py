@@ -145,12 +145,21 @@ class HealthChecker:
                     queue_size += info.get("pool", {}).get("max-concurrency", 0)
 
             elapsed = (asyncio.get_running_loop().time() - start) * 1000
+            if not stats:
+                # broker 可达但没有 worker 响应：异步任务不会被消费，报 healthy 会掩盖
+                # worker 掉线。生产编排固定带 celery 服务，缺失即异常。
+                return HealthCheckResult(
+                    status="degraded",
+                    response_time_ms=round(elapsed, 2),
+                    message="未发现可用的 Celery worker",
+                    details={"workers": 0, "active_tasks": 0, "queue_size": 0}
+                )
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
                 message="Celery 队列正常",
                 details={
-                    "workers": len(stats) if stats else 0,
+                    "workers": len(stats),
                     "active_tasks": sum(len(tasks) for tasks in (active or {}).values()),
                     "queue_size": queue_size
                 }

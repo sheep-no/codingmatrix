@@ -156,10 +156,10 @@ alembic -c configs/alembic.ini current
 
 | 端点 | 当前实现 |
 |---|---|
-| `GET /api/v1/health` | 快速检查数据库和 Redis；返回 `status`、UTC `timestamp`、`version`。数据库或 Redis 失败时返回 `unhealthy`，函数仍返回 HTTP 200。Redis 未配置时快速检查视为通过。当前源码版本字段为 `v5.10.0`。 |
+| `GET /api/v1/health` | 快速检查数据库和 Redis；返回 `status`、UTC `timestamp`、`version`。数据库或 Redis 失败时返回 `unhealthy`，函数仍返回 HTTP 200。Redis 未配置时快速检查视为通过。`version` 与 `/health/detailed` 同源，均取自 `app.core.version.APP_VERSION`。 |
 | `GET /api/v1/health/live` | 只返回 `status: alive` 和 UTC `timestamp`，不检查外部依赖。 |
 | `GET /api/v1/health/ready` | 检查数据库和 Redis，并返回 `status: ready/not_ready`、`checks.database`、`checks.redis` 和 UTC `timestamp`。Redis 未配置时快速检查视为通过。 |
-| `GET /api/v1/health/detailed` | 返回 `health_checker.check_all()` 结果，包含 `api`、`database`、`redis`、`celery`、`websocket`、`system` 六类检查、各项状态和整体状态。该服务的版本字段当前为 `v3.0`。Celery 检查失败标记为 `degraded`。 |
+| `GET /api/v1/health/detailed` | 返回 `health_checker.check_all()` 结果，包含 `api`、`database`、`redis`、`celery`、`websocket`、`system` 六类检查、各项状态和整体状态。`version` 与 `/health` 同源。Celery 在 broker 不可达、inspect 抛错，或 broker 可达但无任何 worker 响应时标记为 `degraded`。 |
 | `GET /api/v1/health/metrics` | 返回 `text/plain; charset=utf-8` 的自定义 Prometheus 文本；更新 API 和进程内存状态。当前源码对同步方法 `get_connection_count()` 使用 `await`，异常会被捕获并把 WebSocket 健康状态写为 0，活跃连接数不会更新。源码还创建 GC 计数器，但当前文本生成器只输出部分计数器和 gauge。 |
 | `GET /api/v1/health/models` | 调用动态模型路由器的 `get_model_health_report()`，返回 `status: success`、`models`、UTC 时间戳；模型报告具体字段由动态路由器实现决定。 |
 

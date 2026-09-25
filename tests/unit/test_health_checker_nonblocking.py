@@ -85,6 +85,36 @@ async def test_check_celery_does_not_block_event_loop(fake_celery_module):
     assert ticks >= 5
 
 
+class _NoWorkerInspect:
+    """broker 可达但没有任何 worker 响应时，inspect 返回 None"""
+
+    def stats(self):
+        return None
+
+    def active(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_check_celery_reports_degraded_without_workers(monkeypatch):
+    """无 worker 响应时必须报 degraded，否则 worker 掉线在监控里显示为健康。"""
+    class _Control:
+        def inspect(self):
+            return _NoWorkerInspect()
+
+    class _App:
+        control = _Control()
+
+    module = types.ModuleType("app.celery_app")
+    module.celery_app = _App()
+    monkeypatch.setitem(sys.modules, "app.celery_app", module)
+
+    result = await HealthChecker().check_celery()
+
+    assert result.status == "degraded"
+    assert result.details["workers"] == 0
+
+
 @pytest.mark.asyncio
 async def test_check_all_runs_checks_in_parallel(monkeypatch):
     checker = HealthChecker()
