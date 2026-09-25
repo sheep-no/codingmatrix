@@ -55,3 +55,23 @@
 ## 5. 测试状态
 
 **近乎零测试覆盖**——`tests/unit/test_small_model_optimization.py:188` 的 `test_get_context_for_file` 仅断言依赖文件名与字符串片段存在，不校验签名提取结果、不覆盖 `extract_signatures` 直接调用。SE1/SE2/SE3/SE4/SE5/SE6 全部实测可复现但无任何用例保护；`get_context_budget` 各窗口边界（32K/64K 分档与上下限）零测试。签名提取是 dependency_graph 依赖上下文注入的唯一信息源，其正确性直接决定注入 LLM 的依赖上下文质量，当前无回归保护。
+
+## 6. 状态更新（2026-09-25 核实）
+
+本轮修复 JS/TS 类方法提取缺口（SE4）及行级签名截断缺陷，并核实 SE1/SE3/SE5 现状：
+
+- **SE4 已修**：JS/TS 的 `function` pattern 只匹配 `function name(` 与 `const name = (`，类体内标准方法语法 `run(): void {}` / `constructor() {}` 不匹配任何 pattern，类方法全部丢失。新增 `_JS_METHOD_PATTERN`（允许 `public/private/protected/static/async/readonly/abstract/override/declare` 等修饰符、`get`/`set` 访问器与 `<T>` 泛型，并用负向前瞻排除 `if/for/return/function/new` 等控制流与关键字），在类体内改用 `patterns.get("method", patterns["function"])`。实测 `export class Service` 后 `constructor(name: string)` / `run(): void` / `async fetch(id: number): Promise<string>` / `get label(): string` 全部输出。Java/Go/Rust 无 `method` 键，行为不变。
+- **行级签名截断修复**：原实现用 `end - len(line) + len(stripped) + 1` 把行内括号深度定位换算回 `stripped` 下标，会多带闭括号后的一个字符（输出 `run():` 而非 `run(): void`），且同行返回类型被丢弃。新增 `_line_signature` 直接在原行取值，并从闭括号后截到 `{`/`;` 以保留返回类型；`class T:` 内的 `def f(self, n: int) -> str:` 等 Python 顶层签名（AST 路径）不受影响。
+- **方法体跳过**：新增 `method_body_indent` 状态——方法签名行之后的更深缩进行属于函数体，直接跳过，避免方法体内的函数调用/局部变量被误当作方法或字段（SE1 的 JS/TS 同族问题，实测 `go(i)` / `for (...)` / `if (...)` 不再进入签名）。方法体结束后重置，后续字段/方法正常收集。
+- **字段修饰符前缀**：`_is_class_field` 的 JS/TS 分支去掉 `public/private/static/readonly` 等修饰符前缀后再匹配，`private name: string;`、`static count: number = 0;` 可识别。
+- **SE1 已消解（Python 侧）**：`_extract_python_signatures` 已改用 AST 且仅遍历 `ClassDef.body` 直接成员，方法体内局部变量不会进入字段列表；实测 `class Order` 中 `def calc` 内的 `x: int` / `total: float` 不再输出。JS/TS 侧方法体污染由上述 `method_body_indent` 修复。
+- **SE3 已消解**：`extract_signatures` 对 `.py`/`.pyi` 统一走 AST 路径（:143），`.pyi` 走 `_extract_python_signatures`，字段与函数签名正常提取（实测 `class User` 的 `id: int` / `name: str` 与 `def get_name(self) -> str:` 均输出），不再依赖 `.pyi` 正则键。
+- **SE5 部分消解**：Python 多行签名的参数由 `ast.unparse` 合并（实测 `def long_func(a: int, b: str) -> bool:`）；JS/TS 多行参数仍只取首行，保留待决。
+
+**仍未处理**：
+
+- **SE2 [P2]**：`preview = signatures` 不按 budget 截断（`dependency_graph.py:841`），核心依赖签名溢出预算后 `remaining_budget <= 0` 使后续依赖被 `break` 丢弃。属消费方 `dependency_graph` 的预算分配问题，保留。
+- **SE6 [P3]**：类体收集用单变量无栈，嵌套类覆盖 `class_indent` 后外层方法被误判为顶层。保留。
+- **SE7 [P3]**：多处 `[:200]` 截断无标记。保留。
+
+**回归**：新增 `tests/unit/test_signature_extractor.py`（4 项：TS 类方法与修饰符字段、方法体调用不误判、单行方法、行级签名不多带字符），回退 `signature_extractor.py` 后 4 项全失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。

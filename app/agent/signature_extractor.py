@@ -28,6 +28,61 @@ def get_context_budget(context_length: int) -> int:
     else:
         return max(8000, min(15000, int(context_length * 0.03)))
 
+# JS/TS 类体方法：允许访问/静态等修饰符、get/set 访问器与泛型，
+# 并用负向前瞻排除方法体内可能出现的控制流/调用关键字。
+_JS_METHOD_MODIFIERS = (
+    r"(?:(?:public|private|protected|static|async|readonly|abstract|override|declare)\s+)*"
+)
+_JS_METHOD_NAME = (
+    r"(?!(?:if|for|while|switch|catch|return|function|typeof|new|super|await"
+    r"|throw|do|else|case|default|delete|void|yield)\b)"
+    r"([A-Za-z_$][\w$]*)"
+)
+_JS_METHOD_PATTERN = re.compile(
+    rf"^\s*{_JS_METHOD_MODIFIERS}(?:(?:get|set)\s+)?{_JS_METHOD_NAME}"
+    r"\s*(?:<[^>]*>)?\s*\("
+)
+
+
+def _line_signature(line: str) -> str:
+    """截取单行签名：从行首到闭括号，含同行返回类型，最多 200 字符。
+
+    原实现用行内括号深度定位后按 ``end - len(line) + len(stripped) + 1``
+    换算，会多带闭括号后的一个字符（如 ``run():`` 而非 ``run(): void``），
+    且返回类型被丢弃。这里直接在 ``line`` 上取值，并在闭括号后截到 ``{``/``;``
+    以保留同行返回类型。
+    """
+    stripped = line.strip()
+    paren_idx = line.find('(')
+    if paren_idx < 0:
+        return stripped[:200]
+
+    depth = 0
+    end = None
+    for j in range(paren_idx, min(paren_idx + 500, len(line))):
+        if line[j] == '(':
+            depth += 1
+        elif line[j] == ')':
+            depth -= 1
+            if depth == 0:
+                end = j + 1
+                break
+    if end is None:
+        return stripped[:200]
+
+    sig = line[len(line) - len(line.lstrip()):end]
+    tail = line[end:]
+    cut = len(tail)
+    for sep in ('{', ';'):
+        idx = tail.find(sep)
+        if idx != -1:
+            cut = min(cut, idx)
+    tail = tail[:cut].strip()
+    if tail:
+        sig = f"{sig}{'' if tail.startswith(':') else ' '}{tail}"
+    return sig[:200]
+
+
 # 签名提取正则（与 specialist_base._SYMBOL_PATTERNS 一致）
 SIGNATURE_PATTERNS = {
     ".py": {
@@ -37,14 +92,17 @@ SIGNATURE_PATTERNS = {
     ".js": {
         "function": re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\("),
         "class": re.compile(r"(?:export\s+)?class\s+(\w+)"),
+        "method": _JS_METHOD_PATTERN,
     },
     ".ts": {
         "function": re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[<(]|(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\("),
         "class": re.compile(r"(?:export\s+)?(?:abstract\s+)?class\s+(\w+)"),
+        "method": _JS_METHOD_PATTERN,
     },
     ".vue": {
         "function": re.compile(r"(?:async\s+)?function\s+(\w+)\s*\(|(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\("),
         "class": re.compile(r"class\s+(\w+)"),
+        "method": _JS_METHOD_PATTERN,
     },
     ".go": {
         "function": re.compile(r"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\("),
@@ -98,6 +156,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
             result_parts = []
             class_indent = 0
             collecting_class_body = False
+            method_body_indent = None
 
             for line in lines:
                 stripped = line.strip()
@@ -111,29 +170,24 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 if cls_match:
                     class_indent = indent
                     collecting_class_body = True
+                    method_body_indent = None
                     result_parts.append(stripped[:200])
                     continue
 
                 # 在类体内：收集字段定义和方法签名
                 if collecting_class_body and indent > class_indent:
+                    # 跳过方法体：方法签名行之后的更深缩进行属于函数体，
+                    # 其内的函数调用/局部变量不应被当作方法或字段。
+                    if method_body_indent is not None:
+                        if indent > method_body_indent:
+                            continue
+                        method_body_indent = None
+
                     # 方法签名行
-                    fn_match = patterns["function"].search(line)
+                    fn_match = patterns.get("method", patterns["function"]).search(line)
                     if fn_match:
-                        paren_idx = line.find('(')
-                        if paren_idx >= 0:
-                            depth, end = 0, paren_idx
-                            for j in range(paren_idx, min(paren_idx + 500, len(line))):
-                                if line[j] == '(':
-                                    depth += 1
-                                elif line[j] == ')':
-                                    depth -= 1
-                                    if depth == 0:
-                                        end = j + 1
-                                        break
-                            sig = stripped[:end - len(line) + len(stripped) + 1]
-                        else:
-                            sig = stripped
-                        result_parts.append(f"  {sig[:200]}")
+                        result_parts.append(f"  {_line_signature(line)}")
+                        method_body_indent = indent
                         continue
 
                     # 字段定义行（Python: name: Type = default, JS: name = value）
@@ -153,25 +207,12 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 # 遇到新的顶层定义，退出类体收集模式
                 if collecting_class_body and indent <= class_indent:
                     collecting_class_body = False
+                    method_body_indent = None
 
                 # 顶层函数
                 fn_match = patterns["function"].search(line)
                 if fn_match and not collecting_class_body:
-                    paren_idx = line.find('(')
-                    if paren_idx >= 0:
-                        depth, end = 0, paren_idx
-                        for j in range(paren_idx, min(paren_idx + 500, len(line))):
-                            if line[j] == '(':
-                                depth += 1
-                            elif line[j] == ')':
-                                depth -= 1
-                                if depth == 0:
-                                    end = j + 1
-                                    break
-                        sig = stripped[:end - len(line) + len(stripped) + 1]
-                    else:
-                        sig = stripped
-                    result_parts.append(sig[:200])
+                    result_parts.append(_line_signature(line))
 
             if result_parts:
                 return '\n'.join(result_parts)
@@ -263,14 +304,25 @@ def _is_class_field(stripped: str, ext: str) -> bool:
         return False
 
     if ext in ('.js', '.ts', '.jsx', '.tsx', '.vue'):
+        # 去掉访问/静态等修饰符前缀，使 `private name: string;` 也能识别为字段
+        rest = stripped
+        while True:
+            parts = rest.split(None, 1)
+            if len(parts) == 2 and parts[0] in (
+                'public', 'private', 'protected', 'readonly',
+                'static', 'declare', 'abstract', 'override', 'async',
+            ):
+                rest = parts[1]
+            else:
+                break
         # JS/TS 字段: name = value 或 name: type (in interface)
-        if '=' in stripped:
-            before_eq = stripped.split('=')[0].strip()
+        if '=' in rest:
+            before_eq = rest.split('=')[0].strip()
             if before_eq and before_eq.replace('_', '').isalnum():
                 return True
         # TypeScript 接口字段: name: type;
-        if ':' in stripped and stripped.endswith(';'):
-            before_colon = stripped.split(':')[0].strip()
+        if ':' in rest and rest.endswith(';'):
+            before_colon = rest.split(':')[0].strip()
             if before_colon and before_colon.replace('_', '').isalnum():
                 return True
         return False
