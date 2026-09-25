@@ -73,3 +73,48 @@ def test_signature_ends_at_closing_paren_without_extra_char():
     assert signatures is not None
     assert "run(): void" in signatures
     assert "run() : void" not in signatures
+
+
+def test_nested_class_does_not_swallow_outer_methods():
+    """SE6: 嵌套类覆盖 class_indent 后，外层方法此前被误判为顶层而丢弃。"""
+    js = """class Outer {
+  name = "outer";
+  class Inner {
+    id = 1;
+    run() {}
+  }
+  outerMethod() {}
+  outerField = 2;
+}
+"""
+
+    signatures = extract_signatures("nested.js", js)
+
+    assert signatures is not None
+    assert "class Outer {" in signatures
+    assert 'name = "outer";' in signatures
+    assert "class Inner {" in signatures
+    assert "id = 1;" in signatures
+    assert "run()" in signatures
+    # 外层类的方法与字段必须在嵌套类结束后恢复收集
+    assert "outerMethod()" in signatures
+    assert "outerField = 2;" in signatures
+
+
+def test_two_sibling_classes_both_keep_their_methods():
+    """退出一个类后，下一个同级类的方法归属不受前一个类影响。"""
+    js = """class A {
+  first() {}
+}
+class B {
+  second() {}
+}
+"""
+
+    signatures = extract_signatures("siblings.js", js)
+
+    assert signatures is not None
+    assert "class A {" in signatures
+    assert "first()" in signatures
+    assert "class B {" in signatures
+    assert "second()" in signatures
