@@ -120,7 +120,9 @@ jobs:
 
       - name: Run E2E tests
         run: |
-          CORE_SPECS="tests/e2e/core.spec.js tests/e2e/01-auth.spec.js tests/e2e/02-core-navigation.spec.js tests/e2e/11-theme-shortcuts.spec.js tests/e2e/encrypted-login.spec.js"
+          # 门禁仅纳入已实测稳定的非 Agent spec；其余 spec 依赖外部模型或选择器待修，
+          # 不进 CI，避免门禁随机失败。新增 spec 前需本地串行与并行各跑一遍确认零失败。
+          CORE_SPECS="tests/e2e/core.spec.js tests/e2e/01-auth.spec.js tests/e2e/02-core-navigation.spec.js tests/e2e/11-theme-shortcuts.spec.js tests/e2e/encrypted-login.spec.js tests/e2e/theme-switcher.spec.js tests/e2e/10-admin.spec.js tests/e2e/tools.spec.js tests/e2e/capability-center.spec.js"
           if [ -n "${{ github.event.inputs.test_pattern }}" ]; then
             npx playwright test "tests/e2e/${{ github.event.inputs.test_pattern }}"
           else
