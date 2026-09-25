@@ -143,6 +143,41 @@ class TestEC3ModelFailureSemantics:
         assert result.error_type == "Unknown"
 
 
+class TestCEC3ClientPassthrough:
+    """CEC3: 模型分类兜底透传 api_key_token/cancel_event，走统一客户端。"""
+
+    async def test_token_and_cancel_event_forwarded(self, monkeypatch):
+        captured = {}
+
+        async def fake_call_llm(**kwargs):
+            captured.update(kwargs)
+            return {"choices": [{"message": {"content": ""}}]}
+
+        monkeypatch.setattr(ec_mod, "call_llm", fake_call_llm)
+        cancel = object()
+        await ErrorClassifier().classify_error(
+            "mysterious failure",
+            api_key_token="tok-123",
+            cancel_event=cancel,
+        )
+
+        assert captured.get("api_key_token") == "tok-123"
+        assert captured.get("cancel_event") is cancel
+
+    async def test_rule_hit_does_not_call_model(self, monkeypatch):
+        """规则命中时不进入模型路径，token 无需求。"""
+
+        async def boom(**kwargs):
+            raise AssertionError("规则命中不应调用模型")
+
+        monkeypatch.setattr(ec_mod, "call_llm", boom)
+        result = await ErrorClassifier().classify_error(
+            "NameError: name 'x' is not defined",
+            api_key_token="tok-123",
+        )
+        assert result.error_type == "NameError"
+
+
 class TestEC4HistoryBound:
     """EC4: classification_history 有上限，长会话不无界增长"""
 

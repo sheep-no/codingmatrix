@@ -115,7 +115,13 @@ class ErrorClassifier:
     def __init__(self):
         self.classification_history = deque(maxlen=self.HISTORY_MAXLEN)
 
-    async def classify_error(self, error_message: str, code_context: str = "") -> ErrorClassification:
+    async def classify_error(
+        self,
+        error_message: str,
+        code_context: str = "",
+        api_key_token: Optional[str] = None,
+        cancel_event=None,
+    ) -> ErrorClassification:
         """分类错误类型并返回修复策略"""
         # 首先尝试基于规则的匹配
         rule_based_result = self._rule_based_classification(error_message)
@@ -123,7 +129,12 @@ class ErrorClassifier:
             return rule_based_result
 
         # 如果规则匹配失败，使用轻量级模型进行分类
-        return await self._model_based_classification(error_message, code_context)
+        return await self._model_based_classification(
+            error_message,
+            code_context,
+            api_key_token=api_key_token,
+            cancel_event=cancel_event,
+        )
 
     def _rule_based_classification(self, error_message: str) -> Optional[ErrorClassification]:
         """基于规则的错误分类。
@@ -195,7 +206,13 @@ class ErrorClassifier:
             confidence=confidence,
         )
 
-    async def _model_based_classification(self, error_message: str, code_context: str) -> ErrorClassification:
+    async def _model_based_classification(
+        self,
+        error_message: str,
+        code_context: str,
+        api_key_token: Optional[str] = None,
+        cancel_event=None,
+    ) -> ErrorClassification:
         """基于模型的错误分类（使用 DEFAULT_CODE_MODEL）"""
         system_prompt = """你是一位资深的错误分类专家。你的任务是分析错误信息并将其分类到预定义的错误类型中。
 只返回 JSON 格式的结果，不要包含其他文本。"""
@@ -230,7 +247,11 @@ class ErrorClassifier:
                 stream=False,
                 max_tokens=500,
                 temperature=0.1,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                # 与修复链一致：透传用户 Key 与取消信号，走统一客户端的
+                # 用户 Key 解析与并发控制，不再以默认模型配置直连（CEC3）。
+                api_key_token=api_key_token,
+                cancel_event=cancel_event,
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -247,12 +268,6 @@ class ErrorClassifier:
             logger.warning("模型分类失败: %s", e)
 
         return self._unclassified_fallback()
-
-    def get_fix_strategy_by_type(self, error_type: str) -> str:
-        """根据错误类型获取修复策略"""
-        if error_type in self.ERROR_PATTERNS:
-            return self.ERROR_PATTERNS[error_type]["fix_strategy"]
-        return "通用修复策略：仔细分析错误信息，逐步调试代码逻辑"
 
     def add_to_history(self, classification: ErrorClassification):
         """添加分类结果到历史记录"""

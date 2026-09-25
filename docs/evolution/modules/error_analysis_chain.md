@@ -231,3 +231,21 @@ cost_estimates = {
 - 成本估算分裂（CEC7）归入 LC1 成本主线；错误分类直连 LLM（CEC3）归入 LCL1 收敛范围（与 ERL4/EV1/TG1 同源，收敛范围需统一扩展）。
 - 硬编码模型名（CEC4）归入 DMR 唯一模型决策源主线（IM1 同类），阶段一 RA2/RE1 收敛模型决策时可一并纳入。
 - 全局单例（CEC6）与 ERL5/MCP1 同类，归入「单例→按需实例」收敛主线。
+
+## 7. 状态校准（2026-09-25，CEC3/CEC8 批次）
+
+回归测试 `tests/unit/test_error_classifier.py` + `tests/unit/test_error_classifier_fixes.py`（27 例；回退 `error_classifier.py` 后新增 CEC3 用例 2 例失败）。
+
+### 已修
+
+- **CEC3 [P2] 部分已修**：`ErrorClassifier.classify_error` / `_model_based_classification` 新增 `api_key_token` / `cancel_event` 参数并透传给 `call_llm`；`error_recovery.py:184` 调用点传入 `self.api_key_token` / `self.cancel_event`。错误分类兜底不再以默认模型配置直连，与修复链（`error_recovery.py:262`，ERL4 已修）保持同一模式——用户自定义 Key 可被解析、分类调用可随取消信号中止；并发节流由 `call_llm` 内部全局信号量统一管理。**成本计入仍缺失**：`classify_error` 只返回 `ErrorClassification`、不含 `usage`，`error_recovery._record_llm_cost` 无法在外部累计；接入 `cost_tracker` 需 classifier 依赖成本模块或改变返回结构，归入 LC1 成本收敛专项。`max_tokens=500` 仍为硬编码（量级小，未纳入本批）。
+- **CEC8 已修（死代码/无界内存/print 三项均清）**：删除全库零生产调用的 `get_fix_strategy_by_type`（原 `error_classifier.py`）及 `tests/unit/test_error_classifier.py::TestFixStrategy`；`classification_history` 早已改为 `deque(maxlen=HISTORY_MAXLEN)`（EC4）；`print()` 已全部改为 `logger`（`error_classifier.py` 与 `strategy_evaluator.py` 均随 SE4/SE6 批次清理）。
+- **CEC4 已修（error_classifier 侧）**：fix_strategy 文案中的 `deepseek-r1` 已移除（`TestEC6CommentAlignment` 覆盖），`DEFAULT_ERROR_MODEL_MAPPING` 也已不存在；剩余 `deepseek-r1` 出现点为模型注册表定义（`model_config_manager.py`）与角色默认映射（`orchestrator_requirements/constants.py:32`），属 DMR 收敛范围，非本模块硬编码。
+- **CEC6 部分已修**：策略文件已改「同目录 `mkstemp` + `flush` + `os.fsync` + `os.replace`」原子写、默认路径基于 `__file__` 绝对化（`DEFAULT_STRATEGIES_FILE`），随 strategy_evaluator SE4/SE6 批次合并。
+
+### 仍成立
+
+- **CEC1（A/B 空转）**：`strategy_evaluator` 的 `create_or_update_strategy` 仍无生产调用方，评估链空转，需产品决策（接线种子策略或降级为纯模板库）。
+- **CEC5（promotion 配对语义）**：`_check_strategy_promotion` 仍比较时间相邻事件而非同一错误配对，A/B 接线后才会触发，属 CEC1 的连带项。
+- **CEC6 单例残项**：`strategy_evaluator` 全局单例仍存在，跨请求共享 stats/evaluation_history，归入「单例→按需实例」收敛主线。
+- **CEC7（成本估算分裂）**：`complexity.py:120` 与 `orchestrator_utils._estimate_generation_cost` 两套估算仍并存，归入 LC1 成本主线。

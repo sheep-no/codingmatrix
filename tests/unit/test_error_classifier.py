@@ -57,23 +57,6 @@ class TestErrorClassification:
             assert result.error_type == "NameError"
 
 
-class TestFixStrategy:
-    """修复策略测试"""
-
-    def test_get_fix_strategy(self):
-        """测试获取修复策略"""
-        classifier = ErrorClassifier()
-        strategy = classifier.get_fix_strategy_by_type("NameError")
-        assert strategy is not None
-
-    def test_all_types_have_strategy(self):
-        """测试所有类型都有策略"""
-        classifier = ErrorClassifier()
-        for error_type in ErrorClassifier.ERROR_PATTERNS.keys():
-            strategy = classifier.get_fix_strategy_by_type(error_type)
-            assert strategy is not None, f"{error_type} 没有修复策略"
-
-
 class TestHistoryTracking:
     """历史记录跟踪测试"""
 
