@@ -530,7 +530,7 @@ async def write_file(
     )
 
 
-@router.get("/history", response_model=SessionResponse)
+@router.get("/history", response_model=list[SessionResponse])
 async def get_history(
     days: int = 10,
     limit: int = 50,
@@ -541,7 +541,7 @@ async def get_history(
     """
     aicloud 历史记录查询
 
-    获取用户最近的消息历史（支持分页）
+    获取用户最近的消息历史（支持分页），返回会话列表。
     """
     await check_aicloud_permission(user_id, db)
 
@@ -585,7 +585,7 @@ async def get_history(
             ]
         ))
 
-    return sessions_data[0] if sessions_data else None
+    return sessions_data
 
 
 @router.get("/audit-logs", response_model=list[AuditLogResponse])
