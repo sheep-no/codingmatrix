@@ -296,3 +296,46 @@ def test_dockerignore_trims_context_without_hiding_build_inputs():
 
     hidden = [item for item in REQUIRED_BUILD_INPUTS if item in patterns]
     assert not hidden, f".dockerignore 误排除 Dockerfile 必需输入: {hidden}"
+
+
+def test_prod_api_does_not_run_the_in_process_scheduler():
+    """api 跑 2 个 worker 且各自启动进程内 scheduler 时，定时任务会重复执行。
+
+    生产编排用 `ENABLE_SCHEDULER=false` 关闭 api/celery 内的调度，改由独立的
+    scheduler 服务承担；否则同一任务按 worker 数放大。
+    """
+    services = _load_services()
+    api_env = _env_map(services["api"])
+
+    assert api_env.get("ENABLE_SCHEDULER") == "false", "生产 api 未关闭进程内 scheduler"
+    assert "scheduler" in services, "缺少独立 scheduler 服务"
+
+    scheduler_command = services["scheduler"]["command"]
+    assert "app.db.scheduler_runner" in scheduler_command
+    assert "uvicorn" not in scheduler_command
+
+
+HEALTH_PATH = "/api/v1/health"
+
+
+def test_healthcheck_target_matches_the_application_route():
+    """部署侧探针与应用实际挂载路径漂移时，容器永远不健康。
+
+    health router 的前缀是 `/health`、挂载到 `/api/v1`，故真实路径为
+    `/api/v1/health`；`Dockerfile` 与两个 compose 的探针必须都指向它。
+    """
+    from app.main import app
+
+    registered = {getattr(route, "path", None) for route in app.routes}
+    assert HEALTH_PATH in registered, f"应用未注册 {HEALTH_PATH}"
+
+    assert HEALTH_PATH in DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+    for path in (COMPOSE_PATH, LOCAL_COMPOSE_PATH):
+        for name, service in _load_services(path).items():
+            test = (service.get("healthcheck") or {}).get("test") or []
+            if not any("curl" in str(item) for item in test):
+                continue
+            assert any(HEALTH_PATH in str(item) for item in test), (
+                f"{path.name} 的 {name} 探针未指向 {HEALTH_PATH}: {test}"
+            )

@@ -38,9 +38,9 @@
 |---|---|---|---|
 | P1 | CORS host 字符串直接拼为正则 | `app/core/config.py`、`app/main.py` | 已解决；`cors_origin_regex` 对每个 host 做 `re.escape` 并整体锚定，仅允许精确 host 匹配（可选 scheme 前缀与端口后缀），消除子串误放行与未转义点号（CFG4） |
 | P2 | 开发测试使用 Python 3.11，Dockerfile 使用 3.10 | `Dockerfile` | 已解决；`Dockerfile` 的两个 Python 阶段均基于 `python:3.11-slim`，无 3.10 残留 |
-| P2 | lifespan 与 startup hook 并存 | `app/main.py` | 仍在 |
-| P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 仍在 |
-| P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 仍在 |
+| P2 | lifespan 与 startup hook 并存 | `app/main.py` | 已解决；全 `app` 无 `on_event`/`add_event_handler`，启动与关闭统一由 `lifespan` 承担 |
+| P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 已解决；生产 api 服务 `ENABLE_SCHEDULER=false`，调度改由独立服务 `python -m app.db.scheduler_runner` 承担；本地 compose 为 `--workers 1` 不构成重复；直接 `docker run` 时 `ENABLE_SCHEDULER` 默认 `False`。补 1 项编排守卫 |
+| P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 已解决；`Dockerfile` `HEALTHCHECK` 与两个 compose 的 `healthcheck` 均指向 `/api/v1/health`，与应用挂载路径一致。补 1 项编排守卫 |
 | P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 已解决；两处端点统一读 `app.core.version.APP_VERSION` |
 | P2 | StateGraph 生产入口仍以单节点 legacy wrapper 为主 | `app/agent/state/`、`app/agent/workflow_registry.py` | 仍在 |
 | P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 仍在 |
