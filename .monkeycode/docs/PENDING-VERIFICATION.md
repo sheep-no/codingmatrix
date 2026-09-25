@@ -1,10 +1,10 @@
 # 待环境验收清单
 
-> 核对日期：2026-09-22 ~ 2026-09-24 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
+> 核对日期：2026-09-22 ~ 2026-09-25 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 98 passed / 0 fail，两套 e2e 通过）。构建产物类结果来自产出记录，未重复构建。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 98 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
 
 ## 已经完成的验证
 
@@ -40,6 +40,9 @@
 | 编排端到端与文件链路 | 真实跑到 `done`（`success=true`，4/4 文件），`done` 载荷形状与客户端一致；客户端文件列表/读取/下载三个接口对同一真实项目实测通过 | 详见「待验收项 4」 |
 | 客户端死代码清理与失败原因展示 | `WorkbenchState.artifacts` / `Artifact`（`unified_models.dart:209`）无后端生产者也无渲染，已整体删除：模型类、状态字段与 `copyWith` 形参、SSE 收集分支、两处自测断言。同时后端 `error` 事件的原因原只存 `task.errorJson` 且 UI 从不读取，现于任务概览卡片展示为「失败原因」+ 可复制文本，仅在 `status == 'failed'` 时出现（`disconnected` 已有专门提示，不重复） | 新增 `test/widget_test.dart`「失败任务在概览卡片展示服务端失败原因」；移除展示代码后该用例在 `expect(find.text('失败原因'), findsOneWidget)` 失败、恢复后通过 |
 | 事件卡不再渲染文件正文 | 已修并回归：`_EventsCard` 原先按 `event.type: event.raw` 整份渲染，而 `file`（`orchestrator_progress.py:196`）与 `file_diff`（`:224`）的载荷内嵌完整 `content` / `old_content` / `new_content`。现对这两类事件只显示 `type · path · operation · file_size_human` 摘要，其余事件保留原文但统一截断到 2000 字符并标注省略量 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」（按后端顶层字段构造真实 SSE 帧，400 行正文）；把摘要分支临时禁用后该用例在 `expect(find.textContaining('12.4 KB'), findsOneWidget)` 失败、恢复后通过；全量 492 passed、`flutter analyze lib test` 无问题 |
+| Android release APK 重建 | `flutter build apk --release --no-pub` 成功，57.9 MB。`apksigner verify` 通过（v2 方案，v1/v3 未启用），签名 DN `CN=CodingMatrix Agent, OU=Mobile, O=CodingMatrix, L=Beijing, ST=Beijing, C=CN`、SHA-256 `1cace6b8…dddb3a`；`aapt2 dump badging/xmltree` 复核三 ABI（`arm64-v8a`/`armeabi-v7a`/`x86_64`）、`minSdk 24`、`targetSdk 36`、`versionCode 1`/`versionName 1.0.0`、`package com.codingmatrix.agent`、label `CodingMatrix Agent`、仅 `INTERNET` 权限（另有一个同包签名级 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，由 AndroidX 自动注入，非手工声明） | `flutter_client/build/app/outputs/flutter-apk/app-release.apk` |
+| Linux 发布产物重建与密钥环阻塞可见性 | 重建 `flutter build linux --release` bundle 并实跑：窗口映射、登录页完整渲染（含「系统安全存储不可用」横幅）。修复启动可见性缺陷：密钥环锁定弹出解锁框时，runner 只在首帧回调里 `gtk_widget_show`，而 `flutter_secure_storage` 经 libsecret 在平台线程上同步等待解锁，首帧永不产生，窗口停在 `IsUnMapped`、应用完全不可见。现于 `my_application.cc` 启动即 `gtk_widget_show(window)`，提示框挂起期间窗口已 `IsViewable`，解锁或取消后按降级路径正常渲染 | 修复前 `xwininfo` → `IsUnMapped`，修复后 → `IsViewable`；截图 `/tmp/opencode/linux_fixed_prompt.png`（提示框 + 可见窗口）、`/tmp/opencode/linux_fixed_render.png`（取消后登录页）；取消提示后日志 `libsecret_error: Failed to unlock the keyring` |
+| Linux release bundle 真实后端全流程 | 在解锁的 Secret Service（独立 `dbus-run-session` + 全新 HOME + 非空密码 keyring）下用 release bundle 连本地后端实跑：UI 输入凭据登录（后端 `POST /api/v1/login` 200），进入工作台；逐页点击 12 个导航项全部渲染真实数据（会话历史载入真实会话、模型列表载入 8 个后端模型、Provider 授权显示「硅基流动」），12 张截图无 Flutter 溢出黄条、无错误红屏；关闭进程后重启，经 `POST /api/v1/refresh` 200 免密恢复到工作台；缩至 820x700 / 640x600 时左栏收进抽屉、生成选项换行、抽屉可打开，均无溢出 | 截图 `/tmp/opencode/e2e_01_login.png`、`e2e_03_afterlogin.png`、`e2e_page_*.png`、`e2e_montage.png`、`e2e_restore.png`、`e2e_narrow820.png`、`e2e_narrow640.png`、`e2e_drawer640.png`；后端日志 `POST /api/v1/login` / `POST /api/v1/refresh` 均 200 |
 
 ## 客户端代码发现（本范围内）
 
@@ -65,6 +68,8 @@
 - 管理员后台真实数据：用户列表 `GET /api/v2/Controller/users` 返回 `用户总数：5` 并列出全部账号与角色；限流配置读取到真实值（全局 1000/60、IP 100/60、用户 50/60），保存后重开值一致；沙箱配置读到 `启用代码沙箱` + `python,javascript`；MCP 管理列出 4 个真实服务（filesystem、brave-search、sqlite、custom-http）。
 - 用户名允许重复是后端文档化设计（`user_manage.py:123`「用户名可重复，邮箱唯一」）：实测用同名 `mr_yang` 创建成功，后台出现两行同名用户。不是缺陷，但后台弹层标题与主标识都用 username，重名时无法区分，属已知 UX 限制。
 
+2026-09-25 用重建后的 **release** bundle 复跑（独立 `dbus-run-session` + 可用 keyring）：UI 登录 → 12 页导航巡检 → 重启免密恢复 → 窄屏 820x700 / 640x600 + 抽屉，全部通过，详见上文已完成验证表。同一环境未能从 UI 驱动一次完整生成：编排磁盘守卫（`app/utils/guardrails.py:250`，要求可用空间 ≥ 1GB 且 ≥ 10%）在当前根分区只剩 873MB（4%）时必然返回 507，属环境容量限制；编排到 `done` 与客户端文件链路此前已在 API 层用真实 LLM 验证（见「待验收项 4」）。
+
 重要陷阱（本轮踩到）：`flutter build linux --debug` 打印 `✓ Built ...` 并不保证产物已更新。Dart 代码在 `bundle/data/flutter_assets/kernel_blob.bin`，本轮改动 `lib/**` 后该文件 mtime 仍停在旧时间，`touch` 源码后重建也不变，因此用旧 bundle 做的界面验证全部无效。做桌面功能复验前先确认 `kernel_blob.bin` mtime 晚于最后一次源码改动；`flutter run -d linux` 会强制重新编译并 `Syncing files to device`，且日志能实时捕获 Dart 异常，是更可靠的复验方式。
 
 首轮实跑暴露两个 Linux 交付缺陷，均已修复并在同一环境复验：
@@ -74,7 +79,7 @@
 | 未装 CJK 字体的主机上中文全部显示为方框 | 依赖系统字体渲染中文 | 随包内置 Noto Sans CJK SC 子集（ASCII + GB2312 + 常用标点，3.1 MB，OFL 1.1），仅 Linux 使用该字体族 | 用 `FONTCONFIG_FILE` 只暴露 Latin 字体后启动，中文仍正常渲染 |
 | 首次启动误报「会话恢复失败，请重新登录」，且登录失败原因显示为网络问题 | 安全存储异常与其它失败混在同一分支 | 凭据层新增 `SecureStorageUnavailableException`，恢复/登录/退出分别给出对应提示 | 无可用密钥环时启动，横幅显示「系统安全存储不可用，登录状态无法在本机保存。请先安装并解锁系统密钥环，再重试。」 |
 
-仍属环境依赖（不是代码缺陷）：会话持久化需要 Secret Service（libsecret + gnome-keyring）。密钥环已存在但处于锁定状态时，系统会弹出解锁对话框等待输入；无人值守环境里该读取会挂起，应用停在启动加载态。
+仍属环境依赖：会话持久化需要 Secret Service（libsecret + gnome-keyring）。密钥环已存在但处于锁定状态时，系统会弹出解锁对话框等待输入；`flutter_secure_storage` 经 libsecret 在平台线程上同步等待，会阻塞首帧，此前表现不是「停在启动加载态」而是窗口根本不出现（`IsUnMapped`）。现已让 runner 启动即显示窗口（见上表），提示框挂起期间应用可见，解锁或取消后按降级路径渲染。
 
 ## 待验收项
 
