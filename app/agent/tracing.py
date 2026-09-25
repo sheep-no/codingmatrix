@@ -30,17 +30,55 @@ import os
 import functools
 import asyncio
 import logging
+import math
 from contextvars import ContextVar
 from typing import Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float) -> float:
+    """读取浮点环境变量，非法值回退默认并告警（不在模块级抛错）。"""
+    raw = os.environ.get(name, "")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning("环境变量 %s 值非法（%r），回退默认 %s", name, raw, default)
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    """读取整型环境变量，非法值回退默认并告警（不在模块级抛错）。"""
+    raw = os.environ.get(name, "")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("环境变量 %s 值非法（%r），回退默认 %s", name, raw, default)
+        return default
+
+
+def _parse_sampling_rate() -> float:
+    """解析采样率并夹到 [0.0, 1.0]；非法值回退 1.0。
+
+    该值在模块顶层解析并被 12 个模块间接 import，非法值直接 float() 会让整个
+    agent 系统启动失败（TT1）。
+    """
+    rate = _env_float("OTEL_SAMPLING_RATE", 1.0)
+    if not math.isfinite(rate):
+        logger.warning("OTEL_SAMPLING_RATE=%s 非有限值，回退 1.0", rate)
+        return 1.0
+    if rate < 0.0 or rate > 1.0:
+        logger.warning("OTEL_SAMPLING_RATE=%s 超出 [0,1]，已夹紧", rate)
+        rate = min(1.0, max(0.0, rate))
+    return rate
+
 
 _otel_enabled: bool = os.environ.get("OTEL_ENABLED", "").strip() in ("1", "true", "True")
 _otel_exporter: str = os.environ.get("OTEL_EXPORTER", "jaeger")
 _jaeger_endpoint: str = os.environ.get("OTEL_JAEGER_ENDPOINT", "http://jaeger:14268/api/traces")
 _otlp_endpoint: str = os.environ.get("OTEL_OTLP_ENDPOINT", "http://otel-collector:4318")
 _service_name: str = os.environ.get("OTEL_SERVICE_NAME", "ai-agent")
-_sampling_rate: float = float(os.environ.get("OTEL_SAMPLING_RATE", "1.0"))
+_sampling_rate: float = _parse_sampling_rate()
 
 _current_trace_id: ContextVar[Optional[str]] = ContextVar("current_trace_id", default=None)
 
@@ -50,9 +88,9 @@ _tracer_provider: Any = None
 
 def _make_batch_processor(exporter):
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    max_queue = int(os.environ.get("OTEL_BATCH_MAX_QUEUE", "2048"))
-    schedule_delay = float(os.environ.get("OTEL_BATCH_SCHEDULE_DELAY", "5.0"))
-    max_export = int(os.environ.get("OTEL_BATCH_MAX_EXPORT", "512"))
+    max_queue = _env_int("OTEL_BATCH_MAX_QUEUE", 2048)
+    schedule_delay = _env_float("OTEL_BATCH_SCHEDULE_DELAY", 5.0)
+    max_export = _env_int("OTEL_BATCH_MAX_EXPORT", 512)
     return BatchSpanProcessor(
         exporter,
         max_queue_size=max_queue,
