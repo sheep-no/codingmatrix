@@ -38,6 +38,23 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _estimate_tokens(text: str) -> int:
+    """粗略估算文本 token 数。
+
+    CJK 字符基本 1 字符 1 token，其余语言约 4 字符 1 token。原先直接把字符数
+    当 token 数比较，英文上下文被严重压缩（MEM4）。
+    """
+    if not text:
+        return 0
+    cjk = 0
+    for ch in text:
+        code = ord(ch)
+        if 0x3000 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF or 0xFF00 <= code <= 0xFFEF:
+            cjk += 1
+    other = len(text) - cjk
+    return cjk + (other + 3) // 4
+
+
 @dataclass
 class MemoryEntry:
     """记忆条目"""
@@ -126,18 +143,21 @@ class ConversationMemory(BaseMemory):
         # 将旧条目压缩为一条摘要
         old_entries = self._entries[:-self.COMPRESSED_ENTRIES]
 
+        # 跳过历史摘要条目：否则摘要内容会被再次摘要，统计与话题逐轮退化（MEM5）。
+        summarized = [entry for entry in old_entries if entry.type != "summary"]
+
         # 按类型分组统计
         type_counts = defaultdict(int)
         key_topics = set()
 
-        for entry in old_entries:
+        for entry in summarized:
             type_counts[entry.type] += 1
             # 提取关键词（简单实现）
             content_words = entry.content.split()[:50]
             key_topics.update(content_words[:10])
 
         summary = (
-            f"[对话摘要] 共 {len(old_entries)} 条历史记录，"
+            f"[对话摘要] 共 {len(summarized)} 条历史记录，"
             f"包含 {type_counts.get('user', 0)} 条用户消息，"
             f"{type_counts.get('assistant', 0)} 条 AI 回复。"
             f"主要话题: {', '.join(list(key_topics)[:5])}"
@@ -154,7 +174,7 @@ class ConversationMemory(BaseMemory):
         # 保留摘要和最新条目
         self._entries = [summary_entry] + recent_entries
         self._is_compressed = True
-        logger.info(f"对话记忆已压缩: {len(old_entries)} 条 -> 1 条摘要")
+        logger.info(f"对话记忆已压缩: {len(summarized)} 条 -> 1 条摘要")
 
     def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
         with self._lock:
@@ -163,20 +183,20 @@ class ConversationMemory(BaseMemory):
     def get_with_context(self, max_tokens: int = 4000) -> str:
         """获取适合上下文的对话历史（自动包含摘要）"""
         result = []
-        total_chars = 0
+        total_tokens = 0
 
         with self._lock:
             entries_snapshot = list(self._entries)
 
         for entry in reversed(entries_snapshot):
             entry_text = f"[{entry.type.upper()}] {entry.content}"
-            entry_len = len(entry_text)
+            entry_tokens = _estimate_tokens(entry_text)
 
-            if total_chars + entry_len > max_tokens:
+            if total_tokens + entry_tokens > max_tokens:
                 break
 
             result.insert(0, entry_text)
-            total_chars += entry_len
+            total_tokens += entry_tokens
 
         return "\n".join(result)
 
@@ -249,6 +269,10 @@ class KnowledgeMemory(BaseMemory):
         key = entry.metadata.get("key") or entry.content[:100]
         entry.id = key
         with self._lock:
+            # 同 key 重复写入时保留较高 importance，避免高价值知识被低分新条目降级（MEM7）。
+            existing = self._entries.get(key)
+            if existing is not None:
+                entry.importance = max(entry.importance, existing.importance)
             self._entries[key] = entry
             self._access_times[key] = time.time()
 
@@ -423,7 +447,8 @@ class AgentMemory:
     @property
     def session_id(self) -> str:
         if self._session_id is None:
-            self._session_id = f"session_{int(self._created_at)}"
+            # 秒级时间戳会让同秒创建的多实例 session_id 冲突（MEM6），改用纳秒。
+            self._session_id = f"session_{time.time_ns()}"
         return self._session_id
 
     def add_user_message(self, content: str, metadata: Dict = None) -> None:
@@ -513,7 +538,7 @@ class AgentMemory:
     def clear_session(self) -> None:
         """清除会话记忆（保留知识）"""
         self.conversation.clear()
-        self._session_id = f"session_{int(time.time())}"
+        self._session_id = f"session_{time.time_ns()}"
 
     def clear_all(self) -> None:
         """清除所有记忆"""
