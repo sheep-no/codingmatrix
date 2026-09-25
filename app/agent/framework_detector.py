@@ -9,6 +9,7 @@ v4.8.0 新增：
 
 import json
 import logging
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -21,6 +22,31 @@ from app.agent.test_framework_config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# 源文件模式扫描时跳过的依赖/构建目录，避免 vendored 文件造成误判（FD5）。
+_EXCLUDED_SCAN_DIRS = {
+    "node_modules", ".venv", "venv", "env", "vendor", "target",
+    ".git", "dist", "build", "__pycache__", ".tox",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache",
+}
+
+# CI 配置关键词（带词边界），按此顺序收集命中（FD3）。
+_CI_FRAMEWORK_PATTERNS = (
+    ("python_pytest", re.compile(r"\bpytest\b")),
+    ("javascript_jest", re.compile(r"\bjest\b|\bnpm\s+test\b|\byarn\s+test\b|\bpnpm\s+test\b")),
+    ("java_maven", re.compile(r"\bmvn\b")),
+    ("go_test", re.compile(r"\bgo\s+test\b")),
+    ("rust_cargo", re.compile(r"\bcargo\s+test\b")),
+)
+
+# 源文件测试特征，顺序用于数量并列时的稳定裁决（FD5）。
+_SOURCE_PATTERNS = (
+    ("go_test", lambda path, name: name.endswith("_test.go")),
+    ("java_maven", lambda path, name: name.endswith("Test.java")),
+    ("python_pytest", lambda path, name: name.startswith("test_") and name.endswith(".py")),
+    ("rust_cargo", lambda path, name: path.parent.name == "tests" and name.endswith(".rs")),
+)
 
 
 class FrameworkDetector:
@@ -69,12 +95,14 @@ class FrameworkDetector:
                 if "pytest" in content:
                     return FRAMEWORK_PRESETS["python_pytest"]
 
-        test_workflow = project_path / ".github/workflows/test.yml"
-        if test_workflow.exists():
-            content = test_workflow.read_text(encoding="utf-8", errors="ignore")
-            result = self._parse_ci_config(content)
-            if result:
-                return result
+        workflows_dir = project_path / ".github" / "workflows"
+        if workflows_dir.is_dir():
+            # 扫描所有 workflow（*.yml / *.yaml），不再只认硬编码的 test.yml（FD7）。
+            for workflow in sorted(workflows_dir.glob("*.y*ml")):
+                content = workflow.read_text(encoding="utf-8", errors="ignore")
+                result = self._parse_ci_config(content)
+                if result:
+                    return result
 
         pyproject = project_path / "pyproject.toml"
         if pyproject.exists() and self._pyproject_declares_pytest(pyproject):
@@ -207,35 +235,47 @@ class FrameworkDetector:
         return None
 
     def _check_source_patterns(self, project_path: Path) -> Optional[TestFrameworkConfig]:
-        """检查源文件模式"""
-        go_test_files = list(project_path.rglob("*_test.go"))
-        if go_test_files:
-            return FRAMEWORK_PRESETS["go_test"]
+        """按源文件测试数量检测，数量最多的语言获胜。
 
-        java_test_files = list(project_path.rglob("*Test.java"))
-        if java_test_files:
-            return FRAMEWORK_PRESETS["java_maven"]
+        原实现按 go→java→py→rust 固定顺序返回首个命中，且 rglob 会扫到
+        node_modules/.venv 等依赖目录：真实测试文件少时被 vendored 文件抢先（FD5）。
+        现跳过依赖/构建目录，并按测试文件数量裁决，数量并列时沿用上述顺序。
+        """
+        counts = {key: 0 for key, _ in _SOURCE_PATTERNS}
+        for path in self._iter_source_files(project_path):
+            for key, predicate in _SOURCE_PATTERNS:
+                if predicate(path, path.name):
+                    counts[key] += 1
+                    break
 
-        py_test_files = list(project_path.rglob("test_*.py"))
-        if py_test_files:
-            return FRAMEWORK_PRESETS["python_pytest"]
+        matched = [(key, count) for key, count in counts.items() if count > 0]
+        if not matched:
+            return None
+        # max 返回首个最大值，即并列时取 _SOURCE_PATTERNS 顺序中最靠前的语言。
+        best_key = max(matched, key=lambda item: item[1])[0]
+        return FRAMEWORK_PRESETS[best_key]
 
-        rust_test_files = list(project_path.rglob("tests/*.rs"))
-        if rust_test_files:
-            return FRAMEWORK_PRESETS["rust_cargo"]
-
-        return None
+    @staticmethod
+    def _iter_source_files(project_path: Path):
+        """遍历项目文件，跳过依赖/构建目录（FD5）。"""
+        for dirpath, dirnames, filenames in os.walk(project_path):
+            dirnames[:] = [d for d in dirnames if d not in _EXCLUDED_SCAN_DIRS]
+            for filename in filenames:
+                yield Path(dirpath) / filename
 
     def _parse_ci_config(self, content: str) -> Optional[TestFrameworkConfig]:
-        """从 CI 配置文件解析测试框架"""
-        if "pytest" in content:
-            return FRAMEWORK_PRESETS["python_pytest"]
-        if "npm test" in content or "jest" in content:
-            return FRAMEWORK_PRESETS["javascript_jest"]
-        if "mvn" in content:
-            return FRAMEWORK_PRESETS["java_maven"]
-        if "go test" in content:
-            return FRAMEWORK_PRESETS["go_test"]
-        if "cargo test" in content:
-            return FRAMEWORK_PRESETS["rust_cargo"]
+        """从 CI 配置内容解析测试框架。
+
+        原实现按固定顺序返回首个命中的关键词，monorepo 多语言 CI（同一文件含
+        pytest 与 mvn 等多个 job）会被第一个关键词带偏（FD3）。现用词边界收集
+        全部命中，唯一命中才返回；多语言命中返回 None，交由后续「按项目文件
+        证据」的检查项裁决。
+        """
+        matched = [
+            preset
+            for preset, pattern in _CI_FRAMEWORK_PATTERNS
+            if pattern.search(content)
+        ]
+        if len(matched) == 1:
+            return FRAMEWORK_PRESETS[matched[0]]
         return None
