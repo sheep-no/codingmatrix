@@ -166,7 +166,15 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 仍待验证：GitHub 配置、`/api/v1/github/save` 与仓库分支提交读取（需真实 GitHub Token）。
 
-磁盘守卫：该端点可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且写 `./projects`。本轮已腾出 >3GB 可用后通过。
+磁盘守卫：该端点可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且写 `./projects`。2026-09-25 删除 `/workspace/flutter_client/build/app/intermediates`、`/workspace/flutter_client/build/test_cache`、`/root/.gradle/caches`，可用空间由 788MB（96%）升到 4.5GB（24%），守卫不再返回 507（保留 `build/linux` 的 release bundle 与 `build/app/outputs` 的 APK 作为证据）。
+
+2026-09-25 磁盘腾空后从真实 VS Code 宿主 UI 驱动完整生成，卡在后端 Architect 契约校验，未能到 `done`：
+
+- 实测次数与入口：宿主内 UI 发送需求 2 次（Python CLI 脚本、静态网页），后端接口直连 2 次（`engine=core` 静态网页、默认 legacy 多语言 Flask 项目，后者带 `project_name=full-e2e`）。四次都在 `specs_completed` 之后以 `architect architecture did not include a project_spec` 失败。
+- 现象：architect 模型 `Qwen/Qwen3-8B` 返回合法 JSON（含 `project_type`、`file_plan`、`api_spec`、`db_schema`、`dependencies`、`recommendations`），但缺少提示词要求的 `project_spec` 字段。
+- 根因（后端）：`a476327 fix: make agent pipeline failures explicit instead of silent fallbacks` 删除了「`project_spec` 缺失时用 `_build_default_project_spec` 兜底」的静默回退，改为硬 `raise ValueError`（`app/agent/architect.py:364`、`:689`）。2026-09-24 同一模型仍能返回 `project_spec`（见上文 `llm-static-1790262394` 成功案例），如今稳定缺失，推测与模型服务端版本更新有关。
+- 影响：插件与 Flutter 客户端的「新建生成」核心链路在当前后端上无法到达 `done`。此为越界缺陷，未在本范围修复。
+- 证据：宿主截图 `/tmp/opencode/host_tabs_gen3/full-generation.png`、驱动报告 `/tmp/opencode/host_report_gen3.json`；后端接口原始流 `/tmp/opencode/core_stream.ndjson`、`/tmp/opencode/full_stream.ndjson`。
 
 ### 5. GitHub 设置页验证状态不持久
 
@@ -181,6 +189,7 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | 位置 | 问题 |
 |---|---|
 | `app/services/github_config_service.py` | `GET /config` 的 `verified` 硬编码 `false`，`POST /verify` 结果不落库 |
+| `app/agent/architect.py:364`、`:689` | `project_spec` 缺失时由默认兜底改为硬失败（`a476327`），当前 `Qwen/Qwen3-8B` 稳定不返回该字段，导致 `orchestrate/stream` 新建生成必失败，UI 与客户端无法到达 `done` |
 | `src/components/agent/modals/LearningModal.vue` | 读 `total_feedbacks` / `fixed_count` / `avg_fix_time` / `accuracy_improvement`，后端 `app/agent/feedback_learner.py:262` 返回 `learned_patterns` / `total_fixes_recorded` / `overall_success_rate`，导致恒显示「暂无学习数据」 |
 | `src/components/agent/modals/SettingsModal.vue` | 读 `concurrentLimits.recommended` 与 `cacheStats.total_keys`，后端返回 `recommendations`（`orchestrate_endpoints.py:1940`）与 `cached_entries`（`app/agent/spec_cache.py`），导致并发与缓存两节不渲染 |
 | `Makefile:71` | `clean` 调用 `./scripts/cleanup.sh`，该脚本不存在 |
