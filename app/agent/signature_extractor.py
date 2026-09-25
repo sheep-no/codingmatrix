@@ -154,8 +154,9 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
         # 有精确正则时：提取类签名 + 字段 + 方法签名
         if patterns:
             result_parts = []
-            class_indent = 0
-            collecting_class_body = False
+            # 类体用缩进栈跟踪，支持嵌套类：进入类时入栈，缩进回到某个类的
+            # 同级或更浅时出栈，避免嵌套类覆盖外层类的缩进状态（SE6）。
+            class_indents = []
             method_body_indent = None
 
             for line in lines:
@@ -166,16 +167,20 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 # 计算当前行的缩进
                 indent = len(line) - len(line.lstrip())
 
+                # 先按缩进收敛类栈：缩进 <= 栈顶说明已离开该层类体
+                while class_indents and indent <= class_indents[-1]:
+                    class_indents.pop()
+                    method_body_indent = None
+
                 cls_match = patterns["class"].search(line)
                 if cls_match:
-                    class_indent = indent
-                    collecting_class_body = True
+                    class_indents.append(indent)
                     method_body_indent = None
                     result_parts.append(stripped[:200])
                     continue
 
                 # 在类体内：收集字段定义和方法签名
-                if collecting_class_body and indent > class_indent:
+                if class_indents and indent > class_indents[-1]:
                     # 跳过方法体：方法签名行之后的更深缩进行属于函数体，
                     # 其内的函数调用/局部变量不应被当作方法或字段。
                     if method_body_indent is not None:
@@ -204,14 +209,9 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                     # 跳过方法体内的其他行（pass, return, if 等）
                     continue
 
-                # 遇到新的顶层定义，退出类体收集模式
-                if collecting_class_body and indent <= class_indent:
-                    collecting_class_body = False
-                    method_body_indent = None
-
                 # 顶层函数
                 fn_match = patterns["function"].search(line)
-                if fn_match and not collecting_class_body:
+                if fn_match and not class_indents:
                     result_parts.append(_line_signature(line))
 
             if result_parts:

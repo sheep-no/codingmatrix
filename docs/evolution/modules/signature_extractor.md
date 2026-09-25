@@ -67,11 +67,12 @@
 - **SE1 已消解（Python 侧）**：`_extract_python_signatures` 已改用 AST 且仅遍历 `ClassDef.body` 直接成员，方法体内局部变量不会进入字段列表；实测 `class Order` 中 `def calc` 内的 `x: int` / `total: float` 不再输出。JS/TS 侧方法体污染由上述 `method_body_indent` 修复。
 - **SE3 已消解**：`extract_signatures` 对 `.py`/`.pyi` 统一走 AST 路径（:143），`.pyi` 走 `_extract_python_signatures`，字段与函数签名正常提取（实测 `class User` 的 `id: int` / `name: str` 与 `def get_name(self) -> str:` 均输出），不再依赖 `.pyi` 正则键。
 - **SE5 部分消解**：Python 多行签名的参数由 `ast.unparse` 合并（实测 `def long_func(a: int, b: str) -> bool:`）；JS/TS 多行参数仍只取首行，保留待决。
+- **SE6 已修**：类体收集原用单一 `class_indent`/`collecting_class_body` 变量，嵌套类会把 `class_indent` 覆盖为内层缩进，内层类结束后外层类的方法/字段因 `indent <= class_indent` 被判为「已退出类体」，外层方法落入顶层函数分支且不匹配 `function` pattern 而丢失。现改为缩进栈 `class_indents`——每行先按缩进收敛栈（`indent <= 栈顶` 出栈），类声明入栈，类体判定用 `indent > 栈顶`，方法体状态随出栈重置。实测 `class Outer { name; class Inner { id; run(){} } outerMethod(){} outerField; }` 中 `outerMethod()` 与 `outerField` 恢复收集，同级 `class A`/`class B` 方法各自归属。
+- **SE2 已消解（文档记录过时）**：原记录 `preview = signatures if signatures else content[:budget]` 完全不按预算截断，实际该路径已于 `ca384478` 移除；现行 `get_context_package_for_file`（`dependency_graph.py:1209-1211`）先算 `signature_budget = int(budget * 0.75)`，`signature_text = signatures[:signature_budget]`，`remaining_budget` 扣减受控，不再出现签名溢出使后续依赖被 `break` 丢弃。
 
 **仍未处理**：
 
-- **SE2 [P2]**：`preview = signatures` 不按 budget 截断（`dependency_graph.py:841`），核心依赖签名溢出预算后 `remaining_budget <= 0` 使后续依赖被 `break` 丢弃。属消费方 `dependency_graph` 的预算分配问题，保留。
-- **SE6 [P3]**：类体收集用单变量无栈，嵌套类覆盖 `class_indent` 后外层方法被误判为顶层。保留。
 - **SE7 [P3]**：多处 `[:200]` 截断无标记。保留。
+- **SE5 剩余**：JS/TS 多行参数签名仍只取首行（Python 侧已由 `ast.unparse` 合并）。
 
-**回归**：新增 `tests/unit/test_signature_extractor.py`（4 项：TS 类方法与修饰符字段、方法体调用不误判、单行方法、行级签名不多带字符），回退 `signature_extractor.py` 后 4 项全失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。
+**回归**：`tests/unit/test_signature_extractor.py` 由 4 项扩到 6 项（新增 SE6 嵌套类外层方法恢复、同级类各自归属），回退 `signature_extractor.py` 后 SE6 用例失败；`test_generation_contracts.py`、`test_small_model_optimization.py` 无回归。
