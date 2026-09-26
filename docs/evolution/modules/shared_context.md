@@ -58,3 +58,28 @@
 ## 5. 测试状态
 
 **零测试覆盖**——tests/ 无任何 shared_context 用例。SC1-SC6 全部实测可复现但无用例保护。作为 spec-first 链两代生成器的公共状态容器，其依赖图、文件元数据、序列化完整性均无回归保护。
+
+## 6. 状态更新（2026-09-26 核实）
+
+本轮修复 SC3/SC5：
+
+- **SC3 已修**：`session_id` 由秒级 `strftime("%Y%m%d_%H%M%S")` 改为
+  追加 `uuid4().hex[:8]` 后缀（`f"{...}_{uuid4().hex[:8]}"`），与
+  `session_manager.py:177` 的 SM9 修复同款。同秒创建的多个 `SharedContext`
+  不再共享同一会话标识（此前该标识用于日志事件前缀与导出序列化，
+  同秒实例无法区分）。
+- **SC5 已修**：注入 prompt 的两处摘要截断补标记。`get_all_specs_summary`
+  的 `json.dumps(...)[:500]` 与 `get_generated_files_summary` 的
+  `content[:300]` 在发生截断时追加「（内容已截断）」；未截断时不再保留
+  原先恒显的省略号，标记语义与 PM4 一致。消费方（LLM）可区分完整与
+  补不全的上下文。
+
+**测试状态更正**：上文「零测试覆盖」已过时——仓库存在
+`tests/unit/test_shared_context.py`（6 项，覆盖 artifact manifest /
+readiness / 验证证据绑定）。本轮新增 `tests/unit/test_shared_context_integrity.py`
+（6 项：同秒 session_id 唯一且保留时间戳前缀、两处摘要截断标记的有/无），
+回退 `shared_context.py` 后 4 项失败。
+
+**仍成立**：SC1（依赖管理死链）、SC2（`file_type` 恒 unknown）、
+SC4（`files_generated` 恒 0）、SC6（`to_export_dict` 不含 content）、
+SC7（五方法零消费）、SC8（多链消费面分裂）。
