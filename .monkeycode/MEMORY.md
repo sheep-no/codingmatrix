@@ -462,7 +462,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 本环境无 `python3-venv`/`ensurepip`，`pip-audit -r configs/requirements.txt` 会因无法创建隔离环境而失败；改用 `pip-audit --local` 审计当前已装环境（结果含非项目包噪声，需对照 `configs/requirements.txt` 甄别真实依赖）。
   - `npm audit fix`（含 `--dry-run`）在 npm 10.9.4 报 `Cannot read properties of null (reading 'edgesOut')`，无法使用；前端传递依赖漏洞需手工升级或用 `overrides`。
   - 前端生产依赖 `xlsx` 的 npm 版本停在 0.18.5（社区版不再发 npm 版），修复需从官方 CDN tarball 安装（`npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`）；CI 的 `npm ci` 需能访问 `cdn.sheetjs.com`。
-  - `Dockerfile` 安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链、Flask、pandas、opencv 等为代码零引用的冗余包，依赖审计会把这些包携带的 CVE 一并计入。
+  - `Dockerfile` 的 runtime 阶段直接复制 `pip install -r configs/requirements.txt` 的 site-packages，因此清单里每个包都会进生产镜像；Django、Scrapy 全依赖链、Flask 全链、pandas、opencv 等零引用冗余包已于 2026-09-26 裁剪。判断某包是否被真实依赖的三重方法：①静态查 `app/` 下 `import` 与 `importlib.metadata` 硬反向依赖；②把该包目录从 `site-packages` 物理移出后跑 `from app.main import app` 与全量测试（环境预装的 `pytest-html` 会因缺 `jinja2` 拖累测试内起的 pytest 子进程，须一并移出或用 `-p no:html`）；③`pip install --dry-run --ignore-installed -r configs/requirements.txt` 确认解析结果不含该包。注意 `pip-audit -r` 在本环境不可用（无 venv），只能 `pip-audit --local`。
+  - CI 会先装 `configs/requirements.txt` 再装 `configs/requirements-test.txt`，若测试清单钉了更旧的同名包会把它降级（如 `cryptography`），导致测试环境与生产不一致，改动生产依赖版本时要同步核对测试清单。
 
 ### Flutter/VS Code 客户端验收环境（无设备与宿主机）
 - Date: 2026-09-26
