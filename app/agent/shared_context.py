@@ -14,6 +14,7 @@ import json
 import logging
 import hashlib
 import re
+from uuid import uuid4
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,7 +84,7 @@ class SharedContext:
         # 基础信息
         self.requirement = requirement
         self.output_dir = output_dir
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
         self.revision: int = 0
 
         # 复杂度分析
@@ -170,7 +171,10 @@ class SharedContext:
         """获取所有规范的摘要（用于注入到代码生成的 prompt 中）"""
         parts = []
         for spec_type, artifact in self.specs.items():
-            content_preview = json.dumps(artifact.content, ensure_ascii=False)[:500]
+            raw = json.dumps(artifact.content, ensure_ascii=False)
+            content_preview = raw[:500]
+            if len(raw) > 500:
+                content_preview += "（内容已截断）"
             parts.append(f"## {spec_type}\n{content_preview}")
         return "\n\n".join(parts) if parts else "（暂无规范）"
 
@@ -333,7 +337,9 @@ class SharedContext:
                 ext = Path(path).suffix.lstrip('.')
                 lang = ext if ext in ('py', 'js', 'ts', 'vue', 'html', 'css', 'json', 'yaml', 'sql', 'md', 'sh') else ''
                 preview = artifact.content[:300]
-                parts.append(f"## {path}\n```{lang}\n{preview}\n...```\n")
+                if len(artifact.content) > 300:
+                    preview += "\n...（内容已截断）"
+                parts.append(f"## {path}\n```{lang}\n{preview}\n```\n")
         return "\n".join(parts) if parts else "（暂无已生成文件）"
 
     # ==================== 依赖查询 ====================
