@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from app.tasks import code_tasks
 from app.utils.guard_contracts import GuardContracts, GuardRule, Severity
 
 
@@ -119,3 +122,41 @@ class TestRuleCleanup:
         # 空 protected_patterns 的规则在 existence 检查下永不触发，属占位噪音
         assert all(rule.protected_patterns for rule in rules)
         assert {rule.id for rule in rules}.isdisjoint({"GC-009", "GC-010"})
+
+
+class TestCodeTasksGuardWiring:
+    """GC4：code_tasks 的守护合约检查走便捷函数单一入口。"""
+
+    def test_uses_convenience_function_and_serializes_violations(self, tmp_path, monkeypatch):
+        target = tmp_path / "sample.py"
+        target.write_text("def protected():\n    pass\n", encoding="utf-8")
+        calls = []
+
+        def fake_check(file_path, content, original_content=None):
+            calls.append((file_path, content))
+            return [SimpleNamespace(rule_id="GC-TEST", description="违规")]
+
+        import app.utils.guard_contracts as guard_contracts
+
+        monkeypatch.setattr(
+            guard_contracts, "check_file_against_contracts", fake_check
+        )
+
+        violations = code_tasks._collect_guard_violations([str(target)])
+
+        assert calls == [(str(target), target.read_text(encoding="utf-8"))]
+        assert violations == [{"rule_id": "GC-TEST", "description": "违规"}]
+
+    def test_missing_file_skipped(self, tmp_path, monkeypatch):
+        calls = []
+
+        import app.utils.guard_contracts as guard_contracts
+
+        monkeypatch.setattr(
+            guard_contracts,
+            "check_file_against_contracts",
+            lambda *a, **k: calls.append(a) or [],
+        )
+
+        assert code_tasks._collect_guard_violations([str(tmp_path / "absent.py")]) == []
+        assert calls == []
