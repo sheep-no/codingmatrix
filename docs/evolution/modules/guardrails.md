@@ -122,3 +122,17 @@
 - **GRD1/GRD2/GRD4/GRD5/GRD7/GRD8 仍成立**：能力未接线（GRD1/GRD7）、
   跨进程限流失效（GRD2）、默认限流过严（GRD4）、注入正则误报（GRD5）、
   同步调用阻塞 async（GRD8）均未在本批触及。
+
+## 8. 状态校准（2026-09-26 修复批次）
+
+回归测试 `tests/unit/test_guardrails.py::TestInMemoryRateLimiter` 新增 3 例
+（回退源码后 3 例失败）；全量 `tests/unit tests/integration` 5030 passed。
+
+- **GRD2 [P2] 已修（无界增长部分）**：`InMemoryRateLimiter._entries` 原仅在
+  最长 `cleanup_interval_seconds=300s` 的周期清理时收缩，期间随机 key（伪造
+  `user_id`、随机 session 等）可无界累积。现新增 `max_keys`（默认 10000，
+  `max(1, max_keys)` 兜底），在插入新 key 前调用 `_evict_oldest_keys`，按
+  `last_request` 排序淘汰最旧条目，使条目数恒定受 `max_keys` 约束。
+- **GRD2 跨进程部分仍成立**：内存级限流在多 worker/多进程部署下各进程独立计数，
+  需迁移到 Redis 计数（复用 conversation_store 基础设施），属专项改造，未在本批触及。
+- **GRD1/GRD4/GRD5/GRD7/GRD8 仍成立**：未在本批触及。

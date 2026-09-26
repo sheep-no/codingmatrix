@@ -279,11 +279,15 @@ class InMemoryRateLimiter:
         self,
         max_requests: int = 10,
         window_seconds: int = 60,
-        cleanup_interval_seconds: int = 300
+        cleanup_interval_seconds: int = 300,
+        max_keys: int = 10000,
     ):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.cleanup_interval = cleanup_interval_seconds
+        # 过期清理最长间隔 300s，期间随机 key（伪造 user_id 等）可无界累积，
+        # 故用 key 数硬上限 + LRU 淘汰兜底，避免内存无界增长。
+        self.max_keys = max(1, max_keys)
         self._entries: Dict[str, RateLimitEntry] = {}
         self._last_cleanup: datetime = datetime.now()
         self._lock = threading.Lock()
@@ -306,6 +310,7 @@ class InMemoryRateLimiter:
             entry = self._entries.get(key)
             
             if entry is None:
+                self._evict_oldest_keys(self.max_keys - 1)
                 self._entries[key] = RateLimitEntry(
                     count=1,
                     window_start=now,
@@ -344,6 +349,17 @@ class InMemoryRateLimiter:
                 expired_keys.append(key)
         
         for key in expired_keys:
+            del self._entries[key]
+
+    def _evict_oldest_keys(self, keep: int) -> None:
+        """超过 keep 时按 last_request 淘汰最旧条目（调用方需持有 _lock）。"""
+        overflow = len(self._entries) - keep
+        if overflow <= 0:
+            return
+        oldest = sorted(
+            self._entries, key=lambda key: self._entries[key].last_request
+        )[:overflow]
+        for key in oldest:
             del self._entries[key]
 
 
