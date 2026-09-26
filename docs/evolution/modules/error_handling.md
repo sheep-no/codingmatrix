@@ -48,3 +48,16 @@
 - **仍存在**：JP3（容错解析成功后无「已修复」标记，下游无法区分完整数据与修补数据；需先定义消费方口径）；EH2（429 `Retry-After` 仍硬编码 60，限流中间件本身返回 `window // 2`，两处口径不同）；EH3/EC1（字符串错误码与枚举错误码双轨，属跨模块重构）。
 
 新增 `tests/unit/test_error_handling_regressions.py`（9 项）；回退源码后 7 项失败。
+
+## 状态更新（2026-09-26 核实）
+
+- **EH2 [P3] 已修**：`http_exception_handler` 不再对 429 无脑硬编码 `Retry-After: 60`，
+  改为优先采用抛出方在 `HTTPException.headers` 中给出的 `Retry-After`，缺省时才退回
+  常量 `DEFAULT_RETRY_AFTER_SECONDS`。配套在 `guardrails.check_rate_limit` 增加第三个
+  返回值 `retry_after_seconds`（由新增的 `InMemoryRateLimiter.remaining_seconds`
+  计算实际剩余窗口），`orchestrate_endpoints` 两处 429 抛出点据此携带真实剩余秒数，
+  与限流中间件「按完整窗口等待」的口径一致。
+  `tests/unit/test_error_handling_regressions.py` 补 2 例（显式透出 / 缺省回退），
+  `tests/unit/test_guardrails.py` 补 2 例（`remaining_seconds`、`check_rate_limit`
+  三返回值）；回退源码后新用例均失败。
+- **仍存在**：JP3（容错解析无「已修复」标记）；EH3/EC1（字符串错误码与枚举错误码双轨）。

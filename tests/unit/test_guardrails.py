@@ -237,6 +237,25 @@ class TestInMemoryRateLimiter:
         limiter.check("a")
         assert len(limiter._entries) == 1
 
+    def test_remaining_seconds_reflects_window(self):
+        """remaining_seconds 返回窗口剩余秒数，无条目返回 0"""
+        limiter = InMemoryRateLimiter(max_requests=1, window_seconds=60)
+        limiter.check("k")
+        assert limiter.check("k")[0] is False
+        remaining = limiter.remaining_seconds("k")
+        assert 0 < remaining <= 60
+        assert limiter.remaining_seconds("absent") == 0
+
+    def test_check_rate_limit_returns_retry_after(self):
+        """check_rate_limit 超限时返回实际剩余秒数（EH2）"""
+        key = "regression:eh2:unique-key"
+        for _ in range(10):
+            allowed, _, _ = check_rate_limit(key)
+            assert allowed is True
+        allowed, _, retry_after = check_rate_limit(key)
+        assert allowed is False
+        assert retry_after > 0
+
 
 # ============================================================================
 # 6. 便捷函数测试
