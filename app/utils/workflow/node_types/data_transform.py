@@ -261,7 +261,8 @@ class DataTransformNode(TaskNodeBase):
     def _safe_eval_reduce(self, expression: str, context: dict) -> Any:
         """安全的 reduce 表达式求值"""
         ALLOWED_NODES = (
-            ast.Expression, ast.BinOp, ast.UnaryOp, ast.Name, ast.Constant,
+            ast.Expression, ast.BinOp, ast.UnaryOp, ast.Load,
+            ast.Name, ast.Constant,
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
             ast.FloorDiv, ast.USub, ast.UAdd,
         )
@@ -275,10 +276,13 @@ class DataTransformNode(TaskNodeBase):
         """安全的表达式求值"""
         ALLOWED_NODES = (
             ast.Expression, ast.Compare, ast.BoolOp, ast.UnaryOp,
-            ast.Name, ast.Constant,
+            # 同 conditional：ast.Load 是 ast.Name 的 ctx，缺失会让所有变量引用被拒。
+            ast.Name, ast.Load, ast.Constant,
             ast.And, ast.Or, ast.Not,
             ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
             ast.In, ast.NotIn, ast.Is, ast.IsNot,
+            # 二元运算容器节点，缺失时下方运算符恒不可达。
+            ast.BinOp,
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
             ast.FloorDiv, ast.USub, ast.UAdd,
         )

@@ -178,11 +178,16 @@ class ConditionalNode(TaskNodeBase):
         """安全的表达式求值，仅允许比较和布尔操作"""
         ALLOWED_NODES = (
             ast.Expression, ast.Compare, ast.BoolOp, ast.UnaryOp,
-            ast.Name, ast.Constant,
+            # ast.Name 的 ctx 子节点是 ast.Load，ast.walk 会遍历到它；
+            # 缺少它时任何引用变量的表达式（含 map/reduce 默认表达式）都会被拒。
+            ast.Name, ast.Load, ast.Constant,
             ast.And, ast.Or, ast.Not,
             ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
             ast.In, ast.NotIn, ast.Is, ast.IsNot,
+            # 二元运算的容器节点，缺少它时下面列出的运算符恒不可达。
+            ast.BinOp,
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+            ast.USub, ast.UAdd,
         )
         tree = ast.parse(expr, mode='eval')
         for node in ast.walk(tree):

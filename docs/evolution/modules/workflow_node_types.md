@@ -49,7 +49,7 @@
 - **CE3 [P3] `process.kill()` 不杀进程组——子进程 fork 逃逸**——code_execution.py:180——超时后子进程派生的孙进程继续运行。
 - **CE4 [P3] 临时代码明文落盘 /tmp + 无 CPU/内存资源限制**——code_execution.py:154。
 - **CON2 [P3] 表达式 `{key}` 变量内插——字符串值含引号/花括号注入语法异常**——conditional.py:159-163 `expr.replace(f"{{{key}}}", f"'{value}'")`——值含 `'` 或 `{}` 时替换出非法表达式。
-- **DT2 [P3] safe_eval 双实现——conditional 与 data_transform 各一套 AST 白名单**——conditional.py:178-192 vs data_transform.py:253-281——ALLOWED_NODES 集合不一致（conditional 多 ast.Attribute）——**双轨家族第 16 处**。
+- **DT2 [P3] safe_eval 双实现——conditional 与 data_transform 各一套 AST 白名单**——conditional.py:178-192 vs data_transform.py:253-281——ALLOWED_NODES 集合不一致（差异在 `ast.FloorDiv/ast.USub/ast.UAdd`；早期文档误记为「conditional 多 ast.Attribute」）——**双轨家族第 16 处**。两套实现共同的 `ast.Load`/`ast.BinOp` 漏配见 EXPR1。
 - **DT3 [P3] `_extract_path` 简化 JSONPath——列表展平分支返回含 None 元素**——data_transform.py:303 `[item.get(part) if isinstance(item, dict) else None ...]`——非 dict 元素静默变 None。
 - **FP2 [P3] validate 用 `self.params["path"]` 直接索引——缺 path 时 KeyError 崩溃**——file_processing.py:68-72——应返回错误列表却抛异常（validate_params 契约破坏）。
 - **FP3 [P3] delete 操作 recursive 可删目录树**——file_processing.py:180-183——LLM 可规划递归删除任意目录。
@@ -110,3 +110,9 @@
 - **CH3 `_configure_fonts` 首调竞态**——`_fonts_configured` 原为 check-then-act，多线程首调会重复 `addfont` 并向 `font.sans-serif` 反复追加。新增 `_fonts_lock` 双检锁，字体只注册一次。
 
 测试：`tests/unit/test_chart_generation_concurrency.py` 4 项（保存本节点图形、失败回收半成品、清理期并发注册、8 线程字体只注册一次）。回退 `chart_generation.py` 后 4 项全部失败（分别表现为保存到 400x300 的错图、临时文件残留、`RuntimeError: Set changed size during iteration`、`addfont` 被调 8 次）。
+
+### 后续修复（EXPR1）
+
+- **EXPR1 AST 允许集合漏 `ast.Load`/`ast.BinOp`——变量引用与算术表达式被误拒**：`conditional.py::_safe_eval`、`data_transform.py::_safe_eval`、`data_transform.py::_safe_eval_reduce` 三处白名单都列出了 `ast.Name`，却漏了它的 `ctx` 子节点 `ast.Load`；`ast.walk` 会遍历到该节点，于是**任何引用变量的表达式**都被判「不允许的表达式元素: Load」。后果：`reduce` 默认表达式 `acc + item` 开箱即失败、`map` 默认 `item` 失败、`filter` 无法引用 `item`/`index`、`conditional` 内插后残留的裸变量失败（现有测试只覆盖 `{key}` 全内插为字面量的路径，故未暴露）。此外两个 `_safe_eval` 列出了 `ast.Add/Sub/Mult/Div/Mod/Pow` 却漏了容器节点 `ast.BinOp`，使算术运算符恒不可达（`_safe_eval_reduce` 恰含 `ast.BinOp`，双轨差异即漏配证据）。现三处补 `ast.Load`，两处 `_safe_eval` 补 `ast.BinOp`，并给 conditional 补齐 `ast.USub/ast.UAdd` 以与 data_transform 对齐。
+- **文档更正**：原 DT2「conditional 多 `ast.Attribute`」与现状不符——conditional 白名单从未包含 `ast.Attribute`（两者差异实为 `ast.FloorDiv/ast.USub/ast.UAdd`）。
+- 测试：`tests/unit/test_workflow_node_type_fixes.py` 新增 5 项（reduce 默认/初值、map 默认与算术、filter 引用 item/index、conditional 算术、放宽后属性/下标/调用仍被拒）；回退两个源文件后前 4 项失败。

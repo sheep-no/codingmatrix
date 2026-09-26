@@ -11,6 +11,7 @@
 - LLM2 产出节点 output_variable 未映射进上下文，下游 input_variable 读不到
 - LLM4 FALLBACK_MODEL 死常量
 - GV2 on_failure 取值未约束
+- EXPR1 AST 允许集合漏 ast.Load/ast.BinOp，变量引用与算术表达式被误拒
 """
 
 import asyncio
@@ -214,6 +215,49 @@ def test_conditional_expression_rejects_forbidden_keyword_in_template():
 
     with pytest.raises(ValueError):
         node._evaluate_expression("__import__('os')", {})
+
+
+def test_data_transform_reduce_default_expression_runs():
+    """EXPR1：reduce 默认表达式 `acc + item` 引用变量，须可用。"""
+    node = DataTransformNode("d1", {})
+
+    assert node._apply_operation("reduce", [1, 2, 3], {}) == 6
+    assert node._apply_operation("reduce", [1, 2, 3], {"initial": 10}) == 16
+
+
+def test_data_transform_map_handles_item_and_arithmetic():
+    """EXPR1：map 默认 `item` 与 `item * 2` 均须可用。"""
+    node = DataTransformNode("d1", {})
+
+    assert node._apply_operation("map", [1, 2, 3], {}) == [1, 2, 3]
+    assert node._apply_operation("map", [1, 2, 3], {"expression": "item * 2"}) == [2, 4, 6]
+
+
+def test_data_transform_filter_can_reference_item_and_index():
+    """EXPR1：filter 条件引用 item/index 须可用。"""
+    node = DataTransformNode("d1", {})
+
+    assert node._apply_operation("filter", [1, 2, 3], {"condition": "item > 1"}) == [2, 3]
+    assert node._apply_operation(
+        "filter", [9, 8, 7, 6], {"condition": "index % 2 == 0"}
+    ) == [9, 7]
+
+
+def test_conditional_arithmetic_expression_is_allowed():
+    """EXPR1：内插后的算术表达式 `{count} + 1 > 5` 须可用。"""
+    node = ConditionalNode("c1", {"expression": "{count} + 1 > 5"})
+
+    assert node._evaluate_expression("{count} + 1 > 5", {"count": 10}) is True
+    assert node._evaluate_expression("{count} + 1 > 5", {"count": 1}) is False
+
+
+def test_data_transform_expression_still_rejects_dangerous_nodes():
+    """EXPR1：放宽 ast.Load/ast.BinOp 后，属性/下标/调用仍须被拒。"""
+    node = DataTransformNode("d1", {})
+
+    for expression in ["item.__class__", "item[0]", "item()", "().__class__"]:
+        with pytest.raises(ValueError):
+            node._apply_operation("map", [1], {"expression": expression})
 
 
 def _aggregator_with_llm_producer(output_variable="web_data"):
