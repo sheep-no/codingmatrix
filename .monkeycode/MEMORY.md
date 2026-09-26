@@ -453,3 +453,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 仓库部分文件为 CRLF 或 CRLF/LF 混合（如 `app/api/v2/guardian_router.py`、`app/schema/guardian.py`）。判断方式：`crlf = d.count(b"\r\n")`，`bare_lf = d.count(b"\n") - crlf`，`bare_lf > 0` 即混合。
   - `apply_patch` 会把新增行写成 LF，使文件混入裸 LF 并让 `git diff` 出现大量噪声；也不能把整个文件统一成 CRLF，因为原来就有裸 LF 行，会一并被改掉。
   - 正确做法：先 `git show HEAD:<path> > <path>` 取回原字节，再用 Python 按字节精确替换目标片段（新增行显式拼 `b"\r\n"`），最后核对 `git diff --numstat` 只含预期增删行数。
+
+### 依赖安全审计的执行方式
+- Date: 2026-09-26
+- Context: Agent 在生产就绪验收中执行后端/前端依赖漏洞审计时发现
+- Category: 环境配置
+- Instructions:
+  - 本环境无 `python3-venv`/`ensurepip`，`pip-audit -r configs/requirements.txt` 会因无法创建隔离环境而失败；改用 `pip-audit --local` 审计当前已装环境（结果含非项目包噪声，需对照 `configs/requirements.txt` 甄别真实依赖）。
+  - `npm audit fix`（含 `--dry-run`）在 npm 10.9.4 报 `Cannot read properties of null (reading 'edgesOut')`，无法使用；前端传递依赖漏洞需手工升级或用 `overrides`。
+  - 前端生产依赖 `xlsx` 的 npm 版本停在 0.18.5（社区版不再发 npm 版），修复需从官方 CDN tarball 安装（`npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`）；CI 的 `npm ci` 需能访问 `cdn.sheetjs.com`。
+  - `Dockerfile` 安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链、Flask、pandas、opencv 等为代码零引用的冗余包，依赖审计会把这些包携带的 CVE 一并计入。
