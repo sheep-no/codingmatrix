@@ -9,7 +9,7 @@
 | 文件 | 状态 | 判定依据 |
 |---|---|---|
 | text_processor.py（223 行） | 活跃 | aiGeneratorPptx:45-46 导入 |
-| image_search.py（294 行） | 活跃 | aiGeneratorPptx:48 import，:1481/:1489/:1500/:1534-1536 真实调用 |
+| image_search.py（294 行） | 已删除（2026-09-26） | 原判定：aiGeneratorPptx:48 import，:1481/:1489/:1500/:1534-1536 真实调用；AJP12（`85208591`）从 aiGeneratorPptx 移除消费端后本体成孤儿（零引用、0% 覆盖），已连同 `structured_logging.py` 一并删除 |
 | ppt_style.py（109 行） | 活跃 | aiGeneratorPptx:49 + layout_decider:463 |
 | custom_template.py（1101 行） | 活跃 | aiGeneratorPptx:1919 上传端点延迟导入 |
 | visual_modifier.py（300 行） | 活跃 | aiGeneratorPptx:1262/:1323 调用其两顶层函数 |
