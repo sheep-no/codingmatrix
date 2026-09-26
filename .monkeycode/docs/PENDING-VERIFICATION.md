@@ -20,6 +20,8 @@
 
 2026-09-25 修复插件错误信息丢失后端可操作文案：`CloudConnection.request()` 在非 2xx 时直接抛 `cloud request failed with status <code>`，丢弃响应体里后端的说明。实测编排流在磁盘守卫不满足时返回 `507` 加 `{"message":"磁盘空间不足（可用：0.78 GB）"}`，用户侧只看到状态码。现新增 `describeFailure()`：尽力解析 JSON 错误体，取 `message` 或 `detail` 拼到通用信息后（非 JSON 或不可读时回退原信息，不影响既有分支）。回归用例 `test/connection.test.mjs`「surfaces the backend error message for non-retryable failures」修前失败、修后通过；插件单测 101 → 102 passed / 0 fail。宿主内实发需求复验：对话页错误为 `cloud request failed with status 507: 磁盘空间不足（可用：0.74 GB）`。截图见 `/tmp/opencode/host_tabs_drv5/send-error.png`。
 
+2026-09-26 优化插件到 webview 的事件转发量：`thinking` 事件在增量 `message` 之外还带一份**全量累积**文本 `accumulated`，每个 chunk 重复整段，转发量随输出长度呈平方增长；webview 只渲染 `message`，`accumulated` 在 `src/` 与 `test/` 中零引用。实测真实 legacy 流 88.44MB，其中 `accumulated` 独占 65.87MB（首个样本只有 4 个字段，是字段并集统计才发现该字段，勿据单样本判定形状）。现于 `CloudConnection.parseStreamEvent()` 在 SSE 解析处剥离 `thinking` 的 `accumulated`（行为等价，其余字段与事件类型全部保留）。回归用例 `test/connection.test.mjs`「drops the redundant accumulated text from thinking chunks」修前失败、修后通过（反向验证：注释掉剥离行后重新失败）；插件单测 102 → 103 passed / 0 fail。用真实 `fix_stream.ndjson` 重放（`/tmp/opencode/verify_accumulated.mjs`）验证：源流 88.44MB → 转发 2.01MB（减少 97.7%），13780 个 thinking 全部无 `accumulated`，13 类事件计数不变。
+
 | 项 | 结果 | 证据 |
 |---|---|---|
 | Flutter 全量测试 | 492 passed | `flutter test --no-pub --concurrency=1` |
