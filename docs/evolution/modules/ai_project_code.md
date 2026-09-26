@@ -45,7 +45,7 @@
 
 - **AIC6 [P3 废弃面] zip 上传无解压总量限制**——50MB 压缩包（:544）解压后单文件 `zf.read`（:570）无大小上限、文件总数无上限、嵌套目录深度无上限 → 压缩炸弹/磁盘耗尽。另 `_validate_zip_safety`（:488）`'..' in name` 对合法文件名子串误杀（如 `a..b.py` 被跳过），安全判定应基于路径规范化后 `is_relative_to`。
 
-- **AIC7 [P3 废弃面] 死代码家族第 31 处**——`SearchMatch`/`ThinkingStreamer`/`ProjectTreeNode` 死类 + `accumulate_knowledge`→`log_generation_result` 知识积累链整链死（互相调用但无入口，AGM3 记过的「知识写入双轨 accumulate_knowledge」实际在活路之外）+ 死常量 `MAX_SAVED_PROJECTS_PER_USER=3`。
+- **AIC7 [P3 废弃面] 死代码家族第 31 处**——`SearchMatch`/`ThinkingStreamer`/`ProjectTreeNode` 死类 + `accumulate_knowledge`→`log_generation_result` 知识积累链整链死（互相调用但无入口，AGM3 记过的「知识写入双轨 accumulate_knowledge」实际在活路之外）+ 死常量 `MAX_SAVED_PROJECTS_PER_USER=3`。**已修（2026-09-26）**：`log_generation_result`（:191）原在 `async for db in get_db()` 内用 `finally: break` 退出循环，会吞掉 try 体内异常，使外层 `except Exception` 永不触发、记录失败被静默忽略（ruff B012）。改为把 `break` 放到循环体末尾。
 
 - **AIC8 [P3 废弃面] 6 工具函数双轨副本（双轨家族）**——`_validate_project_path`/`_collect_files`/`_build_agent_config`/`_safe_update_progress`/`_create_zip_archive_safe`/`_cleanup_temp_dir` 在 AiProjectCode.py 与 ai_agent/helpers.py 各一份，生产消费方（generate_endpoints.py）走 helpers 版。**两副本安全语义不一致**：helpers 版含 user_id 归属校验（helpers.py:59-72），旧版仅 startswith 前缀检查（:285，无 os.sep 边界，GH4/AA4 家族）——归档时直接丢弃旧副本，不得复用。
 
@@ -58,7 +58,7 @@
 
 ## 测试状态
 
-无专项测试。3 个死路由 + zip 体系无任何测试保护；活跃面 3 函数被 orchestrate 端点隐式覆盖（无直接单测）。
+`tests/unit/test_ai_project_code_log_result.py`（3 项）直接覆盖 `log_generation_result`：记录失败必须写出 `logger.error`（回退源码后失败）、成功路径三个记录函数各执行一次、失败后不再执行后续记录。3 个死路由 + zip 体系无任何测试保护；活跃面 3 函数被 orchestrate 端点隐式覆盖（无直接单测）。
 
 ## 归档建议
 
