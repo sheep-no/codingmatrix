@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/auth_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../infrastructure/provider/provider_key_client.dart';
+import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class ProviderSettingsPage extends ConsumerStatefulWidget {
   const ProviderSettingsPage({super.key});
@@ -14,12 +17,29 @@ class ProviderSettingsPage extends ConsumerStatefulWidget {
 class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
   final keyController = TextEditingController();
   String provider = supportedProviders.first;
+  // Bumped on account change so a late submit/test result cannot clear the next
+  // account's input or report a success toast for the previous account.
+  int _epoch = 0;
   @override
   void initState() {
     super.initState();
+    _scheduleLoad();
+  }
+
+  void _scheduleLoad() {
     Future.microtask(() {
       if (mounted) ref.read(providerKeyControllerProvider.notifier).load();
     });
+  }
+
+  void _resetAccount() {
+    _epoch++;
+    closeAccountOverlays(context);
+    setState(() {
+      keyController.clear();
+      provider = supportedProviders.first;
+    });
+    _scheduleLoad();
   }
 
   @override
@@ -30,10 +50,15 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(providerKeyControllerProvider);
     final controller = ref.read(providerKeyControllerProvider.notifier);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Provider 设置')),
+    return ShellScaffold(
+      title: 'Provider 设置',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -64,13 +89,14 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
             onPressed: state.loading
                 ? null
                 : () async {
+                    final epoch = _epoch;
                     final value = keyController.text.trim();
                     if (value.isEmpty) return;
                     final ok = await controller.add(
                       key: value,
                       provider: provider,
                     );
-                    if (!mounted) return;
+                    if (!mounted || epoch != _epoch) return;
                     if (ok) keyController.clear();
                   },
             child: const Text('添加 Provider Key'),
@@ -118,8 +144,11 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
                           onPressed: state.loading
                               ? null
                               : () async {
+                                  final epoch = _epoch;
                                   await controller.test(item);
-                                  if (!context.mounted) return;
+                                  if (!context.mounted || epoch != _epoch) {
+                                    return;
+                                  }
                                   if (ref
                                           .read(providerKeyControllerProvider)
                                           .error ==

@@ -72,7 +72,7 @@ VS Code 扩展位于 `vscode-extension/`，使用原生 Webview 提供轻量 Age
 - Workspace Skills 自动发现与同步。
 - 网络中断时本地验证结果持久化排队，恢复连接后补交云端。
 
-VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。Web 工作台继续承担完整的会话历史、模型选择、文件树、版本历史、性能面板和学习面板；VS Code 工作台聚焦本地执行环境与验证结果回传。
+VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。VS Code 工作台提供对话、会话历史、模型、文件版本、性能、学习和设置七个面板，其余部分聚焦本地执行环境与验证结果回传；Web 工作台继续承担文件树，以及需要 superadmin 的 `/api/v2` 模型管理。
 
 ## 状态持久化
 

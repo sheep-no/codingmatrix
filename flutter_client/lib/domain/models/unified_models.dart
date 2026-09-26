@@ -206,62 +206,6 @@ class TaskEvent {
   }
 }
 
-class Artifact {
-  const Artifact({
-    required this.id,
-    required this.userId,
-    required this.artifactType,
-    required this.storageUri,
-    this.sessionId,
-    this.taskId,
-    this.version = 1,
-    this.contentHash,
-    this.metadataJson = const <String, dynamic>{},
-    this.createdAt,
-  });
-
-  final String id;
-  final int userId;
-  final String? sessionId;
-  final String? taskId;
-  final String artifactType;
-  final int version;
-  final String storageUri;
-  final String? contentHash;
-  final Map<String, dynamic> metadataJson;
-  final DateTime? createdAt;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'user_id': userId,
-      'session_id': sessionId,
-      'task_id': taskId,
-      'artifact_type': artifactType,
-      'version': version,
-      'storage_uri': storageUri,
-      'content_hash': contentHash,
-      'metadata_json': metadataJson,
-      'created_at': createdAt?.toIso8601String(),
-    };
-  }
-
-  factory Artifact.fromJson(Map<String, dynamic> json) {
-    return Artifact(
-      id: json['id'] as String? ?? '',
-      userId: (json['user_id'] as num?)?.toInt() ?? 0,
-      sessionId: json['session_id'] as String?,
-      taskId: json['task_id'] as String?,
-      artifactType: json['artifact_type'] as String? ?? '',
-      version: (json['version'] as num?)?.toInt() ?? 1,
-      storageUri: json['storage_uri'] as String? ?? '',
-      contentHash: json['content_hash'] as String?,
-      metadataJson: _asStringKeyedMap(json['metadata_json']),
-      createdAt: _parseDate(json['created_at']),
-    );
-  }
-}
-
 class RoleAssignment {
   const RoleAssignment({
     required this.model,

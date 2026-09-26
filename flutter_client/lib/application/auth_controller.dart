@@ -61,6 +61,10 @@ class AuthController extends StateNotifier<AuthState> {
       if (mounted && operation == _operation) {
         state = AuthState(session: session);
       }
+    } on SecureStorageUnavailableException {
+      if (mounted && operation == _operation) {
+        state = const AuthState(errorMessage: secureStorageUnavailableMessage);
+      }
     } catch (_) {
       if (mounted && operation == _operation) {
         state = const AuthState(errorMessage: '会话恢复失败，请重新登录');
@@ -73,6 +77,7 @@ class AuthController extends StateNotifier<AuthState> {
     required String password,
     String? serviceUrl,
   }) async {
+    if (state.isLoading) return;
     final operation = ++_operation;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
@@ -86,11 +91,15 @@ class AuthController extends StateNotifier<AuthState> {
       }
     } on CloudAuthException catch (error) {
       if (mounted && operation == _operation) {
-        state = AuthState(errorMessage: error.message);
+        state = AuthState(
+          errorMessage: error.secureStorage
+              ? secureStorageUnavailableMessage
+              : error.message,
+        );
       }
     } catch (_) {
       if (mounted && operation == _operation) {
-        state = const AuthState(errorMessage: '登录失败，请检查连接和设备安全存储');
+        state = const AuthState(errorMessage: '登录失败，请检查网络连接后重试');
       }
     }
   }
@@ -101,6 +110,11 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       await _client.logout();
       if (mounted && operation == _operation) state = const AuthState();
+    } on SecureStorageUnavailableException {
+      // The in-memory session is already cleared; only the stored copy is left.
+      if (mounted && operation == _operation) {
+        state = const AuthState(errorMessage: '本机安全存储不可用，本地凭据未能清除，请手动处理后重试退出');
+      }
     } catch (_) {
       if (mounted && operation == _operation) {
         state = const AuthState(

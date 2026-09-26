@@ -14,6 +14,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class UploadApi extends DeliveryApi {
   UploadApi() : super((_, _, _) async => null);
@@ -30,9 +32,12 @@ class UploadApi extends DeliveryApi {
       Stream.value(
         utf8.encode(
           jsonEncode({
-            'server_path': 'uploads/pubspec.yaml',
-            'name': 'pubspec.yaml',
-            'type': 'text/yaml',
+            'id': 7,
+            'filename': 'pubspec.yaml',
+            'file_size': 32,
+            'content_type': 'text/yaml',
+            'created_at': '2026-01-01T00:00:00',
+            'download_url': '/api/v1/files/7/download',
           }),
         ),
       ),
@@ -52,16 +57,24 @@ class ChatApi extends DeliveryApi {
   Future<Map<String, dynamic>> Function(String)? upload;
   List<Map<String, dynamic>>? conversationItems;
   List<Map<String, dynamic>>? historyItems;
+  bool throwOnHistory = false;
+  int historyCalls = 0;
+  bool throwOnStream = false;
+  Completer<Stream<List<int>>>? streamGate;
+  Completer<Object?>? historyGate;
+  Map<String, dynamic>? syncReply;
 
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
     uploadedPaths.add(path);
     return upload == null
         ? {
-            'server_path': 'uploads/document.txt',
-            'name': '服务端文件.txt',
-            'type': 'text/plain',
-            'ignored': true,
+            'id': 8,
+            'filename': 'document.txt',
+            'file_size': 12,
+            'content_type': 'text/plain',
+            'created_at': '2026-01-01T00:00:00',
+            'download_url': '/api/v1/files/8/download',
           }
         : await upload!(path);
   }
@@ -70,6 +83,8 @@ class ChatApi extends DeliveryApi {
   Future<Stream<List<int>>> sendJsonStream(String path, Object request) async {
     endpoint = path;
     body = request as Map<String, dynamic>;
+    if (throwOnStream) throw const SocketException('connection lost');
+    if (streamGate != null) return streamGate!.future;
     return chunks.stream;
   }
 
@@ -85,27 +100,38 @@ class ChatApi extends DeliveryApi {
     if (path == '/api/v1/conversation/history') {
       return {
         'conversation_id': this.body!['conversation_id'],
-        'items': conversationItems ??
+        'items':
+            conversationItems ??
             [
-              {'role': 'user', 'content': '问题'},
-              {'role': 'assistant', 'content': '你好'},
+              {'prompt': '问题', 'response': '你好'},
             ],
       };
     }
     if (path == '/api/v1/history') {
+      historyCalls++;
+      if (historyGate != null) return historyGate!.future;
+      if (throwOnHistory) throw const SocketException('connection lost');
       return {
-        'items': historyItems ??
+        'items':
+            historyItems ??
             [
               {'conversation_id': 42, 'prompt': '问题'},
             ],
       };
     }
-    return super.requestJson(path, method: method, body: body, timeout: timeout);
+    if (path == '/api/v1/chat' && syncReply != null) return syncReply;
+    return super.requestJson(
+      path,
+      method: method,
+      body: body,
+      timeout: timeout,
+    );
   }
 }
 
 class TestPicker extends FilePicker {
   FilePickerResult? result;
+  Completer<FilePickerResult?>? pending;
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -122,6 +148,7 @@ class TestPicker extends FilePicker {
     bool readSequential = false,
   }) async {
     expect(allowMultiple, true);
+    if (pending != null) return pending!.future;
     return result;
   }
 }
@@ -131,9 +158,10 @@ Future<void> flush() => Future<void>.delayed(Duration.zero);
 void main() {
   test('uploadFile 使用已挂载上传路由和 multipart file 字段', () async {
     final result = await UploadApi().uploadFile('pubspec.yaml');
-    expect(result['server_path'], 'uploads/pubspec.yaml');
-    expect(result['name'], 'pubspec.yaml');
-    expect(result['type'], 'text/yaml');
+    // Mirrors FileUploadResponse: the file path is never exposed, only filename.
+    expect(result['id'], 7);
+    expect(result['filename'], 'pubspec.yaml');
+    expect(result['content_type'], 'text/yaml');
   });
   test('后端 choices.delta.content 契约及结束后的会话 ID', () async {
     final events = await ChatClient.parseStream(
@@ -141,6 +169,23 @@ void main() {
         utf8.encode('{"choices":[{"delta":{"role":"assistant"}}]}\n'),
         utf8.encode('{"choices":[{"delta":{"content":"回答"}}]}\n'),
         utf8.encode('{"choices":[{"delta":{},"finish_reason":"stop"}]}\n'),
+        utf8.encode('{"conversation_id":19}\n'),
+      ]),
+    ).toList();
+    expect(events.map((event) => event.text).join(), '回答');
+    expect(events.last.conversationId, 19);
+  });
+
+  test('后端阶段帧不进入回复正文', () async {
+    final events = await ChatClient.parseStream(
+      Stream.fromIterable([
+        utf8.encode(
+          '{"stage": "parsing", "status": "started", "filename": "a.pdf"}\n',
+        ),
+        utf8.encode(
+          '{"stage": "answering", "status": "started", "model": "gpt", "sources": [], "search_depth": "shallow"}\n',
+        ),
+        utf8.encode('{"choices":[{"delta":{"content":"回答"}}]}\n'),
         utf8.encode('{"conversation_id":19}\n'),
       ]),
     ).toList();
@@ -236,12 +281,26 @@ void main() {
     );
     expect(api.body!['stream'], false);
     expect((api.body!['files'] as List).last, {
-      'server_path': 'uploads/document.txt',
-      'name': '服务端文件.txt',
+      'server_path': 'document.txt',
+      'name': 'document.txt',
       'type': 'text/plain',
     });
     expect((api.body!['files'] as List), hasLength(2));
     expect(container.read(chatControllerProvider).messages.last.text, '同步回复');
+  });
+
+  test('同步响应携带后端错误时展示原文且不追加空回复', () async {
+    api.syncReply = {
+      'response': '',
+      'conversation_id': null,
+      'error': 'AI 生成响应为空，未保存历史记录',
+    };
+    await controller.send('问题');
+    final state = container.read(chatControllerProvider);
+    expect(state.error, 'AI 生成响应为空，未保存历史记录');
+    expect(state.loading, false);
+    expect(state.messages, hasLength(1));
+    expect(state.messages.single.fromUser, true);
   });
 
   test('流式请求上传映射、增量更新及会话续接', () async {
@@ -261,8 +320,8 @@ void main() {
     expect(api.body!['enable_search'], false);
     expect(api.uploadedPaths, ['/tmp/a.txt']);
     expect((api.body!['files'] as List).single, {
-      'server_path': 'uploads/document.txt',
-      'name': '服务端文件.txt',
+      'server_path': 'document.txt',
+      'name': 'document.txt',
       'type': 'text/plain',
     });
     api.chunks.add(utf8.encode('{"conversation_id":42}\n{"delta":"你好"}\n'));
@@ -279,10 +338,7 @@ void main() {
     api.upload = (_) async => {'name': 'a.txt'};
     await controller.send('分析', streaming: true, filePaths: ['/tmp/a.txt']);
     expect(api.body, isNull);
-    expect(
-      container.read(chatControllerProvider).error,
-      contains('server_path'),
-    );
+    expect(container.read(chatControllerProvider).error, contains('文件名'));
     expect(container.read(chatControllerProvider).loading, false);
     expect(container.read(chatControllerProvider).uploading, false);
     api.upload = (_) async => throw StateError('上传失败');
@@ -310,6 +366,52 @@ void main() {
     expect(container.read(chatControllerProvider).messages, isEmpty);
   });
 
+  test('取消失败的流不会让取消操作抛出', () async {
+    api.chunks.onCancel = () => throw const SocketException('connection lost');
+    final pending = controller.send('问题', streaming: true);
+    await flush();
+    api.chunks.add(utf8.encode('部分内容'));
+    await flush();
+    controller.cancel();
+    await pending;
+    await flush();
+    final state = container.read(chatControllerProvider);
+    expect(state.cancelled, true);
+    expect(state.loading, false);
+    expect(state.messages.last.text, '部分内容');
+  });
+
+  test('切账号后晚到的聊天流不会写入新账号', () async {
+    final fixture = Fixture();
+    fixture.business = (_) async => http.Response('{}', 200);
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(fixture.store),
+        httpClientProvider.overrideWithValue(fixture.transport),
+        cloudAuthClientProvider.overrideWithValue(fixture.auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    final auth = container.read(authControllerProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    await auth.login(email: 'alice@example.com', password: 'test-password');
+    unawaited(
+      container
+          .read(chatControllerProvider.notifier)
+          .send('你好', streaming: true),
+    );
+    await flush();
+    api.chunks.add(utf8.encode('部分内容'));
+    await flush();
+    await auth.logout();
+    api.chunks.add(utf8.encode('旧账号回复'));
+    await flush();
+    final state = container.read(chatControllerProvider);
+    expect(state.messages, isEmpty);
+    expect(state.loading, false);
+  });
+
   test('上传期间取消及重置后忽略晚到的上传结果', () async {
     final upload = Completer<Map<String, dynamic>>();
     api.upload = (_) => upload.future;
@@ -322,7 +424,11 @@ void main() {
     controller.cancel();
     await pending;
     controller.reset();
-    upload.complete({'server_path': 'uploads/a.txt'});
+    upload.complete({
+      'id': 9,
+      'filename': 'a.txt',
+      'content_type': 'text/plain',
+    });
     await pending;
     expect(api.body, isNull);
     expect(container.read(chatControllerProvider).messages, isEmpty);
@@ -348,8 +454,7 @@ void main() {
     expect(container.read(chatControllerProvider).messages.last.text, '旧回复');
 
     api.conversationItems = [
-      {'role': 'user', 'content': '另一会话'},
-      {'role': 'assistant', 'content': '历史回答'},
+      {'prompt': '另一会话', 'response': '历史回答'},
     ];
     await controller.loadConversation(
       const ChatHistoryItem(id: 99, title: '另一会话'),
@@ -361,10 +466,7 @@ void main() {
     final state = container.read(chatControllerProvider);
     expect(state.conversationId, 99);
     expect(state.loading, false);
-    expect(state.messages.map((message) => message.text), [
-      '另一会话',
-      '历史回答',
-    ]);
+    expect(state.messages.map((message) => message.text), ['另一会话', '历史回答']);
   });
 
   test('发送完成后退出再进入会从详情恢复消息', () async {
@@ -379,8 +481,7 @@ void main() {
     container.dispose();
     final returning = ChatApi();
     returning.conversationItems = [
-      {'role': 'user', 'content': '问题'},
-      {'role': 'assistant', 'content': '你好'},
+      {'prompt': '问题', 'response': '你好'},
     ];
     container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(returning)],
@@ -485,8 +586,7 @@ void main() {
       {'conversation_id': 99, 'prompt': '历史标题'},
     ];
     api.conversationItems = [
-      {'role': 'user', 'content': '历史用户'},
-      {'role': 'assistant', 'content': '历史回答'},
+      {'prompt': '历史用户', 'response': '历史回答'},
     ];
     await tester.tap(find.byKey(const Key('chatHistoryButton')));
     await tester.pumpAndSettle();
@@ -495,6 +595,94 @@ void main() {
     expect(find.text('历史回答'), findsOneWidget);
     expect(find.text('历史用户'), findsOneWidget);
     expect(find.text('旧回复'), findsNothing);
+  });
+
+  testWidgets('切换账号清空聊天草稿和附件', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    picker.result = FilePickerResult([
+      PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 1),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pump();
+    expect(find.text('a.txt'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '草稿内容');
+    await tester.enterText(find.byKey(const Key('chatModelField')), 'glm-4');
+    await tester.tap(find.widgetWithText(FilterChip, '深度推理'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('a.txt'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('chatPromptField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('chatModelField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<FilterChip>(find.widgetWithText(FilterChip, '深度推理'))
+          .selected,
+      isFalse,
+    );
+  });
+
+  testWidgets('切换账号后旧账号选择的附件不会写入新账号', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    picker.pending = Completer<FilePickerResult?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    picker.pending!.complete(
+      FilePickerResult([
+        PlatformFile(name: 'old.txt', path: '/tmp/old.txt', size: 1),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('old.txt'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('发送完成后退出再进入仍显示当前会话', (tester) async {
@@ -573,9 +761,9 @@ void main() {
     expect(find.text('离开聊天'), findsOneWidget);
 
     upload.complete({
-      'server_path': 'uploads/a.txt',
-      'name': 'a.txt',
-      'type': 'text/plain',
+      'id': 9,
+      'filename': 'a.txt',
+      'content_type': 'text/plain',
     });
     await tester.pump();
     api.chunks.add(utf8.encode('{"delta":"回答"}\n'));
@@ -592,5 +780,207 @@ void main() {
     expect(find.text('回答'), findsOneWidget);
     expect(find.text('分析'), findsOneWidget);
     expect(find.text('a.txt'), findsNothing);
+  });
+
+  testWidgets('发送中网络断开显示错误原文', (tester) async {
+    api.throwOnStream = true;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('问题'), findsWidgets);
+    expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('发送中退出再进入仍显示错误', (tester) async {
+    api.streamGate = Completer<Stream<List<int>>>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('正在接收回复…'), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    api.streamGate!.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('问题'), findsOneWidget);
+    expect(find.text('正在接收回复…'), findsNothing);
+  });
+
+  testWidgets('取消发送后退出再进入仍显示已取消', (tester) async {
+    api.streamGate = Completer<Stream<List<int>>>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('正在接收回复…'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('已取消，已接收的内容已保留'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('已取消，已接收的内容已保留'), findsOneWidget);
+    expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史会话加载进行中无法再次触发并发请求', (tester) async {
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    expect(api.historyCalls, 1);
+    await tester.tap(
+      find.byKey(const Key('chatHistoryButton')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(api.historyCalls, 1);
+    api.historyGate!.complete({
+      'items': [
+        {'conversation_id': 99, 'prompt': '历史标题'},
+      ],
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('历史标题'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史会话加载网络断开会带上异常原文', (tester) async {
+    api.throwOnHistory = true;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('暂无历史会话'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史加载中退出再进入仍显示错误原文', (tester) async {
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    api.historyGate!.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('暂无历史会话'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的历史弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    api.historyGate!.complete({
+      'items': [
+        {'conversation_id': 1, 'prompt': '上一账号的会话'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的会话'), findsNothing);
+    expect(find.text('暂无历史会话'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background plate of the adaptive launcher icon; matches the legacy
+         drawable plate so the icon looks identical on every API level. -->
+    <color name="ic_launcher_background">#151923</color>
+</resources>

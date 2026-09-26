@@ -1,4 +1,4 @@
-package com.example.codingmatrix_desktop
+package com.codingmatrix.agent
 
 import io.flutter.embedding.android.FlutterActivity
 

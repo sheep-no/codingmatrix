@@ -1,10 +1,12 @@
-// ignore_for_file: curly_braces_in_flow_control_structures, use_build_context_synchronously
+// ignore_for_file: curly_braces_in_flow_control_structures
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../application/workflow_controller.dart';
 import '../infrastructure/workflow/workflow_client.dart';
+import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class WorkflowPage extends ConsumerStatefulWidget {
   const WorkflowPage({super.key});
@@ -18,8 +20,19 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   final form = GlobalKey<FormState>();
   final importController = TextEditingController();
   bool toolsBusy = false;
+  // Bumped on account change so an in-flight history request does not open a
+  // sheet over the next account.
+  int _epoch = 0;
   WorkflowClient get client =>
       WorkflowClient(ref.read(authenticatedClientProvider));
+
+  void _resetAccount() {
+    _epoch++;
+    closeAccountOverlays(context);
+    input.clear();
+    timeout.text = '1800';
+  }
+
   @override
   void dispose() {
     input.dispose();
@@ -53,19 +66,20 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       ),
     );
     if (accepted != true || !mounted) return;
+    final epoch = _epoch;
     try {
       final graph = jsonDecode(importController.text);
       if (graph is! Map) throw const FormatException('工作流必须是 JSON 对象');
       final result = await client.importWorkflow(
         Map<String, dynamic>.from(graph),
       );
-      if (mounted)
+      if (mounted && epoch == _epoch)
         setState(
           () => input.text =
               '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
         );
     } catch (e) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('导入失败：$e')));
@@ -76,57 +90,43 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   Widget build(BuildContext context) {
     ref.listen(
       authControllerProvider.select((s) => s.session?.accessTokenRef),
-      (_, __) => input.clear(),
+      (_, __) => _resetAccount(),
     );
-    ref.listen(apiBaseUrlProvider, (_, __) => input.clear());
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(workflowControllerProvider);
     final controller = ref.read(workflowControllerProvider.notifier);
     final snapshot = state.snapshot;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('工作流执行'),
-        actions: [
-          IconButton(
-            onPressed: toolsBusy
-                ? null
-                : () async {
-                    setState(() => toolsBusy = true);
-                    try {
-                      final items = await client.history();
-                      if (!context.mounted) return;
-                      showModalBottomSheet<void>(
-                        context: context,
-                        builder: (_) => ListView(
-                          children: [
-                            for (final item in items)
-                              ListTile(
-                                title: Text(
-                                  '${item['name'] ?? item['workflow_id'] ?? '工作流'}',
-                                ),
-                                subtitle: Text('${item['status'] ?? ''}'),
-                                trailing: IconButton(
-                                  tooltip: '删除历史',
-                                  icon: const Icon(Icons.delete_outline),
-                                  onPressed: () async {
-                                    final id =
-                                        '${item['workflow_id'] ?? item['id'] ?? ''}';
-                                    if (id.isEmpty) return;
-                                    await client.deleteHistory(id);
-                                    if (context.mounted) Navigator.pop(context);
-                                  },
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-                    } finally {
-                      if (mounted) setState(() => toolsBusy = false);
-                    }
-                  },
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '工作流执行',
+      actions: [
+        IconButton(
+          onPressed: toolsBusy
+              ? null
+              : () async {
+                  final epoch = _epoch;
+                  setState(() => toolsBusy = true);
+                  try {
+                    final items = await client.history();
+                    if (!context.mounted || epoch != _epoch) return;
+                    showModalBottomSheet<void>(
+                      context: context,
+                      builder: (_) => _WorkflowHistorySheet(
+                        items: items,
+                        onDelete: client.deleteHistory,
+                      ),
+                    );
+                  } catch (e) {
+                    if (mounted && epoch == _epoch)
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('历史读取失败：$e')));
+                  } finally {
+                    if (mounted) setState(() => toolsBusy = false);
+                  }
+                },
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 960),
@@ -148,6 +148,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       validator: (s) =>
                           s == null || s.trim().isEmpty ? '请输入任务描述' : null,
                     ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: timeout,
                       enabled: !state.active && !state.refreshing,
@@ -203,36 +204,37 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       onPressed: toolsBusy
                           ? null
                           : () async {
+                              final epoch = _epoch;
+                              final messenger = ScaffoldMessenger.of(context);
                               setState(() => toolsBusy = true);
                               try {
                                 final value = await client.exportWorkflow(
                                   snapshot.id!,
                                 );
-                                if (mounted) {
-                                  showDialog<void>(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      title: const Text('工作流导出'),
-                                      content: SelectableText(
-                                        const JsonEncoder.withIndent(
-                                          '  ',
-                                        ).convert(value),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text('关闭'),
-                                        ),
-                                      ],
+                                if (!context.mounted || epoch != _epoch) return;
+                                showDialog<void>(
+                                  context: context,
+                                  builder: (dialogContext) => AlertDialog(
+                                    title: const Text('工作流导出'),
+                                    content: SelectableText(
+                                      const JsonEncoder.withIndent(
+                                        '  ',
+                                      ).convert(value),
                                     ),
-                                  );
-                                }
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dialogContext),
+                                        child: const Text('关闭'),
+                                      ),
+                                    ],
+                                  ),
+                                );
                               } catch (e) {
-                                if (mounted)
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('导出失败：$e')),
-                                  );
+                                if (!context.mounted || epoch != _epoch) return;
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text('导出失败：$e')),
+                                );
                               } finally {
                                 if (mounted) setState(() => toolsBusy = false);
                               }
@@ -301,4 +303,53 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       ),
     );
   }
+}
+
+class _WorkflowHistorySheet extends StatefulWidget {
+  const _WorkflowHistorySheet({required this.items, required this.onDelete});
+
+  final List<Map<String, dynamic>> items;
+  final Future<void> Function(String id) onDelete;
+
+  @override
+  State<_WorkflowHistorySheet> createState() => _WorkflowHistorySheetState();
+}
+
+class _WorkflowHistorySheetState extends State<_WorkflowHistorySheet> {
+  bool deleting = false;
+
+  Future<void> delete(String id) async {
+    if (deleting || id.isEmpty) return;
+    setState(() => deleting = true);
+    try {
+      await widget.onDelete(id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => deleting = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    children: [
+      if (widget.items.isEmpty)
+        const ListTile(dense: true, title: Text('暂无工作流历史')),
+      for (final item in widget.items)
+        ListTile(
+          title: Text('${item['name'] ?? item['workflow_id'] ?? '工作流'}'),
+          subtitle: Text('${item['status'] ?? ''}'),
+          trailing: IconButton(
+            tooltip: '删除历史',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: deleting
+                ? null
+                : () => delete('${item['workflow_id'] ?? item['id'] ?? ''}'),
+          ),
+        ),
+    ],
+  );
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../application/github_controller.dart';
+import 'shell_scaffold.dart';
 
 class GithubSettingsPage extends ConsumerStatefulWidget {
   const GithubSettingsPage({super.key});
@@ -59,8 +60,8 @@ class _GithubSettingsPageState extends ConsumerState<GithubSettingsPage> {
     });
     final state = ref.watch(githubControllerProvider);
     final controller = ref.read(githubControllerProvider.notifier);
-    return Scaffold(
-      appBar: AppBar(title: const Text('GitHub 设置')),
+    return ShellScaffold(
+      title: 'GitHub 设置',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

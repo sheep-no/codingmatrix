@@ -27,18 +27,30 @@ class GirlAiClient {
     ),
   );
   Future<Map<String, dynamic>> state() => _map('/GirlAi/companion/state');
-  Future<Map<String, dynamic>> transcribe(String text, String characterId) =>
-      _map(
-        '/GirlAi/voice/transcriptions',
-        method: 'POST',
-        body: {'transcript': text, 'character_id': characterId},
-      );
+  Future<CompanionTurnResponse> transcribe(
+    String text,
+    String characterId, {
+    String? turnId,
+    bool voiceOutput = false,
+  }) async => CompanionTurnResponse.fromJson(
+    await _map(
+      '/GirlAi/voice/transcriptions',
+      method: 'POST',
+      body: {
+        'transcript': text,
+        'character_id': characterId,
+        if (turnId != null) 'turn_id': turnId,
+        'voice_output': voiceOutput,
+      },
+    ),
+  );
   Future<List<GirlCharacter>> characters() async => [
     for (final x in (await _map('/GirlAi/characters'))['characters'] as List)
       GirlCharacter.fromJson(Map<String, dynamic>.from(x)),
   ];
-  Future<String> avatarUrl(String id) async =>
+  String avatarUrl(String id) =>
       '${api.auth.baseUrl}/api/v1/GirlAi/characters/$id/avatar';
+  Future<String> avatarSvg(String id) => api.requestText(avatarUrl(id));
   Future<Map<String, dynamic>> memories({int limit = 20, int offset = 0}) =>
       _map('/GirlAi/memories?limit=$limit&offset=$offset');
   Future<Map<String, dynamic>> confirmMemory(

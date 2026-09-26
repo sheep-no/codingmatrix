@@ -7,6 +7,8 @@ import '../application/image_generation_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../domain/models/image_generation.dart';
 import 'provider_settings_page.dart';
+import 'saved_file_actions.dart';
+import 'shell_scaffold.dart';
 
 class ImageGenerationPage extends ConsumerStatefulWidget {
   const ImageGenerationPage({super.key});
@@ -24,6 +26,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
   String? referencePath;
   String? maskPath;
   double steps = 50, guidance = 7.5;
+  bool picking = false;
+  int _epoch = 0;
   @override
   void dispose() {
     prompt.dispose();
@@ -32,27 +36,61 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
     super.dispose();
   }
 
+  // Drops the previous account's draft inputs (text, picked local files and
+  // generation parameters) so nothing carries into the new account.
+  void _resetAccount() {
+    // Drop any in-flight pick so its late result cannot land in the next
+    // account's draft.
+    _epoch++;
+    prompt.clear();
+    negative.clear();
+    seed.clear();
+    setState(() {
+      picking = false;
+      referencePath = null;
+      maskPath = null;
+      size = 1024;
+      count = 1;
+      steps = 50;
+      guidance = 7.5;
+    });
+  }
+
+  Future<void> pickImage({required bool mask}) async {
+    if (picking) return;
+    final epoch = _epoch;
+    setState(() => picking = true);
+    String? path;
+    try {
+      final picked = await FilePicker.platform.pickFiles(type: FileType.image);
+      path = picked?.files.single.path;
+    } catch (e) {
+      if (mounted && epoch == _epoch)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('选择图片失败：$e')));
+      if (mounted && epoch == _epoch) setState(() => picking = false);
+      return;
+    }
+    if (!mounted || epoch != _epoch) return;
+    setState(() => picking = false);
+    if (path != null && mounted && epoch == _epoch)
+      setState(() => mask ? maskPath = path : referencePath = path);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
       authControllerProvider.select((s) => s.session?.accessTokenRef),
-      (_, __) {
-        prompt.clear();
-        negative.clear();
-        seed.clear();
-      },
+      (_, __) => _resetAccount(),
     );
-    ref.listen(apiBaseUrlProvider, (_, __) {
-      prompt.clear();
-      negative.clear();
-      seed.clear();
-    });
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(imageGenerationControllerProvider);
     final key = ref.watch(providerKeyControllerProvider).selected;
     final controller = ref.read(imageGenerationControllerProvider.notifier);
-    final enabled = !state.busy && state.saving == null;
-    return Scaffold(
-      appBar: AppBar(title: const Text('图片生成')),
+    final enabled = !state.busy && state.saving == null && !picking;
+    return ShellScaffold(
+      title: '图片生成',
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
@@ -95,16 +133,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 ],
               ),
               OutlinedButton.icon(
-                onPressed: enabled
-                    ? () async {
-                        final picked = await FilePicker.platform.pickFiles(
-                          type: FileType.image,
-                        );
-                        final path = picked?.files.single.path;
-                        if (path != null && mounted)
-                          setState(() => referencePath = path);
-                      }
-                    : null,
+                onPressed: enabled ? () => pickImage(mask: false) : null,
                 icon: const Icon(Icons.image),
                 label: Text(referencePath == null ? '选择参考图' : '已选择参考图'),
               ),
@@ -121,16 +150,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 ),
               if (referencePath != null)
                 OutlinedButton.icon(
-                  onPressed: enabled
-                      ? () async {
-                          final picked = await FilePicker.platform.pickFiles(
-                            type: FileType.image,
-                          );
-                          final path = picked?.files.single.path;
-                          if (path != null && mounted)
-                            setState(() => maskPath = path);
-                        }
-                      : null,
+                  onPressed: enabled ? () => pickImage(mask: true) : null,
                   icon: const Icon(Icons.brush),
                   label: Text(maskPath == null ? '选择蒙版' : '已选择蒙版'),
                 ),
@@ -160,11 +180,13 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                       validator: (v) =>
                           v == null || v.trim().isEmpty ? '请输入画面描述' : null,
                     ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: negative,
                       enabled: enabled,
                       decoration: const InputDecoration(labelText: '反向提示词（可选）'),
                     ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
                       initialValue: size,
                       decoration: const InputDecoration(labelText: '尺寸'),
@@ -180,6 +202,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                           ? (s) => setState(() => size = s!)
                           : null,
                     ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
                       initialValue: count,
                       decoration: const InputDecoration(labelText: '图片数量'),
@@ -299,7 +322,17 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                             ),
                           ),
                         if (state.images[i].savedPath != null)
-                          SelectableText('已保存：${state.images[i].savedPath}'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SelectableText(
+                                '已保存：${state.images[i].savedPath}',
+                              ),
+                              SavedFileActions(
+                                path: state.images[i].savedPath!,
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),

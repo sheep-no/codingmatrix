@@ -8,9 +8,16 @@ import 'cloud_auth_client.dart';
 
 /// Only GET/HEAD can be replayed once. Mutations always require user recovery.
 class AuthenticatedClient extends http.BaseClient {
-  AuthenticatedClient(this.auth, this.transport);
+  AuthenticatedClient(
+    this.auth,
+    this.transport, {
+    this.streamTimeout = const Duration(minutes: 5),
+  });
   final CloudAuthClient auth;
   final http.Client transport;
+  // A streaming body can stay silent while the server prepares context or waits
+  // for the first token; the short request timeout would break those streams.
+  final Duration streamTimeout;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -20,8 +27,10 @@ class AuthenticatedClient extends http.BaseClient {
   Future<http.StreamedResponse> _send(
     http.BaseRequest request, {
     Duration? timeout,
+    Duration? streamTimeout,
   }) async {
     final limit = timeout ?? auth.timeout;
+    final streamLimit = streamTimeout ?? limit;
     final session = auth.session;
     if (session == null) throw CloudAuthException('请重新登录');
     final ref = session.accessTokenRef;
@@ -44,7 +53,9 @@ class AuthenticatedClient extends http.BaseClient {
         await response.stream.drain<void>().timeout(limit);
         throw CloudAuthException('认证上下文已切换');
       }
-      if (response.statusCode != 401) return await _checked(response, safe, limit);
+      if (response.statusCode != 401) {
+        return await _checked(response, safe, streamLimit);
+      }
       await response.stream.drain<void>().timeout(limit);
       if (auth.session?.accessTokenRef != ref) {
         throw CloudAuthException('认证上下文已切换');
@@ -65,7 +76,7 @@ class AuthenticatedClient extends http.BaseClient {
         await auth.logout();
         throw CloudAuthException('登录已失效，请重新登录', statusCode: 401);
       }
-      return await _checked(retried, safe, limit);
+      return await _checked(retried, safe, streamLimit);
     } on CloudAuthException {
       rethrow;
     } catch (_) {
@@ -114,6 +125,10 @@ class AuthenticatedClient extends http.BaseClient {
     final response = await http.Response.fromStream(
       await _send(request, timeout: timeout),
     );
+    // 204 and empty-body 2xx responses are valid for delete/action endpoints
+    // (the task cancel route replies 204). Only a malformed non-empty body is
+    // a real protocol error.
+    if (response.body.trim().isEmpty) return null;
     try {
       return jsonDecode(response.body);
     } on FormatException {
@@ -126,8 +141,17 @@ class AuthenticatedClient extends http.BaseClient {
     request.headers['Accept'] = 'text/plain';
     request.headers['Content-Type'] = 'application/json';
     request.body = jsonEncode(body);
-    final response = await send(request);
+    final response = await _send(request, streamTimeout: streamTimeout);
     return response.stream;
+  }
+
+  // Raw text response (e.g. the SVG avatar endpoint). Kept on the authenticated
+  // client so callers inherit the retry, timeout and account-switch guards.
+  Future<String> requestText(String path) async {
+    final request = http.Request('GET', Uri.parse(auth.baseUrl).resolve(path));
+    request.headers['Accept'] = 'text/plain';
+    final response = await http.Response.fromStream(await _send(request));
+    return response.body;
   }
 
   Future<Map<String, dynamic>> uploadFile(String path) async {
@@ -157,7 +181,9 @@ class AuthenticatedClient extends http.BaseClient {
             )
             as Map;
     final fileId = '${init['file_id']}';
-    if (init['status'] == 'exists') return Map<String, dynamic>.from(init);
+    if (init['status'] == 'exists') {
+      return _flattenFileRecord(init['existing_file']);
+    }
     final chunkSize = (init['chunk_size'] as num?)?.toInt() ?? 5 * 1024 * 1024;
     final total =
         (init['total_chunks'] as num?)?.toInt() ??
@@ -188,14 +214,20 @@ class AuthenticatedClient extends http.BaseClient {
         throw CloudAuthException('分片上传失败：${response.statusCode}');
       }
     }
-    return Map<String, dynamic>.from(
-      await requestJson(
-            '/api/v1/files/upload/merge/$fileId?filename=${Uri.encodeQueryComponent(name)}&file_hash=$digest&file_size=$length',
-            method: 'POST',
-          )
-          as Map,
-    );
+    final merged =
+        await requestJson(
+              '/api/v1/files/upload/merge/$fileId?filename=${Uri.encodeQueryComponent(name)}&file_hash=$digest&file_size=$length',
+              method: 'POST',
+            )
+            as Map;
+    return _flattenFileRecord(merged['file'] ?? merged);
   }
+
+  // The resumable endpoints wrap the file record in an envelope; uploadFile
+  // returns it flat. Callers always get the same flat shape, whose `id` is the
+  // database id used by GET /api/v1/files/{id}/download.
+  Map<String, dynamic> _flattenFileRecord(Object? record) =>
+      record is Map ? Map<String, dynamic>.from(record) : <String, dynamic>{};
 
   // The provider owns the shared transport.
   @override

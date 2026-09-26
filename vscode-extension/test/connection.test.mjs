@@ -170,6 +170,40 @@ test("streams Agent events with bearer authentication", async () => {
   ]);
 });
 
+test("drops the redundant accumulated text from thinking chunks", async () => {
+  const chunks = [
+    new TextEncoder().encode(
+      'data: {"type":"thinking","agent":"架构师","message":"h","accumulated":"h"}\n\n',
+    ),
+    new TextEncoder().encode(
+      'data: {"type":"thinking","agent":"架构师","message":"i","accumulated":"hi","streaming":true,"phase":"llm_output"}\n\n',
+    ),
+    new TextEncoder().encode('data: {"type":"done","data":{"success":true}}\n\n'),
+  ];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      let index = 0;
+      return {
+        ...response({}, 200),
+        body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: chunks[index++] } : { done: true } }) },
+      };
+    },
+  });
+  const events = [];
+
+  await connection.streamAgentPrompt({ requirement: "检查项目" }, (event) => events.push(event));
+
+  // The full accumulated buffer is repeated on every chunk and the workbench
+  // only renders the incremental message, so it must not reach the editor.
+  assert.deepEqual(events, [
+    { type: "thinking", agent: "架构师", message: "h" },
+    { type: "thinking", agent: "架构师", message: "i", streaming: true, phase: "llm_output" },
+    { type: "done", data: { success: true } },
+  ]);
+});
+
 test("uses the negotiated session for agent host actions and events", async () => {
   const calls = [];
   const connection = new CloudConnection({
@@ -239,6 +273,25 @@ test("classifies authentication failures without retrying", async () => {
     (error) => error instanceof CloudConnectionError && error.code === "authentication_failed",
   );
   assert.equal(attempts, 1);
+});
+
+test("surfaces the backend error message for non-retryable failures", async () => {
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    fetchImpl: async () =>
+      response({ code: "HTTP_ERROR", message: "磁盘空间不足（可用：0.78 GB）" }, 507),
+  });
+
+  await assert.rejects(
+    connection.fetchPendingActions(),
+    (error) =>
+      error instanceof CloudConnectionError &&
+      error.status === 507 &&
+      error.message.includes("磁盘空间不足"),
+  );
 });
 
 test("retries transient failures", async () => {
@@ -347,4 +400,302 @@ test("restores persisted results after a connection instance restarts", async ()
 
   assert.equal(await restarted.flushPendingResults(), 1);
   assert.deepEqual(await resultStore.listPending(), []);
+});
+
+function connected(fetchImpl) {
+  return new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    fetchImpl,
+  });
+}
+
+test("normalizes the conversation list", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({
+      items: [
+        { conversation_id: 12, title: "重构登录", prompt: "帮我把登录拆开", created_at: "2026-09-20T00:00:00Z", message_count: 4 },
+        { title: "缺少会话 ID" },
+      ],
+      total: 1,
+    });
+  });
+
+  assert.deepEqual(await connection.listConversations({ limit: 10, offset: 5 }), [
+    {
+      conversation_id: 12,
+      title: "重构登录",
+      prompt: "帮我把登录拆开",
+      created_at: "2026-09-20T00:00:00Z",
+      message_count: 4,
+    },
+  ]);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/history");
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { limit: 10, offset: 5 });
+});
+
+test("requires an items array from the conversation list", async () => {
+  const connection = connected(async () => response({ total: 0 }));
+  await assert.rejects(() => connection.listConversations(), { name: "ProtocolError" });
+});
+
+test("loads one conversation and forwards the paging cursor", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({
+      conversation_id: 12,
+      items: [
+        { id: 9, conversation_id: 12, prompt: "你好", response: "在的", thinking: "内部推理", title: "寒暄" },
+      ],
+    });
+  });
+
+  assert.deepEqual(await connection.fetchConversationHistory(12, { lastHistoryId: 30, limit: 20 }), [
+    { id: 9, conversation_id: 12, prompt: "你好", response: "在的", thinking: "内部推理", title: "寒暄", created_at: null },
+  ]);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/conversation/history");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { conversation_id: 12, limit: 20, last_history_id: 30 });
+});
+
+test("rejects a non-positive conversation id", async () => {
+  const connection = connected(async () => response({ items: [] }));
+  await assert.rejects(() => connection.fetchConversationHistory(0), /conversation id must be a positive integer/);
+  await assert.rejects(() => connection.deleteConversation(0), /conversation id must be a positive integer/);
+});
+
+test("deletes a conversation and reports the deleted count", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({ status: "deleted", count: 3 });
+  });
+
+  assert.equal(await connection.deleteConversation(12), 3);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/code/history?all=false&conversation_ids=12");
+  assert.equal(calls[0].init.method, "DELETE");
+});
+
+test("normalizes the agent model config and token usage", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/api/v1/models/agent-config")) {
+      return response({ version: 4, roles: { coder: { model: "claude" } }, models: ["claude"], fallback_chain: ["gpt"] });
+    }
+    return response({
+      total_tokens: 1200,
+      prompt_tokens: 700,
+      completion_tokens: 500,
+      total_messages: 8,
+      today_tokens: "300",
+      this_month_tokens: 900,
+      by_model: { claude: { tokens: 1200 } },
+    });
+  });
+
+  assert.deepEqual(await connection.fetchAgentModelConfig(), {
+    version: 4,
+    roles: { coder: { model: "claude" } },
+    models: ["claude"],
+    fallback_chain: ["gpt"],
+  });
+  assert.deepEqual(await connection.fetchTokenUsage(), {
+    total_tokens: 1200,
+    prompt_tokens: 700,
+    completion_tokens: 500,
+    total_messages: 8,
+    today_tokens: 300,
+    this_month_tokens: 900,
+    by_model: { claude: { tokens: 1200 } },
+  });
+  assert.deepEqual(calls, [
+    "https://codingmatrix.example/api/v1/models/agent-config",
+    "https://codingmatrix.example/api/v1/agent/token-usage",
+  ]);
+});
+
+test("lists snapshots, rolls back and diffs against the encoded session id", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    if (url.includes("/snapshots/")) {
+      return response({ session_id: "s/1", snapshots: [{ tag: "v2", commit: "abc", message: "第二版" }, { commit: "缺少 tag" }] });
+    }
+    if (url.includes("/rollback/")) {
+      return response({ success: true, previous_tag: "v2", current_tag: "v1", files_restored: 3 });
+    }
+    return response({ session_id: "s/1", from: "v1", to: "v2", diff: "--- a\n+++ b" });
+  });
+
+  assert.deepEqual(await connection.listSnapshots("s/1"), [
+    { tag: "v2", commit: "abc", message: "第二版", timestamp: null },
+  ]);
+  assert.deepEqual(await connection.rollbackToSnapshot("s/1", "v1"), {
+    previousTag: "v2",
+    currentTag: "v1",
+    filesRestored: 3,
+  });
+  assert.equal(await connection.fetchSnapshotDiff("s/1", "v1", "v2"), "--- a\n+++ b");
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/agent/snapshots/s%2F1");
+  assert.equal(calls[1].url, "https://codingmatrix.example/api/v1/agent/rollback/s%2F1?target_tag=v1");
+  assert.equal(calls[1].init.method, "POST");
+  assert.equal(
+    calls[2].url,
+    "https://codingmatrix.example/api/v1/agent/snapshot/diff?session_id=s%2F1&from_tag=v1&to_tag=v2",
+  );
+});
+
+test("combines the performance metrics and trends endpoints", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/trends")) return response({ success: true, trends: { planner: { avg_time_ms: 12 } } });
+    return response({ success: true, metrics: { total_requests: 5 }, thresholds: { slow_ms: 1000 } });
+  });
+
+  assert.deepEqual(await connection.fetchPerformance(), {
+    metrics: { total_requests: 5 },
+    thresholds: { slow_ms: 1000 },
+    trends: { planner: { avg_time_ms: 12 } },
+  });
+  assert.deepEqual(calls.sort(), [
+    "https://codingmatrix.example/api/v1/agent/performance",
+    "https://codingmatrix.example/api/v1/agent/performance/trends",
+  ]);
+});
+
+test("normalizes the learning stats and their top errors", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    return response({
+      success: true,
+      learned_patterns: 3,
+      total_fixes_recorded: 12,
+      total_sessions: 5,
+      overall_success_rate: 0.8,
+      top_errors: [
+        {
+          error_type: "ImportError",
+          error_message: "No module named foo",
+          frequency: 4,
+          success_rate: 0.75,
+          fix_description: "安装缺失依赖",
+        },
+        "ignored",
+      ],
+    });
+  });
+
+  assert.deepEqual(await connection.fetchLearningStats(), {
+    learned_patterns: 3,
+    total_fixes_recorded: 12,
+    total_sessions: 5,
+    overall_success_rate: 0.8,
+    top_errors: [
+      {
+        error_type: "ImportError",
+        error_message: "No module named foo",
+        frequency: 4,
+        success_rate: 0.75,
+        fix_description: "安装缺失依赖",
+      },
+    ],
+  });
+  assert.deepEqual(calls, ["https://codingmatrix.example/api/v1/agent/learning/stats"]);
+});
+
+test("requires a top_errors array from the learning stats", async () => {
+  const connection = connected(async () => response({ success: true, learned_patterns: 1 }));
+  await assert.rejects(
+    () => connection.fetchLearningStats(),
+    /top_errors/,
+  );
+});
+
+test("normalizes the concurrent limits and the cache stats", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/cache/stats")) {
+      return response({
+        total_requests: 40,
+        cache_hits: 30,
+        cache_misses: 10,
+        hit_rate: 0.75,
+        cached_entries: 6,
+        cache_size_mb: 1.5,
+        vector_index_size: 3,
+        tech_index_groups: 2,
+      });
+    }
+    return response({ recommendations: { orchestrator: 4, reviewer: 2 } });
+  });
+
+  assert.deepEqual(await connection.fetchConcurrentLimits(), { orchestrator: 4, reviewer: 2 });
+  assert.deepEqual(await connection.fetchCacheStats(), {
+    total_requests: 40,
+    cache_hits: 30,
+    cache_misses: 10,
+    hit_rate: 0.75,
+    cached_entries: 6,
+    cache_size_mb: 1.5,
+    vector_index_size: 3,
+    tech_index_groups: 2,
+  });
+  assert.deepEqual(calls.sort(), [
+    "https://codingmatrix.example/api/v1/agent/cache/stats",
+    "https://codingmatrix.example/api/v1/agent/concurrent-limits/recommended",
+  ]);
+});
+
+test("clears the cache with the requested mode", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, method: init.method });
+    return response({ success: true, cleared_count: 3, mode: "all" });
+  });
+
+  assert.deepEqual(await connection.clearAgentCache("all"), { clearedCount: 3, mode: "all" });
+  assert.deepEqual(calls, [{
+    url: "https://codingmatrix.example/api/v1/agent/cache/clear?mode=all",
+    method: "POST",
+  }]);
+});
+
+test("requires an object body from the cache stats", async () => {
+  const connection = connected(async () => response([]));
+  await assert.rejects(() => connection.fetchCacheStats(), /cache stats/);
+});
+
+test("submits architecture decisions as the request body", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body });
+    return response({ status: "submitted", session_id: "s/1" });
+  });
+
+  assert.deepEqual(await connection.submitDecisions("s/1", { state_management: "Pinia" }), {
+    status: "submitted",
+    sessionId: "s/1",
+  });
+  assert.deepEqual(calls, [{
+    url: "https://codingmatrix.example/api/v1/agent/session/s%2F1/decision",
+    method: "POST",
+    body: JSON.stringify({ state_management: "Pinia" }),
+  }]);
+});
+
+test("reports the ignored decision status instead of throwing", async () => {
+  const connection = connected(async () => response({ status: "ignored", message: "没有等待的决策请求" }));
+  assert.deepEqual(await connection.submitDecisions("s-1", { a: "b" }), {
+    status: "ignored",
+    sessionId: "s-1",
+  });
 });

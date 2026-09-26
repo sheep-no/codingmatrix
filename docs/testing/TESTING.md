@@ -91,7 +91,7 @@ cd /workspace/flutter_client && flutter test --no-pub --concurrency=1
 - 前端全量 Vitest：`36 passed`；Vite 生产构建成功。
 - PPT 专项单元回归：`141 passed`。
 - `elegant` 主题统一生成：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分分别为 `9.0/10` 和 `8.5/10`。
-- VS Code 扩展 TypeScript 构建成功，Node 原生测试：`62 passed`。
+- VS Code 扩展 TypeScript 构建成功，Node 原生测试：`103 passed`。
 - VS Code Extension Development Host E2E 已验证扩展发现、激活、兼容性握手、Agent Workbench 打开和工作区加载。原始 npm E2E 在当时无头环境受 `xauth` 影响，复用已启动 Xvfb 后完成验收。
 - 真实 Agent/PPT HTTP 与 WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和错误格式请求 404 隔离。
 

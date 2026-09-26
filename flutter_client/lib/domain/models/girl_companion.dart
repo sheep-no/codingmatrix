@@ -106,14 +106,41 @@ class GirlCharacter {
     required this.name,
     this.description = '',
     this.tags = const [],
+    this.avatarColor,
   });
   final String id, name, description;
   final List<String> tags;
+  // Set by custom characters; built-in characters fall back to the SVG endpoint.
+  final String? avatarColor;
   factory GirlCharacter.fromJson(Map<String, dynamic> j) => GirlCharacter(
     id: '${j['id']}',
     name: '${j['name'] ?? j['id']}',
     description: '${j['description'] ?? ''}',
     tags: [for (final x in (j['tags'] as List? ?? const [])) '$x'],
+    avatarColor: j['avatar_color']?.toString(),
+  );
+}
+
+class CompanionMemory {
+  const CompanionMemory({
+    required this.id,
+    this.key = '',
+    this.value = '',
+    this.confidence = 0,
+    this.source = '',
+    this.status = 'confirmed',
+    this.visibility = 'companion_allowed',
+  });
+  final String id, key, value, source, status, visibility;
+  final int confidence;
+  factory CompanionMemory.fromJson(Map<String, dynamic> j) => CompanionMemory(
+    id: '${j['id']}',
+    key: '${j['key'] ?? ''}',
+    value: '${j['value'] ?? ''}',
+    confidence: int.tryParse('${j['confidence'] ?? 0}') ?? 0,
+    source: '${j['source'] ?? ''}',
+    status: '${j['status'] ?? 'confirmed'}',
+    visibility: '${j['visibility'] ?? 'companion_allowed'}',
   );
 }
 

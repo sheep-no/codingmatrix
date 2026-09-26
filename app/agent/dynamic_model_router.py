@@ -951,8 +951,6 @@ MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
     DEFAULT_REASONING_MODEL: 128 * 1024,  # 128k
     "deepseek-ai/DeepSeek-OCR": 8 * 1024,                  # 8k
     "deepseek-ai/DeepSeek-R1": 64 * 1024,
-    "deepseek-ai/DeepSeek-V3": 64 * 1024,
-    "deepseek-ai/DeepSeek-V2.5": 32 * 1024,
     # GLM 系列
     DEFAULT_ARCHITECT_MODEL: 128 * 1024,   # 128k
     "THUDM/GLM-4-9B-0414": 32 * 1024,     # 32k

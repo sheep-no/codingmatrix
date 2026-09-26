@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/auth_controller.dart';
 import '../application/workbench_controller.dart';
+import '../domain/models/agent_decision.dart';
 
 class AgentDecisionPage extends ConsumerStatefulWidget {
   const AgentDecisionPage({super.key});
@@ -12,8 +14,35 @@ class AgentDecisionPage extends ConsumerStatefulWidget {
 class _AgentDecisionPageState extends ConsumerState<AgentDecisionPage> {
   final choices = <String, String>{};
 
+  void _resetAccount() => setState(() => choices.clear());
+
+  bool _isSelectable(AgentDecision question, String label) =>
+      question.options.any((option) => option['label'] == label);
+
+  // The server announces a default separately from the option labels, so it is
+  // not guaranteed to be selectable: the shipped `state_management` template
+  // defaults to "Pinia" while its options only offer "Pinia/Vuex". A dropdown
+  // value outside its items fails an assertion, and submitting that value is
+  // rejected as invalid, so use only a selectable choice and otherwise leave
+  // the field empty so the user has to pick explicitly.
+  String? _selection(AgentDecision question) {
+    final remembered = choices[question.id];
+    if (remembered != null && _isSelectable(question, remembered)) {
+      return remembered;
+    }
+    final fallback = question.defaultChoice;
+    return fallback != null && _isSelectable(question, fallback)
+        ? fallback
+        : null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(workbenchControllerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('架构决策')),
@@ -44,12 +73,7 @@ class _AgentDecisionPageState extends ConsumerState<AgentDecisionPage> {
                         '${state.task?.sessionId}/${question.id}/${question.options}',
                       ),
                       isExpanded: true,
-                      initialValue:
-                          question.options.any(
-                            (option) => option['label'] == choices[question.id],
-                          )
-                          ? choices[question.id]
-                          : question.defaultChoice,
+                      initialValue: _selection(question),
                       items: question.options
                           .map(
                             (option) => DropdownMenuItem(
@@ -90,10 +114,7 @@ class _AgentDecisionPageState extends ConsumerState<AgentDecisionPage> {
                         .read(workbenchControllerProvider.notifier)
                         .submitDecisions({
                           for (final question in state.decisions)
-                            question.id:
-                                choices[question.id] ??
-                                question.defaultChoice ??
-                                '',
+                            question.id: _selection(question) ?? '',
                         }),
               child: Text(state.decisionBusy ? '提交中…' : '提交决策'),
             ),

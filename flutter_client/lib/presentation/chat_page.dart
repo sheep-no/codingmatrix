@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../application/chat_controller.dart';
+import '../application/auth_controller.dart';
+import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -18,6 +21,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _search = false;
   final List<PlatformFile> _attachments = [];
   bool _picking = false;
+  bool _historyBusy = false;
   String? _attachmentError;
   int _sendVersion = 0;
 
@@ -28,14 +32,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.dispose();
   }
 
+  void _resetDraft() {
+    _sendVersion++;
+    closeAccountOverlays(context);
+    _controller.clear();
+    _modelController.clear();
+    setState(() {
+      _picking = false;
+      _reasoning = false;
+      _search = false;
+      _attachments.clear();
+      _attachmentError = null;
+    });
+  }
+
   Future<void> _pickFiles() async {
+    final version = _sendVersion;
     setState(() {
       _picking = true;
       _attachmentError = null;
     });
     try {
       final result = await FilePicker.platform.pickFiles(allowMultiple: true);
-      if (!mounted || result == null) return;
+      if (!mounted || version != _sendVersion || result == null) return;
       setState(() {
         for (final file in result.files) {
           if (file.path == null || file.path!.isEmpty) {
@@ -46,9 +65,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       });
     } catch (error) {
-      if (mounted) setState(() => _attachmentError = '文件选择失败：$error');
+      if (mounted && version == _sendVersion) {
+        setState(() => _attachmentError = '文件选择失败：$error');
+      }
     } finally {
-      if (mounted) setState(() => _picking = false);
+      if (mounted && version == _sendVersion) setState(() => _picking = false);
     }
   }
 
@@ -81,30 +102,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetDraft(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetDraft());
     final chat = ref.watch(chatControllerProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('聊天'),
-        actions: [
-          IconButton(
-            key: const Key('newChatButton'),
-            tooltip: '新会话',
-            onPressed: chat.loading
-                ? null
-                : () {
-                    _sendVersion++;
-                    ref.read(chatControllerProvider.notifier).reset();
-                  },
-            icon: const Icon(Icons.add_comment_outlined),
-          ),
-          IconButton(
-            key: const Key('chatHistoryButton'),
-            tooltip: '历史会话',
-            onPressed: chat.loading ? null : _showHistory,
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '聊天',
+      actions: [
+        IconButton(
+          key: const Key('newChatButton'),
+          tooltip: '新会话',
+          onPressed: chat.loading
+              ? null
+              : () {
+                  _sendVersion++;
+                  ref.read(chatControllerProvider.notifier).reset();
+                },
+          icon: const Icon(Icons.add_comment_outlined),
+        ),
+        IconButton(
+          key: const Key('chatHistoryButton'),
+          tooltip: '历史会话',
+          onPressed: chat.loading || _historyBusy ? null : _showHistory,
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: Column(
         children: [
           Expanded(
@@ -239,34 +263,43 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _showHistory() async {
-    await ref.read(chatControllerProvider.notifier).loadHistory();
-    if (!mounted) return;
-    final history = ref.read(chatControllerProvider).history;
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          children: history.isEmpty
-              ? [const ListTile(title: Text('暂无历史会话'))]
-              : history
-                    .map(
-                      (item) => ListTile(
-                        title: Text(
-                          item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+    if (_historyBusy) return;
+    // Captured so an account switch while the request is in flight cannot open
+    // the previous account's sheet over the next one.
+    final version = _sendVersion;
+    setState(() => _historyBusy = true);
+    try {
+      await ref.read(chatControllerProvider.notifier).loadHistory();
+      if (!mounted || version != _sendVersion) return;
+      final history = ref.read(chatControllerProvider).history;
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            children: history.isEmpty
+                ? [const ListTile(title: Text('暂无历史会话'))]
+                : history
+                      .map(
+                        (item) => ListTile(
+                          title: Text(
+                            item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () async {
+                            Navigator.pop(sheetContext);
+                            await ref
+                                .read(chatControllerProvider.notifier)
+                                .loadConversation(item);
+                          },
                         ),
-                        onTap: () async {
-                          Navigator.pop(sheetContext);
-                          await ref
-                              .read(chatControllerProvider.notifier)
-                              .loadConversation(item);
-                        },
-                      ),
-                    )
-                    .toList(),
+                      )
+                      .toList(),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) setState(() => _historyBusy = false);
+    }
   }
 }

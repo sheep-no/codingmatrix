@@ -14,7 +14,7 @@
 - 管理员面板位于 `/admin`：`admin` 与 `superadmin` 可访问系统监控、系统日志、用户管理、Nginx 配置、服务管理和资源配置；超级管理员额外可见模型管理与 `/admin/dashboard` 并发仪表板。工具集「管理员面板」仅超级用户可见，`admin` 可直接打开 `/admin`。菜单状态写入 `localStorage` 键 `adminMenuState`，挂载时按权限恢复。浏览器场景见 `tests/e2e/admin-panel-scenarios.spec.js`。
 - 能力中心位于 `/capabilities`，当前面板为视觉工具、知识库、代码沙箱、Skills 和 Agent Host。
 - 工具集「搜索历史」打开侧栏搜索框，调用 `POST /api/v1/history` 按 `prompt_keyword` 筛选当前用户会话。
-- 当前 Web 工作台的完整会话历史、模型选择、文件版本、性能面板等 UI 尚未完整迁移到 VS Code 原生 Webview。
+- VS Code 原生 Webview 已提供对话、会话历史、模型、文件版本、性能、学习和设置七个面板。对话复用云端流式会话并可在收到 `critical_decisions` 后提交架构决策；其余六个面板经 `workbench_request` 通道读取普通用户 v1 接口（`/api/v1/history`、`/api/v1/conversation/history`、`/api/v1/code/history`、`/api/v1/models/agent-config`、`/api/v1/agent/token-usage`、`/api/v1/agent/snapshots|rollback|snapshot/diff`、`/api/v1/agent/performance`、`/api/v1/agent/learning/stats`、`/api/v1/agent/concurrent-limits/recommended`、`/api/v1/agent/cache/stats|clear`、`/api/v1/agent/session/{session_id}/decision`），清空全部缓存前先弹原生确认。管理级 `/api/v2/models/*` 与 `/api/v2/model-config/*` 需要 superadmin，未迁移。
 
 - [架构文档](ARCHITECTURE.md)：FastAPI、Vue、StateGraph、统一状态和部署拓扑。
 - [接口文档](INTERFACES.md)：认证、Agent、任务、Agent Host、State 和验证契约。
@@ -26,17 +26,19 @@
 - 游戏 AI PPT 真实生成 E2E：`tests/e2e/test_ppt_game_ai.e2e.spec.js`，覆盖临时用户注册、真实生成接口、领域化内容断言和 PPTX 下载。
 - [项目规格](../specs/)：按功能保存的需求、设计和实施记录。
 - [运行诊断与有界重试实测](CORE_REPAIR_EVALUATION_2026-09-08.md)：Core 候选诊断投影、rollback 证据保留和自动 repair 实测结果。
+- [待环境验收清单](PENDING-VERIFICATION.md)：Flutter 双端与 VS Code 扩展已验证项、待环境验收项（Android APK 与真机、Windows、真实 Provider 与 LLM）、跨边界发现存档，以及本地后端联调方法。
 - `../specs/2026-08-28-stategraph-rag-orchestration/`：StateGraph RAG 编排的目标设计、迁移记录和任务清单；其中本地验证与完整多阶段生产接线仍待运行环境验收。
 - `../specs/2026-08-29-vscode-local-validation-extension/`：Web 与 VS Code 双工作台 Agent Host SSD，包含需求、技术设计和实施任务清单。
 - `../specs/2026-08-30-user-scoped-skills/`：系统、用户和工作区 Skills 的命名空间、用户隔离与跨工作台同步设计。
 - `../specs/2026-08-31-multilanguage-generation-orchestration/`：多语言代码生成稳定性与 Orchestrator Core 重构主规格，统一生命周期、文件计划、执行预算、GenerationScheduler、产物成功门禁，以及 Python、TypeScript、Java、Go、Rust 的语言 Adapter、官方脚手架导入、Toolchain 自动探测和工作区 Profile 晋级门禁已实现；受约束代码合成控制面已完成动态 IR、策略路由、Core 计划投影、Profile/语言/脚手架能力桥接、FastAPI/Express/Go/Spring 独立 Stack Adapter，以及 V0-V6 分层验证、候选预算、确定性重排和最小诊断反馈，Spec-First 与增量生产分支已接入 Core。
 - `../../docs/evolution/TASKS.md`：全项目演化任务索引、SSD 规范和第 156-161 轮运行时补扫记录。
-- `../specs/2026-08-29-followup-module-state-migration/`：AICloud、GirlAI、Agent、Workflow 及兼容映射、归档和切换的后续模块迁移 SDD。
+- AICloud、GirlAI、Agent、Workflow 及兼容映射、归档和切换的后续模块迁移 SDD（规格目录为历史资料，当前工作树未包含）。
 - GirlAI 接口、双写状态和真实验证说明分别见 `INTERFACES.md`、`ARCHITECTURE.md` 和 `DEVELOPER_GUIDE.md`。
 - `../specs/2026-09-01-agent-model-context/`：Agent 会话模型配置、当前模型、调用统计和降级记录的后端 Checkpoint 管理设计。
 - `../specs/2026-09-01-mobile-agent-interface/`：Agent Dashboard 手机端单列布局、会话抽屉和文件抽屉设计。
 - `../specs/2026-09-03-girlai-companion-enhancement/`：GirlAI 纯对话伙伴回合、记忆、情绪意图和语音适配的需求、设计与实施计划。
-- `../specs/2026-09-06-flutter-desktop-agent-client/`：Flutter Windows 桌面 Agent 客户端的需求、设计与实施计划；当前已完成工程骨架和认证基础层。
+- `../specs/2026-09-08-flutter-client-completion/`：Flutter Windows 桌面 Agent 客户端的需求、设计与任务清单；客户端已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 与管理面。
+- `../specs/2026-09-18-flutter-capability-registry/`：Flutter 桌面端能力注册表、分组导航与生成开关的需求与设计；已实施，落地为 `lib/application/capability_registry.dart`、`lib/presentation/capability_nav.dart` 与生成开关控制器。
 
 ## 2026-09-12 增量
 

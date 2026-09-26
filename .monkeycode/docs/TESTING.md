@@ -14,7 +14,7 @@
 
 当前代码已完成 `flutter build apk --release --no-pub`，执行时显式设置 `ANDROID_HOME=/tmp/opencode/android-sdk`。构建耗时 410.7 秒，退出码 0，峰值内存约 2.04 GiB；日志 `/tmp/terminal_term_1788869844986_116.log`。Gradle 的重复目录监听提示未阻断本次构建。
 
-产物：`flutter_client/build/app/outputs/flutter-apk/app-release.apk`，约 51.2 MB，版本 1.0.0 (1)，包名 `com.example.codingmatrix_desktop`。最低 API 24、目标 API 36，包含 arm64-v8a、armeabi-v7a、x86_64。APK v2 签名和 ZIP 完整性校验通过，证书为 Android Debug；校验日志 `/tmp/terminal_term_1788870305414_117.log`。
+产物：`flutter_client/build/app/outputs/flutter-apk/app-release.apk`，约 51.2 MB，版本 1.0.0 (1)，包名 `com.example.codingmatrix_desktop`（该标识在后续统一应用标识时改为 `com.codingmatrix.agent`，见 `DEVELOPER_GUIDE.md`）。最低 API 24、目标 API 36，包含 arm64-v8a、armeabi-v7a、x86_64。APK v2 签名和 ZIP 完整性校验通过，证书为 Android Debug；校验日志 `/tmp/terminal_term_1788870305414_117.log`。
 
 SHA-256：`9f353f73d9e472d484433132b7638ed08f8fc11168c5325bda881f37d14db276`。
 
@@ -169,7 +169,7 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 
 ## 最近结果（2026-09-07）
 
-- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `75 passed`。
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `103 passed`。
 - VS Code Extension Development Host：VS Code `1.136.1` E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - Web 任务反馈专项：`4 files passed, 36 tests passed`，覆盖归一化、增量合并、断线恢复、过期快照、终态保护、游标重置和组件操作派发；前端完整 Vitest 为 `25 files passed, 108 tests passed`。

@@ -2,7 +2,11 @@ import * as vscode from "vscode";
 import { spawn } from "node:child_process";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { AgentHostSession } from "./agent-host.js";
-import { AgentWorkbenchController, AGENT_WORKBENCH_COMMAND, AGENT_WORKBENCH_VIEW_TYPE } from "./agent-workbench.js";
+import {
+  AgentWorkbenchController,
+  AGENT_WORKBENCH_COMMAND,
+  AGENT_WORKBENCH_VIEW_TYPE,
+} from "./agent-workbench.js";
 import { AgentHostRuntime } from "./agent-host-runtime.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
@@ -11,6 +15,7 @@ import { WorkspaceAuthorization } from "./workspace-authorization.js";
 import { CloudConnection } from "./connection.js";
 import { discoverWorkspaceSkills, WorkspaceSkillRoot } from "./skill-discovery.js";
 import { ResultStore, ResultStorage } from "./result-store.js";
+import { dispatchWorkbenchRequest } from "./workbench-requests.js";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -28,22 +33,48 @@ let connectionDisposables: vscode.Disposable[] = [];
 let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let promptAbortController: AbortController | undefined;
 let extensionLifecycleId = 0;
+// Only a run that finished with a `done` event leaves a project behind, so the
+// chat panel may offer an incremental edit for that project and nothing else.
+let lastProjectPath: string | undefined;
 const controller = new AgentWorkbenchController({
   onMessage: async (message) => {
     if (runtime) await runtime.process(message);
   },
-  onPrompt: async (prompt) => {
+  onPrompt: async (prompt, options) => {
     if (!cloudConnection) {
       await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
       return;
+    }
+    const incremental = options.incremental && lastProjectPath !== undefined;
+    if (options.incremental && !incremental) {
+      await controller.publishWorkbenchEvent({
+        type: "progress",
+        data: { message: "没有可增量修改的项目，已按全新生成处理" },
+      });
+    }
+    const request: Record<string, unknown> = {
+      requirement: prompt,
+      session_id: agentConversationId,
+      incremental,
+      ...options.flags,
+    };
+    if (options.projectName) request.project_name = options.projectName;
+    if (incremental) {
+      // The incremental adapter lives in the core engine; the legacy handler
+      // ignores the flag and would rebuild the whole project.
+      request.engine = "core";
+      request.project_path = lastProjectPath;
     }
     promptAbortController?.abort();
     const requestController = new AbortController();
     promptAbortController = requestController;
     try {
       await cloudConnection.streamAgentPrompt(
-        { requirement: prompt, session_id: agentConversationId },
-        (event) => controller.publishWorkbenchEvent(event),
+        request,
+        (event) => {
+          trackGenerationOutcome(event);
+          return controller.publishWorkbenchEvent(event);
+        },
         requestController.signal,
       );
     } catch (error) {
@@ -73,7 +104,53 @@ const controller = new AgentWorkbenchController({
       await controller.publishWorkbenchEvent({ type: "error", data: { error: error instanceof Error ? error.message : "会话控制失败" } });
     }
   },
+  // The chat panel's connect button asks the host to (re)establish the Agent
+  // Host session; report the real outcome instead of leaving the button silent.
+  onReady: async () => {
+    try {
+      await vscode.commands.executeCommand("codingmatrix.reconnectAgentSession");
+      if (cloudConnection) {
+        await controller.publishWorkbenchEvent({ type: "progress", data: { message: "本地 Agent Host 已连接" } });
+      } else {
+        await controller.publishWorkbenchEvent({
+          type: "error",
+          data: { error: "请先配置 codingmatrix.agent.apiUrl 与 accessToken 再连接本地 Agent Host" },
+        });
+      }
+    } catch (error) {
+      await controller.publishWorkbenchEvent({
+        type: "error",
+        data: { error: error instanceof Error ? error.message : "连接本地 Agent Host 失败" },
+      });
+    }
+  },
+  onRequest: async (request) => {
+    if (!cloudConnection) throw new Error("云端 Agent 尚未连接");
+    if (request.resource === "cache_clear" && request.params.mode === "all") {
+      const choice = await vscode.window.showWarningMessage(
+        "确认清空全部 Agent 缓存吗？",
+        { modal: true },
+        "清空",
+      );
+      if (choice !== "清空") throw new Error("已取消清空缓存");
+    }
+    return dispatchWorkbenchRequest(cloudConnection, request);
+  },
 });
+
+// A `done` event carries the generated project path; every other terminal event
+// leaves no project to edit incrementally, so the path is cleared.
+function trackGenerationOutcome(event: { type: string; data?: unknown }): void {
+  if (event.type === "done") {
+    const data = event.data;
+    const path = typeof data === "object" && data !== null
+      ? (data as { project_path?: unknown }).project_path
+      : undefined;
+    lastProjectPath = typeof path === "string" && path.trim() ? path : undefined;
+    return;
+  }
+  if (event.type === "error" || event.type === "cancelled") lastProjectPath = undefined;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const lifecycleId = ++extensionLifecycleId;

@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-09-12 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-24 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：71 个 Dart 文件 / 12,358 行
 
 ## 项目结构概览
 
@@ -40,8 +40,8 @@ codingmatrix/
 │   ├── styles/
 │   ├── utils/                   # 前端工具；utils/api 下 19 个 API 客户端模块
 │   └── views/                   # 页面视图 (9 视图)
-├── vscode-extension/            # VS Code Agent Host 客户端 (19 个 TypeScript 文件)
-├── flutter_client/              # Flutter 桌面 Agent 工作台 (58 个 Dart 文件 / 9,149 行)
+├── vscode-extension/            # VS Code Agent Host 客户端 (21 个 TypeScript 文件)
+├── flutter_client/              # Flutter 桌面 Agent 工作台 (71 个 Dart 文件 / 12,358 行)
 ├── tests/                       # 单元、集成、前端和 E2E 测试
 │   ├── archive/                 # 归档的旧测试
 │   ├── e2e/                     # Playwright E2E (77 spec.js)
@@ -100,12 +100,12 @@ codingmatrix/
 
 | 维度 | 数量 | 备注 |
 |------|------|------|
-| Dart 源码 | **58 / 9,149 行** | `flutter_client/lib/**/*.dart` |
-| 页面 | **16** | `lib/presentation/*_page.dart` |
-| 测试文件 | **15** | `flutter_client/test/**/*_test.dart` |
+| Dart 源码 | **71 / 12,358 行** | `flutter_client/lib/**/*.dart` |
+| 页面 | **18** | `lib/presentation/*_page.dart` |
+| 测试文件 | **34** | `flutter_client/test/**/*_test.dart` |
 | 包名 / 版本 | `codingmatrix_desktop` / `1.0.0+1` | `pubspec.yaml` |
 
-分层与页面清单见 [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)。HTTP 统一走 `AuthenticatedClient`；MCP 写操作使用 `/api/v2/mcp/servers`；GitHub 仅配置与 `/api/v1/github/save`。
+分层与页面清单见 [Flutter 客户端](../features/FLUTTER-CLIENT.md)。HTTP 统一走 `AuthenticatedClient`；MCP 写操作使用 `/api/v2/mcp/servers`；GitHub 仅配置与 `/api/v1/github/save`。
 
 ### 测试规模
 
@@ -115,7 +115,7 @@ codingmatrix/
 | 集成测试 | **4 文件 / 31 个直接定义** | `tests/integration/test_*.py` |
 | E2E | **77 spec / 433 个直接定义** | `tests/e2e/*.spec.js` |
 | 归档测试 | **56+** | tests/archive/legacy/ + integration_old/ |
-| Flutter 测试 | **15 文件** | `flutter_client/test/**/*_test.dart` |
+| Flutter 测试 | **34 文件** | `flutter_client/test/**/*_test.dart` |
 
 ### 已知技术债务
 

@@ -11,6 +11,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+
+import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
+import 'package:codingmatrix_desktop/presentation/workbench_page.dart';
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
+
 class ExitWorkbenchController extends WorkbenchController {
   int stops = 0;
   int disconnects = 0;
@@ -23,6 +32,32 @@ class ExitWorkbenchController extends WorkbenchController {
   @override
   Future<void> disconnect() async {
     disconnects++;
+  }
+}
+
+class StopErrorWorkbench extends WorkbenchController {
+  StopErrorWorkbench() {
+    state = const WorkbenchState(
+      task: Task(
+        taskId: 'local-1',
+        sessionId: 'desktop-1',
+        status: 'disconnected',
+      ),
+      actionError: '停止结果未确认，请重试或检查服务端任务',
+    );
+  }
+}
+
+class FailedWorkbench extends WorkbenchController {
+  FailedWorkbench() {
+    state = const WorkbenchState(
+      task: Task(
+        taskId: 'local-1',
+        sessionId: 'desktop-1',
+        status: 'failed',
+        errorJson: {'error': 'unknown file types were not inferred: vue.py'},
+      ),
+    );
   }
 }
 
@@ -165,7 +200,7 @@ void main() {
       ),
     );
 
-    expect(find.text('工作台'), findsOneWidget);
+    expect(find.text('Agent 工作台'), findsOneWidget);
     expect(find.text('alice'), findsOneWidget);
     expect(find.textContaining('sess-1'), findsOneWidget);
     expect(find.textContaining('log:'), findsOneWidget);
@@ -205,5 +240,415 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('任务概览'), findsOneWidget);
     expect(find.text('实时事件'), findsOneWidget);
+  });
+
+  AuthController signedInAuth(CredentialStore store, String tokenRef) {
+    return AuthController(
+      CloudAuthClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) async => http.Response('', 500)),
+        credentialStore: store,
+      ),
+      store,
+      session: AuthSession(
+        username: 'alice',
+        permissionLevel: 'normal',
+        accessTokenRef: tokenRef,
+      ),
+    );
+  }
+
+  testWidgets('切换账号清空工作台需求草稿', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [authControllerProvider.overrideWith((_) => auth)],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('requirementField')),
+      '上一账号的需求',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      '上一账号的需求',
+    );
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('空需求不会开始生成', (tester) async {
+    final store = CredentialStore();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (_) => signedInAuth(store, 'ref'),
+          ),
+        ],
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    expect(find.byKey(const Key('startGenerationButton')), findsOneWidget);
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsNothing);
+  });
+
+  testWidgets('事件流断开显示待确认不泄露连接细节', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient(
+          (_) async => throw const SocketException('connection lost'),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (_) => signedInAuth(store, token),
+          ),
+          workbenchControllerProvider.overrideWith((_) => workbench),
+        ],
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('disconnected'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('生成中退出再进入会丢掉输入但保留断开状态', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final pending = Completer<http.Response>();
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) => pending.future),
+        credentialStore: store,
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, token)),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('stopGenerationButton')), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SizedBox.shrink()),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
+  test('停止网络断开显示笼统错误', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    var stopCalls = 0;
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((request) async {
+          if (request.url.path.contains('/agent/stop/')) {
+            stopCalls++;
+            throw const SocketException('connection lost');
+          }
+          return http.Response('', 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.stopGeneration();
+    expect(stopCalls, 1);
+    expect(workbench.state.actionError, '停止结果未确认，请重试或检查服务端任务');
+    expect(workbench.state.task?.status, 'disconnected');
+    workbench.dispose();
+  });
+
+  testWidgets('停止失败后退出再进入仍显示错误', (tester) async {
+    final store = CredentialStore();
+    final workbench = StopErrorWorkbench();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('停止结果未确认，请重试或检查服务端任务'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开工作台'))),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('停止结果未确认，请重试或检查服务端任务'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('失败任务在概览卡片展示服务端失败原因', (tester) async {
+    final store = CredentialStore();
+    final workbench = FailedWorkbench();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('失败原因'), findsOneWidget);
+    expect(
+      find.text('unknown file types were not inferred: vue.py'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('文件事件只展示路径与大小，不渲染源码正文', (tester) async {
+    final store = CredentialStore();
+    final workbench = WorkbenchController();
+    workbench.bindTask(
+      const Task(taskId: 't1', sessionId: 's1', status: 'running'),
+    );
+    final body = List.generate(
+      400,
+      (index) => 'final line$index = "generated source";',
+    ).join('\n');
+    final frame = jsonEncode({
+      'type': 'file',
+      'path': 'lib/generated.dart',
+      'content': body,
+      'operation': 'create',
+      'file_size_human': '12.4 KB',
+    });
+    workbench.ingestSseChunk('data: $frame\n\n');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('lib/generated.dart'), findsOneWidget);
+    expect(find.textContaining('12.4 KB'), findsOneWidget);
+    expect(find.textContaining('final line399'), findsNothing);
+  });
+
+  test('停止时取消订阅抛错不会逃逸', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>(
+      onCancel: () async => throw const SocketException('connection lost'),
+    );
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (request, _) async => request.url.path.contains('/agent/stop/')
+              ? http.StreamedResponse(const Stream<List<int>>.empty(), 200)
+              : http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.stopGeneration();
+    expect(workbench.state.task?.status, 'cancelled');
+    workbench.dispose();
+  });
+
+  test('心跳帧不进入事件日志', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (_, __) async => http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    source.add(utf8.encode('data: {"type": "heartbeat"}\n\n'));
+    source.add(
+      utf8.encode('data: {"type": "progress", "data": {"progress": 10}}\n\n'),
+    );
+    source.add(utf8.encode('data: {"type": "heartbeat"}\n\n'));
+    await Future<void>.delayed(Duration.zero);
+    expect(workbench.state.events.map((event) => event.type).toList(), [
+      'progress',
+    ]);
+    expect(workbench.state.task?.progress, 10);
+    workbench.dispose();
+  });
+
+  test('Agent 事件日志只保留最近 100 条', () {
+    final workbench = WorkbenchController();
+    workbench.bindTask(const Task(taskId: 'task-1', status: 'running'));
+    for (var i = 0; i < 150; i++) {
+      workbench.ingestSseChunk(
+        'data: {"type":"log","data":{"message":"$i"}}\n\n',
+      );
+    }
+    final messages = workbench.state.events
+        .map((event) => event.data?['message'])
+        .toList();
+    expect(messages.length, 100);
+    expect(messages.first, '50');
+    expect(messages.last, '149');
+    workbench.dispose();
+  });
+
+  test('断开时取消订阅抛错不会逃逸', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>(
+      onCancel: () async => throw const SocketException('connection lost'),
+    );
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (_, __) async => http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.disconnect();
+    expect(workbench.state.task?.status, 'running');
+    workbench.dispose();
   });
 }

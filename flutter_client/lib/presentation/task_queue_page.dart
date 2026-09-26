@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/task/task_client.dart';
+import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class TaskQueuePage extends ConsumerStatefulWidget {
   const TaskQueuePage({super.key});
@@ -13,7 +15,11 @@ class TaskQueuePage extends ConsumerStatefulWidget {
 class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
   List<Map<String, dynamic>> items = const [];
   bool loading = true;
+  bool busy = false;
   String? error;
+  // Bumped whenever the account context changes so a response that arrives
+  // after the switch cannot write into the new account's page state.
+  int _epoch = 0;
   TaskClient get client => TaskClient(ref.read(authenticatedClientProvider));
   @override
   void initState() {
@@ -22,44 +28,68 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
   }
 
   Future<void> load() async {
+    if (!mounted) return;
+    final epoch = _epoch;
     setState(() => loading = true);
     try {
       final result = await client.list();
-      if (mounted)
-        setState(() {
-          items = result;
-          error = null;
-          loading = false;
-        });
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        items = result;
+        error = null;
+        loading = false;
+      });
     } catch (e) {
-      if (mounted)
-        setState(() {
-          error = '$e';
-          loading = false;
-        });
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        error = '$e';
+        loading = false;
+      });
     }
   }
 
+  void _resetAccount() {
+    _epoch++;
+    closeAccountOverlays(context);
+    setState(() {
+      items = const [];
+      error = null;
+      busy = false;
+    });
+    load();
+  }
+
   Future<void> action(Future<void> Function() call) async {
+    if (busy || loading || !mounted) return;
+    final epoch = _epoch;
+    setState(() => busy = true);
     try {
       await call();
+      if (epoch != _epoch) return;
       await load();
     } catch (e) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted && epoch == _epoch) setState(() => busy = false);
     }
   }
 
   Future<void> showEvents(String id) async {
+    if (busy || loading || !mounted) return;
+    final epoch = _epoch;
+    setState(() => busy = true);
     try {
       final events = await client.events(id);
-      if (!mounted) return;
+      if (!mounted || epoch != _epoch) return;
       showModalBottomSheet<void>(
         context: context,
         builder: (_) => ListView(
           children: [
+            if (events.isEmpty)
+              const ListTile(dense: true, title: Text('暂无事件')),
             for (final event in events)
               ListTile(
                 title: Text(
@@ -74,72 +104,85 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
         ),
       );
     } catch (e) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('事件读取失败：$e')));
+    } finally {
+      if (mounted && epoch == _epoch) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('任务队列'),
+  Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
+    return ShellScaffold(
+      title: '任务队列',
       actions: [
         IconButton(
-          onPressed: loading ? null : load,
+          onPressed: (busy || loading) ? null : load,
           icon: const Icon(Icons.refresh),
         ),
       ],
-    ),
-    body: loading
-        ? const Center(child: CircularProgressIndicator())
-        : error != null
-        ? Center(child: Text(error!))
-        : ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: items.length,
-            itemBuilder: (_, i) {
-              final task = items[i];
-              final status = '${task['status'] ?? 'unknown'}';
-              final id = '${task['task_id']}';
-              final canCancel = [
-                'pending',
-                'running',
-                'retrying',
-              ].contains(status);
-              final canRetry = ['failed', 'error'].contains(status);
-              return Card(
-                child: ListTile(
-                  title: Text('${task['task_type'] ?? '任务'} · $status'),
-                  subtitle: Text(
-                    '$id\n${task['progress_message'] ?? ''} ${task['progress'] ?? 0}%',
-                  ),
-                  isThreeLine: true,
-                  trailing: Wrap(
-                    children: [
-                      IconButton(
-                        tooltip: '查看事件',
-                        onPressed: () => showEvents(id),
-                        icon: const Icon(Icons.list_alt),
-                      ),
-                      if (canCancel)
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+          ? Center(child: Text(error!))
+          : items.isEmpty
+          ? const Center(child: Text('暂无任务'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              itemBuilder: (_, i) {
+                final task = items[i];
+                final status = '${task['status'] ?? 'unknown'}';
+                final id = '${task['task_id']}';
+                final canCancel = [
+                  'pending',
+                  'running',
+                  'retrying',
+                ].contains(status);
+                final canRetry = ['failed', 'error'].contains(status);
+                return Card(
+                  child: ListTile(
+                    title: Text('${task['task_type'] ?? '任务'} · $status'),
+                    subtitle: Text(
+                      '$id\n${task['progress_message'] ?? ''} ${task['progress'] ?? 0}%',
+                    ),
+                    isThreeLine: true,
+                    trailing: Wrap(
+                      children: [
                         IconButton(
-                          tooltip: '取消',
-                          onPressed: () => action(() => client.cancel(id)),
-                          icon: const Icon(Icons.stop),
+                          tooltip: '查看事件',
+                          onPressed: busy ? null : () => showEvents(id),
+                          icon: const Icon(Icons.list_alt),
                         ),
-                      if (canRetry)
-                        IconButton(
-                          tooltip: '重试',
-                          onPressed: () => action(() => client.retry(id)),
-                          icon: const Icon(Icons.refresh),
-                        ),
-                    ],
+                        if (canCancel)
+                          IconButton(
+                            tooltip: '取消',
+                            onPressed: busy
+                                ? null
+                                : () => action(() => client.cancel(id)),
+                            icon: const Icon(Icons.stop),
+                          ),
+                        if (canRetry)
+                          IconButton(
+                            tooltip: '重试',
+                            onPressed: busy
+                                ? null
+                                : () => action(() => client.retry(id)),
+                            icon: const Icon(Icons.refresh),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-  );
+                );
+              },
+            ),
+    );
+  }
 }

@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../application/auth_controller.dart';
+import 'saved_file_actions.dart';
+import 'shell_scaffold.dart';
 
 class FileCenterPage extends ConsumerStatefulWidget {
   const FileCenterPage({super.key});
@@ -15,14 +17,37 @@ class FileCenterPage extends ConsumerStatefulWidget {
 class _FileCenterPageState extends ConsumerState<FileCenterPage> {
   bool busy = false;
   String? message;
+  String? savedPath;
   final files = <Map<String, dynamic>>[];
+  // Bumped on account change so a late upload/download result cannot land in
+  // the next account's page state.
+  int _epoch = 0;
   Future<void> upload() async {
-    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
-    if (picked == null) return;
+    // Hold busy across the picker too, otherwise a second tap opens another
+    // picker while the first is still open.
+    if (busy) return;
+    final epoch = _epoch;
     setState(() {
       busy = true;
       message = null;
     });
+    FilePickerResult? picked;
+    try {
+      picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    } catch (e) {
+      if (mounted && epoch == _epoch) {
+        setState(() {
+          busy = false;
+          message = '选择文件失败：$e';
+        });
+      }
+      return;
+    }
+    if (picked == null) {
+      if (mounted && epoch == _epoch) setState(() => busy = false);
+      return;
+    }
+    if (!mounted || epoch != _epoch) return;
     try {
       for (final file in picked.files) {
         if (file.path == null) continue;
@@ -30,22 +55,39 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
         final result = file.size > 10 * 1024 * 1024
             ? await api.uploadFileResumable(file.path!)
             : await api.uploadFile(file.path!);
-        if (mounted) setState(() => files.add(result));
+        if (!mounted || epoch != _epoch) return;
+        setState(() => files.add(result));
       }
-      if (mounted) setState(() => message = '上传完成');
+      if (mounted && epoch == _epoch) setState(() => message = '上传完成');
     } catch (e) {
-      if (mounted) setState(() => message = '上传失败：$e');
+      if (mounted && epoch == _epoch) setState(() => message = '上传失败：$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == _epoch) setState(() => busy = false);
     }
   }
 
+  void _resetAccount() {
+    _epoch++;
+    setState(() {
+      files.clear();
+      message = null;
+      savedPath = null;
+      busy = false;
+    });
+  }
+
+  // FileUploadResponse exposes `filename`; resumable/legacy payloads may use `name`.
+  String _displayName(Map<String, dynamic> file, String id) =>
+      '${file['name'] ?? file['filename'] ?? 'file-$id'}';
+
   Future<void> download(Map<String, dynamic> file) async {
     final id = '${file['file_id'] ?? file['id'] ?? ''}';
-    if (id.isEmpty) return;
+    if (id.isEmpty || busy) return;
+    final epoch = _epoch;
     setState(() {
       busy = true;
       message = '下载中...';
+      savedPath = null;
     });
     try {
       final api = ref.read(authenticatedClientProvider);
@@ -57,46 +99,62 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
       );
       if (response.statusCode != 200) throw StateError('文件下载失败');
       final folder = await getApplicationDocumentsDirectory();
-      final name = '${file['name'] ?? 'file-$id'}'.replaceAll(
-        RegExp(r'[^A-Za-z0-9._-]'),
-        '_',
-      );
+      final name = _displayName(
+        file,
+        id,
+      ).replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
       final output = File('${folder.path}/$name');
       await output.writeAsBytes(await response.stream.toBytes(), flush: true);
-      if (mounted) setState(() => message = '已保存到：${output.path}');
+      if (mounted && epoch == _epoch) {
+        setState(() {
+          savedPath = output.path;
+          message = '已保存到：${output.path}';
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => message = '下载失败：$e');
+      if (mounted && epoch == _epoch) setState(() => message = '下载失败：$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == _epoch) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('文件中心')),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        FilledButton.icon(
-          onPressed: busy ? null : upload,
-          icon: const Icon(Icons.upload_file),
-          label: Text(busy ? '上传中...' : '选择文件上传'),
-        ),
-        if (message != null) Text(message!),
-        const Divider(),
-        for (final file in files)
-          ListTile(
-            title: Text('${file['name'] ?? '文件'}'),
-            subtitle: Text(
-              '${file['file_id'] ?? file['id'] ?? ''}\n${file['server_path'] ?? ''}',
-            ),
-            isThreeLine: true,
-            trailing: IconButton(
-              onPressed: busy ? null : () => download(file),
-              icon: const Icon(Icons.download),
-            ),
+  Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
+    return ShellScaffold(
+      title: '文件中心',
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          FilledButton.icon(
+            onPressed: busy ? null : upload,
+            icon: const Icon(Icons.upload_file),
+            label: Text(busy ? '上传中...' : '选择文件上传'),
           ),
-      ],
-    ),
-  );
+          if (message != null) Text(message!),
+          if (savedPath != null) SavedFileActions(path: savedPath!),
+          const Divider(),
+          if (files.isEmpty)
+            const ListTile(dense: true, title: Text('尚未上传文件')),
+          for (final file in files)
+            ListTile(
+              title: Text('${file['name'] ?? file['filename'] ?? '文件'}'),
+              subtitle: Text(
+                '${file['file_id'] ?? file['id'] ?? ''}\n'
+                '${file['file_path'] ?? file['server_path'] ?? file['download_url'] ?? ''}',
+              ),
+              isThreeLine: true,
+              trailing: IconButton(
+                onPressed: busy ? null : () => download(file),
+                icon: const Icon(Icons.download),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

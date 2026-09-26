@@ -363,7 +363,13 @@ language 字段要求：
             )
 
             if not isinstance(architecture.get("project_spec"), dict):
-                raise ValueError("architect architecture did not include a project_spec")
+                # The model may omit project_spec; a warning plus the empty
+                # default spec keeps the pipeline running without inventing a
+                # framework or storage.
+                logger.warning("架构师未返回 project_spec，使用默认规范")
+                architecture["project_spec"] = self._build_default_project_spec(
+                    target_language, frontend_language, complexity
+                )
 
             # 为 file_plan 中缺少 language 字段的文件补充默认值
             for f in architecture.get("file_plan", []):
@@ -690,7 +696,10 @@ language 字段要求：
         architecture.setdefault("frontend_language", frontend_language)
         architecture.setdefault("requirement", requirement)
         if not isinstance(architecture.get("project_spec"), dict):
-            raise ValueError("architect architecture did not include a project_spec")
+            logger.warning("架构师未返回 project_spec，使用默认规范")
+            architecture["project_spec"] = self._build_default_project_spec(
+                target_language, frontend_language, complexity
+            )
         if not isinstance(architecture.get("api_spec"), dict):
             architecture["api_spec"] = {}
         if not isinstance(architecture.get("db_schema"), dict):

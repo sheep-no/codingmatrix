@@ -463,3 +463,14 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `npm audit fix`（含 `--dry-run`）在 npm 10.9.4 报 `Cannot read properties of null (reading 'edgesOut')`，无法使用；前端传递依赖漏洞需手工升级或用 `overrides`。
   - 前端生产依赖 `xlsx` 的 npm 版本停在 0.18.5（社区版不再发 npm 版），修复需从官方 CDN tarball 安装（`npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`）；CI 的 `npm ci` 需能访问 `cdn.sheetjs.com`。
   - `Dockerfile` 安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链、Flask、pandas、opencv 等为代码零引用的冗余包，依赖审计会把这些包携带的 CVE 一并计入。
+
+### Flutter/VS Code 客户端验收环境（无设备与宿主机）
+- Date: 2026-09-26
+- Context: Agent 在 Flutter 客户端与 VS Code 插件生产级验收中建立
+- Category: 测试方法
+- Instructions:
+  - Android 模拟器在本环境不可用：宿主无 `/dev/kvm`、CPU 无 `vmx`/`svm`，SDK 未装 `emulator` 与 system-image。改为对 release APK 做静态验收，全部离线可跑：`apksigner verify`、`zipalign -c -P 16 -v 4`（`extractNativeLibs=false` 时 Android 15+ 要求 16KB 页对齐，只跑 `-c 4` 不够）、`aapt dump badging`、`aapt2 dump xmltree --file AndroidManifest.xml`（看 `allowBackup`/`usesCleartextTraffic`/`debuggable`）、`aapt2 dump resources`，并确认有 `libapp.so` 且无 `kernel_blob.bin` 即 AOT release。
+  - 资源改动可先 `aapt2 compile --dir <res> -o r.zip` 再 `aapt2 link -R r.zip --manifest <合成最小清单>`（真清单含 `${applicationName}` 占位且缺 `package` 会链接失败）后用 `aapt2 dump resources` 验证解析，不必等整套 Gradle。启动图标必须是 `drawable-anydpi-v26/ic_launcher.xml`（`<adaptive-icon>`），仅给传统 drawable 时 Android 8+ 会缩小并垫系统底板。
+  - 插件 e2e 的 `@vscode/test-electron` 把 `stable` 解析为最新版，与本地缓存版不一致时两个入口都会改走下载，且该 326MB 包会被 CDN 反复中断（curl 18 / `Error: aborted`），只留下无 `is-complete` 的半成品目录。可对 `https://update.code.visualstudio.com/<ver>/linux-x64/stable` 断点续传补齐 `.vscode-test/vscode-linux-x64-<ver>` 再 `touch is-complete`，不改仓库代码即复用缓存。
+  - 宿主 harness 启动 VS Code 必须带 `DISPLAY`（Xvfb `:99` 常驻），缺失时报 `Missing X server or $DISPLAY` 并以 SIGTRAP 结束；webview 内容需从内层 frame 读取，`Page.captureScreenshot` 以 webview 元素矩形为 `clip`。
+  - 编排流 SSE 的 `thinking` 事件除增量 `message` 外还带一份全量累积 `accumulated`（真实 legacy 流 88MB 中占 66MB），插件已在解析处剥离；判定事件字段形状要取全部样本的并集，首个样本可能缺字段。编排端有磁盘守卫：可用 <1GB 或可用率 <10% 直接 507（`app/utils/guardrails.py`）。token 有效期 30 分钟，跑长流程前先重新登录。

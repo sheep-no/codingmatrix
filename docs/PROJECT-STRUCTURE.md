@@ -93,17 +93,18 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `agent-host-runtime.ts`、`tool-dispatcher.ts`、`approval-bridge.ts`：动作运行、能力分发和审批门禁。
 - `workspace-authorization.ts`、`validation-runner.ts`：多工作区授权、参数数组命令、`shell=false`、超时和取消。
 - `result-sanitizer.ts`、`result-store.ts`：结果脱敏、离线持久化与幂等回传。
-- `agent-workbench.ts`、`webview-bridge.ts`、`status-view.ts`：原生工作台、Webview 消息和状态快照。
+- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts`：原生工作台控制器、七个面板的 Webview HTML、`workbench_request` 参数校验与云端分发。
+- `webview-bridge.ts`、`status-view.ts`：Webview 消息关联和状态快照。
 - `app/api/v1/agent_host.py`：认证握手、动作、事件、策略、Skills 和 session control 后端端点；队列与确认原子保存到 `data/agent_host_sessions/`。
 
-### Flutter 桌面客户端
+### Flutter 客户端
 
 - `flutter_client/lib/main.dart`：应用入口与 Riverpod 装配。
 - `flutter_client/lib/domain/`：会话、任务、快照、工作流、PPT、GirlAI 等模型。
 - `flutter_client/lib/application/`：页面状态与编排。
 - `flutter_client/lib/infrastructure/`：`AuthenticatedClient`、SSE、文件上传、GitHub/MCP/管理 API。
-- `flutter_client/lib/presentation/`：16 个页面，含工作台、对话、管理后台和 MCP 管理。
-- 2026-09-10 清点：58 个 `lib/**/*.dart` / 9,149 行。能力与边界见 [Flutter 桌面客户端](features/FLUTTER-CLIENT.md)。
+- `flutter_client/lib/presentation/`：18 个页面，含工作台、对话、管理后台和 MCP 管理。
+- 2026-09-22 清点：70 个 `lib/**/*.dart` / 12,226 行。能力与边界见 [Flutter 客户端](features/FLUTTER-CLIENT.md)。
 
 ## 测试结构
 
@@ -112,7 +113,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `tests/e2e/`：浏览器端到端测试，根目录 `playwright.config.js` 是默认兼容入口。
 - `src/**/*.test.js`：Vitest 前端单元测试，共 15 个文件，配置位于 `src/vite.config.js`。
 - `vscode-extension/test/`、`vscode-extension/e2e/`：Node 原生测试和真实 Extension Host E2E。
-- `flutter_client/test/`：Flutter widget 与 HTTP Mock 测试，15 个 `*_test.dart`。
+- `flutter_client/test/`：Flutter widget 与 HTTP Mock 测试，34 个 `*_test.dart`。
 - `tests/performance/`：性能和资源相关测试。
 - `tests/manual/`：手工调用真实服务的流程脚本。脚本通过 `TEST_BASE_URL`、`TEST_ADMIN_EMAIL`、`TEST_ADMIN_PASSWORD` 和 `TEST_API_KEY` 读取运行参数。
 - `examples/`：独立示例代码，不参与应用启动和自动化测试。

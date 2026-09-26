@@ -59,7 +59,7 @@ Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会
 
 管理员面板位于 `src/components/AdminPanel.vue`，路由为 `/admin`，`admin` 与 `superadmin` 可访问。可见模块为系统监控、系统日志、用户管理、Nginx 配置、服务管理和资源配置；超级管理员额外打开模型管理与 `/admin/dashboard` 并发仪表板。工具集入口仅超级用户可见。菜单与搜索关键字保存在 `localStorage` 键 `adminMenuState`。
 
-VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
+VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview（面板 HTML 在 `workbench-html.ts`），由 `extension.ts` 创建 Agent Host 运行时。工作台分为对话、会话历史、模型、文件版本、性能、学习和设置七个面板：对话支持需求输入、`project_name`、七个编排开关、增量修改、架构决策提交、流式事件展示、连接本地 Agent Host、暂停、恢复、取消、动作批准和拒绝；其余六个面板通过 `workbench_request` / `workbench_response` 通道，由 `workbench-requests.ts` 校验参数后经 `CloudConnection` 读取普通用户 v1 接口（`/api/v1/history`、`/api/v1/conversation/history`、`/api/v1/code/history`、`/api/v1/models/agent-config`、`/api/v1/agent/token-usage`、`/api/v1/agent/snapshots|rollback|snapshot/diff`、`/api/v1/agent/performance`、`/api/v1/agent/learning/stats`、`/api/v1/agent/concurrent-limits/recommended`、`/api/v1/agent/cache/stats|clear`、`/api/v1/agent/session/{session_id}/decision`），其中清空全部缓存由扩展侧先弹原生确认。Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求；增量修改只在最近一次 `done` 事件留下 `project_path` 时可用，并固定使用 `engine=core`。需要 superadmin 的 `/api/v2/models/*` 与 `/api/v2/model-config/*` 管理面板仍保留在 Web 工作台。
 ## Orchestrator Core 架构
 
 多语言代码生成使用 `OrchestratorCore` 收敛传统生成、Spec-First 和增量修改的任务生命周期。现有 `OrchestratorAgent` 保留入口兼容与模型生成职责，`TraditionalAdapter`、`SpecFirstAdapter` 和 `IncrementalAdapter` 提供模式化计划及单文件生成能力。Core 生命周期为 `planning`、`scheduling`、`generating`、`persisting`、`validating`、`finalizing`，并统一收敛到完成、失败、超时或取消终态。
@@ -97,7 +97,7 @@ flowchart LR
 
 云端文件校验通过 `app.agent.validation_report.ValidationReport` 统一表达。报告为不可变、可序列化结构，记录 `cloud_syntax` scope、错误类别、文件路径、诊断上下文 hash、修复候选 hash 和修复证据；`RepairRouter` 对 syntax、dependency、export、signature、async、fixture、schema 和 type 类错误使用受控自动修复，对 business、test 和 unknown 类错误进入用户确认流程。`RepairBudget` 限制单类错误最多 3 次、任务累计最多 5 次，预算耗尽后保留可定位诊断并停止自动修复。
 
-Flutter 客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台，保留 Riverpod StateNotifier。`CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，以 Cookie/Header 双提交方式认证；`CredentialStore` 在生产 Provider 中使用 `flutter_secure_storage`，保存包含服务 origin、账号、访问令牌、过期时间及 Cookie 的单一加密会话记录，领域层继续使用 `AuthSession.accessTokenRef`。切换账号或服务时先清除旧记录；启动恢复通过服务端 refresh 验证，离线或刷新失败返回登录页。Android 已关闭应用自动备份；Android、Windows、Linux 的真实设备安全存储仍待平台验收。
+Flutter 客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台，保留 Riverpod StateNotifier。`CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，以 Cookie/Header 双提交方式认证；`CredentialStore` 在生产 Provider 中使用 `flutter_secure_storage`，保存包含服务 origin、账号、访问令牌、过期时间及 Cookie 的单一加密会话记录，领域层继续使用 `AuthSession.accessTokenRef`。切换账号或服务时先清除旧记录；启动恢复通过服务端 refresh 验证，离线或刷新失败返回登录页。Android 已关闭应用自动备份，并通过 `android:usesCleartextTraffic` 允许明文 HTTP：后端由用户自建、地址在登录页运行时填写，无法预先枚举主机，而 Android 9+ 默认拦截明文流量；Android、Windows、Linux 的真实设备安全存储仍待平台验收。
 
 `AuthenticatedClient` 统一注入 Bearer、Cookie 和 CSRF，限制同一 origin 的 `/api/` 请求，关闭自动重定向，并提供超时、JSON 错误及网络错误的固定脱敏信息。并发 401 合并刷新，只对 GET/HEAD 最多重发一次；Agent 生成和停止等写请求保持单次提交。退出仅取消本地流订阅并清除会话，账号引用变化重建工作台 Provider，清空旧事件与产物缓存；服务端 logout 撤销等待接口 D1。停止按钮的完整确认流程继续属于 Flutter 完善规格任务 3。
 

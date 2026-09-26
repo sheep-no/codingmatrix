@@ -9,7 +9,7 @@
 - SQLite 默认可用；运行时迁移器也支持 MySQL
 - Redis 用于用户 API Key、共享缓存和 Celery
 - Docker Compose 用于容器化服务，可选
-- Flutter SDK（Dart `^3.9.2`）用于 `flutter_client/` 桌面客户端；未安装时不影响 Web 前后端
+- Flutter SDK（Dart `^3.9.2`）用于 `flutter_client/` Flutter 客户端；未安装时不影响 Web 前后端
 
 ## 安装依赖
 
@@ -79,13 +79,13 @@ npm run dev
 Vite 将 `/api/v1`、`/api/v2` 和 WebSocket 请求代理到 `http://localhost:8000`。
 
 ```bash
-# 终端 3：启动 Flutter 桌面客户端
+# 终端 3：启动 Flutter 客户端
 cd /workspace/flutter_client
 flutter pub get
 flutter run -d linux
 ```
 
-Flutter 客户端直连后端 `http://localhost:8000`，登录流程与 Web 相同：先取 CSRF 和 RSA 公钥，再提交加密登录载荷。页面与 API 边界见 [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)。
+Flutter 客户端直连后端 `http://localhost:8000`，登录流程与 Web 相同：先取 CSRF 和 RSA 公钥，再提交加密登录载荷。页面与 API 边界见 [Flutter 客户端](../features/FLUTTER-CLIENT.md)。
 
 ## 首次认证
 
@@ -139,4 +139,4 @@ flutter test --no-pub --concurrency=1
 - [多供应商配置](MULTI-PROVIDER-SETUP.md)
 - [API Key 指南](API-KEY-GUIDE.md)
 - [安全概览](../security/SECURITY-OVERVIEW.md)
-- [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)
+- [Flutter 客户端](../features/FLUTTER-CLIENT.md)

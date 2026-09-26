@@ -84,13 +84,13 @@ npm --prefix vscode-extension test
 # 在真实 VS Code Extension Host 中运行插件 E2E
 npm --prefix vscode-extension run e2e
 
-# 检查 Flutter 桌面客户端
+# 检查 Flutter 客户端
 cd /workspace/flutter_client
 FLUTTER_ALLOW_ROOT=1 flutter analyze
 FLUTTER_ALLOW_ROOT=1 flutter test
 ```
 
-### Flutter 桌面客户端
+### Flutter 客户端
 
 Flutter SDK 使用 3.35.7 stable。当前环境从 `/tmp/opencode/flutter` 执行 Flutter 命令，并在 `/workspace/flutter_client` 内运行客户端检查：
 
@@ -122,6 +122,8 @@ ANDROID_HOME=/tmp/opencode/android-sdk /tmp/opencode/flutter/bin/flutter build a
 
 Android release 当前使用 debug 签名，产物路径为 `flutter_client/build/app/outputs/flutter-apk/app-release.apk`。当前环境 Gradle 采用单 worker；构建前检查磁盘余量，避免并行运行多个打包任务。真机使用可访问的 HTTPS 服务地址，默认 `127.0.0.1` 指向设备自身。
 
+应用标识三端已统一为 `com.codingmatrix.agent`：Android 的 `namespace`/`applicationId`（源码包目录 `com/codingmatrix/agent`）、Linux GTK 的 `APPLICATION_ID`、Linux 窗口标题与 Windows 产品名均为 `CodingMatrix Agent`。Windows 无反向域名标识，二进制名为 `codingmatrix_agent`；Linux 二进制名仍为 `flutter_client`（产物 `build/linux/x64/debug/bundle/flutter_client`）。Dart 包名保持 `codingmatrix_desktop`。
+
 设备验收步骤：
 
 1. 安装测试 APK，填写 HTTPS 服务地址并登录，关闭应用后重新启动，验证会话恢复。
@@ -132,7 +134,7 @@ Android release 当前使用 debug 签名，产物路径为 `flutter_client/buil
 
 认证层使用 `CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，路径由 `app/main.py` 的 `/api/v1` 挂载决定。访问令牌和 Cookie 写入 `CredentialStore` 注入的设备安全存储，领域层使用 `AuthSession.accessTokenRef`。`AuthenticatedClient` 负责后续业务请求；生成等副作用请求遇到失败后需要用户核对状态，自动重发被禁用。单一活动会话记录包含服务 origin 和账号，切换登录会清除旧凭据；服务地址只接受不含路径、用户信息、查询或片段的 HTTP(S) origin。生产环境 Cookie 带 Secure，客户端应使用 HTTPS。
 
-测试通过 `SessionStorage` 注入隔离内存实现，并单独验证设备存储适配器的插件 mock。真实 Android KeyStore、Windows Credential Manager 和 Linux Secret Service 尚未验收；Linux 构建需要 `libsecret-1-dev`、`libjsoncpp-dev` 及运行时 Secret Service。应用启动恢复需要网络验证 refresh，失败会清理本地会话并提示重新登录。存储清除失败时，登录页提供“清除本地会话”重试入口。当前静态分析、52 项 Flutter 测试及 Android release APK 构建已通过；APK 签名和 ZIP 校验通过，设备运行与桌面平台验收仍待完成，详见 `TESTING.md`。
+测试通过 `SessionStorage` 注入隔离内存实现，并单独验证设备存储适配器的插件 mock。真实 Android KeyStore、Windows Credential Manager 和 Linux Secret Service 尚未验收；Linux 构建需要 `libsecret-1-dev`、`libjsoncpp-dev` 及运行时 Secret Service。应用启动恢复需要网络验证 refresh，失败会清理本地会话并提示重新登录。存储清除失败时，登录页提供“清除本地会话”重试入口。当前静态分析、485 项 Flutter 测试已通过；设备运行与桌面平台验收仍待完成，Android release APK 构建记录见 `TESTING.md`。
 
 ### 图表编辑器验证
 
@@ -167,7 +169,7 @@ npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --confi
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
-- VS Code 扩展构建成功，Node 原生测试：`75 passed`。
+- VS Code 扩展构建成功，Node 原生测试：`103 passed`。
 - VS Code Extension Development Host E2E 成功，使用 VS Code `1.136.1` 覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
@@ -320,7 +322,7 @@ git diff --check
 - `tool-dispatcher.ts` 负责将 Agent Host 动作路由到工作区文件、诊断和验证适配器；文件动作必须通过 `WorkspaceAuthorization`，验证动作必须通过 `ValidationRunner`，策略关闭时拒绝新的本地动作。
 - 终端 Agent Host 动作沿用 `PendingAction` 的操作白名单和工作区目录约束，并通过 `ValidationRunner` 执行；新增终端能力时保持参数数组和 `shell=false`。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。
-- `agent-workbench.ts` 和 `extension.ts` 提供原生 Webview 面板及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
+- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts` 和 `extension.ts` 提供原生 Webview 七个面板、`workbench_request` 数据通道及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
 - `CloudConnection.streamAgentPrompt()` 调用 `/api/v1/agent/orchestrate/stream`；修改连接路径或流式协议时必须同步更新 `vscode-extension/test/connection.test.mjs`。
 - `approval-bridge.ts` 管理 Host 动作的审批请求和决定；`AgentHostRuntime` 通过会话策略的 `auto_approve` 开关控制动作暂停、批准继续和拒绝结果。
 - `AgentWorkbenchController` 通过 `onMessage` 回调接收已验证的 Webview 控制消息；审批请求在工作台中展示批准和拒绝操作，并按原 Envelope 回传决定。

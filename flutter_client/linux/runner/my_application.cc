@@ -46,11 +46,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "flutter_client");
+    gtk_header_bar_set_title(header_bar, "CodingMatrix Agent");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "flutter_client");
+    gtk_window_set_title(window, "CodingMatrix Agent");
   }
 
   gtk_window_set_default_size(window, 1280, 720);
@@ -74,6 +74,12 @@ static void my_application_activate(GApplication* application) {
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
+
+  // Show the window immediately instead of waiting for the first frame. A
+  // blocking platform call during startup, such as an unresolved Secret
+  // Service keyring prompt on Linux, can delay the first frame indefinitely
+  // and leave the app invisible, which looks like a failed launch.
+  gtk_widget_show(GTK_WIDGET(window));
 }
 
 // Implements GApplication::local_command_line.

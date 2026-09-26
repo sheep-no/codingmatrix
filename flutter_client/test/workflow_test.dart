@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/workflow_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/workflow/workflow_client.dart';
 import 'package:codingmatrix_desktop/presentation/workflow_page.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const graph = {
   'event': 'task_graph_generated',
@@ -69,6 +73,15 @@ class WorkflowApi extends DeliveryApi {
 List<int> line(Map<String, Object?> event) =>
     utf8.encode('${jsonEncode(event)}\n');
 Future<void> tick() => Future<void>.delayed(Duration.zero);
+
+class ThrowingSendApi extends DeliveryApi {
+  ThrowingSendApi() : super((_, __, ___) async => null);
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    throw const SocketException('connection lost');
+  }
+}
+
 void main() {
   test(
     'NDJSON handles split UTF8, CRLF, blank lines and final unterminated event',
@@ -167,6 +180,18 @@ void main() {
       await refresh;
     },
   );
+  test('local disconnect survives a stream that fails to cancel', () async {
+    final source = StreamController<List<int>>(
+      onCancel: () => throw const SocketException('connection lost'),
+    );
+    final api = WorkflowApi(source.stream);
+    final controller = WorkflowController(WorkflowClient(api));
+    await controller.execute('任务');
+    await tick();
+    await controller.disconnect();
+    expect(controller.state.snapshot.status, 'disconnected');
+    controller.dispose();
+  });
   testWidgets(
     'compact workflow renders dependencies, errors and local disconnect',
     (tester) async {
@@ -204,4 +229,667 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('空任务不会发起执行', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(ThrowingSendApi())),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    expect(find.text('请输入任务描述'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('堆叠表单项之间保留间距，浮动标签不压住上方边框', (tester) async {
+    final source = StreamController<List<int>>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workflowControllerProvider.overrideWith(
+            (_) =>
+                WorkflowController(WorkflowClient(WorkflowApi(source.stream))),
+          ),
+        ],
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(2));
+    final rects = [for (var i = 0; i < 2; i++) tester.getRect(fields.at(i))]
+      ..sort((a, b) => a.top.compareTo(b.top));
+    expect(rects[1].top - rects[0].bottom, greaterThanOrEqualTo(8));
+    await tester.pumpWidget(const SizedBox());
+    unawaited(source.close());
+    await tester.pump();
+  });
+
+  testWidgets('执行请求网络断开显示未知结果', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(ThrowingSendApi())),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('workflowInput')), '任务');
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('执行请求失败或结果未知，请先核对任务状态'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('执行中退出再进入不会保留任务图', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final api = WorkflowApi(source.stream);
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('workflowInput')), '任务');
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.text('状态：connecting'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开工作流'))),
+      ),
+    );
+    await tester.pump();
+    expect(source.hasListener, false);
+    try {
+      source.add(line(graph));
+    } on StateError catch (_) {}
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('状态：idle'), findsOneWidget);
+    expect(find.text('依赖：n1'), findsNothing);
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('workflowInput')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
+  test('读取历史网络断开会失败', () async {
+    final api = DeliveryApi(
+      (_, __, ___) async => throw const SocketException('connection lost'),
+    );
+    await expectLater(
+      WorkflowClient(api).history(),
+      throwsA(
+        isA<SocketException>().having(
+          (error) => error.message,
+          'message',
+          'connection lost',
+        ),
+      ),
+    );
+  });
+
+  test('删除历史网络断开会失败', () async {
+    final api = DeliveryApi((path, method, body) async {
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      throw const SocketException('connection lost');
+    });
+    await expectLater(
+      WorkflowClient(api).deleteHistory('w1'),
+      throwsA(
+        isA<SocketException>().having(
+          (error) => error.message,
+          'message',
+          'connection lost',
+        ),
+      ),
+    );
+  });
+
+  Future<ProviderContainer> pumpWorkflow(
+    WidgetTester tester,
+    DeliveryApi api,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(api),
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    return container;
+  }
+
+  Future<void> submitImport(WidgetTester tester) async {
+    await tester.tap(find.text('导入工作流'));
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '{"nodes":[]}',
+    );
+    await tester.tap(find.text('导入'));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  testWidgets('导入工作流网络断开显示失败原文', (tester) async {
+    final api = DeliveryApi((path, method, body) async {
+      expect(path, '/api/v1/workflow/import');
+      expect(method, 'POST');
+      expect(body, {'nodes': []});
+      throw const SocketException('connection lost');
+    });
+    await pumpWorkflow(tester, api);
+    await submitImport(tester);
+    expect(find.textContaining('导入失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('导入中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/import') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = await pumpWorkflow(tester, api);
+    await submitImport(tester);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          key: UniqueKey(),
+          home: const Scaffold(body: Text('离开工作流')),
+        ),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('导入失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  DeliveryApi streamingApi(
+    Stream<List<int>> bytes,
+    Future<Object?> Function(String, String, Object?) json,
+  ) => DeliveryApi(
+    json,
+    sendHandle: (request) async {
+      expect(request.url.path, '/api/v1/workflow/execute');
+      return http.StreamedResponse(bytes, 200);
+    },
+  );
+
+  Future<void> executeUntilId(
+    WidgetTester tester,
+    StreamController<List<int>> source,
+  ) async {
+    await tester.enterText(find.byKey(const Key('workflowInput')), '任务');
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    source.add(line(graph));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('工作流 ID：w1'), findsOneWidget);
+  }
+
+  testWidgets('导出工作流网络断开显示失败原文', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final api = streamingApi(source.stream, (path, method, body) async {
+      expect(path, '/api/v1/workflow/export/w1');
+      expect(method, 'GET');
+      throw const SocketException('connection lost');
+    });
+    await pumpWorkflow(tester, api);
+    await executeUntilId(tester, source);
+    await tester.ensureVisible(find.text('导出工作流'));
+    await tester.tap(find.text('导出工作流'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('导出失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('工作流导出'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('导出中退出再进入会丢掉错误', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final pending = Completer<Object?>();
+    final api = streamingApi(source.stream, (path, _, __) async {
+      if (path == '/api/v1/workflow/export/w1') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = await pumpWorkflow(tester, api);
+    await executeUntilId(tester, source);
+    await tester.ensureVisible(find.text('导出工作流'));
+    await tester.tap(find.text('导出工作流'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          key: UniqueKey(),
+          home: const Scaffold(body: Text('离开工作流')),
+        ),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('导出失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.textContaining('工作流 ID：w1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查询状态网络断开显示笼统错误', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final api = streamingApi(source.stream, (path, method, body) async {
+      expect(path, '/api/v1/workflow/status/w1');
+      expect(method, 'GET');
+      throw const SocketException('connection lost');
+    });
+    await pumpWorkflow(tester, api);
+    await executeUntilId(tester, source);
+    await tester.tap(find.text('断开本地连接'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('查询状态'));
+    await tester.tap(find.text('查询状态'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('状态查询失败；任务可能已过期或当前服务进程没有记录'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('没有工作流历史时弹层给出空状态', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/history') return {'items': <Object?>[]};
+      fail('unexpected $path');
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('暂无工作流历史'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('读取历史网络断开显示失败原文', (tester) async {
+    final api = DeliveryApi((path, method, body) async {
+      expect(path, '/api/v1/workflow/history');
+      expect(method, 'GET');
+      throw const SocketException('connection lost');
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('历史读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的历史弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/history') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({
+      'items': [
+        {'workflow_id': 'w1', 'name': '上一账号的工作流', 'status': 'done'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的工作流'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号导入的工作流名不会写进输入框', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/import') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await submitImport(tester);
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{'requirement': '上一账号导入的任务'});
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号导入的任务'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('读取历史中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/history') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          key: UniqueKey(),
+          home: const Scaffold(body: Text('离开工作流')),
+        ),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('历史读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史进行中无法再次触发并发请求', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var deletes = 0;
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      deletes++;
+      return pending.future;
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+    expect(deletes, 1);
+    await tester.tap(find.byTooltip('删除历史'), warnIfMissed: false);
+    await tester.pump();
+    expect(deletes, 1);
+    pending.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史成功后弹层关闭不会带走工作流页', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      return pending.future;
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+
+    // 用户先关掉弹层，删除请求才成功返回。
+    Navigator.of(tester.element(find.byTooltip('删除历史'))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('历史一'), findsNothing);
+    pending.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkflowPage), findsOneWidget);
+    expect(find.byKey(const Key('workflowInput')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      throw const SocketException('connection lost');
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('历史一'), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('删除失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      if (path == '/api/v1/workflow/history/w1') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          key: UniqueKey(),
+          home: const Scaffold(body: Text('离开工作流')),
+        ),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('删除失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

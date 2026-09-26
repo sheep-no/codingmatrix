@@ -1,12 +1,12 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-12 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-22 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 12,226 行
 
 CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
 ## 文档时效范围
 
-- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-12 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-10 源码清点。
+- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-12 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-20 源码清点。
 - `evolution/`、`.monkeycode/specs/` 和 `versions/` 保存历史规划、功能规格与版本快照，按形成时的历史语义保留；其中的规模、接口和验收数字不代表当前基线。
 - 当前 API 数量采用实际挂载后的路由记录口径；测试数量采用静态测试定义口径。运行结果、依赖条件和验收日期以对应测试文档为准。
 
@@ -41,7 +41,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 ### Agent 与模型
 
 - [Agent 系统](features/AGENT.md) - Web/Mobile Agent、架构回退、骨架生成、模型上下文和 VS Code Host
-- [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、16 个页面、GitHub/MCP/管理边界
+- [Flutter 客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、18 个页面、GitHub/MCP/管理边界
 - [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
 - [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
 - [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、托管项目回收、SSE 断线续跑和 checkpoint
@@ -99,9 +99,9 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | Composables | 14 个 | `src/composables/` |
 | API Client JS | 19 个 | 前端 API client JavaScript 文件 |
 | 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
-| Flutter Dart | 58 个文件 / 9,149 行 | `flutter_client/lib/**/*.dart` |
-| Flutter 页面 | 16 个 | `flutter_client/lib/presentation/*_page.dart` |
-| Flutter 测试 | 15 个文件 | `flutter_client/test/**/*_test.dart` |
+| Flutter Dart | 70 个文件 / 12,226 行 | `flutter_client/lib/**/*.dart` |
+| Flutter 页面 | 18 个 | `flutter_client/lib/presentation/*_page.dart` |
+| Flutter 测试 | 34 个文件 | `flutter_client/test/**/*_test.dart` |
 
 ### 测试规模
 
@@ -123,8 +123,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | 数据 | SQLAlchemy 2.0 + SQLite + Alembic | 业务、统一状态与迁移 |
 | 缓存与任务 | Redis + Celery + APScheduler | Key、缓存、任务队列和定时任务 |
 | 流式通信 | SSE + WebSocket | Agent 事件、任务进度和系统状态 |
-| 桌面客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
-| 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和桌面客户端验证 |
+| Flutter 客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
+| 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和 Flutter 客户端验证 |
 | 部署 | Docker Compose + Nginx | API、Worker、Redis 和前端入口 |
 
 ## 最新能力状态
@@ -137,8 +137,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | GirlAI | 5 个预设角色与用户自定义角色支持对话、历史、搜索、导出和偏好；legacy 历史与统一 session/message 同事务维护，归档摘要进入 checkpoint |
 | PPT 大纲与质量 | 大纲支持版本化编辑和批准门禁；生成按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 编排，提供质量报告、最多 2 次自动重排和单页重生成 |
 | Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
-| VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel |
-| Flutter 桌面客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
+| VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel；工作台面板覆盖对话、会话历史、模型、文件版本、性能、学习和设置 |
+| Flutter 客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
 | 架构师超时回退 | Architect LLM 超时、空输出或解析失败时使用需求感知默认架构，生成不中断 |
 | 语言骨架 | 入口、README、依赖清单由 `app/agent/adapters/boilerplate.py` 确定性生成 |
 | 托管项目回收 | `DELETE /api/v1/agent/projects/{session_id}` 立即删除托管文件；内存生成任务已结束的卡住 `running` 项目可删 |
@@ -167,7 +167,7 @@ PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd /workspace/src
 npm run dev
 
-# 启动 Flutter 桌面客户端（需本机已配置 Flutter）
+# 启动 Flutter 客户端（需本机已配置 Flutter）
 cd /workspace/flutter_client
 flutter run -d linux
 ```

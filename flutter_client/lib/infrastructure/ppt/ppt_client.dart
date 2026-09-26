@@ -59,13 +59,15 @@ class PptClient {
     String format = 'pptx',
   }) async {
     final ref = api.auth.session?.accessTokenRef;
+    // The `?format=pdf` branch only serves a pre-existing `.pdf`; PPT tasks
+    // created with `output_format: 'pptx'` never write one. Only the dedicated
+    // `/pdf` route converts the PPTX on demand.
+    final target = format == 'pdf'
+        ? '/api/v1/pptx/download/${Uri.encodeComponent(pptId)}/pdf'
+        : '/api/v1/pptx/download/${Uri.encodeComponent(pptId)}'
+              '?format=${Uri.encodeQueryComponent(format)}';
     final response = await api.send(
-      http.Request(
-        'GET',
-        Uri.parse(api.auth.baseUrl).resolve(
-          '/api/v1/pptx/download/${Uri.encodeComponent(pptId)}?format=$format',
-        ),
-      ),
+      http.Request('GET', Uri.parse(api.auth.baseUrl).resolve(target)),
     );
     const limit = 200 * 1024 * 1024;
     if (response.statusCode != 200 || (response.contentLength ?? 0) > limit) {
@@ -116,19 +118,22 @@ class PptClient {
 
   Future<List<Map<String, dynamic>>> history() async {
     final value = await api.requestJson('/api/v1/pptx/history');
-    final list = value is Map ? value['items'] ?? value['history'] : value;
+    // The backend wraps the history page in `records`, not `items`/`history`.
+    final list = value is Map
+        ? value['records'] ?? value['items'] ?? value['history']
+        : value;
     return [
       for (final item in (list as List? ?? const []))
         Map<String, dynamic>.from(item),
     ];
   }
 
-  Future<Map<String, dynamic>> createOutline(String prompt) async =>
+  Future<Map<String, dynamic>> createOutline(String topic) async =>
       Map<String, dynamic>.from(
         await api.requestJson(
               '/api/v1/pptx/outlines',
               method: 'POST',
-              body: {'prompt': prompt},
+              body: {'topic': topic},
             )
             as Map,
       );

@@ -64,6 +64,93 @@ export type QueuedResultResponse = {
   event_id: string;
 };
 
+// Shapes returned by the user-scoped v1 read APIs the workbench panels use.
+// They are normalized so the webview never has to guard against missing fields.
+export interface ConversationSummary {
+  conversation_id: number;
+  title: string;
+  prompt: string;
+  created_at: string | null;
+  message_count: number;
+}
+
+export interface ConversationMessage {
+  id: number | null;
+  conversation_id: number | null;
+  prompt: string;
+  response: string;
+  thinking: string;
+  title: string;
+  created_at: string | null;
+}
+
+export interface AgentModelConfig {
+  version: number | null;
+  roles: Record<string, unknown>;
+  models: unknown[];
+  fallback_chain: unknown[];
+}
+
+export interface TokenUsage {
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_messages: number;
+  today_tokens: number;
+  this_month_tokens: number;
+  by_model: Record<string, unknown>;
+}
+
+export interface SnapshotInfo {
+  tag: string;
+  commit: string;
+  message: string;
+  timestamp: string | null;
+}
+
+export interface PerformanceSnapshot {
+  metrics: Record<string, unknown>;
+  thresholds: Record<string, unknown>;
+  trends: Record<string, unknown>;
+}
+
+export interface LearningErrorPattern {
+  error_type: string;
+  error_message: string;
+  frequency: number;
+  success_rate: number;
+  fix_description: string;
+}
+
+export interface LearningStats {
+  learned_patterns: number;
+  total_fixes_recorded: number;
+  total_sessions: number;
+  overall_success_rate: number;
+  top_errors: LearningErrorPattern[];
+}
+
+export interface CacheStats {
+  total_requests: number;
+  cache_hits: number;
+  cache_misses: number;
+  hit_rate: number;
+  cached_entries: number;
+  cache_size_mb: number;
+  vector_index_size: number;
+  tech_index_groups: number;
+}
+
+export interface CacheClearResult {
+  clearedCount: number;
+  mode: string;
+}
+
+export interface DecisionSubmitResult {
+  status: string;
+  sessionId: string;
+}
+
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
@@ -160,6 +247,237 @@ export class CloudConnection {
     return this.readJson(response);
   }
 
+  async listConversations(options: { limit?: number; offset?: number } = {}): Promise<ConversationSummary[]> {
+    const response = await this.request("/api/v1/history", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: options.limit ?? 20, offset: options.offset ?? 0 }),
+    });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "items", "history response must contain an items array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      const conversationId = this.optionalNumber(item.conversation_id);
+      if (conversationId === null) return [];
+      return [{
+        conversation_id: conversationId,
+        title: this.optionalString(item.title) ?? "",
+        prompt: this.optionalString(item.prompt) ?? "",
+        created_at: this.optionalString(item.created_at),
+        message_count: this.optionalNumber(item.message_count) ?? 0,
+      }];
+    });
+  }
+
+  async fetchConversationHistory(
+    conversationId: number,
+    options: { lastHistoryId?: number | null; limit?: number } = {},
+  ): Promise<ConversationMessage[]> {
+    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+      throw new CloudConnectionError("request_failed", "conversation id must be a positive integer");
+    }
+    const payload: Record<string, unknown> = {
+      conversation_id: conversationId,
+      limit: options.limit ?? 50,
+    };
+    if (options.lastHistoryId !== undefined && options.lastHistoryId !== null) {
+      payload.last_history_id = options.lastHistoryId;
+    }
+    const response = await this.request("/api/v1/conversation/history", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "items", "conversation history response must contain an items array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      return [{
+        id: this.optionalNumber(item.id),
+        conversation_id: this.optionalNumber(item.conversation_id),
+        prompt: this.optionalString(item.prompt) ?? "",
+        response: this.optionalString(item.response) ?? "",
+        thinking: this.optionalString(item.thinking) ?? "",
+        title: this.optionalString(item.title) ?? "",
+        created_at: this.optionalString(item.created_at),
+      }];
+    });
+  }
+
+  async deleteConversation(conversationId: number): Promise<number> {
+    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+      throw new CloudConnectionError("request_failed", "conversation id must be a positive integer");
+    }
+    const response = await this.request(
+      `/api/v1/code/history?all=false&conversation_ids=${conversationId}`,
+      { method: "DELETE" },
+    );
+    const body = await this.readJson(response);
+    return this.isRecord(body) ? this.optionalNumber(body.count) ?? 0 : 0;
+  }
+
+  async fetchAgentModelConfig(): Promise<AgentModelConfig> {
+    const response = await this.request("/api/v1/models/agent-config", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "agent model config response must be an object");
+    }
+    return {
+      version: this.optionalNumber(body.version),
+      roles: this.isRecord(body.roles) ? { ...body.roles } : {},
+      models: Array.isArray(body.models) ? [...body.models] : [],
+      fallback_chain: Array.isArray(body.fallback_chain) ? [...body.fallback_chain] : [],
+    };
+  }
+
+  async fetchTokenUsage(): Promise<TokenUsage> {
+    const response = await this.request("/api/v1/agent/token-usage", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "token usage response must be an object");
+    }
+    return {
+      total_tokens: this.optionalNumber(body.total_tokens) ?? 0,
+      prompt_tokens: this.optionalNumber(body.prompt_tokens) ?? 0,
+      completion_tokens: this.optionalNumber(body.completion_tokens) ?? 0,
+      total_messages: this.optionalNumber(body.total_messages) ?? 0,
+      today_tokens: this.optionalNumber(body.today_tokens) ?? 0,
+      this_month_tokens: this.optionalNumber(body.this_month_tokens) ?? 0,
+      by_model: this.isRecord(body.by_model) ? { ...body.by_model } : {},
+    };
+  }
+
+  async listSnapshots(sessionId: string): Promise<SnapshotInfo[]> {
+    const response = await this.request(`/api/v1/agent/snapshots/${encodeURIComponent(sessionId)}`, { method: "GET" });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "snapshots", "snapshot response must contain a snapshots array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      const tag = this.optionalString(item.tag);
+      if (!tag) return [];
+      return [{
+        tag,
+        commit: this.optionalString(item.commit) ?? "",
+        message: this.optionalString(item.message) ?? "",
+        timestamp: this.optionalString(item.timestamp),
+      }];
+    });
+  }
+
+  async rollbackToSnapshot(
+    sessionId: string,
+    targetTag: string,
+  ): Promise<{ previousTag: string; currentTag: string; filesRestored: number }> {
+    const response = await this.request(
+      `/api/v1/agent/rollback/${encodeURIComponent(sessionId)}?target_tag=${encodeURIComponent(targetTag)}`,
+      { method: "POST" },
+    );
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "rollback response must be an object");
+    }
+    return {
+      previousTag: this.optionalString(body.previous_tag) ?? "",
+      currentTag: this.optionalString(body.current_tag) ?? "",
+      filesRestored: this.optionalNumber(body.files_restored) ?? 0,
+    };
+  }
+
+  async fetchSnapshotDiff(sessionId: string, fromTag: string, toTag: string): Promise<string> {
+    const query = `session_id=${encodeURIComponent(sessionId)}&from_tag=${encodeURIComponent(fromTag)}&to_tag=${encodeURIComponent(toTag)}`;
+    const response = await this.request(`/api/v1/agent/snapshot/diff?${query}`, { method: "GET" });
+    const body = await this.readJson(response);
+    return this.isRecord(body) ? this.optionalString(body.diff) ?? "" : "";
+  }
+
+  async fetchPerformance(): Promise<PerformanceSnapshot> {
+    const [metricsResponse, trendsResponse] = await Promise.all([
+      this.request("/api/v1/agent/performance", { method: "GET" }),
+      this.request("/api/v1/agent/performance/trends", { method: "GET" }),
+    ]);
+    const metricsBody = await this.readJson(metricsResponse);
+    const trendsBody = await this.readJson(trendsResponse);
+    return {
+      metrics: this.isRecord(metricsBody) && this.isRecord(metricsBody.metrics) ? { ...metricsBody.metrics } : {},
+      thresholds: this.isRecord(metricsBody) && this.isRecord(metricsBody.thresholds) ? { ...metricsBody.thresholds } : {},
+      trends: this.isRecord(trendsBody) && this.isRecord(trendsBody.trends) ? { ...trendsBody.trends } : {},
+    };
+  }
+
+  async fetchLearningStats(): Promise<LearningStats> {
+    const response = await this.request("/api/v1/agent/learning/stats", { method: "GET" });
+    const body = await this.readJson(response);
+    const patterns = this.requiredArray(body, "top_errors", "learning stats response must contain a top_errors array");
+    const stats = this.isRecord(body) ? body : {};
+    return {
+      learned_patterns: this.optionalNumber(stats.learned_patterns) ?? 0,
+      total_fixes_recorded: this.optionalNumber(stats.total_fixes_recorded) ?? 0,
+      total_sessions: this.optionalNumber(stats.total_sessions) ?? 0,
+      overall_success_rate: this.optionalNumber(stats.overall_success_rate) ?? 0,
+      top_errors: patterns.flatMap((item) => {
+        if (!this.isRecord(item)) return [];
+        return [{
+          error_type: this.optionalString(item.error_type) ?? "",
+          error_message: this.optionalString(item.error_message) ?? "",
+          frequency: this.optionalNumber(item.frequency) ?? 0,
+          success_rate: this.optionalNumber(item.success_rate) ?? 0,
+          fix_description: this.optionalString(item.fix_description) ?? "",
+        }];
+      }),
+    };
+  }
+
+  async fetchConcurrentLimits(): Promise<Record<string, unknown>> {
+    const response = await this.request("/api/v1/agent/concurrent-limits/recommended", { method: "GET" });
+    const body = await this.readJson(response);
+    return this.isRecord(body) && this.isRecord(body.recommendations) ? { ...body.recommendations } : {};
+  }
+
+  async fetchCacheStats(): Promise<CacheStats> {
+    const response = await this.request("/api/v1/agent/cache/stats", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "cache stats response must be an object");
+    }
+    return {
+      total_requests: this.optionalNumber(body.total_requests) ?? 0,
+      cache_hits: this.optionalNumber(body.cache_hits) ?? 0,
+      cache_misses: this.optionalNumber(body.cache_misses) ?? 0,
+      hit_rate: this.optionalNumber(body.hit_rate) ?? 0,
+      cached_entries: this.optionalNumber(body.cached_entries) ?? 0,
+      cache_size_mb: this.optionalNumber(body.cache_size_mb) ?? 0,
+      vector_index_size: this.optionalNumber(body.vector_index_size) ?? 0,
+      tech_index_groups: this.optionalNumber(body.tech_index_groups) ?? 0,
+    };
+  }
+
+  async clearAgentCache(mode: "expired" | "all"): Promise<CacheClearResult> {
+    const response = await this.request(`/api/v1/agent/cache/clear?mode=${mode}`, { method: "POST" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "cache clear response must be an object");
+    }
+    return {
+      clearedCount: this.optionalNumber(body.cleared_count) ?? 0,
+      mode: this.optionalString(body.mode) ?? mode,
+    };
+  }
+
+  async submitDecisions(sessionId: string, decisions: Record<string, string>): Promise<DecisionSubmitResult> {
+    const response = await this.request(
+      `/api/v1/agent/session/${encodeURIComponent(sessionId)}/decision`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(decisions) },
+    );
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "decision response must be an object");
+    }
+    return {
+      status: this.optionalString(body.status) ?? "",
+      sessionId: this.optionalString(body.session_id) ?? sessionId,
+    };
+  }
+
   async streamAgentPrompt(
     request: Record<string, unknown>,
     onEvent: (event: AgentStreamEvent) => void | Promise<void>,
@@ -183,12 +501,12 @@ export class CloudConnection {
       for (const frame of frames) {
         const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
         if (!data) continue;
-        await onEvent(JSON.parse(data) as AgentStreamEvent);
+        await onEvent(this.parseStreamEvent(data));
       }
       if (chunk.done) break;
     }
     const finalData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-    if (finalData) await onEvent(JSON.parse(finalData) as AgentStreamEvent);
+    if (finalData) await onEvent(this.parseStreamEvent(finalData));
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {
@@ -290,7 +608,7 @@ export class CloudConnection {
         if (!response.ok) {
           const error = new CloudConnectionError(
             "request_failed",
-            `cloud request failed with status ${response.status}`,
+            await this.describeFailure(response),
             response.status,
           );
           if (!this.isRetryableStatus(response.status) || attempt === this.maxRetries) {
@@ -328,6 +646,33 @@ export class CloudConnection {
     }
   }
 
+  // Surface the backend's actionable message (for example the disk-space guard)
+  // instead of an opaque status code, while tolerating non-JSON error bodies.
+  private async describeFailure(response: HttpResponseLike): Promise<string> {
+    const fallback = `cloud request failed with status ${response.status}`;
+    try {
+      const parsed: unknown = JSON.parse(await response.text());
+      if (this.isRecord(parsed)) {
+        const detail = parsed.message ?? parsed.detail;
+        if (typeof detail === "string" && detail.trim()) {
+          return `${fallback}: ${detail.trim()}`;
+        }
+      }
+    } catch {
+      // Non-JSON or unreadable error body; keep the generic message.
+    }
+    return fallback;
+  }
+
+  // Thinking chunks repeat the whole accumulated buffer beside the incremental
+  // message; the workbench renders only the message, and the repetition makes
+  // the forwarded stream quadratic in the response length.
+  private parseStreamEvent(payload: string): AgentStreamEvent {
+    const event = JSON.parse(payload) as AgentStreamEvent & { accumulated?: unknown };
+    if (event.type === "thinking") delete event.accumulated;
+    return event;
+  }
+
   private isRetryableStatus(status: number): boolean {
     return status === 408 || status === 429 || status >= 500;
   }
@@ -345,5 +690,22 @@ export class CloudConnection {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private requiredArray(body: unknown, field: string, message: string): unknown[] {
+    if (this.isRecord(body) && Array.isArray(body[field])) return body[field] as unknown[];
+    throw new ProtocolError("invalid_payload", message);
+  }
+
+  private optionalString(value: unknown): string | null {
+    return typeof value === "string" ? value : null;
+  }
+
+  private optionalNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+    return null;
   }
 }

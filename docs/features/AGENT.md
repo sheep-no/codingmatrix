@@ -24,7 +24,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | 模型上下文持久化 | 活跃 | 独立 Task/revision 和 GET/PUT API |
 | Mobile Agent | 活跃 | `/agent` 同页响应式工作台 |
 | VS Code Agent Host | 活跃 | 本地 action、策略、验证、Skills 和会话控制 |
-| Flutter 桌面客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md) |
+| Flutter 客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 客户端](FLUTTER-CLIENT.md) |
 | 架构师默认架构回退 | 活跃 | LLM 超时、空输出或解析失败时返回需求感知默认架构，并标记 `used_default_architecture` |
 | 语言骨架生成 | 活跃 | 入口、README、依赖清单由 `adapters/boilerplate.py` 确定性生成 |
 | Spec-first 符号表 | 活跃 | `symbol_table.py` 冻结跨文件符号；单文件 prompt 只带压缩上下文 |
@@ -193,6 +193,26 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 | `POST` | `/api/v1/agent/host/sessions/{session_id}/control` | `pause`、`resume` 或 `cancel` |
 
 本地验证 operation 为 `syntax_check`、`dependency_install`、`dependency_check`、`build`、`unit_test`、`e2e_test` 和 `service_check`。Host policy 决定各 operation 是否可执行，扩展还会校验 workspace 授权和相对路径边界。
+
+### 工作台面板
+
+`AgentWorkbenchController` 打开的 Webview 分为七个面板：对话、会话历史、模型、文件版本、性能、学习和设置。对话面板复用云端流式会话与本地审批；其余六个面板通过统一的 `workbench_request` / `workbench_response` 通道读取普通用户可用的 v1 接口，扩展侧在 `workbench-requests.ts` 校验参数后转发给 `CloudConnection`：
+
+对话面板在发送前可填写 `project_name`（`^[a-zA-Z0-9_-]{1,50}$`）、勾选「增量修改上次生成的项目」以及七个编排开关（`enable_review`、`enable_validation`、`enable_error_recovery`、`enable_memory`、`enable_skills`、`spec_first`、`dependency_graph`，默认全开）。增量选项只在最近一次运行以 `done` 事件结束且携带 `project_path` 时可用，此时请求附带 `incremental=true`、`engine=core` 和该 `project_path`；运行以 `error` 或 `cancelled` 结束后项目路径清空，增量选项回到不可用，并按全新生成处理。Webview 只发送布尔型开关值，非布尔值一律回退默认。
+
+| 面板 | resource | 接口 |
+| --- | --- | --- |
+| 会话历史 | `history_list`、`history_messages`、`history_delete` | `POST /api/v1/history`、`POST /api/v1/conversation/history`、`DELETE /api/v1/code/history` |
+| 模型 | `model_config`、`token_usage` | `GET /api/v1/models/agent-config`、`GET /api/v1/agent/token-usage` |
+| 文件版本 | `snapshot_list`、`snapshot_rollback`、`snapshot_diff` | `GET /api/v1/agent/snapshots/{session_id}`、`POST /api/v1/agent/rollback/{session_id}`、`GET /api/v1/agent/snapshot/diff` |
+| 性能 | `performance` | `GET /api/v1/agent/performance` 与 `/performance/trends` |
+| 学习 | `learning` | `GET /api/v1/agent/learning/stats` |
+| 设置 | `concurrent_limits`、`cache_stats`、`cache_clear` | `GET /api/v1/agent/concurrent-limits/recommended`、`GET /api/v1/agent/cache/stats`、`POST /api/v1/agent/cache/clear` |
+| 对话（架构决策） | `decision_submit` | `POST /api/v1/agent/session/{session_id}/decision` |
+
+文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。设置面板中「清空全部缓存」由扩展侧弹原生确认框，取消则不发送请求；未指定 `mode` 的清理请求按 `expired` 处理。
+
+对话面板接收 `critical_decisions` 事件并在运行中渲染架构决策表单：每项展示问题、上下文和全部选项，默认值仅在其确实出现在选项里时预选，提交前要求每项都选中有效选项，再以 `id → 选项标签` 的映射提交。服务端最多等待 120 秒，超时按默认方案继续；返回 `ignored` 表示决策等待已结束，面板据此提示查看任务进度。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
 
 ## 沙箱运行控制
 

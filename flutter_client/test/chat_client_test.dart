@@ -54,8 +54,7 @@ void main() {
         return {
           'conversation_id': 7,
           'items': [
-            {'role': 'user', 'content': '你好'},
-            {'role': 'assistant', 'content': '你好！'},
+            {'prompt': '你好', 'response': '你好！'},
           ],
         };
       }),
@@ -64,5 +63,21 @@ void main() {
     expect(messages.map((message) => message.text), ['你好', '你好！']);
     expect(messages.first.fromUser, true);
     expect(messages.last.fromUser, false);
+  });
+
+  test('详情展开回答为空时不产生空消息', () async {
+    final client = ChatClient(
+      DeliveryApi((path, method, body) async {
+        return {
+          'conversation_id': 7,
+          'items': [
+            {'prompt': '只有提问', 'response': ''},
+          ],
+        };
+      }),
+    );
+    final messages = await client.detail(7);
+    expect(messages.single.text, '只有提问');
+    expect(messages.single.fromUser, true);
   });
 }

@@ -7,15 +7,20 @@ class ChatStreamEvent {
 }
 
 class ChatReply {
-  const ChatReply({required this.text, this.conversationId});
+  const ChatReply({required this.text, this.conversationId, this.error});
 
   final String text;
   final int? conversationId;
+  final String? error;
 
   factory ChatReply.fromJson(Map<String, dynamic> json) {
     return ChatReply(
       text: (json['response'] ?? '').toString(),
       conversationId: json['conversation_id'] as int?,
+      // The backend answers with HTTP 200 plus an `error` when it produced no
+      // reply (e.g. an empty model response); dropping it would leave the user
+      // with a blank assistant bubble and no explanation.
+      error: json['error'] == null ? null : '${json['error']}',
     );
   }
 }
