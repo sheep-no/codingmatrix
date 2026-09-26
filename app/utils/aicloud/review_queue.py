@@ -8,7 +8,7 @@
 - 用户偏好设置
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,7 +104,7 @@ async def approve_review(
 
     review.status = "approved"
     review.reviewed_by = reviewed_by
-    review.reviewed_at = datetime.utcnow()
+    review.reviewed_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(review)
@@ -136,7 +136,7 @@ async def reject_review(
 
     review.status = "rejected"
     review.reviewed_by = reviewed_by
-    review.reviewed_at = datetime.utcnow()
+    review.reviewed_at = datetime.now(timezone.utc)
 
     if reason:
         details = json.loads(review.details or "{}")

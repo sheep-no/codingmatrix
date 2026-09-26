@@ -1,9 +1,10 @@
 """
 文件管理模型
 """
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from sqlalchemy import Column, Integer, String, DateTime, BigInteger, ForeignKey, Index, Text
 from sqlalchemy.orm import relationship
+from app.core.time import utcnow_naive
 from app.models.base import Base
 
 
@@ -31,8 +32,8 @@ class File(Base):
     conversation_id = Column(Integer, index=True)
     
     # 时间戳
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
     
     # 删除标记（软删除）
     is_deleted = Column(Integer, default=0)  # 0:未删除，1:已删除
@@ -62,7 +63,7 @@ class File(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "download_url": f"/api/v1/files/{self.id}/download",
             "parsed_content": self.parsed_content,
-            "has_cached_parse": self.parsed_content is not None and self.cache_expire_at and self.cache_expire_at > datetime.utcnow()
+            "has_cached_parse": self.parsed_content is not None and self.cache_expire_at and self.cache_expire_at > utcnow_naive()
         }
     
     def is_parse_cache_valid(self, ttl_seconds: int = 3600) -> bool:
@@ -79,12 +80,12 @@ class File(Base):
             return False
         
         # 检查是否过期
-        if self.cache_expire_at and self.cache_expire_at < datetime.utcnow():
+        if self.cache_expire_at and self.cache_expire_at < utcnow_naive():
             return False
         
         # 检查是否在 TTL 内
         expire_time = self.parsed_at + timedelta(seconds=ttl_seconds)
-        return datetime.utcnow() < expire_time
+        return utcnow_naive() < expire_time
     
     def update_parse_cache(self, content: str, ttl_seconds: int = 3600):
         """
@@ -95,5 +96,5 @@ class File(Base):
             ttl_seconds: 缓存 TTL（秒），默认 1 小时
         """
         self.parsed_content = content
-        self.parsed_at = datetime.utcnow()
-        self.cache_expire_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        self.parsed_at = utcnow_naive()
+        self.cache_expire_at = utcnow_naive() + timedelta(seconds=ttl_seconds)

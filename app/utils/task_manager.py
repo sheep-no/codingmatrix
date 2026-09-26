@@ -15,6 +15,8 @@ from enum import Enum
 
 import redis.asyncio as redis
 
+from app.core.time import utcnow_naive
+
 logger = logging.getLogger(__name__)
 
 # 与 app/celery_app.py 保持一致：优先读环境变量，未配置时回落到本地默认
@@ -118,7 +120,7 @@ class TaskManager:
             "error_message": None,
             "progress": 0,
             "progress_message": "等待中...",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utcnow_naive().isoformat(),
             "started_at": None,
             "completed_at": None
         }
@@ -161,7 +163,7 @@ class TaskManager:
         try:
             await _update_status(
                 TaskStatus.RUNNING.value,
-                started_at=datetime.utcnow().isoformat(),
+                started_at=utcnow_naive().isoformat(),
                 progress_message="执行中..."
             )
 
@@ -177,7 +179,7 @@ class TaskManager:
                 if not task_info.get("completed_at"):
                     await _update_status(
                         task_info["status"],
-                        completed_at=datetime.utcnow().isoformat(),
+                        completed_at=utcnow_naive().isoformat(),
                     )
                 logger.info(f"任务完成 | task_id={task_id} | status={task_info['status']}")
             else:
@@ -186,14 +188,14 @@ class TaskManager:
                     result=result or {},
                     progress=100,
                     progress_message="完成",
-                    completed_at=datetime.utcnow().isoformat()
+                    completed_at=utcnow_naive().isoformat()
                 )
                 logger.info(f"任务完成 | task_id={task_id} | status=success")
 
         except asyncio.CancelledError:
             await _update_status(
                 TaskStatus.CANCELLED.value,
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=utcnow_naive().isoformat()
             )
             logger.info(f"任务取消 | task_id={task_id}")
 
@@ -202,7 +204,7 @@ class TaskManager:
                 TaskStatus.FAILED.value,
                 error_message=str(e),
                 progress_message=f"失败：{str(e)}",
-                completed_at=datetime.utcnow().isoformat()
+                completed_at=utcnow_naive().isoformat()
             )
             logger.error(f"任务失败 | task_id={task_id} | error={str(e)}", exc_info=True)
 
@@ -415,7 +417,7 @@ class TaskManager:
 
     async def cleanup_old_tasks(self, days: int = 7):
         """清理旧任务"""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow_naive() - timedelta(days=days)
 
         try:
             r = await self._get_redis()

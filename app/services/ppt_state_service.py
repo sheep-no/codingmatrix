@@ -3,13 +3,14 @@
 import asyncio
 from typing import Any, AsyncIterator, Optional
 
-from datetime import datetime, timezone
+from datetime import timezone
 from uuid import uuid4
 
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.ppt_agent import PPTAgent, PresentationOutline, SlideOutline
+from app.core.time import utcnow_naive
 from app.models.file import File
 from app.models.ppt_state import PPTOutline, PPTQualityReport
 from app.models.task import Task
@@ -423,7 +424,7 @@ async def _persist_new_outline(
         template_id=request.template_id,
         slide_limit=request.num_slides or max(1, len(slides) + 1),
         slides_json=slides,
-        created_at=datetime.utcnow(),
+        created_at=utcnow_naive(),
     )
     db.add(row)
     await db.flush()
@@ -629,7 +630,7 @@ async def update_ppt_outline(
             OutlineSlide.model_validate(slide).model_dump(mode="json")
             for slide in next_data["slides"]
         ],
-        created_at=datetime.utcnow(),
+        created_at=utcnow_naive(),
     )
     db.add(row)
     await db.flush()
@@ -659,7 +660,7 @@ async def revise_ppt_slide(
         record_id=str(uuid4()), outline_id=outline_id, user_id=_user_id(user_id),
         version=latest.version + 1, status="approved", title=base.title,
         scenario=base.scenario, template_id=base.template_id, slide_limit=base.slide_limit,
-        slides_json=pages, created_at=datetime.utcnow(), approved_at=datetime.utcnow(),
+        slides_json=pages, created_at=utcnow_naive(), approved_at=utcnow_naive(),
     )
     db.add(row)
     await db.flush()
@@ -686,7 +687,7 @@ async def approve_ppt_outline(db: AsyncSession, user_id: str, outline_id: str) -
         )
     )
     row.status = "approved"
-    row.approved_at = datetime.utcnow()
+    row.approved_at = utcnow_naive()
     await db.flush()
     await db.commit()
     return _to_contract(row)

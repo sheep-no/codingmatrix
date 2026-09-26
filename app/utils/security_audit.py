@@ -9,8 +9,9 @@
 """
 import logging
 import json
-from datetime import datetime
 from typing import Optional, Dict, Any
+
+from app.core.time import utcnow_naive
 
 security_logger = logging.getLogger("security")
 
@@ -42,7 +43,7 @@ async def log_security_event(
         )
     """
     event = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utcnow_naive().isoformat(),
         "event_type": event_type,
         "user_id": user_id,
         "success": success,

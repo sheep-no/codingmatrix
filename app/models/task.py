@@ -1,10 +1,10 @@
 """
 任务队列模型
 """
-from datetime import datetime
 from enum import Enum
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Index, JSON
 from sqlalchemy.orm import relationship
+from app.core.time import utcnow_naive
 from app.models.base import Base
 
 
@@ -117,10 +117,10 @@ class Task(Base):
     parent_task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
     finished_at = Column(DateTime, nullable=True)
 
     # 执行信息

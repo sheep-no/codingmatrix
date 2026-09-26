@@ -7,10 +7,10 @@ import asyncio
 import logging
 import threading
 import psutil
-from datetime import datetime
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
+from app.core.time import utcnow_naive
 from app.core.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
@@ -40,13 +40,13 @@ class HealthChecker:
 
     def __init__(self):
         self._version = APP_VERSION
-        self._start_time = datetime.utcnow()
+        self._start_time = utcnow_naive()
 
     async def check_api(self) -> HealthCheckResult:
         """检查 API 应用状态"""
         start = asyncio.get_running_loop().time()
         try:
-            uptime = (datetime.utcnow() - self._start_time).total_seconds()
+            uptime = (utcnow_naive() - self._start_time).total_seconds()
             elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
@@ -312,7 +312,7 @@ class HealthChecker:
 
         return {
             "status": overall_status,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow_naive().isoformat(),
             "checks": checks,
             "version": self._version
         }
@@ -354,7 +354,7 @@ class HealthChecker:
 
         return {
             "status": "ready" if all_ready else "not_ready",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow_naive().isoformat(),
             "checks": checks,
         }
 
@@ -362,7 +362,7 @@ class HealthChecker:
         """存活检查（用于 K8s liveness probe）"""
         return {
             "status": "alive",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_naive().isoformat()
         }
 
 

@@ -4,10 +4,10 @@ AI Cloud 知识库模型
 兼容 SQLite 和 MySQL。
 """
 
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, Index
 from sqlalchemy.orm import relationship
 
+from app.core.time import utcnow_naive
 from app.models.base import Base
 
 
@@ -33,8 +33,8 @@ class AicloudKnowledgeDoc(Base):
     description = Column(Text, nullable=True, comment="文档描述")
     tags = Column(String(500), nullable=True, comment="标签")
     
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=utcnow_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, comment="更新时间")
     
     chunks = relationship("AicloudKnowledgeChunk", back_populates="doc", cascade="all, delete-orphan")
 
@@ -65,7 +65,7 @@ class AicloudKnowledgeChunk(Base):
     collection = Column(String(100), default="default", comment="知识库集合名称")
     metadata_json = Column(Text, nullable=True, comment="额外元数据")
     
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=utcnow_naive, comment="创建时间")
 
     doc = relationship("AicloudKnowledgeDoc", back_populates="chunks")
 

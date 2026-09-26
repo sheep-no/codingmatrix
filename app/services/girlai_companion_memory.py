@@ -1,6 +1,6 @@
 """Consent-aware persistence for GirlAI companion memories."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 from sqlalchemy import and_, func, select
@@ -59,7 +59,7 @@ class CompanionMemoryService:
                 existing.status = "candidate"
                 existing.consent_source = "system_derived"
                 existing.visibility = "conversation_only"
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
                 created.append(existing)
                 continue
             memory = UserPreference(
@@ -119,7 +119,7 @@ class CompanionMemoryService:
         memory.status = "confirmed"
         memory.consent_source = "user_confirmed"
         memory.visibility = visibility
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         return memory
 
@@ -127,7 +127,7 @@ class CompanionMemoryService:
         memory = await self._get_owned(user_id, memory_id)
         memory.status = "deleted"
         memory.visibility = "conversation_only"
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         return memory
 
@@ -145,7 +145,7 @@ class CompanionMemoryService:
             .limit(limit)
         )
         memories = list(result.scalars().all())
-        used_at = datetime.utcnow()
+        used_at = datetime.now(timezone.utc)
         for memory in memories:
             memory.last_used_at = used_at
         return memories

@@ -8,7 +8,7 @@
 - 查询审计日志
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,7 +230,7 @@ async def get_recent_operations(
     Returns:
         审计日志列表
     """
-    start_date = datetime.utcnow() - timedelta(days=days)
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
     return await query_audit_logs(
         db=db,
         user_id=user_id,
@@ -252,7 +252,7 @@ async def cleanup_old_audit_logs(db: AsyncSession, days: int = 90) -> int:
     """
     from sqlalchemy import delete, and_
     
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
     
     stmt = delete(AicloudAuditLog).where(
         and_(

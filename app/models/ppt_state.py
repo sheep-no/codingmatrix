@@ -1,9 +1,8 @@
 """Persistent PPT outline and quality report models."""
 
-from datetime import datetime
-
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 
+from app.core.time import utcnow_naive
 from app.models.base import Base
 
 
@@ -20,7 +19,7 @@ class PPTOutline(Base):
     template_id = Column(String(80), nullable=False, default="modern")
     slide_limit = Column(Integer, nullable=False)
     slides_json = Column(JSON, nullable=False, default=list)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     approved_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
@@ -48,7 +47,7 @@ class PPTQualityReport(Base):
     degraded_stage = Column(String(80), nullable=True)
     status = Column(String(30), nullable=False, default="completed")
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
 
     __table_args__ = (
         UniqueConstraint("task_id", "version", name="uq_ppt_quality_reports_task_version"),
