@@ -121,3 +121,10 @@
 - **TSK25 修复（2026-09-22）**：`app/tasks/base.py` 新增 `_run_coroutine_sync`，回调先探测运行中的事件循环：无循环走 `asyncio.run`，已有循环则改到独立线程执行，异步上下文下 WebSocket 通知不再因 running-loop 错误被静默吞掉；`on_failure`/`on_success`/`on_timeout` 三处统一改用该辅助函数。
 - **仍未处理**：TSK8–TSK10、TSK14–TSK20（`code_tasks.py`，属 Agent 子系统，不在本轮范围）、TSK24（`kwargs` 契约：`task_queue._build_task_kwargs` 已按任务类型白名单下发，接收侧静默忽略的残留风险低）、TSK26（`acks_late` 幂等，属架构设计项）。
 - **测试**：新增 `tests/unit/test_task_base_input_contracts.py`(4)；回退 `app/tasks/base.py` 后 4 项失败。
+
+## 状态更新（2026-09-26 匹配语义修复）
+
+- **TSK14 已修复**：`_find_affected_files` 原用 `if target in file_path` 遍历 `reverse_index`，方向反转且无边界——短键（如 `models`）会跨文件误命中。核实 `reverse_index` 的形状由 `scripts/_archive/build_dependency_graph.py:362-380` 固定为 `{被依赖文件: [依赖它的文件, ...]}`，因此改为按规范化路径（统一分隔符、去前导 `./`）精确查键，并对返回值去重、排序、剔除目标文件本身。
+- **TSK15 已修复**：`_get_related_tests` 原用 `pattern.replace('*', '') in target or target in pattern` 做匹配，通配符只被删掉，导致 `configs/file_to_test_map.yaml` 中 `app/models/*.py`、`app/middleware/*.py`、`app/agent/workflow/*.py`、`app/utils/aicloud/*.py` 四条 glob 映射永不命中，同时短模式存在子串假阳性。改为 `fnmatch.fnmatchcase`（规范化路径）匹配 glob，精确路径模式仍生效，无目录分隔符的模式回退按文件名匹配；结果同样排序保证确定性。
+- **同源未改**：`app/utils/agent_skills.py:296-301`（ASK5）存在相同的 `reverse_index` 子串匹配，但其唯一调用方 `RiskSelfAssessmentSkill.assess` 未传入 `dep_graph`（`agent_skills.py:395`），该分支当前不可达，留待接线时一并处理。
+- **测试**：新增 `tests/unit/test_code_tasks_dependency_matching.py`（8 项）；回退 `app/tasks/code_tasks.py` 后 5 项失败。
