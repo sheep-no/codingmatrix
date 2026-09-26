@@ -12,6 +12,7 @@
 import pytest
 import os
 import sys
+from datetime import datetime, timedelta
 
 # 添加项目根路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -209,6 +210,32 @@ class TestInMemoryRateLimiter:
         # 现在应该允许
         is_allowed, _ = self.limiter.check("user3")
         assert is_allowed is True
+
+    def test_key_count_bounded_by_max_keys(self):
+        """随机 key 持续涌入时条目数不超过 max_keys（防止内存无界增长）"""
+        limiter = InMemoryRateLimiter(max_requests=3, window_seconds=3600, max_keys=5)
+        for i in range(50):
+            limiter.check(f"random-user-{i}")
+        assert len(limiter._entries) <= 5
+
+    def test_oldest_key_evicted_keeps_recent(self):
+        """超过上限时淘汰最久未使用的 key，最近使用的 key 保留"""
+        limiter = InMemoryRateLimiter(max_requests=3, window_seconds=3600, max_keys=2)
+        limiter.check("old")
+        limiter.check("new")
+        # 让 old 的 last_request 明显早于 new，且不触发过期清理
+        limiter._entries["old"].last_request = datetime.now() - timedelta(seconds=100)
+        limiter.check("newest")
+        assert "old" not in limiter._entries
+        assert "new" in limiter._entries
+        assert "newest" in limiter._entries
+
+    def test_max_keys_floor_is_one(self):
+        """max_keys 至少为 1，非法值不会让限流器退化为不设限"""
+        limiter = InMemoryRateLimiter(max_requests=3, window_seconds=60, max_keys=0)
+        assert limiter.max_keys == 1
+        limiter.check("a")
+        assert len(limiter._entries) == 1
 
 
 # ============================================================================
