@@ -23,21 +23,45 @@ class ServiceConfigManager:
     def load_configs(self):
         """加载配置（同步IO即可，文件很小）"""
         with self._lock:
-            if os.path.exists(self.config_path):
-                try:
-                    with open(self.config_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        for cfg in data.get("services", []):
-                            key = f"{cfg['port']}_{cfg['process_signature']}"
-                            if "name" not in cfg:
-                                cfg["name"] = cfg.get("process_name", "unknown")
-                                self.logger.warning(f"为配置 {key} 补全缺失的 'name' 字段")
-                            self.configs[key] = cfg
-                    self.logger.info(f"已加载 {len(self.configs)} 个服务配置")
-                except (ValueError, TypeError, RuntimeError, OSError) as e:
-                    self.logger.error(f"加载配置失败: {self.config_path} - {e}")
-            else:
+            if not os.path.exists(self.config_path):
                 self.logger.warning("未发现历史配置，将创建新配置")
+                return
+
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except (ValueError, TypeError, RuntimeError, OSError) as e:
+                self.logger.error(f"加载配置失败: {self.config_path} - {e}")
+                return
+
+            # 顶层非 dict 或 services 非列表时视为无有效配置，避免 .get 抛
+            # AttributeError 使 ServiceConfigManager() 构造整体失败。
+            services = data.get("services", []) if isinstance(data, dict) else []
+            if not isinstance(services, list):
+                self.logger.error(f"配置格式非法(services 非列表)，忽略: {self.config_path}")
+                services = []
+
+            skipped = 0
+            for cfg in services:
+                # 缺 port/process_signature 的条目无法构造唯一 key，跳过而非
+                # 让 KeyError 逃逸（不在下方 except 白名单内）拖垮构造。
+                if not isinstance(cfg, dict) or "port" not in cfg or "process_signature" not in cfg:
+                    skipped += 1
+                    continue
+                key = f"{cfg['port']}_{cfg['process_signature']}"
+                if "name" not in cfg:
+                    cfg["name"] = cfg.get("process_name", "unknown")
+                    self.logger.warning(f"为配置 {key} 补全缺失的 'name' 字段")
+                if "display_name" not in cfg:
+                    cfg["display_name"] = cfg.get("name", "unknown")
+                    self.logger.warning(f"为配置 {key} 补全缺失的 'display_name' 字段")
+                self.configs[key] = cfg
+
+            if skipped:
+                self.logger.warning(
+                    f"跳过 {skipped} 条缺少 port/process_signature 的非法配置项"
+                )
+            self.logger.info(f"已加载 {len(self.configs)} 个服务配置")
 
     def save_configs(self):
         """保存配置（同步IO，带错误处理）"""
