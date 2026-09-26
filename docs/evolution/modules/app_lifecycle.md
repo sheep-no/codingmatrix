@@ -43,6 +43,7 @@
 - AL6 本次修复：`task_queue.py` 中 `send_task`/`AsyncResult` 属性读取/`control.revoke` 三处同步 Celery RPC 全部移入 `asyncio.to_thread`，避免阻塞事件循环。
 - AL5 本次修复：`create_task` 的 `send_task` 包裹异常补偿，投递失败时通过 `transition_task` 原子标记记录为 `failed` 并写入 `error_message`，返回 503，不再遗留无 `celery_task_id` 的 `pending` 记录；原逻辑会把已提交的 pending 记录留在库中且 `retry_task` 无法修复。
 - AL2/AL8/AL9 仍待处理：就绪探针是否纳入 Celery worker、迁移 runner 与 Alembic 契约统一、健康检查重复实现收敛，均属行为或架构级变更，需要产品口径后推进。
+- AL10 本次修复：`GET /{full_path:path}` 的 SPA 兜底路由原先 `os.path.join(DIST_PATH, full_path)` 后直接交给 `FileResponse`。URL 中 `%2f` 编码的 `..` 在客户端侧不构成路径分隔符、不会被清洗，Starlette 解码后 `full_path` 变为 `../../..`，`join` 结果逃逸出 `src/dist`，形成**未认证任意文件读取（路径穿越）**。现改为 `resolve()` 后以 `Path.is_relative_to(dist_root)` 判定，命中目录内的真实文件才返回，否则回落到 `index.html`；绝对路径与 `dist_evil` 这类共享前缀的兄弟目录一并拒绝。新增 `tests/unit/test_static_spa_path_traversal.py`（5 例：正常资源放行、`../` 回落、兄弟前缀目录拒绝、`api/` 404、端到端 `%2f` 编码不泄露）；回退 `app/main.py` 后 3 例失败。
 
 ### P2
 
@@ -79,6 +80,13 @@ async def on_startup():
 - **现象**：`/api/v1/health/ready` 只调用 `_check_db_quick()` 与 `_check_redis_quick()`（`health.py:68-85`）。Celery 检查只存在于详细检查链 `health_checker.check_all()`（`health.py:131-139`；`health_checker.py:123-162`），因此 broker 可用但 worker 全部离线时，ready 仍可返回 `{"status": "ready"}`。
 - **影响**：负载均衡或编排系统继续把具备任务提交能力的流量送入一个无法消费任务的 API；异步任务会停留在 pending，探针状态无法表达关键消费端故障。
 - **修复建议**：定义探针分层契约：基础存活保持进程级，ready 至少验证必需的任务消费能力；为 Celery 检查设置有限超时并区分 broker 可达、worker 存活和队列积压。
+
+#### AL10 [P2] `serve_vue_routes` 静态兜底路径穿越——未认证任意文件读取
+
+- **现象**：兜底路由把用户可控的 `full_path` 直接与 `DIST_PATH` 拼接（`main.py:392` 原 `file_path = os.path.join(DIST_PATH, full_path)`），仅以 `os.path.isfile` 判断后返回。`/%2e%2e%2f...` 或 `/..%2f..%2f...` 形式的请求在 httpx/浏览器侧不会被归一化（`%2f` 编码的斜杠不视为分隔符），Starlette 解码后 `full_path` 含 `../`，拼接结果逃逸 `src/dist` 并读取进程权限内任意文件；该路由不经过任何鉴权依赖。
+- **证据**：修复前以 `GET /..%2f..%2f..%2f..%2f..%2f..%2ftmp/opencode/traversal_probe.txt` 取回探针文件原始内容（`SECRET-TRAVERSAL-MARKER`，200）。同族问题见 `docs/evolution/modules/vision_image.md` VS1、`docs/evolution/modules/llm_calling.md` PL2、`docs/evolution/modules/ai_agent_api.md` AA2。
+- **修复**：`resolve()` 后校验 `is_relative_to(dist_root)`，非目录内文件一律回落 `index.html`（`main.py:384-397`）。`is_relative_to` 语义比 `startswith` 严格，`dist_evil` 前缀碰撞不再误放行。
+- **测试**：`tests/unit/test_static_spa_path_traversal.py` 5 例；回退源码后 3 例失败。
 
 ### P3
 

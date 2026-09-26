@@ -388,10 +388,12 @@ async def serve_vue_routes(full_path: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not Found")
 
-    # 如果是真实存在的文件，直接返回
-    file_path = os.path.join(DIST_PATH, full_path)
-    if os.path.isfile(file_path):
-        return FileResponse(file_path)
+    # 静态资源必须落在 dist 目录内：直接 os.path.join 会让 `%2f` 编码的
+    # `../` 逃逸出静态目录，造成未认证任意文件读取（路径穿越）。
+    dist_root = Path(DIST_PATH).resolve()
+    candidate = (dist_root / full_path).resolve()
+    if candidate.is_file() and candidate.is_relative_to(dist_root):
+        return FileResponse(candidate)
 
     # 其他路径返回 index.html，让 Vue Router 处理
-    return FileResponse(os.path.join(DIST_PATH, "index.html"))
+    return FileResponse(dist_root / "index.html")
