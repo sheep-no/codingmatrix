@@ -69,7 +69,20 @@ class AsyncProcessGuardian:
                 stdout, _ = await proc.communicate()
 
                 if proc.returncode == 0:
-                    return int(stdout.decode().strip())
+                    # lsof 在多个进程共享同一监听端口时输出多行 PID，
+                    # 直接 int(整段) 会抛 ValueError 并被吞掉，导致旧进程
+                    # 不被清理、重启后 bind 失败。这里逐行解析并取首个 PID。
+                    pids = [
+                        int(token)
+                        for token in stdout.decode().split()
+                        if token.isdigit()
+                    ]
+                    if len(pids) > 1:
+                        self.logger.warning(
+                            f"端口{port} 上有多个进程 {pids}，取首个 PID {pids[0]}"
+                        )
+                    if pids:
+                        return pids[0]
 
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             self.logger.error(f"查找PID失败 端口{port} - {e}")
@@ -238,9 +251,14 @@ class AsyncProcessGuardian:
 
     async def watch_port(self, config: dict):
         """异步监控单个服务（带用户配置的熔断策略）"""
-        name = config["name"]
-        port = config["port"]
-        restart_cmd = config["restart_cmd"]
+        name = config.get("name")
+        port = config.get("port")
+        restart_cmd = config.get("restart_cmd")
+        if not name or port is None or not restart_cmd:
+            self.logger.error(
+                f"监控配置缺少必填字段(name/port/restart_cmd)，跳过: {config}"
+            )
+            return
         cwd = config.get("cwd")
         startup_timeout = config.get("startup_timeout", 30)
         check_interval = config.get("check_interval", self.check_interval)
@@ -333,9 +351,15 @@ class AsyncProcessGuardian:
                                 # 持久化熔断计数
                                 if self.config_manager:
                                     config["fuse_retry_count"] = state["fuse_retry_count"]
-                                    key = f"{port}_{config['process_signature']}"
-                                    self.config_manager.configs[key] = config
-                                    self.config_manager.save_configs()
+                                    signature = config.get("process_signature")
+                                    if signature:
+                                        key = f"{port}_{signature}"
+                                        self.config_manager.configs[key] = config
+                                        self.config_manager.save_configs()
+                                    else:
+                                        self.logger.warning(
+                                            f"{name} 缺少 process_signature，跳过熔断状态持久化"
+                                        )
                             else:
                                 self.logger.critical(
                                     f"{name} 连续失败 {self.max_restart_attempts} 次且熔断禁用，永久停止"
@@ -358,7 +382,9 @@ class AsyncProcessGuardian:
     async def monitor_all(self, services: List[dict]):
         """异步监控所有服务"""
         tasks = [
-            asyncio.create_task(self.watch_port(svc), name=f"monitor-{svc['name']}")
+            asyncio.create_task(
+                self.watch_port(svc), name=f"monitor-{svc.get('name', 'unknown')}"
+            )
             for svc in services
         ]
 
