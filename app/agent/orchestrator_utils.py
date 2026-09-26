@@ -375,6 +375,11 @@ class UtilsMixin:
                 return
             logger.info("SnapshotManager 未产生快照（无变更或失败），回退到原始逻辑")
 
+        # git 子进程与文件写入都是阻塞操作，本方法在并发生成流里被 await，
+        # 直接执行会占住事件循环；放到线程池执行。
+        await asyncio.to_thread(self._git_save_snapshot_sync, message)
+
+    def _git_save_snapshot_sync(self, message: str):
         GITIGNORE_CONTENT = """*.env
 *.key
 *.pem

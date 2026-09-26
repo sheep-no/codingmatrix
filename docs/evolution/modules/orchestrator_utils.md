@@ -211,3 +211,9 @@ p = fi.get("priority", 3)
 - **OU5 已修**：`_is_anti_pattern`（:29）改走 `FeedbackLearner.get_anti_patterns()` 公开接口，不再访问 `self.feedback_learner._fix_patterns` 私有属性（与 FL6 同批）。
 - **OU4 已修**：`FixAttempt` 新增 `original_content`/`fixed_content` 可选字段；`error_recovery._smart_fix_loop` 成功路径（:308）填原始 `content` 与修复后 `fixed_content`，失败路径（:375）填 `original_content`，`fix_from_test_logs` 修复路径（:695）填 `fixed_content`。`_record_learning_data`（:179）改为透传这两个真实样本（缺失时回落空串），`fix_example` 不再恒空；`file_type` 由硬编码 `"python"` 改为按 `self._is_frontend_file` 推断 `frontend`/`backend`（与 `orchestrator_files.py:2530` 记录口径一致）。新增 `tests/unit/test_orchestrator_utils_learning.py` 3 例，回退源码后 2 例失败。
 - **OU1/OU3/OU6/OU7/OU8/OU9/OU10/OU11 未复核**：其余项维持原判待后续批次。
+
+## 7. 事件循环阻塞修复（2026-09-26）
+
+- `_git_save_snapshot`（:363）是 `async def`，但恢复路径直接调用阻塞的 `subprocess.run`（git init/config/add/commit，`capture_output=True, timeout=10~30`）与 `Path.write_text`，会占住事件循环；该方法在并发生成流里被 `await`（`traditional_generate.py:369`），阻塞期间其它协程无法推进。
+- 修复：把同步部分抽为 `_git_save_snapshot_sync`（:382），async 版本改为 `await asyncio.to_thread(self._git_save_snapshot_sync, message)`。逻辑、异常处理与日志保持不变。
+- 测试：新增 `tests/unit/test_orchestrator_utils_git_snapshot.py` 3 例——验证走 `asyncio.to_thread` 且投递的是同步实现、真实 git 仓库初始化并产生提交、无变更时不产生第二个提交。回退源码后 3 例失败。
