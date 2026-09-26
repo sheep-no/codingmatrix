@@ -30,7 +30,6 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | Spec-first 符号表 | 活跃 | `symbol_table.py` 冻结跨文件符号；单文件 prompt 只带压缩上下文 |
 | 托管项目立即删除 | 活跃 | `DELETE /api/v1/agent/projects/{session_id}`；内存中无活动生成任务时，卡住的 `running` 项目可删除 |
 | `POST /api/v1/agent/react` | 废弃文档路径 | 路由未实现，ReAct 由编排入口内部使用 |
-| 多语言依赖解析器 | 独立未接入 | 生产图使用 `dependency_graph.py` 自身解析器 |
 | Web 搜索增强模块 | 独立未接入 | 生产搜索未导入增强模块 |
 
 ## 运行架构
@@ -89,8 +88,6 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 - 解析 JavaScript、TypeScript、JSX、TSX 和 Vue import/require
 - 处理通用文件关系和索引文件候选
 - 调用 `shadow_scanner` 补充动态、配置或隐式依赖
-
-`app/agent/multi_language_parser.py` 是独立正则解析器，目前只有单元测试消费。详细边界见 `docs/features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md`。
 
 ## 模型路由与上下文
 

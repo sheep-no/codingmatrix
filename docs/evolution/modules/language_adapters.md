@@ -28,7 +28,7 @@
 | 上游 | `spec_first_generate.py:131/:214/:2196` | 语言检测 → get_adapter |
 | 上游 | `integrity_validator.py:139-147` | get_adapter('javascript'/'go'/'java') |
 | 下游 | 依赖图 import 解析 / 文件类型推断 / 缺失依赖检测 | parse_imports/resolve_import_to_file/infer_file_type/is_project_module |
-| 旁系 | `multi_language_parser.py` | 被取代型孤儿（生产正主即本体系） |
+| 旁系 | `multi_language_parser.py`（2026-09-26 已删除） | 被取代型孤儿，详见 [multi_language_parser.md](multi_language_parser.md) |
 
 ## 2. 深扫发现
 
