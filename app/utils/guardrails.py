@@ -351,6 +351,22 @@ class InMemoryRateLimiter:
         for key in expired_keys:
             del self._entries[key]
 
+    def remaining_seconds(self, key: str) -> int:
+        """返回该 key 当前窗口的剩余秒数（无条目或窗口已过期返回 0）。
+
+        供 429 响应生成 ``Retry-After`` 使用，使其与限流器实际窗口一致，
+        不再依赖外部硬编码值。
+        """
+        now = datetime.now()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return 0
+            elapsed = (now - entry.window_start).total_seconds()
+            if elapsed >= self.window_seconds:
+                return 0
+            return max(0, int(self.window_seconds - elapsed))
+
     def _evict_oldest_keys(self, keep: int) -> None:
         """超过 keep 时按 last_request 淘汰最旧条目（调用方需持有 _lock）。"""
         overflow = len(self._entries) - keep
@@ -430,7 +446,13 @@ def check_disk_space(path: str = ".") -> tuple[bool, str]:
     return True, ""
 
 
-def check_rate_limit(key: str) -> tuple[bool, str]:
-    """检查请求速率"""
+def check_rate_limit(key: str) -> tuple[bool, str, int]:
+    """检查请求速率
+
+    Returns:
+        (is_allowed, error_message, retry_after_seconds)
+    """
     ctx = get_guardrail_context()
-    return ctx.rate_limiter.check(key)
+    allowed, message = ctx.rate_limiter.check(key)
+    retry_after = 0 if allowed else ctx.rate_limiter.remaining_seconds(key)
+    return allowed, message, retry_after

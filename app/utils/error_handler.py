@@ -31,6 +31,9 @@ from app.utils.aicloud.llm_caller import (
 
 logger = logging.getLogger(__name__)
 
+# 429 未携带显式 Retry-After 时的兜底等待秒数
+DEFAULT_RETRY_AFTER_SECONDS = 60
+
 
 def _error_response(
     code: str,
@@ -117,7 +120,12 @@ async def http_exception_handler(
     )
     headers = {}
     if exc.status_code == 429:
-        headers["Retry-After"] = "60"
+        # 优先采用抛出方（限流器）给出的实际剩余窗口，避免与限流中间件口径漂移；
+        # 仅在缺省时退回默认值。
+        retry_after = None
+        if exc.headers:
+            retry_after = exc.headers.get("Retry-After") or exc.headers.get("retry-after")
+        headers["Retry-After"] = str(retry_after) if retry_after else str(DEFAULT_RETRY_AFTER_SECONDS)
     return _error_response(
         code=code,
         message=detail,

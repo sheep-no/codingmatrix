@@ -547,9 +547,13 @@ async def modify_project(
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
     # 防护：检查速率限制
-    rate_ok, rate_msg = check_rate_limit(f"modify:{user_id}")
+    rate_ok, rate_msg, retry_after = check_rate_limit(f"modify:{user_id}")
     if not rate_ok:
-        raise HTTPException(status_code=429, detail=rate_msg)
+        raise HTTPException(
+            status_code=429,
+            detail=rate_msg,
+            headers={"Retry-After": str(retry_after)},
+        )
 
     # 防护：检查磁盘空间
     disk_ok, disk_msg = check_disk_space(PROJECTS_BASE_DIR)
@@ -986,9 +990,13 @@ async def orchestrate_project_stream(
     )
 
     # 防护：检查速率限制
-    rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
+    rate_ok, rate_msg, retry_after = check_rate_limit(f"stream:{user_id}")
     if not rate_ok:
-        raise HTTPException(status_code=429, detail=rate_msg)
+        raise HTTPException(
+            status_code=429,
+            detail=rate_msg,
+            headers={"Retry-After": str(retry_after)},
+        )
 
     # 防护：检查磁盘空间
     disk_ok, disk_msg = check_disk_space(PROJECTS_BASE_DIR)

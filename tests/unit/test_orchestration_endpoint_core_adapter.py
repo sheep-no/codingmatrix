@@ -279,7 +279,7 @@ async def test_modify_forwards_engine_so_the_core_branch_is_reachable(
 
     monkeypatch.setattr(orchestrate_endpoints, "run_workflow", fake_run_workflow)
     monkeypatch.setattr(orchestrate_endpoints, "get_legacy_result", lambda state: result)
-    monkeypatch.setattr(orchestrate_endpoints, "check_rate_limit", lambda key: (True, ""))
+    monkeypatch.setattr(orchestrate_endpoints, "check_rate_limit", lambda key: (True, "", 0))
     monkeypatch.setattr(orchestrate_endpoints, "check_disk_space", lambda path: (True, ""))
     monkeypatch.setattr(orchestrate_endpoints, "_is_analyze_intent", lambda req: False)
     monkeypatch.setattr(orchestrate_endpoints, "_create_project_session", AsyncMock())

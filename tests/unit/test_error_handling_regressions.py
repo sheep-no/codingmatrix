@@ -11,9 +11,14 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
-from app.utils.error_handler import integrity_error_handler
+from app.utils.error_handler import (
+    DEFAULT_RETRY_AFTER_SECONDS,
+    http_exception_handler,
+    integrity_error_handler,
+)
 from app.utils.json_parser import RobustJSONParser, extract_json_from_llm
 
 
@@ -78,3 +83,32 @@ async def test_integrity_error_handler_hides_original_db_error():
     assert "secret_table" not in response.body.decode()
     assert "original_error" not in payload["details"]
     assert payload["details"] == {"path": "/api/v1/things"}
+
+
+@pytest.mark.asyncio
+async def test_429_handler_honors_explicit_retry_after():
+    """抛出方给出实际剩余窗口时，Retry-After 应原样透出（EH2）。"""
+    request = MagicMock()
+    request.url.path = "/api/v1/ai_agent/modify"
+    exc = HTTPException(
+        status_code=429,
+        detail="请求过于频繁，请在 7 秒后重试",
+        headers={"Retry-After": "7"},
+    )
+
+    response = await http_exception_handler(request, exc)
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "7"
+
+
+@pytest.mark.asyncio
+async def test_429_handler_falls_back_to_default_retry_after():
+    """未携带 Retry-After 时退回默认值，不再散落魔法数字。"""
+    request = MagicMock()
+    request.url.path = "/api/v1/whatever"
+    exc = HTTPException(status_code=429, detail="too many requests")
+
+    response = await http_exception_handler(request, exc)
+
+    assert response.headers["Retry-After"] == str(DEFAULT_RETRY_AFTER_SECONDS)
