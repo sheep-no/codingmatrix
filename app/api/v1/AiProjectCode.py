@@ -203,28 +203,29 @@ async def log_generation_result(
         from app.db.database import get_db
 
         async for db in get_db():
-            try:
-                # 记录工具执行
-                await log_tool_execution(
-                    db, session_id, "generate_project_stream",
-                    {"requirement": requirement, "output_dir": output_dir},
-                    json.dumps(result, ensure_ascii=False)[:5000] if result else None,
-                    success=success,
-                    execution_time=execution_time
-                )
-                # 更新模型统计
-                await update_model_stats(
-                    db, user_id, model_key, model_key,
-                    tokens=result.get("total_tokens", 0) if result else 0,
-                    success=success,
-                    execution_time=execution_time
-                )
-                # 知识积累
-                await accumulate_knowledge(
-                    db, user_id, requirement, output_dir, result if result else {}
-                )
-            finally:
-                break
+            # 记录工具执行
+            await log_tool_execution(
+                db, session_id, "generate_project_stream",
+                {"requirement": requirement, "output_dir": output_dir},
+                json.dumps(result, ensure_ascii=False)[:5000] if result else None,
+                success=success,
+                execution_time=execution_time
+            )
+            # 更新模型统计
+            await update_model_stats(
+                db, user_id, model_key, model_key,
+                tokens=result.get("total_tokens", 0) if result else 0,
+                success=success,
+                execution_time=execution_time
+            )
+            # 知识积累
+            await accumulate_knowledge(
+                db, user_id, requirement, output_dir, result if result else {}
+            )
+            # get_db 只产出一个会话，记录完成后退出循环。
+            # break 必须放在循环体中：放在 finally 里会吞掉上面的异常，
+            # 使外层 except 永远收不到错误、记录失败被静默忽略。
+            break
     except Exception as e:
         logger.error(f"记录生成结果失败: {e}")
 
