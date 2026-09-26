@@ -223,7 +223,7 @@
 </template>
 
 <script setup>
-  import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
+  import { ref, reactive, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
   import { useNavigationStore } from '@/stores/navigation'
   import { useUserStore } from '@/stores/user'
   import { api } from '@/utils/api/index'
@@ -370,7 +370,7 @@
       } catch (error) {
         console.warn('[WARN] Image thumbnail generation failed:', error)
       }
-      const fileObj = {
+      const fileObj = reactive({
         id: ++fileCounter,
         name: file.name,
         size: file.size,
@@ -380,7 +380,7 @@
         uploading: true,
         preview: URL.createObjectURL(file),
         thumbnail
-      }
+      })
       attachedFiles.value.push(fileObj)
 
       try {
@@ -396,7 +396,7 @@
         showError(`图片上传失败：${file.name}`)
       }
     } else if (isCodeFile(file)) {
-      const fileObj = {
+      const fileObj = reactive({
         id: ++fileCounter,
         name: file.name,
         size: file.size,
@@ -404,7 +404,7 @@
         file: file,
         category: 'code',
         uploading: true
-      }
+      })
       attachedFiles.value.push(fileObj)
 
       try {
@@ -419,7 +419,7 @@
         showError(`代码文件上传失败：${file.name}`)
       }
     } else {
-      const fileObj = {
+      const fileObj = reactive({
         id: ++fileCounter,
         name: file.name,
         size: file.size,
@@ -427,7 +427,7 @@
         file: file,
         category: 'document',
         uploading: true
-      }
+      })
       attachedFiles.value.push(fileObj)
 
       try {
