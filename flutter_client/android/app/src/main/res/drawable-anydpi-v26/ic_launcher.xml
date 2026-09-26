@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon for Android 8.0 (API 26) and newer. Without this the launcher
+     treats the legacy drawable as a regular icon, scales it down and pads it
+     with a system plate, which is visible on every modern device. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
