@@ -190,20 +190,21 @@ def test_strict_paths_rewrite_collapsed_imports():
     GenerationPlan.from_architecture(result)
 
 
-def test_canonicalize_missing_project_spec_raises():
+def test_canonicalize_missing_project_spec_falls_back_to_default():
     architect = _architect()
-    with pytest.raises(ValueError, match="did not include a project_spec"):
-        architect._canonicalize_architecture(
-            {
-                "project_type": "script",
-                "language": "python",
-                "file_plan": [{"path": "hello.py", "file_type": "entry", "language": "python"}],
-            },
-            "写一个 Python hello world 脚本",
-            _simple_complexity(),
-            "python",
-            None,
-        )
+    result = architect._canonicalize_architecture(
+        {
+            "project_type": "script",
+            "language": "python",
+            "file_plan": [{"path": "hello.py", "file_type": "entry", "language": "python"}],
+        },
+        "写一个 Python hello world 脚本",
+        _simple_complexity(),
+        "python",
+        None,
+    )
+    # The default spec must stay empty: no invented framework or storage.
+    assert result["project_spec"] == {"default": {"terminology": {}}}
 
 
 def test_canonicalize_drops_unnamed_dependencies():

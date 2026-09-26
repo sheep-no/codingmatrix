@@ -2544,7 +2544,7 @@ async def test_design_architecture_drops_invalid_nested_files_when_using_default
 
 
 @pytest.mark.asyncio
-async def test_design_architecture_missing_project_spec_raises():
+async def test_design_architecture_missing_project_spec_falls_back_to_default():
     architect = object.__new__(Architect)
     architect.model_name = "test-model"
     parsed = {
@@ -2557,11 +2557,13 @@ async def test_design_architecture_missing_project_spec_raises():
         return '{"ok": true}'
 
     architect.call_llm = fake_call
-    with pytest.raises(ValueError, match="did not include a project_spec"):
-        await architect.design_architecture(
-            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
-            _ticket_complexity(),
-        )
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        _ticket_complexity(),
+    )
+    # The default spec must stay empty: no invented framework or storage.
+    assert "FastAPI" not in str(result["project_spec"])
+    assert result["project_spec"]["default"].get("framework") in (None, "")
 
 
 @pytest.mark.asyncio
