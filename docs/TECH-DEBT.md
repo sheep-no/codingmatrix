@@ -84,7 +84,7 @@
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 已解决；`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，Dockerfile 已 `chown -R appuser:appuser /app` 并预建全部挂载点、bind mount 源文件 644 可读。本地 `docker-compose.yml` 因 bind mount 属主保持 root 并加注释。补 2 项守卫用例。注意：既有 root 属主的 named volume 需重建或手工 `chown` |
-| P3 | 生产镜像安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链（Twisted/parsel/w3lib/itemadapter/itemloaders/Protego/PyDispatcher/queuelib/cssselect/Automat/constantly/hyperlink/Incremental/service-identity/zope.interface/pyasn1-modules）、Flask、Werkzeug、pandas、opencv-python 在代码中零引用，且无任何硬反向依赖 | `configs/requirements.txt`、`Dockerfile` | 待决策；已确认这些包可安全裁剪（同时消除其携带的 CVE 与镜像体积），但属生产依赖结构变更，本轮按「升级到修复版本、不裁剪包」策略保留 |
+| P3 | 生产镜像安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链（Twisted/parsel/w3lib/itemadapter/itemloaders/Protego/PyDispatcher/queuelib/cssselect/Automat/constantly/hyperlink/Incremental/service-identity/zope.interface/pyasn1-modules）、Flask 全链（Werkzeug/Jinja2/itsdangerous/blinker）、pandas、opencv-python 在代码中零引用，且无任何硬反向依赖 | `configs/requirements.txt`、`Dockerfile` | 已解决；裁剪 33 个包：`Django`、`Scrapy` 及其依赖链、`Flask`/`Werkzeug`/`Jinja2`/`itsdangerous`/`blinker`、`pandas`、`opencv-python`，以及 `asgiref`/`sqlparse`/`defusedxml`/`tldextract`/`filelock`/`requests-file`/`jmespath`/`pyOpenSSL`/`w3lib` 等传递依赖，并顺带删除一行重复的 `slowapi`。保留 `passlib`（Agent 子系统 `code_validator.py`/`code_reviewer.py` 引用）、`email-validator`/`dnspython`（pydantic `EmailStr`）、`aiosqlite`（SQLAlchemy 方言）、`python-multipart`（FastAPI 表单/上传）——这些按需动态加载，静态 import 扫描不到。三重验证：①静态零 `import` 且零硬反向依赖；②把 33 个包从 site-packages 物理移走后 `from app.main import app` 成功，全量测试 `5044 passed, 2 skipped`（唯一失败为高负载下 `test_aicloud_execution_regressions` 的 10s 执行超时 flake，单体复跑 0.39s 通过）；③`pip install --dry-run --ignore-installed -r configs/requirements.txt` 的解析结果不含任何被删包。生产镜像预计减重约 215 MB |
 | P3 | `ecdsa 0.19.2` 存在 `PYSEC-2026-1325` 且无上游修复版本，被 `python-jose` 硬依赖 | `configs/requirements.txt`、`app/utils/security.py`、`app/api/v1/auth.py` | 已评估，不可达；`python-jose` 确为生产依赖（`app/utils/security.py`、`app/middleware/rate_limiter.py`、`app/api/v1/auth.py` 三处 `from jose import jwt`），但 JWT 签名算法固定为 `HS256`（`settings.ALGORITHM`），且全部 `jwt.decode` 调用传入 `algorithms=["HS256"]` 白名单，攻击者无法通过算法混淆触发 ecdsa 的 ECDSA 验证路径。按「不可达风险」接受，不为此移除 python-jose |
 
 ## 2026-09-25 生产就绪复核新增项
@@ -127,13 +127,15 @@
 
 ### 依赖安全审计与修复（2026-09-26）
 
-对生产镜像依赖做完整漏洞审计，策略为「升级到修复版本、不裁剪包」：
+对生产镜像依赖做完整漏洞审计。首轮策略为「升级到修复版本、不裁剪包」；随后按用户决定追加「裁剪零引用包」：
 
 | 范围 | 审计前 | 审计后 | 处置 |
 |---|---|---|---|
 | 后端（`configs/requirements.txt`，`pip-audit --local`） | 77 CVE / 20 包 | 1 CVE / 1 包 | 升级 19 个包：`starlette` 1.0.0→1.3.1、`cryptography` 46.0.7→50.0.0、`pillow` 12.2.0→12.3.0、`python-multipart` 0.0.28→0.0.31、`aiohttp` 3.13.5→3.14.3、`lxml` 6.0.3→6.1.0、`urllib3` 2.6.3→2.7.0、`pyOpenSSL` 26.0.0→26.4.0、`Django` 5.2.13→5.2.17、`Scrapy` 2.15.0→2.17.0、`Twisted` 25.5.0→26.4.0，以及 `anyio`/`click`/`idna`/`json_repair`/`Protego`/`pyasn1`/`pydantic-settings`/`soupsieve`/`sqlparse` 补丁级升级；`fastapi` 声明 `starlette>=0.46.0`、`requests` 允许 `urllib3<3`、`matplotlib` 允许 `pillow>=8`，均在修复版本约束内；`pip check` 无冲突 |
 | 前端生产依赖 | `xlsx` 0.18.5 两个 high（Prototype Pollution `GHSA-4r6h-8v6p-xvw6` + ReDoS `GHSA-5pgg-2g8v-p4x9`，npm 无修复版本） | 0 | `xlsx` 改用 SheetJS 官方 CDN tarball `0.20.3`（`package.json` 依赖源改为 `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`）；仅 `src/views/ChartEditorPage.vue` 一处使用，`XLSX.read`/`utils.sheet_to_json` API 不变。升级后重启 Vite（触发 `Re-optimizing dependencies because lockfile has changed`）并复跑 `chart-editor` + `chart-editor-scenarios` E2E `4 passed`，验证 Excel 导入链路正常 |
 | 前端 dev/build/test 依赖 | 8（`js-cookie`/`undici`/`brace-expansion` high，`esbuild`/`postcss-selector-parser`/`@vitest/mocker` moderate） | 9 | 均位于开发期链路（`@vue/test-utils`→`js-beautify`→`js-cookie`、`jsdom`→`undici`、`glob`/`editorconfig`→`brace-expansion`、`vite`→`esbuild`），不进生产 bundle；`npm audit fix` 受 npm 10.9.4 `Cannot read properties of null (reading 'edgesOut')` bug 阻断，未处理 |
+
+裁剪补充（第二轮）：后端 `configs/requirements.txt` 删除 33 个零引用且零硬反向依赖的包（`Django`、`Scrapy` 全依赖链、`Flask` 全链、`pandas`、`opencv-python` 等，详见上表第 87 行的 P3 项），`pip-audit` 剩余 CVE 数不变（仍为 `ecdsa` 不可达 1 项，因被删包在首轮升级后已无 CVE）；`requirements-test.txt` 的 `cryptography` 由 `46.0.7` 对齐到 `50.0.0`，避免 CI 先装 `requirements.txt` 再被测试依赖降级回有漏洞版本、导致测试环境与生产不一致。
 
 ### 非 Agent 过期 spec 处置（2026-09-26）
 

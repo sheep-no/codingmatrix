@@ -10,7 +10,7 @@ pytest-timeout==2.2.0
 requests==2.33.1
 
 # 加密与令牌测试
-cryptography==46.0.7
+cryptography==50.0.0
 PyJWT==2.13.0
 
 # Selenium
