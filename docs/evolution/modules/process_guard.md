@@ -63,3 +63,8 @@ watch_port 循环：is_port_open ─失联► find_pid_by_port ─杀旧进程�
 - **PG8 [P3] 已修复**：`watch_port` 开头 `config["name"]/["port"]/["restart_cmd"]` 直接下标，缺键时在 while 外层抛 `KeyError`、协程崩溃。改为 `.get()` 并在缺任一必填字段时记录错误后直接返回；`monitor_all` 的 `svc['name']` 同样改 `.get('name','unknown')`。
 - 测试：新增 `tests/unit/test_process_guard_config_robustness.py` 4 项（多 PID 取首个、单 PID 解析、缺必填字段不崩溃、缺 process_signature 跳过持久化）；回退 `process_guard.py` 后 3 项失败。
 - **仍存在**：PG3（失联后直接杀端口上的进程，PID create_time 校验与健康确认需先定义「假死」判据）；PG7（无资源限制）；PG9–PG11（见原文档）。
+
+## 状态更新（2026-09-26 配置加载健壮性，PG 家族邻项）
+
+- **`ServiceConfigManager.load_configs` 损坏条目崩溃（PG6/PG8 同族，文档未列）已修复**：原实现直接 `data.get("services", [])` 后 `cfg['port']`/`cfg['process_signature']` 下标，异常白名单 `(ValueError, TypeError, RuntimeError, OSError)` 不含 `KeyError`/`AttributeError`——持久化 `data/service_configs.json` 任一损坏条目（缺 port/process_signature、非 dict）或顶层非 dict，都会使 `ServiceConfigManager()` 构造整体失败，经 `get_guardian()` 单例传播为所有守护端点 500。改为：文件读取独立 try；顶层非 dict / services 非列表时按无配置处理；逐条校验，缺 port/process_signature 的条目跳过并计数告警；缺 `name`/`display_name` 时从 `process_name` 回填。
+- 测试：新增 `tests/unit/test_service_config_manager_robustness.py` 3 项（损坏条目跳过、非 dict 顶层不崩、name/display_name 回填）；回退源文件后 3 项失败。
