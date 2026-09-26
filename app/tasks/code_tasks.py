@@ -115,7 +115,6 @@ def modify_with_test(
         dict with modification results
     """
     async def _execute():
-        from app.utils.guard_contracts import get_guard_contracts, check_file_against_contracts
         from app.api.v1.ai_agent import load_dependency_graph, get_agent_knowledge_base
         from app.core.config import settings
 
@@ -177,14 +176,7 @@ def modify_with_test(
 
         # Step 5: 守护合约检查
         await progress_cb.update(95, "守护合约检查...")
-        guard_violations = []
-        contracts = get_guard_contracts()
-        for file_path in (target_files or []):
-            full_path = Path(file_path)
-            if full_path.exists():
-                content = full_path.read_text(encoding='utf-8')
-                violations = contracts.check_file(file_path, content)
-                guard_violations.extend([v.__dict__ for v in violations])
+        guard_violations = _collect_guard_violations(target_files)
 
         return {
             "success": all(t.get("success", False) for t in test_logs) if test_logs else True,
@@ -206,6 +198,21 @@ def modify_with_test(
 
 
 # ==================== 辅助函数 ====================
+
+def _collect_guard_violations(target_files: List[str]) -> List[Dict]:
+    """对变更后的目标文件执行守护合约检查（经便捷函数单一入口）。"""
+    from app.utils.guard_contracts import check_file_against_contracts
+
+    violations: List[Dict] = []
+    for file_path in (target_files or []):
+        full_path = Path(file_path)
+        if full_path.exists():
+            content = full_path.read_text(encoding='utf-8')
+            violations.extend(
+                v.__dict__ for v in check_file_against_contracts(file_path, content)
+            )
+    return violations
+
 
 def _find_affected_files(dep_graph: Dict, target_files: List[str]) -> List[str]:
     """通过依赖图谱查找受影响的文件"""

@@ -94,5 +94,13 @@
 - **GC5 [P3] 部分已修**：删除 `GuardRule.allowed_changes` 死字段与 GC-009/GC-010 空操作
   规则（回归测试 `TestRuleCleanup`，2 例，回退源码后 2 例失败）。规则外部化（YAML/DB）
   仍成立，属治理配置化专项。
-- **GC2 [P2] 仍成立**：违规只记录不阻断未变；**GC4 [P3] 仍成立**：
-  便捷函数零消费未在本批触及。
+- **GC2 [P2] 仍成立**：违规只记录不阻断未变。
+- **GC4 [P3] 部分已修（2026-09-26）**：`app/tasks/code_tasks.py` 原先
+  `from app.utils.guard_contracts import get_guard_contracts, check_file_against_contracts`
+  却仍调用 `contracts.check_file(...)`（导入的便捷函数从未使用，双路径并存）。
+  现将守卫检查抽为 `_collect_guard_violations(target_files)`，内部改走
+  `check_file_against_contracts` 单一入口并删除 `get_guard_contracts` 与
+  `contracts` 中间变量；行为不变（仍用 `Violation.__dict__` 序列化）。
+  `get_applicable_rules` 仍无自然消费方，维持未接线。
+  新增 `tests/unit/test_guard_contracts_fixes.py::TestCodeTasksGuardWiring`（2 例，
+  校验走便捷函数、缺失文件跳过），回退 `code_tasks.py` 后 2 例失败。
