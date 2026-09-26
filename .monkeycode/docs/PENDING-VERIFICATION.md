@@ -80,7 +80,7 @@
 - 管理员后台真实数据：用户列表 `GET /api/v2/Controller/users` 返回 `用户总数：5` 并列出全部账号与角色；限流配置读取到真实值（全局 1000/60、IP 100/60、用户 50/60），保存后重开值一致；沙箱配置读到 `启用代码沙箱` + `python,javascript`；MCP 管理列出 4 个真实服务（filesystem、brave-search、sqlite、custom-http）。
 - 用户名允许重复是后端文档化设计（`user_manage.py:123`「用户名可重复，邮箱唯一」）：实测用同名 `mr_yang` 创建成功，后台出现两行同名用户。不是缺陷，但后台弹层标题与主标识都用 username，重名时无法区分，属已知 UX 限制。
 
-2026-09-25 用重建后的 **release** bundle 复跑（独立 `dbus-run-session` + 可用 keyring）：UI 登录 → 12 页导航巡检 → 重启免密恢复 → 窄屏 820x700 / 640x600 + 抽屉，全部通过，详见上文已完成验证表。同一环境未能从 UI 驱动一次完整生成：编排磁盘守卫（`app/utils/guardrails.py:250`，要求可用空间 ≥ 1GB 且 ≥ 10%）在当前根分区只剩 873MB（4%）时必然返回 507，属环境容量限制；编排到 `done` 与客户端文件链路此前已在 API 层用真实 LLM 验证（见「待验收项 4」）。
+2026-09-25 用重建后的 **release** bundle 复跑（独立 `dbus-run-session` + 可用 keyring）：UI 登录 → 12 页导航巡检 → 重启免密恢复 → 窄屏 820x700 / 640x600 + 抽屉，全部通过，详见上文已完成验证表。当时未能从 UI 驱动一次完整生成：编排磁盘守卫（`app/utils/guardrails.py:250`，要求可用空间 ≥ 1GB 且 ≥ 10%）在当前根分区只剩 873MB（4%）时必然返回 507。该环境容量限制已于 2026-09-25 晚清除（见「待验收项 4」磁盘守卫条目），随后 UI 完整生成已跑到 `done`。
 
 重要陷阱（本轮踩到）：`flutter build linux --debug` 打印 `✓ Built ...` 并不保证产物已更新。Dart 代码在 `bundle/data/flutter_assets/kernel_blob.bin`，本轮改动 `lib/**` 后该文件 mtime 仍停在旧时间，`touch` 源码后重建也不变，因此用旧 bundle 做的界面验证全部无效。做桌面功能复验前先确认 `kernel_blob.bin` mtime 晚于最后一次源码改动；`flutter run -d linux` 会强制重新编译并 `Syncing files to device`，且日志能实时捕获 Dart 异常，是更可靠的复验方式。
 
@@ -168,13 +168,15 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 磁盘守卫：该端点可用空间 <1GB 或可用率 <10% 直接返回 507（`app/utils/guardrails.py:250`），且写 `./projects`。2026-09-25 删除 `/workspace/flutter_client/build/app/intermediates`、`/workspace/flutter_client/build/test_cache`、`/root/.gradle/caches`，可用空间由 788MB（96%）升到 4.5GB（24%），守卫不再返回 507（保留 `build/linux` 的 release bundle 与 `build/app/outputs` 的 APK 作为证据）。
 
-2026-09-25 磁盘腾空后从真实 VS Code 宿主 UI 驱动完整生成，卡在后端 Architect 契约校验，未能到 `done`：
+2026-09-25 磁盘腾空后从真实 VS Code 宿主 UI 驱动完整生成，先卡在后端 Architect 契约校验，修复后端后全链路跑通到 `done`：
 
-- 实测次数与入口：宿主内 UI 发送需求 2 次（Python CLI 脚本、静态网页），后端接口直连 2 次（`engine=core` 静态网页、默认 legacy 多语言 Flask 项目，后者带 `project_name=full-e2e`）。四次都在 `specs_completed` 之后以 `architect architecture did not include a project_spec` 失败。
-- 现象：architect 模型 `Qwen/Qwen3-8B` 返回合法 JSON（含 `project_type`、`file_plan`、`api_spec`、`db_schema`、`dependencies`、`recommendations`），但缺少提示词要求的 `project_spec` 字段。
-- 根因（后端）：`a476327 fix: make agent pipeline failures explicit instead of silent fallbacks` 删除了「`project_spec` 缺失时用 `_build_default_project_spec` 兜底」的静默回退，改为硬 `raise ValueError`（`app/agent/architect.py:364`、`:689`）。2026-09-24 同一模型仍能返回 `project_spec`（见上文 `llm-static-1790262394` 成功案例），如今稳定缺失，推测与模型服务端版本更新有关。
-- 影响：插件与 Flutter 客户端的「新建生成」核心链路在当前后端上无法到达 `done`。此为越界缺陷，未在本范围修复。
-- 证据：宿主截图 `/tmp/opencode/host_tabs_gen3/full-generation.png`、驱动报告 `/tmp/opencode/host_report_gen3.json`；后端接口原始流 `/tmp/opencode/core_stream.ndjson`、`/tmp/opencode/full_stream.ndjson`。
+- 卡点现象：宿主内 UI 发送需求 2 次（Python CLI 脚本、静态网页）、后端接口直连 2 次（`engine=core` 静态网页、默认 legacy 多语言 Flask 项目）都以 `architect architecture did not include a project_spec` 失败；architect 模型 `Qwen/Qwen3-8B` 返回合法 JSON（含 `project_type`、`file_plan`、`api_spec`、`db_schema`、`dependencies`），但缺少提示词要求的 `project_spec`。
+- 根因：提交 `a476327` 把「`project_spec` 缺失时用 `_build_default_project_spec` 兜底」的静默回退改成硬 `raise`（`app/agent/architect.py:364`、`:689`）。2026-09-24 同一模型仍能返回 `project_spec`（见上文 `llm-static-1790262394`），如今稳定缺失，推测与模型服务端版本更新有关。
+- 修复（经用户批准跨界）：两处恢复「缺失即用空 `project_spec`（`{"default": {"terminology": {}}}`）兜底并打 `warning` 日志」，不发明框架或存储；更新两条锁定 raise 的单测为断言兜底。commit `6801118`。
+- 反向验证：临时改回 `raise` 后两条新用例双双失败，恢复后通过；`tests/unit/test_orchestrator_files.py`、`test_architect_canonicalize.py`、`test_language_adapter_boilerplate.py` 共 180 passed。
+- API 层复验：`POST /api/v1/agent/orchestrate/stream`（真实 SiliconFlow、legacy 引擎）跑到 `done`，`success=true`、`total_files_created=7`、`total_files_failed=0`、`project_path=1/fix-check`、`architecture_check.alignment_score=1.0`；产物 `/workspace/projects/1/fix-check/`（`index.html`、`style.css`、`app.js`、`src/index.js`、`src/utils/utils.js`、`src/models/page_model.js`、`app/command.py`）。原始流 `/tmp/opencode/fix_stream.ndjson`。
+- UI 层复验：真实 VS Code 宿主内发送需求，状态由「Agent 正在处理」→「服务端等待架构决策，最多等待 120 秒」→「Agent 已完成」；`done` 回填增量提示「可增量修改：1/vscode-agent-fixtures-1790385675739」，增量复选框由禁用变可用；后端 `生成完成 files=7/0`；7 个产物落盘。截图 `/tmp/opencode/host_tabs_ui2/full-generation.png`、报告 `/tmp/opencode/host_report_ui2.json`。
+- 环境前提：后端需注入 `SILICONFLOW_API_KEY`（否则 LLM 报 `Provider siliconflow is not configured`）；E2E 宿主 harness 的等待上限须大于生成耗时（原 600s 短于约 11 分钟的生成，会提前退出导致误判）。
 
 ### 5. GitHub 设置页验证状态不持久
 
@@ -189,7 +191,7 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | 位置 | 问题 |
 |---|---|
 | `app/services/github_config_service.py` | `GET /config` 的 `verified` 硬编码 `false`，`POST /verify` 结果不落库 |
-| `app/agent/architect.py:364`、`:689` | `project_spec` 缺失时由默认兜底改为硬失败（`a476327`），当前 `Qwen/Qwen3-8B` 稳定不返回该字段，导致 `orchestrate/stream` 新建生成必失败，UI 与客户端无法到达 `done` |
+| `app/agent/architect.py:364`、`:689` | `project_spec` 缺失时由默认兜底改为硬失败（`a476327`），当前 `Qwen/Qwen3-8B` 稳定不返回该字段。2026-09-25 经用户批准跨界修复，恢复空兜底，详见「待验收项 4」 |
 | `src/components/agent/modals/LearningModal.vue` | 读 `total_feedbacks` / `fixed_count` / `avg_fix_time` / `accuracy_improvement`，后端 `app/agent/feedback_learner.py:262` 返回 `learned_patterns` / `total_fixes_recorded` / `overall_success_rate`，导致恒显示「暂无学习数据」 |
 | `src/components/agent/modals/SettingsModal.vue` | 读 `concurrentLimits.recommended` 与 `cacheStats.total_keys`，后端返回 `recommendations`（`orchestrate_endpoints.py:1940`）与 `cached_entries`（`app/agent/spec_cache.py`），导致并发与缓存两节不渲染 |
 | `Makefile:71` | `clean` 调用 `./scripts/cleanup.sh`，该脚本不存在 |
