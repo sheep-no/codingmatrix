@@ -5,12 +5,17 @@
 - RL2 忽略反向代理导致全站共享同一配额
 - RL4 429 响应未使用项目统一错误格式
 - RL5 get_client_ip 零消费且缺少可信代理校验
+- RL6 default_limits 未挂载 SlowAPIMiddleware 导致全局限流不生效
 """
 
 import json
 from types import SimpleNamespace
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from slowapi import Limiter
 from starlette.requests import Request
+from slowapi.middleware import SlowAPIASGIMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.utils import rate_limiter as mod
@@ -118,3 +123,38 @@ def test_init_rate_limit_registers_custom_handler():
 
     assert app.handlers[RateLimitExceeded] is mod._rate_limit_handler
     assert app.state.limiter is mod.limiter
+
+
+def test_main_app_mounts_slowapi_middleware():
+    """RL6：仅注册 state.limiter 不够，必须挂载 Middleware 才让 default_limits 生效。"""
+    from app.main import app
+
+    assert app.state.limiter is mod.limiter
+    assert any(
+        middleware.cls is SlowAPIASGIMiddleware
+        for middleware in app.user_middleware
+    )
+
+
+def test_default_limits_enforced_when_middleware_mounted():
+    """RL6 行为回归：未装饰的路由在超出 default_limits 后返回项目统一 429 文案。"""
+    app = FastAPI()
+    app.state.limiter = Limiter(
+        key_func=mod.get_client_ip, default_limits=["2/minute"]
+    )
+    app.add_exception_handler(RateLimitExceeded, mod._rate_limit_handler)
+
+    @app.get("/ping")
+    async def ping():
+        return {"ok": True}
+
+    app.add_middleware(SlowAPIASGIMiddleware)
+    client = TestClient(app)
+
+    assert client.get("/ping").status_code == 200
+    assert client.get("/ping").status_code == 200
+
+    limited = client.get("/ping")
+
+    assert limited.status_code == 429
+    assert limited.json()["code"] == "RATE_LIMIT_EXCEEDED"
