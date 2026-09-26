@@ -67,10 +67,9 @@ class FileOperator:
         # 数据
         ".sql", ".db", ".sqlite", ".csv", ".xlsx", ".xls",
         # 容器/部署
-        ".dockerfile", "dockerfile", ".gitignore", ".dockerignore",
-        "makefile", "makefile", "recipe", ".env", ".env.example",
+        ".dockerfile", "dockerfile", "makefile", "recipe", ".env.example",
         # 配置
-        ".lock", ".md", ".txt", ".rst",
+        ".lock", ".rst",
         # 静态资源
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
         ".woff", ".woff2", ".ttf", ".eot", ".otf",

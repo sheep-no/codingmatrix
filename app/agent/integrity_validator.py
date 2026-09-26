@@ -83,7 +83,7 @@ class IntegrityValidator:
         'gzip', 'bz2', 'lzma', 'zlib', 'shutil', 'glob', 'fnmatch',
         'tempfile', 'filecmp', 'stat', 'fileinput', 'calendar',
         'pprint', 'textwrap', 'difflib', 'unicodedata', 'stringprep',
-        'readline', 'rlcompleter', 'struct', 'codecs',
+        'readline', 'rlcompleter',
     }
 
     # 常见第三方库（不需要项目内文件）
@@ -94,7 +94,7 @@ class IntegrityValidator:
         'torch', 'tensorflow', 'pytest', 'unittest', 'celery',
         'redis', 'pymongo', 'psycopg2', 'mysql', 'sqlite3',
         'jwt', 'jose', 'passlib', 'bcrypt', 'cryptography',
-        'multipart', 'starlette', 'httpx', 'orjson', 'ujson',
+        'multipart', 'starlette', 'orjson', 'ujson',
         'alembic', 'tortoise', 'peewee', 'sqlmodel',
     }
 

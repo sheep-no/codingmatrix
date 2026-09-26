@@ -748,26 +748,25 @@ class CrossValidator:
             'cancelAnimationFrame', 'queueMicrotask', 'structuredClone',
             'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent',
             'decodeURIComponent', 'encodeURI', 'decodeURI', 'btoa', 'atob',
-            'Promise', 'JSON', 'Object', 'Array', 'Number', 'String', 'Boolean',
-            'Math', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError',
+            'Promise', 'JSON', 'Object', 'Array', 'Number', 'Math', 'Date', 'RegExp', 'Error', 'RangeError',
             'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Proxy', 'Reflect',
-            'URL', 'URLSearchParams', 'Blob', 'File', 'FileReader', 'FormData',
-            'Headers', 'Response', 'Request', 'AbortController', 'EventSource',
+            'URL', 'URLSearchParams', 'Blob', 'FileReader', 'FormData',
+            'Headers', 'AbortController', 'EventSource',
             'WebSocket', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
             'require', 'module', 'exports', 'process', 'global', 'Buffer',
             'axios', 'swr', 'dayjs', 'moment',
             # CSS/HTML 常见属性
-            'className', 'style', 'id', 'innerHTML', 'textContent',
+            'className', 'style', 'innerHTML', 'textContent',
             'addEventListener', 'removeEventListener', 'querySelector',
             'querySelectorAll', 'getElementById', 'getElementsByClassName',
             # 常见常量和配置
             'DEBUG', 'SECRET_KEY', 'DATABASE_URL', 'ALLOWED_HOSTS',
             'CORS_ORIGINS', 'API_PREFIX', 'PROJECT_NAME', 'VERSION',
             # 常见装饰器和函数
-            'app', 'router', 'get', 'post', 'put', 'delete', 'patch',
-            'on', 'emit', 'watch', 'unwatch', 'set', 'delete',
+            'post', 'put', 'delete', 'patch',
+            'on', 'emit', 'unwatch',
             # 测试相关
-            'pytest', 'unittest', 'mock', 'patch', 'fixture',
+            'pytest', 'unittest', 'mock', 'fixture',
             'assert', 'assertEqual', 'assertRaises', 'assertIn',
             # 日志相关
             'logger', 'logging', 'getLogger', 'info', 'debug', 'warning', 'error',
@@ -775,21 +774,21 @@ class CrossValidator:
             'async', 'await', 'asyncio', 'aiohttp', 'async_session',
             # 语句关键字（不是用户定义的符号）
             # Python
-            'not', 'and', 'or', 'is', 'lambda', 'del', 'global', 'nonlocal',
+            'not', 'and', 'or', 'is', 'lambda', 'del', 'nonlocal',
             'pass', 'raise', 'from', 'as', 'elif', 'except',
             # JS/TS
             'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
             'try', 'catch', 'finally', 'throw', 'return', 'break', 'continue',
             'typeof', 'instanceof', 'new', 'void', 'in', 'of', 'with', 'yield',
             'function', 'class', 'const', 'let', 'var', 'import', 'export',
-            'extends', 'static', 'this', 'super',
+            'extends', 'static', 'this',
             # 类型注解
-            'Optional', 'List', 'Dict', 'Tuple', 'Set', 'Union', 'Any',
+            'Optional', 'List', 'Dict', 'Tuple', 'Union', 'Any',
             'Literal', 'Type', 'ClassVar', 'Final', 'Annotated',
             # 其他常见符号
             'json', 'os', 'sys', 'path', 'datetime', 'timedelta',
             'uuid', 'hashlib', 'base64', 'secrets', 'time',
-            'Path', 'PurePath', 'PosixPath', 'WindowsPath',
+            'PurePath', 'PosixPath', 'WindowsPath',
         }
         return name in builtins
 
@@ -1256,7 +1255,7 @@ class CrossValidator:
             'uvicorn', 'gunicorn', 'requests', 'httpx', 'aiohttp',
             'numpy', 'pandas', 'torch', 'pytest', 'celery',
             'redis', 'pymongo', 'jwt', 'jose', 'passlib',
-            'starlette', 'httpx', 'orjson', 'alembic',
+            'starlette', 'orjson', 'alembic',
         }
         top_level = module.split('.')[0]
         return top_level in third_party

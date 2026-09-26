@@ -211,7 +211,7 @@ async def stream_logs_websocket(
                 await websocket.send_json({"type": "log", "data": log_line})
             except RuntimeError:
                 break
-            except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+            except (ValueError, TypeError, OSError, SQLAlchemyError) as e:
                 logger.error(f"日志流发送失败 | user_id={user_id} | error={str(e)}")
                 break
 

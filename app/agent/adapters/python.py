@@ -46,7 +46,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         'urllib', 'webbrowser', 'wsgiref', 'array', 'queue', 'heapq', 'bisect',
         'graphlib', 'unittest', 'doctest', 'pdb', 'profile', 'timeit',
         'venv', 'sysconfig', 'builtins', 'operator', 'platform',
-        'ctypes', 'struct', 'errno',
+        'ctypes', 'errno',
     }
 
     # 常见第三方库

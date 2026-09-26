@@ -475,3 +475,10 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 插件 e2e 的 `@vscode/test-electron` 把 `stable` 解析为最新版，与本地缓存版不一致时两个入口都会改走下载，且该 326MB 包会被 CDN 反复中断（curl 18 / `Error: aborted`），只留下无 `is-complete` 的半成品目录。可对 `https://update.code.visualstudio.com/<ver>/linux-x64/stable` 断点续传补齐 `.vscode-test/vscode-linux-x64-<ver>` 再 `touch is-complete`，不改仓库代码即复用缓存。
   - 宿主 harness 启动 VS Code 必须带 `DISPLAY`（Xvfb `:99` 常驻），缺失时报 `Missing X server or $DISPLAY` 并以 SIGTRAP 结束；webview 内容需从内层 frame 读取，`Page.captureScreenshot` 以 webview 元素矩形为 `clip`。
   - 编排流 SSE 的 `thinking` 事件除增量 `message` 外还带一份全量累积 `accumulated`（真实 legacy 流 88MB 中占 66MB），插件已在解析处剥离；判定事件字段形状要取全部样本的并集，首个样本可能缺字段。编排端有磁盘守卫：可用 <1GB 或可用率 <10% 直接 507（`app/utils/guardrails.py`）。token 有效期 30 分钟，跑长流程前先重新登录。
+
+### 生产就绪修复的范围边界
+- Date: 2026-09-26
+- Context: 用户在生产就绪验收中限定本轮修复范围
+- Instructions:
+  - 修复范围限定为 `agent` 及其子系统（`app/agent/`、agent 相关 `app/api/v1/ai_agent/`、`app/tasks/`、agent 消费的 `app/utils/` 模块），以及前端中与 agent 相关的界面（`src/` 下 agent 交互页）。
+  - 范围内见到的 bug 都要修到可生产，不停留在静态告警；范围外文件除非被范围内修复直接依赖，否则不改动。
