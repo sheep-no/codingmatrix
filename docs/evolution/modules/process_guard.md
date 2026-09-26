@@ -55,3 +55,11 @@ watch_port 循环：is_port_open ─失联► find_pid_by_port ─杀旧进程�
 - **仍存在**：PG3（失联后直接杀端口上的进程，PID create_time 校验与健康确认需先定义「假死」判据）；PG5–PG10（见原文档）。
 
 新增 `tests/unit/test_process_guard_restart.py`（5 项）；回退源码后 3 项失败（其余 2 项为失败返回码场景，旧实现本身也正确）。
+
+## 状态更新（2026-09-26 配置缺失与多 PID 健壮性）
+
+- **PG5 [P3] 已修复**：`find_pid_by_port` 原先 `int(stdout.decode().strip())`，lsof 在同一端口有多个进程时输出多行 PID，`int("1234\n5678")` 抛 `ValueError` 被 except 吞掉返回 None → 旧进程不被清理 → 重启后 `bind: address already in use`。改为按空白切分、仅取数字 token、返回首个 PID，多 PID 时告警。
+- **PG6 [P3] 已修复**：熔断持久化处 `key = f"{port}_{config['process_signature']}"` 直接下标，缺键时 `KeyError` 不在 `(ValueError, TypeError, RuntimeError, OSError)` 白名单内，`watch_port` 协程整体崩溃退出（未被 `monitor_all` 的 `return_exceptions=True` 之外的任何层兜底）。改为 `config.get("process_signature")`，缺键时仅告警并跳过持久化，不再写入 `{port}_None` 之类的伪造键。
+- **PG8 [P3] 已修复**：`watch_port` 开头 `config["name"]/["port"]/["restart_cmd"]` 直接下标，缺键时在 while 外层抛 `KeyError`、协程崩溃。改为 `.get()` 并在缺任一必填字段时记录错误后直接返回；`monitor_all` 的 `svc['name']` 同样改 `.get('name','unknown')`。
+- 测试：新增 `tests/unit/test_process_guard_config_robustness.py` 4 项（多 PID 取首个、单 PID 解析、缺必填字段不崩溃、缺 process_signature 跳过持久化）；回退 `process_guard.py` 后 3 项失败。
+- **仍存在**：PG3（失联后直接杀端口上的进程，PID create_time 校验与健康确认需先定义「假死」判据）；PG7（无资源限制）；PG9–PG11（见原文档）。
