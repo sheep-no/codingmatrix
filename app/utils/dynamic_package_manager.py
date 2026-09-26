@@ -68,8 +68,6 @@ STATIC_WHITELIST: Set[str] = {
     'email-validator', 'itsdangerous', 'jinja2', 'markupsafe',
     'sqlparse', 'typing-extensions', 'greenlet',
     'fastapi-utils', 'backoff',
-    # ORM 异步驱动
-    'asyncpg', 'aiomysql',
     # 环境配置
     'dynaconf',
     # 序列化

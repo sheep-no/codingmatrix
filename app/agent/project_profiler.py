@@ -217,7 +217,7 @@ class ProjectProfiler:
         # Java ORM
         'hibernate', 'mybatis', 'jpa', 'jooq',
         # Rust ORM
-        'diesel', 'sqlx', 'sea-orm',
+        'diesel', 'sea-orm',
     })
 
     # 分层架构的目录名模式（跨语言通用）

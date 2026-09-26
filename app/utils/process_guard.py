@@ -35,7 +35,7 @@ class AsyncProcessGuardian:
             return True
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             return False
-        except (ValueError, TypeError, RuntimeError, OSError) as e:
+        except (ValueError, TypeError, RuntimeError) as e:
             self.logger.error(f"端口检测异常 {host}:{port} - {e}")
             return False
 
