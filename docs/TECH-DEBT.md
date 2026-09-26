@@ -49,6 +49,7 @@
 | P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
 | P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 已解决；`clean` 目标改指 `./scripts/_archive/cleanup.sh` |
 | P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 已解决；注释与警告改为说明真实调用位置，不再引用已删除的 `call_siliconflow` |
+| P3 | 已实现的安全审计能力未接线：`log_security_event` 与 `log_login_success`/`log_login_failed`/`log_permission_change`/`log_token_refresh`/`log_sensitive_operation` 全库零调用，登录与权限变更链不产生审计记录 | `app/utils/security_audit.py` | 仍在；模块与 `security_audit` 日志 handler（`app/core/logging_config.py`）均已就绪，缺调用点 |
 
 ## 2026-09-23 生产就绪复核新增项
 
@@ -124,6 +125,7 @@
 |---|---|---|---|
 | P2 | 首页输入区上传附件后永久停留在「上传中」：`processFile` 把普通对象 push 进 `ref([])` 后直接改原始对象字段，未触发 Vue 响应式更新，父组件与 `FilePreview` 子组件都收不到 | `src/components/bottominput.vue` | 已解决；待上传的对象改用 `reactive()` 包装，上传成功或失败都会离开中间态。补 `upload-file.spec.js` 回归（修复前失败、修复后通过），已纳入门禁 |
 | P3 | 全仓库非 Agent 子系统仍在用 `datetime.utcnow()`（62 处 / 23 文件），Python 3.12 起弃用且返回值无时区 | `app/models`、`app/services`、`app/utils`、`app/db`、`app/core`、`app/api/v1` | 已解决；新增 `app/core/time.py:utcnow_naive()`（语义等同 `utcnow()`），按列类型配对迁移：naive 列用 `utcnow_naive()`，`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`。补 `tests/unit/test_time_utils.py`（3 项）。Agent 子系统按归属裁定不动 |
+| P3 | AJP12（`85208591`）从 `aiGeneratorPptx.py` 移除图片搜索消费时漏删本体 `app/utils/pptx/image_search.py`（183 行）；`app/utils/structured_logging.py`（170 行）被 `app/utils/logging.py` 取代后残留。两模块均 0% 覆盖、零外部引用 | `app/utils/pptx/image_search.py`、`app/utils/structured_logging.py` | 已解决；删除两个死模块，删除后全量 unit/integration `4987 passed, 2 skipped` 不变 |
 
 ### 依赖安全审计与修复（2026-09-26）
 
@@ -149,9 +151,9 @@
 
 ## 当前验收基线
 
-- 后端 unit/integration：`4981 passed, 2 skipped, 0 failed`（183s，master `508b7f75` 时间点快照；测试数量随并发合入小幅增减，以 CI 为准）。此前在 `739256d5` 测得 `4973 passed`，较更早的 `5022 passed` 少约 49 项，来自并发合入的 PR #326（清理零引用死代码）删除 `tests/unit/test_multi_language_parser.py`（52 个 test 定义，覆盖已删的 `app/agent/multi_language_parser.py`）及其清理的 `app/test/` 历史脚本，非测试能力退化；随后 PR #328（`fix(tasks)`）新增 8 项回到 4981。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
+- 后端 unit/integration：`4987 passed, 2 skipped, 0 failed`（415s，master `0c23233f` 时间点快照；测试数量随并发合入小幅增减，以 CI 为准）。此前在 `508b7f75` 测得 `4981 passed`、在 `739256d5` 测得 `4973 passed`，后者较更早的 `5022 passed` 少约 49 项，来自并发合入的 PR #326（清理零引用死代码）删除 `tests/unit/test_multi_language_parser.py`（52 个 test 定义，覆盖已删的 `app/agent/multi_language_parser.py`）及其清理的 `app/test/` 历史脚本，非测试能力退化；随后 PR #328（`fix(tasks)`）新增 8 项回到 4981，本轮删除两个零覆盖死模块未改变项数。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
 - 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。依赖升级后重启 Uvicorn/Celery 复跑一致：GET `200×55 / 404×22 / 422×7 / 400×2 / 503×1`（唯一 503 为 `/api/v2/Controller/admin/docker/containers` 的 Docker SDK 未安装预期降级）、变更端点 `404×33 / 422×22 / 200×4 / 400×2`，均 0 个 5xx/429。
-- 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `750e976b`）：全部 `app` `67.99%`；**非 Agent `app` `62.73%`**（33711 statements；`app/agent/**` 29494 statements 占全部 `app` 的 46%，按范围约定不计入结论）。非 Agent 分模块：`services 75.20%`、`models 99.67%`、`schema 96.47%`、`db 74.32%`、`utils 64.84%`、`core 63.81%`、`api 55.04%`、`tasks 49.74%`、`adapter 25.45%`。改进优先级最低三块：`adapter`、`tasks`、`api`。
+- 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `0c23233f`）：全部 `app` `68.76%` line / `54.90%` branch；**非 Agent `app` `67.10%` line / `49.43%` branch**（248 files / 28396 statements）；Agent 子系统 `70.12%`（34543 statements），按范围约定不计入结论。上轮文档记载的非 Agent `62.73%` 口径有误：`app/adapter/**` 仅被 `app/utils/agent_core.py` 引用，属 Agent 链，不应计入非 Agent。非 Agent 分模块：`middleware 92.51%`、`models 99.67%`、`schema 96.47%`、`celery_app 90.16%`、`services 76.18%`、`db 74.40%`、`main.py 72.17%`、`utils 67.12%`、`tasks 66.81%`、`core 64.04%`、`api 55.64%`。改进优先级最低三块：`api`、`core`、`tasks`。
 - 前端全量 Vitest：`50 files / 251 passed`（47.4s）；前端覆盖率（v8，`npm run test:coverage`）`44.36% stmts / 38.68% branch / 35.48% funcs / 45.22% lines`，低位集中在 `utils/api`（19.16%）与网络凭据类工具（`crypto.js`/`encryption.js`/`auth.js`），后者主要由后端契约与 E2E 覆盖；`npm run build:budget` 成功，四项预算全部通过（依赖升级后首屏 JS 92.8/450 KiB、CSS 57.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB，首屏增幅来自 `xlsx` 0.20.3）。
 - 前端 ESLint：`0 errors / 382 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
