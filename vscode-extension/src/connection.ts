@@ -501,12 +501,12 @@ export class CloudConnection {
       for (const frame of frames) {
         const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
         if (!data) continue;
-        await onEvent(JSON.parse(data) as AgentStreamEvent);
+        await onEvent(this.parseStreamEvent(data));
       }
       if (chunk.done) break;
     }
     const finalData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-    if (finalData) await onEvent(JSON.parse(finalData) as AgentStreamEvent);
+    if (finalData) await onEvent(this.parseStreamEvent(finalData));
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {
@@ -662,6 +662,15 @@ export class CloudConnection {
       // Non-JSON or unreadable error body; keep the generic message.
     }
     return fallback;
+  }
+
+  // Thinking chunks repeat the whole accumulated buffer beside the incremental
+  // message; the workbench renders only the message, and the repetition makes
+  // the forwarded stream quadratic in the response length.
+  private parseStreamEvent(payload: string): AgentStreamEvent {
+    const event = JSON.parse(payload) as AgentStreamEvent & { accumulated?: unknown };
+    if (event.type === "thinking") delete event.accumulated;
+    return event;
   }
 
   private isRetryableStatus(status: number): boolean {

@@ -170,6 +170,40 @@ test("streams Agent events with bearer authentication", async () => {
   ]);
 });
 
+test("drops the redundant accumulated text from thinking chunks", async () => {
+  const chunks = [
+    new TextEncoder().encode(
+      'data: {"type":"thinking","agent":"架构师","message":"h","accumulated":"h"}\n\n',
+    ),
+    new TextEncoder().encode(
+      'data: {"type":"thinking","agent":"架构师","message":"i","accumulated":"hi","streaming":true,"phase":"llm_output"}\n\n',
+    ),
+    new TextEncoder().encode('data: {"type":"done","data":{"success":true}}\n\n'),
+  ];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      let index = 0;
+      return {
+        ...response({}, 200),
+        body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: chunks[index++] } : { done: true } }) },
+      };
+    },
+  });
+  const events = [];
+
+  await connection.streamAgentPrompt({ requirement: "检查项目" }, (event) => events.push(event));
+
+  // The full accumulated buffer is repeated on every chunk and the workbench
+  // only renders the incremental message, so it must not reach the editor.
+  assert.deepEqual(events, [
+    { type: "thinking", agent: "架构师", message: "h" },
+    { type: "thinking", agent: "架构师", message: "i", streaming: true, phase: "llm_output" },
+    { type: "done", data: { success: true } },
+  ]);
+});
+
 test("uses the negotiated session for agent host actions and events", async () => {
   const calls = [];
   const connection = new CloudConnection({
