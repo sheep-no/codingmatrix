@@ -172,6 +172,20 @@ class FileOperator:
             return abs_path_str.endswith("/" + protected_file)
         return target.name.lower() == protected_file
 
+    def _should_skip_entry(self, rel_path: Path) -> bool:
+        """判断相对路径是否应在目录遍历中跳过。
+
+        FO6：原实现按 `part.startswith('.')` 跳过所有隐藏项，使 .github/、
+        .gitignore、.env.example 等工程文件在 search/grep/stats/list_dir/tree
+        中全部不可见。现只跳过显式声明的 SKIP_DIRS（VCS/构建/缓存目录）与
+        PROTECTED_FILES（敏感文件），其余隐藏项正常纳入；同时敏感文件即使
+        非隐藏也不再出现在遍历结果中。
+        """
+        if any(part in self.SKIP_DIRS for part in rel_path.parts):
+            return True
+        name = rel_path.name.lower()
+        return any("/" not in pf and name == pf for pf in self.PROTECTED_FILES)
+
     def _collect_files(self, base_dir: Path) -> List[Path]:
         """收集目录下所有文件"""
         files = []
@@ -181,12 +195,7 @@ class FileOperator:
                     continue  # 跳过符号链接，防止穿越
                 if item.is_file():
                     rel_path = item.relative_to(base_dir)
-                    skip = False
-                    for part in rel_path.parts:
-                        if part.startswith('.') or part in self.SKIP_DIRS:
-                            skip = True
-                            break
-                    if not skip:
+                    if not self._should_skip_entry(rel_path):
                         files.append(rel_path)
         except PermissionError:
             pass
@@ -427,13 +436,7 @@ class FileOperator:
                 for item in sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name)):
                     rel_path = item.relative_to(rel_base)
 
-                    skip = False
-                    for part in rel_path.parts:
-                        if part.startswith('.') or part in self.SKIP_DIRS:
-                            skip = True
-                            break
-
-                    if skip:
+                    if self._should_skip_entry(rel_path):
                         continue
 
                     if file_pattern and not file_pattern.match(item.name):
@@ -649,7 +652,7 @@ class FileOperator:
                 children = []
                 try:
                     for item in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name)):
-                        if item.name.startswith('.') or item.name in self.SKIP_DIRS:
+                        if self._should_skip_entry(Path(item.name)):
                             continue
                         child = build_tree(item, current_depth + 1)
                         if child:
@@ -661,7 +664,7 @@ class FileOperator:
             return node
 
         tree = build_tree(target, 0)
-        file_count = sum(1 for _ in target.rglob("*") if _.is_file() and not _.name.startswith('.'))
+        file_count = len(self._collect_files(target))
 
         return {
             "path": path,

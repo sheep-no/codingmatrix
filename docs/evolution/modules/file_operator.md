@@ -101,7 +101,7 @@
 
 ### 仍开放（未改）
 
-- **FO2/FO4/FO6** 维持原判定（关闭开关、无 base_path 越界、隐藏目录全跳），均需跨消费方或专项口径。
+- **FO2/FO4** 维持原判定（关闭开关、无 base_path 越界），均需跨消费方或专项口径。
 
 ### FO5 修复（2026-09-25）
 
@@ -115,3 +115,9 @@
 - **白名单补充**：既有的 `SAFE_EXTENSIONS` 缺失多种工程常用扩展名，直接对 `write` 生效会造成新的误拒（如 `go.mod`/`go.sum` 的 `.mod`/`.sum`、Gradle 的 `.gradle`/`.kts`、.NET 的 `.csproj`/`.sln`、`.pyi`/`.mjs`/`.cjs`、`.svelte`/`.astro`、`.tf`/`.proto`/`.graphql`、`.log`/`.mdx`/`.tex`/`.jsonl`/`.ipynb` 等）。一并补齐上述明显安全的文本/构建/配置扩展名；可执行/二进制/密钥类扩展名（`.exe`/`.dll`/`.so`/`.pem`/`.key` 等）保持拒绝。
 - **未改动**：`delete`/`read`/`list_dir`/`tree` 不产生新文件，`move`/`copy` 目标可能是目录（扩展名语义不成立），均维持 `check_extension=False`。
 - **回归**：`tests/unit/test_file_operator.py` 新增 `TestWriteExtensionWhitelist`（10 项：write 拒绝未知扩展名、放行白名单扩展名、放行无扩展名文件、`go.mod`/`go.sum`/`build.gradle`/`app.csproj`/`schema.proto`/`app.log` 经 write 与 create 双路径放行），该文件共 24 项；回退 `file_operator.py` 后「write 拒绝未知扩展名」失败，仅还原白名单时 6 项「常见工程文件」失败。
+
+### FO6 修复（2026-09-26）
+
+- **FO6 [P3] 已修**：`_collect_files`（search/grep/stats）、`list_dir`、`tree` 原先一律跳过 `.` 开头的目录/文件，使 `.github/`、`.gitignore`、`.env.example`、`.eslintrc` 等工程文件在遍历中全部不可见。新增 `_should_skip_entry`，只跳过显式的 `SKIP_DIRS`（`.git`/`.venv`/`node_modules` 等 VCS/构建/缓存目录）与 `PROTECTED_FILES`（`.env`/`id_rsa` 等敏感文件），其余隐藏项正常纳入。副作用是遍历结果对敏感文件更安全：此前 `search`/`grep` 直接读文件绕过 `_validate_path`，隐藏过滤是唯一屏障；现由 `PROTECTED_FILES` 显式排除 `.env`/`id_rsa`。`tree` 的 `file_count` 改为复用 `_collect_files`，与 search/grep/stats 口径一致。
+- **行为变更**：`search`/`grep`/`stats`/`list_dir`/`tree` 对隐藏工程文件的可见性提升；`.env`、`id_rsa`、`.git/config` 等仍不可见（且 `node_modules` 等 SKIP_DIRS 仍跳过）。
+- **回归**：`tests/unit/test_file_operator.py` 新增 `TestHiddenVisibility`（7 项：`_collect_files` 纳入隐藏工程文件、排除 SKIP_DIRS/PROTECTED_FILES、grep 可见/不可见断言、stats 计数、list_dir 顶层与递归、tree 展示与 file_count），该文件共 31 项；回退 `file_operator.py` 后 6 项失败。
