@@ -44,6 +44,7 @@ from app.models.saved_project import SavedProject
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
 from fastapi import FastAPI
 from starlette.datastructures import State
+from slowapi.middleware import SlowAPIASGIMiddleware
 # Alembic 迁移导入
 from migrations.runner import run_async_migrations
 
@@ -113,8 +114,6 @@ async def lifespan(App: FastAPI):
     user_uploads_dir = Path("./projects/user_uploads")
     user_uploads_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"用户上传目录已就绪: {user_uploads_dir.resolve()}")
-
-    init_rate_limit(App)
 
     redis_url = settings.REDIS_URL
     if redis_url:
@@ -216,6 +215,11 @@ app = FastAPI(lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc", o
 # 注册统一异常处理器
 register_exception_handlers(app)
 
+# 限流器状态与异常处理器在应用创建时即注册：SlowAPIASGIMiddleware 在每个请求
+# 读取 app.state.limiter，若只在 lifespan 中初始化，未触发 lifespan 的请求
+# （如 TestClient(app) 不进上下文、ASGI 生命周期外调用）会直接抛 AttributeError。
+init_rate_limit(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS.split(","),
@@ -233,6 +237,10 @@ app.add_middleware(InputValidatorMiddleware)
 
 # 速率限制中间件（防止暴力破解和 DDoS）
 app.add_middleware(RateLimitMiddleware)
+
+# slowapi 全局限流中间件：只有挂载它，default_limits=["100/minute"] 才会对
+# 全部未单独装饰 @limiter.limit 的路由生效；已装饰路由由装饰器自行限流。
+app.add_middleware(SlowAPIASGIMiddleware)
 
 # 功能开关中间件（禁用未启用的功能模块）
 app.add_middleware(FeatureSwitchMiddleware)

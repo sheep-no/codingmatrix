@@ -88,9 +88,9 @@
 
 - **限流 Redis 存储补齐 socket 超时（内存回退的前提）**：`Limiter` 的 Redis 存储原先未设超时，`in_memory_fallback_enabled` 只在存储抛异常时生效，而 Redis 进程卡住/网络黑洞会让 `incr` 的 `recv` 永久阻塞——回退逻辑形同虚设，受限端点的请求线程被无限挂住（本次实测：Redis 卡死时全量回归在该路径挂起 25 分钟）。`_create_limiter` 现传入 `storage_options={"socket_connect_timeout": 2, "socket_timeout": 2}`，失败快速冒泡为异常并触发内存回退。新增 `tests/unit/test_rate_limiter_storage_timeout.py`（2 项），回退源码后超时用例失败。
 
-### 仍开放（未改）
+### 本轮修复（2026-09-26）
 
-- **RL6 `default_limits=["100/minute"]` 未生效**——slowapi 的 `default_limits` 需配合 `SlowAPIMiddleware` 才对全部路由生效；`main.py` 仅调用 `init_rate_limit`（设置 `app.state.limiter` + 异常处理器），未挂载 `SlowAPIMiddleware`，故全局 100/minute 实际未被应用，当前只有 `@limiter.limit` 装饰的端点受限。挂载中间件会对全站路由生效，属行为级变更，需专项评估后处理。
+- **RL6 `default_limits=["100/minute"]` 未生效**——slowapi 的 `default_limits` 需配合中间件才对全部路由生效；`main.py` 原先仅调用 `init_rate_limit`（设置 `app.state.limiter` + 异常处理器），未挂载中间件，故全局 100/minute 实际未被应用，只有 `@limiter.limit` 装饰的端点受限。现改用纯 ASGI 的 `SlowAPIASGIMiddleware`（与项目「避免 BaseHTTPMiddleware cancel scope 传播」约定一致），挂载后未单独装饰的路由统一受 100/minute（按客户端 IP + 路径）约束，已装饰路由仍由装饰器自身限流。同时把 `init_rate_limit(app)` 从 lifespan 提前到应用创建时：中间件在每个请求读取 `app.state.limiter`，未触发 lifespan 的请求（如 `TestClient(app)` 不进上下文）此前会抛 `AttributeError`。新增 `tests/unit/test_rate_limiter.py` 中 2 项（主应用挂载中间件 + 未装饰路由超限返回项目统一 429），回退 `main.py` 后前者失败。
 
 ### 仍开放（未改）
 
