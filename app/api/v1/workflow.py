@@ -52,9 +52,35 @@ _session_lock = asyncio.Lock()
 _MAX_WORKFLOWS = 500  # 最大缓存工作流数
 _MAX_SESSION_WORKFLOWS = 200  # 最大缓存会话工作流数
 
+_WORKFLOW_TTL_SECONDS = 24 * 60 * 60  # 已完成工作流缓存的过期时间
+_SESSION_WORKFLOW_TTL_SECONDS = 24 * 60 * 60  # 会话工作流缓存的过期时间
+
+
+def _is_expired(record, now, ttl_seconds: int) -> bool:
+    """记录是否已超过 TTL；缺时间戳或格式非法视为未过期，避免误删。"""
+    updated_at = record.get("updated_at")
+    if not updated_at:
+        return False
+    try:
+        return (now - datetime.fromisoformat(updated_at)).total_seconds() > ttl_seconds
+    except (TypeError, ValueError):
+        return False
+
+
+def _prune_expired(store, now, ttl_seconds: int, *, keep_running: bool = False) -> None:
+    """清理超过 TTL 的缓存条目（调用方需持有对应锁）。"""
+    expired = [
+        key for key, record in store.items()
+        if not (keep_running and record.get("status") == "running")
+        and _is_expired(record, now, ttl_seconds)
+    ]
+    for key in expired:
+        store.pop(key, None)
+
 
 def _remember_session_workflow(user_id, session_id, record) -> None:
-    """记录会话工作流，超限时淘汰最旧的会话（调用方需持有 _session_lock）。"""
+    """记录会话工作流：先清过期项，超限时淘汰最旧的会话（调用方需持有 _session_lock）。"""
+    _prune_expired(_session_workflows, datetime.now(), _SESSION_WORKFLOW_TTL_SECONDS)
     if len(_session_workflows) >= _MAX_SESSION_WORKFLOWS:
         oldest_key = min(
             _session_workflows,
@@ -159,6 +185,9 @@ async def execute_workflow(
                 return
 
             async with _workflows_lock:
+                _prune_expired(
+                    _workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True
+                )
                 # 超过限制时淘汰最旧的工作流
                 if len(_workflows) >= _MAX_WORKFLOWS:
                     oldest_key = next(iter(_workflows))
@@ -167,6 +196,7 @@ async def execute_workflow(
                     "task_graph": task_graph,
                     "request": request,
                     "user_id": user_id,
+                    "updated_at": datetime.now().isoformat(),
                 }
 
             yield json.dumps({
@@ -213,6 +243,7 @@ async def execute_workflow(
             async with _workflows_lock:
                 _workflows[task_graph.workflow_id]["executor"] = executor
                 _workflows[task_graph.workflow_id]["status"] = "running"
+                _workflows[task_graph.workflow_id]["updated_at"] = datetime.now().isoformat()
 
             event_queue = asyncio.Queue()
 
@@ -252,6 +283,7 @@ async def execute_workflow(
                         record["status"] = "failed"
                     else:
                         record["status"] = task.result()["status"]
+                    record["updated_at"] = datetime.now().isoformat()
             executor_task.add_done_callback(record_terminal)
 
             try:
@@ -269,6 +301,7 @@ async def execute_workflow(
                 result = await executor_task
                 async with _workflows_lock:
                     _workflows[task_graph.workflow_id]["status"] = result["status"]
+                    _workflows[task_graph.workflow_id]["updated_at"] = datetime.now().isoformat()
 
                 yield json.dumps({
                     "event": "workflow_completed",
@@ -423,10 +456,14 @@ async def import_workflow(
 
     workflow_id = task_graph.workflow_id
     async with _workflows_lock:
+        _prune_expired(
+            _workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True
+        )
         _workflows[workflow_id] = {
             "task_graph": task_graph,
             "request": None,
             "user_id": user_id,
+            "updated_at": datetime.now().isoformat(),
         }
 
     return {

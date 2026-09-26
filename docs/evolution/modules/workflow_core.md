@@ -80,6 +80,6 @@
 
 **仍存在（需产品口径或较大改动）**
 
-- **WF1 容量清理已存在 / TTL 仍缺**：经核实 `_workflows` 已有 `_MAX_WORKFLOWS = 500` 上限并在写入时淘汰最旧项（workflow.py:163-166），`_session_workflows` 亦有 `_MAX_SESSION_WORKFLOWS = 200` 上限与 `_remember_session_workflow` 按 `updated_at` 淘汰最旧会话（workflow.py:56-64），原条目「无容量清理、只靠用户 DELETE」已过时。仍缺的是**按 TTL 过期**（长跑进程内即使未超上限也会常驻），以及超限淘汰是 FIFO 而非 LRU，属优化项。
+- **WF1 TTL 已补（2026-09-26）**：`_workflows` 已有 `_MAX_WORKFLOWS = 500` 上限并在写入时淘汰最旧项，`_session_workflows` 亦有 `_MAX_SESSION_WORKFLOWS = 200` 上限与按 `updated_at` 淘汰最旧会话。本轮补齐缺失的**按 TTL 过期**：新增 `_is_expired` / `_prune_expired`，`_workflows` 条目补记 `updated_at`（创建、置 running、完成回写三处均刷新），写入新工作流与 `_remember_session_workflow` 时惰性清理超过 24h 的条目。`keep_running=True` 使 `status == "running"` 的工作流不被清理，避免误断正在执行的任务；缺时间戳或格式非法的条目视为未过期，避免误伤。回归 `tests/unit/test_workflow_cache_ttl.py`（6 项，回退 `workflow.py` 后 5 项失败）；容量淘汰用例 `test_session_workflows_evict_oldest` 的时间戳已改为相对当前时间以适配 TTL。**仍未改**：超限淘汰是 FIFO 而非 LRU，属优化项。
 - **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。修复需把工作流/会话状态落库（`WorkflowHistory` 已存在，但 status/continue 链路尚未改走 DB），属架构级改动。
 - **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。删除涉及公共方法面，保留待确认。
