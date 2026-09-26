@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import yaml
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Dict, List
 from celery import Task
@@ -214,23 +215,55 @@ def _collect_guard_violations(target_files: List[str]) -> List[Dict]:
     return violations
 
 
+def _normalize_repo_path(path: str) -> str:
+    """规范化仓库内路径：统一分隔符并去除前导 "./"。"""
+    normalized = str(path or "").strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
 def _find_affected_files(dep_graph: Dict, target_files: List[str]) -> List[str]:
-    """通过依赖图谱查找受影响的文件"""
-    if not dep_graph:
+    """通过依赖图谱查找受影响的文件。
+
+    ``reverse_index`` 的形状是 ``{被依赖文件: [依赖它的文件, ...]}``，
+    因此必须按规范化路径精确匹配键，不能用子串匹配（短键会跨文件误命中）。
+    """
+    if not dep_graph or not target_files:
         return []
 
-    affected = set(target_files)
     reverse_index = dep_graph.get("reverse_index", {})
+    if not reverse_index:
+        return []
 
+    normalized_index = {
+        _normalize_repo_path(target): [
+            _normalize_repo_path(source) for source in (sources or [])
+        ]
+        for target, sources in reverse_index.items()
+    }
+
+    affected = set()
     for file_path in target_files:
-        # 查找依赖此文件的其他文件
-        for target, sources in reverse_index.items():
-            if target in file_path:
-                affected.update(sources)
+        affected.update(normalized_index.get(_normalize_repo_path(file_path), []))
 
-    # 排除目标文件本身
-    affected -= set(target_files)
-    return list(affected)
+    # 排除目标文件本身（依赖图可能把目标文件列为自身的下游）
+    affected -= {_normalize_repo_path(p) for p in target_files}
+    return sorted(affected)
+
+
+def _matches_test_pattern(pattern: str, target: str) -> bool:
+    """判断目标文件是否匹配测试映射模式，支持 glob 通配。"""
+    normalized_target = _normalize_repo_path(target)
+    normalized_pattern = _normalize_repo_path(pattern)
+    if not normalized_target or not normalized_pattern:
+        return False
+    if fnmatchcase(normalized_target, normalized_pattern):
+        return True
+    # 不含目录分隔符的模式按文件名匹配
+    if "/" not in normalized_pattern and Path(normalized_target).name == normalized_pattern:
+        return True
+    return False
 
 
 def _get_related_tests(target_files: List[str]) -> List[str]:
@@ -248,14 +281,14 @@ def _get_related_tests(target_files: List[str]) -> List[str]:
 
         for target in target_files:
             for pattern, tests in mapping.items():
-                if pattern.replace('*', '') in target or target in pattern:
+                if _matches_test_pattern(pattern, target):
                     test_files.update(tests)
 
         # 添加全局测试
         global_tests = config.get("global_tests", [])
         test_files.update(global_tests)
 
-        return list(test_files)
+        return sorted(test_files)
     except Exception as e:
         logger.error(f"加载测试映射失败: {e}")
         return []
