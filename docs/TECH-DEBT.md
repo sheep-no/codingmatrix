@@ -84,6 +84,8 @@
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 已解决；`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，Dockerfile 已 `chown -R appuser:appuser /app` 并预建全部挂载点、bind mount 源文件 644 可读。本地 `docker-compose.yml` 因 bind mount 属主保持 root 并加注释。补 2 项守卫用例。注意：既有 root 属主的 named volume 需重建或手工 `chown` |
+| P3 | 生产镜像安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链（Twisted/parsel/w3lib/itemadapter/itemloaders/Protego/PyDispatcher/queuelib/cssselect/Automat/constantly/hyperlink/Incremental/service-identity/zope.interface/pyasn1-modules）、Flask、Werkzeug、pandas、opencv-python 在代码中零引用，且无任何硬反向依赖 | `configs/requirements.txt`、`Dockerfile` | 待决策；已确认这些包可安全裁剪（同时消除其携带的 CVE 与镜像体积），但属生产依赖结构变更，本轮按「升级到修复版本、不裁剪包」策略保留 |
+| P3 | `ecdsa 0.19.2` 存在 `PYSEC-2026-1325` 且无上游修复版本，被 `python-jose` 硬依赖 | `configs/requirements.txt`、`app/utils/security.py` | 待决策；`python-jose` 生产代码未直接引用（仅测试用），可评估改用已安装的 `PyJWT` 后移除，或确认不使用 ECDSA（ES*）签名算法以规避 |
 
 ## 2026-09-25 生产就绪复核新增项
 
@@ -123,6 +125,16 @@
 | P2 | 首页输入区上传附件后永久停留在「上传中」：`processFile` 把普通对象 push 进 `ref([])` 后直接改原始对象字段，未触发 Vue 响应式更新，父组件与 `FilePreview` 子组件都收不到 | `src/components/bottominput.vue` | 已解决；待上传的对象改用 `reactive()` 包装，上传成功或失败都会离开中间态。补 `upload-file.spec.js` 回归（修复前失败、修复后通过），已纳入门禁 |
 | P3 | 全仓库非 Agent 子系统仍在用 `datetime.utcnow()`（62 处 / 23 文件），Python 3.12 起弃用且返回值无时区 | `app/models`、`app/services`、`app/utils`、`app/db`、`app/core`、`app/api/v1` | 已解决；新增 `app/core/time.py:utcnow_naive()`（语义等同 `utcnow()`），按列类型配对迁移：naive 列用 `utcnow_naive()`，`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`。补 `tests/unit/test_time_utils.py`（3 项）。Agent 子系统按归属裁定不动 |
 
+### 依赖安全审计与修复（2026-09-26）
+
+对生产镜像依赖做完整漏洞审计，策略为「升级到修复版本、不裁剪包」：
+
+| 范围 | 审计前 | 审计后 | 处置 |
+|---|---|---|---|
+| 后端（`configs/requirements.txt`，`pip-audit --local`） | 77 CVE / 20 包 | 1 CVE / 1 包 | 升级 19 个包：`starlette` 1.0.0→1.3.1、`cryptography` 46.0.7→50.0.0、`pillow` 12.2.0→12.3.0、`python-multipart` 0.0.28→0.0.31、`aiohttp` 3.13.5→3.14.3、`lxml` 6.0.3→6.1.0、`urllib3` 2.6.3→2.7.0、`pyOpenSSL` 26.0.0→26.4.0、`Django` 5.2.13→5.2.17、`Scrapy` 2.15.0→2.17.0、`Twisted` 25.5.0→26.4.0，以及 `anyio`/`click`/`idna`/`json_repair`/`Protego`/`pyasn1`/`pydantic-settings`/`soupsieve`/`sqlparse` 补丁级升级；`fastapi` 声明 `starlette>=0.46.0`、`requests` 允许 `urllib3<3`、`matplotlib` 允许 `pillow>=8`，均在修复版本约束内；`pip check` 无冲突 |
+| 前端生产依赖 | `xlsx` 0.18.5 两个 high（Prototype Pollution `GHSA-4r6h-8v6p-xvw6` + ReDoS `GHSA-5pgg-2g8v-p4x9`，npm 无修复版本） | 0 | `xlsx` 改用 SheetJS 官方 CDN tarball `0.20.3`（`package.json` 依赖源改为 `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`）；仅 `src/views/ChartEditorPage.vue` 一处使用，`XLSX.read`/`utils.sheet_to_json` API 不变 |
+| 前端 dev/build/test 依赖 | 8（`js-cookie`/`undici`/`brace-expansion` high，`esbuild`/`postcss-selector-parser`/`@vitest/mocker` moderate） | 9 | 均位于开发期链路（`@vue/test-utils`→`js-beautify`→`js-cookie`、`jsdom`→`undici`、`glob`/`editorconfig`→`brace-expansion`、`vite`→`esbuild`），不进生产 bundle；`npm audit fix` 受 npm 10.9.4 `Cannot read properties of null (reading 'edgesOut')` bug 阻断，未处理 |
+
 ### 非 Agent 过期 spec 处置（2026-09-26）
 
 对上一轮定性的三个「断言不存在功能」spec 按「可重写则重写、失效则归档」处置：
@@ -135,11 +147,11 @@
 
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4999 passed, 2 skipped, 0 failed`（345s；2026-09-26 含 utcnow 清理后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
+- 后端 unit/integration 最近完整记录：`5022 passed, 2 skipped, 0 failed`（335s；2026-09-26 含依赖升级后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
 - 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。
 - 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `750e976b`）：全部 `app` `67.99%`；**非 Agent `app` `62.73%`**（33711 statements；`app/agent/**` 29494 statements 占全部 `app` 的 46%，按范围约定不计入结论）。非 Agent 分模块：`services 75.20%`、`models 99.67%`、`schema 96.47%`、`db 74.32%`、`utils 64.84%`、`core 63.81%`、`api 55.04%`、`tasks 49.74%`、`adapter 25.45%`。改进优先级最低三块：`adapter`、`tasks`、`api`。
-- 前端全量 Vitest：`50 files / 251 passed`（52.8s）；前端覆盖率（v8，`npm run test:coverage`）`44.36% stmts / 38.68% branch / 35.48% funcs / 45.22% lines`，低位集中在 `utils/api`（19.16%）与网络凭据类工具（`crypto.js`/`encryption.js`/`auth.js`），后者主要由后端契约与 E2E 覆盖；`npm run build:budget` 成功（25.6s），四项预算全部通过（首屏 JS 87.7/450 KiB、CSS 55.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB）。
-- 前端 ESLint：`0 errors / 385 warnings`（console/unused-var）。
+- 前端全量 Vitest：`50 files / 251 passed`（47.4s）；前端覆盖率（v8，`npm run test:coverage`）`44.36% stmts / 38.68% branch / 35.48% funcs / 45.22% lines`，低位集中在 `utils/api`（19.16%）与网络凭据类工具（`crypto.js`/`encryption.js`/`auth.js`），后者主要由后端契约与 E2E 覆盖；`npm run build:budget` 成功，四项预算全部通过（依赖升级后首屏 JS 92.8/450 KiB、CSS 57.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB，首屏增幅来自 `xlsx` 0.20.3）。
+- 前端 ESLint：`0 errors / 382 warnings`（console/unused-var）。
 - PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
 - VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
 - 前端 E2E：预置规范账号（`python3 -m app.scripts.seed_users`，三个账号密码均 `12345678`）后，CI 门禁覆盖 `core`、`01-auth`、`02-core-navigation`、`11-theme-shortcuts`、`encrypted-login`、`theme-switcher`、`10-admin`、`tools`、`tools-panel`、`capability-center`、`admin-panel-scenarios`、`system-monitor`、`upload-file` 共 `98` 项；`CI=1`（单 worker + 2 次重试）下运行。所有纳入 spec 均经本机复跑确认全绿：前四批 `28 passed`（串行与默认并行各一遍），`tools-panel` `11 passed`，`admin-panel-scenarios` `2 passed`，`system-monitor` 与 `upload-file` 合计 `13 passed`（串行与默认并行各一遍）。`encrypted-login` 默认账号与种子脚本一致，此前失败纯属本地库未播种。
