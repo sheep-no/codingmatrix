@@ -1,6 +1,6 @@
 # 待环境验收清单
 
-> 核对日期：2026-09-22 ~ 2026-09-25 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
+> 核对日期：2026-09-22 ~ 2026-09-26 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
@@ -21,6 +21,8 @@
 2026-09-25 修复插件错误信息丢失后端可操作文案：`CloudConnection.request()` 在非 2xx 时直接抛 `cloud request failed with status <code>`，丢弃响应体里后端的说明。实测编排流在磁盘守卫不满足时返回 `507` 加 `{"message":"磁盘空间不足（可用：0.78 GB）"}`，用户侧只看到状态码。现新增 `describeFailure()`：尽力解析 JSON 错误体，取 `message` 或 `detail` 拼到通用信息后（非 JSON 或不可读时回退原信息，不影响既有分支）。回归用例 `test/connection.test.mjs`「surfaces the backend error message for non-retryable failures」修前失败、修后通过；插件单测 101 → 102 passed / 0 fail。宿主内实发需求复验：对话页错误为 `cloud request failed with status 507: 磁盘空间不足（可用：0.74 GB）`。截图见 `/tmp/opencode/host_tabs_drv5/send-error.png`。
 
 2026-09-26 优化插件到 webview 的事件转发量：`thinking` 事件在增量 `message` 之外还带一份**全量累积**文本 `accumulated`，每个 chunk 重复整段，转发量随输出长度呈平方增长；webview 只渲染 `message`，`accumulated` 在 `src/` 与 `test/` 中零引用。实测真实 legacy 流 88.44MB，其中 `accumulated` 独占 65.87MB（首个样本只有 4 个字段，是字段并集统计才发现该字段，勿据单样本判定形状）。现于 `CloudConnection.parseStreamEvent()` 在 SSE 解析处剥离 `thinking` 的 `accumulated`（行为等价，其余字段与事件类型全部保留）。回归用例 `test/connection.test.mjs`「drops the redundant accumulated text from thinking chunks」修前失败、修后通过（反向验证：注释掉剥离行后重新失败）；插件单测 102 → 103 passed / 0 fail。用真实 `fix_stream.ndjson` 重放（`/tmp/opencode/verify_accumulated.mjs`）验证：源流 88.44MB → 转发 2.01MB（减少 97.7%），13780 个 thinking 全部无 `accumulated`，13 类事件计数不变。
+
+2026-09-26 Android 无设备静态验收：模拟器路径在本环境不可用（宿主无 `/dev/kvm`，`/proc/cpuinfo` 无 `vmx`/`svm`，SDK 亦无 `emulator` 与 system-image，且根分区仅余约 0.8GB、可用内存约 1GB），改为对 release APK 做静态验收并修复其中发现的缺陷。验收结论（新产物 `app-release.apk` 57.9MB，SHA-1 `bc6278b2…7858250`）：`apksigner verify` 通过（v2 方案，签名 DN/SHA-256 与上表一致）；`zipalign -c -P 16 -v 4` 通过（`extractNativeLibs=false` 下 Android 15+ 要求的 16KB 页对齐成立）；三 ABI 齐备（`arm64-v8a`/`armeabi-v7a`/`x86_64`，各 4 个 `.so`）；`libapp.so` 存在且无 `kernel_blob.bin`（确认 AOT release 而非 JIT/debug 快照）；清单复核 `allowBackup=false`、`usesCleartextTraffic=true`（用户自建 HTTP 后端所需）、无 `debuggable` 属性、仅 `INTERNET` 权限 + AndroidX 注入的 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`；`android/key.properties`、`local.properties`、`upload-keystore.jks` 全部被 git 忽略且未入库。发现并修复的缺陷：启动图标原为**传统 drawable**（`@drawable/ic_launcher`，无 `anydpi-v26` 变体），Android 8.0+ 启动器会把它当传统图标缩小并垫系统底板，出现可见白边/双底板；现新增自适应图标 `drawable-anydpi-v26/ic_launcher.xml`（`adaptive-icon` + `@color/ic_launcher_background` + `@drawable/ic_launcher_foreground`），保留 `drawable/ic_launcher.xml` 作为 API 24/25 回退。修复验证：先用 `aapt2 compile/link` 与合成清单确认 `drawable/ic_launcher` 具备 `(anydpi-v26)` 变体、`color/ic_launcher_background` 解析为 `#ff151923`；再实跑 `flutter build apk --release --no-pub`（1334.2s）重建产物，用 `aapt2 dump resources` 确认新 APK 的 `drawable/ic_launcher` 含 `(anydpi-v26)` 变体、`aapt2 dump xmltree` 确认该变体确为 `adaptive-icon`（background/foreground 均解析到预期资源）。`flutter analyze lib test` → No issues found。Dart 代码本轮未改动，其上一步已跑的 492 passed 仍适用。未覆盖项见「待验收项 · 2. Android 真机验收」。
 
 | 项 | 结果 | 证据 |
 |---|---|---|
@@ -54,7 +56,7 @@
 | 编排端到端与文件链路 | 真实跑到 `done`（`success=true`，4/4 文件），`done` 载荷形状与客户端一致；客户端文件列表/读取/下载三个接口对同一真实项目实测通过 | 详见「待验收项 4」 |
 | 客户端死代码清理与失败原因展示 | `WorkbenchState.artifacts` / `Artifact`（`unified_models.dart:209`）无后端生产者也无渲染，已整体删除：模型类、状态字段与 `copyWith` 形参、SSE 收集分支、两处自测断言。同时后端 `error` 事件的原因原只存 `task.errorJson` 且 UI 从不读取，现于任务概览卡片展示为「失败原因」+ 可复制文本，仅在 `status == 'failed'` 时出现（`disconnected` 已有专门提示，不重复） | 新增 `test/widget_test.dart`「失败任务在概览卡片展示服务端失败原因」；移除展示代码后该用例在 `expect(find.text('失败原因'), findsOneWidget)` 失败、恢复后通过 |
 | 事件卡不再渲染文件正文 | 已修并回归：`_EventsCard` 原先按 `event.type: event.raw` 整份渲染，而 `file`（`orchestrator_progress.py:196`）与 `file_diff`（`:224`）的载荷内嵌完整 `content` / `old_content` / `new_content`。现对这两类事件只显示 `type · path · operation · file_size_human` 摘要，其余事件保留原文但统一截断到 2000 字符并标注省略量 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」（按后端顶层字段构造真实 SSE 帧，400 行正文）；把摘要分支临时禁用后该用例在 `expect(find.textContaining('12.4 KB'), findsOneWidget)` 失败、恢复后通过；全量 492 passed、`flutter analyze lib test` 无问题 |
-| Android release APK 重建 | `flutter build apk --release --no-pub` 成功，57.9 MB。`apksigner verify` 通过（v2 方案，v1/v3 未启用），签名 DN `CN=CodingMatrix Agent, OU=Mobile, O=CodingMatrix, L=Beijing, ST=Beijing, C=CN`、SHA-256 `1cace6b8…dddb3a`；`aapt2 dump badging/xmltree` 复核三 ABI（`arm64-v8a`/`armeabi-v7a`/`x86_64`）、`minSdk 24`、`targetSdk 36`、`versionCode 1`/`versionName 1.0.0`、`package com.codingmatrix.agent`、label `CodingMatrix Agent`、仅 `INTERNET` 权限（另有一个同包签名级 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，由 AndroidX 自动注入，非手工声明） | `flutter_client/build/app/outputs/flutter-apk/app-release.apk` |
+| Android release APK 重建 | `flutter build apk --release --no-pub` 成功，57.9 MB（2026-09-26 二次重建后 SHA-1 `bc6278b2…7858250`）。`apksigner verify` 通过（v2 方案，v1/v3 未启用），签名 DN `CN=CodingMatrix Agent, OU=Mobile, O=CodingMatrix, L=Beijing, ST=Beijing, C=CN`、SHA-256 `1cace6b8…dddb3a`；`zipalign -c -P 16` 通过（16KB 页对齐）；`aapt2 dump badging/xmltree/resources` 复核三 ABI（`arm64-v8a`/`armeabi-v7a`/`x86_64`）、`minSdk 24`、`targetSdk 36`、`versionCode 1`/`versionName 1.0.0`、`package com.codingmatrix.agent`、label `CodingMatrix Agent`、`allowBackup=false`、`usesCleartextTraffic=true`、无 `debuggable`、仅 `INTERNET` 权限（另有一个同包签名级 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，由 AndroidX 自动注入，非手工声明）；启动图标含 `anydpi-v26` 自适应变体（本轮修复） | `flutter_client/build/app/outputs/flutter-apk/app-release.apk` |
 | Linux 发布产物重建与密钥环阻塞可见性 | 重建 `flutter build linux --release` bundle 并实跑：窗口映射、登录页完整渲染（含「系统安全存储不可用」横幅）。修复启动可见性缺陷：密钥环锁定弹出解锁框时，runner 只在首帧回调里 `gtk_widget_show`，而 `flutter_secure_storage` 经 libsecret 在平台线程上同步等待解锁，首帧永不产生，窗口停在 `IsUnMapped`、应用完全不可见。现于 `my_application.cc` 启动即 `gtk_widget_show(window)`，提示框挂起期间窗口已 `IsViewable`，解锁或取消后按降级路径正常渲染 | 修复前 `xwininfo` → `IsUnMapped`，修复后 → `IsViewable`；截图 `/tmp/opencode/linux_fixed_prompt.png`（提示框 + 可见窗口）、`/tmp/opencode/linux_fixed_render.png`（取消后登录页）；取消提示后日志 `libsecret_error: Failed to unlock the keyring` |
 | Linux release bundle 真实后端全流程 | 在解锁的 Secret Service（独立 `dbus-run-session` + 全新 HOME + 非空密码 keyring）下用 release bundle 连本地后端实跑：UI 输入凭据登录（后端 `POST /api/v1/login` 200），进入工作台；逐页点击 12 个导航项全部渲染真实数据（会话历史载入真实会话、模型列表载入 8 个后端模型、Provider 授权显示「硅基流动」），12 张截图无 Flutter 溢出黄条、无错误红屏；关闭进程后重启，经 `POST /api/v1/refresh` 200 免密恢复到工作台；缩至 820x700 / 640x600 时左栏收进抽屉、生成选项换行、抽屉可打开，均无溢出 | 截图 `/tmp/opencode/e2e_01_login.png`、`e2e_03_afterlogin.png`、`e2e_page_*.png`、`e2e_montage.png`、`e2e_restore.png`、`e2e_narrow820.png`、`e2e_narrow640.png`、`e2e_drawer640.png`；后端日志 `POST /api/v1/login` / `POST /api/v1/refresh` 均 200 |
 
@@ -108,7 +110,7 @@ cd /workspace/flutter_client
 flutter build apk --release --no-pub
 ```
 
-产物 `build/app/outputs/flutter-apk/app-release.apk`（57.9 MB），已核对：三 ABI（`arm64-v8a` / `armeabi-v7a` / `x86_64`）、`package com.codingmatrix.agent`、`versionCode 1`、`versionName 1.0.0`、`minSdk 24`、`targetSdk 36`、`application-label 'CodingMatrix Agent'`、仅 `INTERNET` 权限。
+产物 `build/app/outputs/flutter-apk/app-release.apk`（57.9 MB），已核对：三 ABI（`arm64-v8a` / `armeabi-v7a` / `x86_64`）、`package com.codingmatrix.agent`、`versionCode 1`、`versionName 1.0.0`、`minSdk 24`、`targetSdk 36`、`application-label 'CodingMatrix Agent'`、仅 `INTERNET` 权限、`allowBackup=false`、`usesCleartextTraffic=true`、无 `debuggable`、16KB 页对齐、AOT（有 `libapp.so` 无 `kernel_blob.bin`）、启动图标含 `anydpi-v26` 自适应变体。图标层改动见「已经完成的验证」中 2026-09-26 条目。
 
 Release 签名（`android/app/build.gradle.kts:11-63`）：读取 `android/key.properties` 与同目录 keystore，两者均被 `android/.gitignore` 排除、不入库。存在该文件时用自定义密钥签名（v2 方案，`minSdk 24` 足够）；缺失时回退 debug 签名，因此新克隆仍能 `flutter run --release`。两条路径均已实跑验证。
 
@@ -127,7 +129,7 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 ### 2. Android 真机验收
 
-现象：环境无 Android 设备与模拟器，`android/` 的原生与 Kotlin 改动只能静态核对。
+现象：环境无 Android 设备；模拟器路径同样不可用——宿主无 `/dev/kvm`、CPU 无 `vmx`/`svm`，SDK 未安装 `emulator` 与任何 system-image，且根分区仅约 0.8GB 可用、可用内存约 1GB，x86_64 镜像无 KVM 无法加速、纯软件 TCG 在 1GB 内存下基本无法 boot。因此 `android/` 的原生与 Kotlin 改动只能静态核对（已完成的静态项见上）。
 
 待验证项：`flutter_secure_storage` 的 `AndroidOptions(encryptedSharedPreferences: true)` 在设备 KeyStore 上可用；`android:usesCleartextTraffic="true"` 能连到用户自建的明文 HTTP 后端；会话恢复（refresh 验证）与「清除本地会话」在真机可用。
 
