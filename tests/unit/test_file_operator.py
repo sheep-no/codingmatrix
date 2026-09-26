@@ -250,3 +250,102 @@ class TestWriteExtensionWhitelist:
 
         with pytest.raises(PathSecurityError, match="不支持的文件扩展名"):
             operator.create("payload.unknownext", content="x")
+
+
+class TestHiddenVisibility:
+    """FO6: 隐藏工程文件此前在 search/grep/stats/list_dir/tree 中全部不可见。"""
+
+    def _operator(self, root: Path) -> FileOperator:
+        return FileOperator(base_path=str(root), allow_protected_paths=True)
+
+    def _seed(self, root: Path) -> None:
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / ".github" / "workflows" / "ci.yml").write_text(
+            "name: needle-ci\n", encoding="utf-8"
+        )
+        (root / ".gitignore").write_text("needle.pyc\n", encoding="utf-8")
+        (root / ".env.example").write_text("API_KEY=needle\n", encoding="utf-8")
+        (root / ".env").write_text("API_KEY=needle-secret\n", encoding="utf-8")
+        (root / ".git").mkdir()
+        (root / ".git" / "config").write_text("needle\n", encoding="utf-8")
+        (root / "node_modules").mkdir()
+        (root / "node_modules" / "dep.js").write_text("needle\n", encoding="utf-8")
+        (root / "main.py").write_text("needle\n", encoding="utf-8")
+
+    def test_collect_files_includes_hidden_project_files(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        collected = {str(p) for p in operator._collect_files(tmp_path)}
+
+        assert ".github/workflows/ci.yml" in collected
+        assert ".gitignore" in collected
+        assert ".env.example" in collected
+        assert "main.py" in collected
+
+    def test_collect_files_skips_skip_dirs_and_protected_files(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        collected = {str(p) for p in operator._collect_files(tmp_path)}
+
+        assert ".env" not in collected
+        assert ".git/config" not in collected
+        assert "node_modules/dep.js" not in collected
+
+    def test_grep_sees_hidden_but_not_protected(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        result = operator.grep("needle", path=".")
+
+        matched = {m["file"] for m in result["results"]}
+        assert ".github/workflows/ci.yml" in matched
+        assert ".env.example" in matched
+        assert ".gitignore" in matched
+        assert ".env" not in matched
+        assert ".git/config" not in matched
+        assert "node_modules/dep.js" not in matched
+
+    def test_stats_counts_hidden_files(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        result = operator.stats(".")
+
+        # main.py + .gitignore + .env.example + .github/workflows/ci.yml
+        assert result["total_files"] == 4
+
+    def test_list_dir_shows_hidden_entries(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        names = {e["name"] for e in operator.list_dir(".", recursive=False)["entries"]}
+
+        assert ".github" in names
+        assert ".gitignore" in names
+        assert ".env.example" in names
+        assert ".env" not in names
+        assert ".git" not in names
+        assert "node_modules" not in names
+
+    def test_list_dir_recursive_descends_hidden_dirs(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        paths = {e["path"] for e in operator.list_dir(".", recursive=True)["entries"]}
+
+        assert ".github/workflows/ci.yml" in paths
+
+    def test_tree_includes_hidden_entries(self, tmp_path):
+        self._seed(tmp_path)
+        operator = self._operator(tmp_path)
+
+        result = operator.tree(".", max_depth=4)
+
+        child_names = {c["name"] for c in result["tree"]["children"]}
+        assert ".github" in child_names
+        assert ".gitignore" in child_names
+        assert ".env" not in child_names
+        assert "node_modules" not in child_names
+        assert result["file_count"] == 4
