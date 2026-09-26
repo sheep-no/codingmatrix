@@ -57,7 +57,6 @@ from app.utils.cache import get_cache, get_cache_manager
 from app.utils.performance_monitor import setup_performance_monitoring
 from app.api.v1.health import router as healthRouter
 
-from app.models.base import Base
 from app.api.v1.auth import router as userRouter
 from app.api.v1.Aicode import router as codeRouter
 from app.api.v1.GirlAi import router as GirlAiRouter
@@ -85,7 +84,7 @@ from app.api.v1.skills import router as skillsRouter
 from app.api.v2.model_admin import router as modelAdminRouter
 from app.api.v2.model_config_api import router as modelConfigRouter
 from app.api.v2.mcp_admin import router as mcpAdminRouter
-from app.db.database import engine, async_session
+from app.db.database import async_session
 from app.db.scheduler import start_scheduler, stop_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
@@ -288,12 +287,6 @@ async def clear_history_table():
         except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
             await db.rollback()
             print(f" 清空失败: {e}")
-
-async def create_tables():
-    """保留此函数以备不时之需"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
-
 
 async def _restore_user_providers():
     """从 Redis 恢复用户 API Key 对应的供应商模型列表（重启后重建 CustomProvider）"""

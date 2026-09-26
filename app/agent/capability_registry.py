@@ -140,12 +140,6 @@ DECLARED_CAPABILITIES: tuple[DeclaredCapability, ...] = (
         rationale="多角度审查解析整模块无生产引用，仅单测覆盖。",
     ),
     DeclaredCapability(
-        name="LanguageDependencyParser",
-        module="app/agent/multi_language_parser.py",
-        status="experimental",
-        rationale="多语言依赖解析整模块无生产引用，仅单测覆盖。",
-    ),
-    DeclaredCapability(
         name="project_change_plan",
         module="app/agent/orchestration/ir_projection.py",
         status="experimental",

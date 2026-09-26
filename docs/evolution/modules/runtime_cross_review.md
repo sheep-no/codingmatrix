@@ -30,7 +30,7 @@
 | 容器文件路径 | Dockerfile 与普通 Compose 的代码、日志、数据路径统一使用 `/app` | `Dockerfile`、`docker-compose.yml` | **RC4 代码修复完成，容器运行验证待完成** |
 | 前端构建产物 | Dockerfile 将 dist 放到 `/app/src/dist`，随后创建 `/workspace/src/dist` 并建立软链接；普通 Compose Nginx 只挂载宿主 `./src/dist` | `Dockerfile:60-73`、`docker-compose.yml:77-80` | 镜像内路径可用性取决于软链接和挂载组合，Compose API 与 Nginx 使用两套文件视图 |
 | Nginx 运行权限 | 修复前镜像切换 `USER appuser` 后执行 `nginx & ...`；当前由 root master 启动、`nginx` worker 运行并将 Uvicorn 降权为 `appuser` | `Dockerfile:43-48`、`Dockerfile:75-91`、`configs/nginx.conf:6-16`、`configs/nginx.conf:86-89` | **RC2 代码修复完成，容器端口、PID 和日志权限待运行验证** |
-| 数据库启动 | `on_startup` 执行自定义 `run_async_migrations()`；lifespan 中 `_warm_up_database_pool()`，另有未调用的 `create_tables()` | `app/main.py:123-124`、`app/main.py:236-240`、`app/main.py:273-290`、`migrations/runner.py:27-62` | 自定义表创建与预热均接线；`create_all` 当前为死函数，DB12 中“同一次启动两条建表路径并行生效”的表述需要收窄 |
+| 数据库启动 | `on_startup` 执行自定义 `run_async_migrations()`；lifespan 中 `_warm_up_database_pool()`；原死函数 `create_tables()` 已于 2026-09-26 删除 | `app/main.py`、`migrations/runner.py:27-62` | 自定义表创建与预热均接线；DB12 中“同一次启动两条建表路径并行生效”的表述需要收窄 |
 | 调度器启动 | API 由 `ENABLE_SCHEDULER` 控制；普通 Compose 使用单 worker，生产 Compose 使用独立 scheduler 服务 | `app/main.py`、`app/db/scheduler_runner.py`、`docker-compose*.yml` | **RC5 代码修复完成，单实例运行待验证** |
 | Redis 启动 | Compose API 依赖 Redis，但普通 Compose 仅声明启动顺序；生产 Compose 使用 Redis `service_healthy` 条件 | `docker-compose.yml:16-30`、`docker-compose.prod.yml:17-30`、`docker-compose.prod.yml:61-66` | 生产依赖闭环较完整，普通 Compose 的就绪保障较弱 |
 | Celery 启动 | `start.sh`、普通 Compose 和生产 Compose 均声明独立 Celery worker | `scripts/start.sh:111-123`、`docker-compose.yml:35-55`、`docker-compose.prod.yml` | **RC6 代码修复完成，worker 消费和健康状态待验证** |
@@ -79,7 +79,7 @@ FastAPI、Dockerfile、Compose、Nginx 和启动脚本统一使用 `/api/v1/heal
 | 原疑点 | 核对证据 | 结论 |
 |---|---|---|
 | `middleware.md` 的 `/api/docs` 是否与实际 docs 挂载点冲突 | `app/main.py:166` 明确设置 `docs_url="/api/docs"`；`app/main.py:166` 同时设置 redoc/openapi 路径 | **排除误报**。`middleware.md:71-73` 所列 SH2 当前已可关闭 |
-| DB12 是否能直接认定 `create_all()` 与 Alembic 在同一次启动并行执行 | `create_tables()` 定义在 `app/main.py:236-240`，调用点仅为注释 `app/main.py:276-277`；实际 startup 执行 `run_async_migrations()` 于 `app/main.py:279-281`，其实现是按表存在性执行 `CreateTable`（`migrations/runner.py:27-62`） | **收窄结论**。当前运行路径是自定义表创建 runner，`create_all` 不是同次启动的第二个执行调用；文档将该 runner 概括为 Alembic 的表述需要修正，schema 漂移风险仍保留 |
+| DB12 是否能直接认定 `create_all()` 与 Alembic 在同一次启动并行执行 | `create_tables()`（原 `app/main.py` 死函数，2026-09-26 已删除）从未被调用；实际 startup 仅执行 `run_async_migrations()`，其实现是按表存在性执行 `CreateTable`（`migrations/runner.py:27-62`） | **收窄结论**。当前运行路径是自定义表创建 runner，`create_all` 不是同次启动的第二个执行调用；文档将该 runner 概括为 Alembic 的表述需要修正，schema 漂移风险仍保留 |
 | `tasks.md` 的任务问题是否等同于 API 启动失败 | `tasks.md:19-23` 的 TSK1、`tasks.md:26-30` 的 TSK2 等均发生在 Celery 消费任务执行阶段 | **排除层级误报**。它们是 worker 已启动后的执行链阻断，不能单独证明进程启动失败 |
 | 普通 Compose 与生产 Compose 是否完全同一运行拓扑 | 普通 Compose 使用 `/workspace/*` 挂载和独立 celery（`docker-compose.yml:23-55`）；生产 Compose 使用 `/app/*` named volume 且无 celery（`docker-compose.prod.yml:24-26`、`docker-compose.prod.yml:5-126`） | **排除“同构部署”假设**。两者必须分别验收，不能用一个环境的健康结果代表另一个环境 |
 
