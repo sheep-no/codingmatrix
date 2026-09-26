@@ -85,7 +85,7 @@
 | P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 已解决；`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，Dockerfile 已 `chown -R appuser:appuser /app` 并预建全部挂载点、bind mount 源文件 644 可读。本地 `docker-compose.yml` 因 bind mount 属主保持 root 并加注释。补 2 项守卫用例。注意：既有 root 属主的 named volume 需重建或手工 `chown` |
 | P3 | 生产镜像安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链（Twisted/parsel/w3lib/itemadapter/itemloaders/Protego/PyDispatcher/queuelib/cssselect/Automat/constantly/hyperlink/Incremental/service-identity/zope.interface/pyasn1-modules）、Flask、Werkzeug、pandas、opencv-python 在代码中零引用，且无任何硬反向依赖 | `configs/requirements.txt`、`Dockerfile` | 待决策；已确认这些包可安全裁剪（同时消除其携带的 CVE 与镜像体积），但属生产依赖结构变更，本轮按「升级到修复版本、不裁剪包」策略保留 |
-| P3 | `ecdsa 0.19.2` 存在 `PYSEC-2026-1325` 且无上游修复版本，被 `python-jose` 硬依赖 | `configs/requirements.txt`、`app/utils/security.py` | 待决策；`python-jose` 生产代码未直接引用（仅测试用），可评估改用已安装的 `PyJWT` 后移除，或确认不使用 ECDSA（ES*）签名算法以规避 |
+| P3 | `ecdsa 0.19.2` 存在 `PYSEC-2026-1325` 且无上游修复版本，被 `python-jose` 硬依赖 | `configs/requirements.txt`、`app/utils/security.py`、`app/api/v1/auth.py` | 已评估，不可达；`python-jose` 确为生产依赖（`app/utils/security.py`、`app/middleware/rate_limiter.py`、`app/api/v1/auth.py` 三处 `from jose import jwt`），但 JWT 签名算法固定为 `HS256`（`settings.ALGORITHM`），且全部 `jwt.decode` 调用传入 `algorithms=["HS256"]` 白名单，攻击者无法通过算法混淆触发 ecdsa 的 ECDSA 验证路径。按「不可达风险」接受，不为此移除 python-jose |
 
 ## 2026-09-25 生产就绪复核新增项
 
@@ -148,7 +148,7 @@
 ## 当前验收基线
 
 - 后端 unit/integration 最近完整记录：`5022 passed, 2 skipped, 0 failed`（335s；2026-09-26 含依赖升级后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
-- 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。
+- 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。依赖升级后重启 Uvicorn/Celery 复跑一致：GET `200×55 / 404×22 / 422×7 / 400×2 / 503×1`（唯一 503 为 `/api/v2/Controller/admin/docker/containers` 的 Docker SDK 未安装预期降级）、变更端点 `404×33 / 422×22 / 200×4 / 400×2`，均 0 个 5xx/429。
 - 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `750e976b`）：全部 `app` `67.99%`；**非 Agent `app` `62.73%`**（33711 statements；`app/agent/**` 29494 statements 占全部 `app` 的 46%，按范围约定不计入结论）。非 Agent 分模块：`services 75.20%`、`models 99.67%`、`schema 96.47%`、`db 74.32%`、`utils 64.84%`、`core 63.81%`、`api 55.04%`、`tasks 49.74%`、`adapter 25.45%`。改进优先级最低三块：`adapter`、`tasks`、`api`。
 - 前端全量 Vitest：`50 files / 251 passed`（47.4s）；前端覆盖率（v8，`npm run test:coverage`）`44.36% stmts / 38.68% branch / 35.48% funcs / 45.22% lines`，低位集中在 `utils/api`（19.16%）与网络凭据类工具（`crypto.js`/`encryption.js`/`auth.js`），后者主要由后端契约与 E2E 覆盖；`npm run build:budget` 成功，四项预算全部通过（依赖升级后首屏 JS 92.8/450 KiB、CSS 57.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB，首屏增幅来自 `xlsx` 0.20.3）。
 - 前端 ESLint：`0 errors / 382 warnings`（console/unused-var）。
