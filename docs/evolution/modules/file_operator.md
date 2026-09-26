@@ -101,10 +101,17 @@
 
 ### 仍开放（未改）
 
-- **FO2/FO3/FO4/FO6** 维持原判定（关闭开关、扩展名语义不一致、无 base_path 越界、隐藏目录全跳），均需跨消费方或专项口径。
+- **FO2/FO4/FO6** 维持原判定（关闭开关、无 base_path 越界、隐藏目录全跳），均需跨消费方或专项口径。
 
 ### FO5 修复（2026-09-25）
 
 - **FO5 [P3] 已修（内存维度）**：`read` 原 `f.readlines()` 一次性把整个文件载入内存后再切片，现改为逐行遍历、只保留目标页（`start <= idx < end`），`total_lines` 仍逐行统计但内存占用与文件大小无关；`offset` 超出总行数时仍收敛到 `total_lines`、页内容为空，返回字段语义与旧实现一致。`stats` 的 `len(f.readlines())` 一并改为 `sum(1 for _ in f)` 流式计数。
 - **回归**：`tests/unit/test_file_operator.py` 新增 `TestReadStreaming`（4 项：分页语义、offset 超界收敛、read 不调用 `readlines`、stats 流式计数），回退 `file_operator.py` 后「read 不调用 readlines」项失败。该文件共 14 项。
 - **FO5 剩余**：未引入文件大小上限（超限拒绝/截断属产品口径），保留待决。
+
+### FO3 修复（2026-09-25）
+
+- **FO3 [P3] 已修**：`write` 原先 `check_extension=False`，使 `SAFE_EXTENSIONS` 白名单只对 `create` 生效，最常见的内容写入路径可写任意扩展名。现 `write` 改为 `check_extension=True`，与 `create` 语义一致。
+- **白名单补充**：既有的 `SAFE_EXTENSIONS` 缺失多种工程常用扩展名，直接对 `write` 生效会造成新的误拒（如 `go.mod`/`go.sum` 的 `.mod`/`.sum`、Gradle 的 `.gradle`/`.kts`、.NET 的 `.csproj`/`.sln`、`.pyi`/`.mjs`/`.cjs`、`.svelte`/`.astro`、`.tf`/`.proto`/`.graphql`、`.log`/`.mdx`/`.tex`/`.jsonl`/`.ipynb` 等）。一并补齐上述明显安全的文本/构建/配置扩展名；可执行/二进制/密钥类扩展名（`.exe`/`.dll`/`.so`/`.pem`/`.key` 等）保持拒绝。
+- **未改动**：`delete`/`read`/`list_dir`/`tree` 不产生新文件，`move`/`copy` 目标可能是目录（扩展名语义不成立），均维持 `check_extension=False`。
+- **回归**：`tests/unit/test_file_operator.py` 新增 `TestWriteExtensionWhitelist`（10 项：write 拒绝未知扩展名、放行白名单扩展名、放行无扩展名文件、`go.mod`/`go.sum`/`build.gradle`/`app.csproj`/`schema.proto`/`app.log` 经 write 与 create 双路径放行），该文件共 24 项；回退 `file_operator.py` 后「write 拒绝未知扩展名」失败，仅还原白名单时 6 项「常见工程文件」失败。
