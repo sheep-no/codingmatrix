@@ -24,6 +24,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.time import utcnow_naive
 from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
@@ -128,7 +129,7 @@ def _store_partial_response(
             "model": model,
             "user_id": user_id,
             "conversation_id": conversation_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow_naive().isoformat(),
         },
         _PARTIAL_TTL,
     )

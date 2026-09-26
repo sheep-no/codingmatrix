@@ -60,7 +60,7 @@ class AicloudReview(Base):
     reviewed_by = Column(Integer, ForeignKey("user.id"))
     ai_filter_passed = Column(Boolean)
     details = Column(Text)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     reviewed_at = Column(DateTime(timezone=True))
 
     __table_args__ = (
@@ -80,7 +80,7 @@ class AicloudAuditLog(Base):
     url = Column(String(1000))
     status = Column(String(20), nullable=False)
     details = Column(Text)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_user_operation", "user_id", "operation"),

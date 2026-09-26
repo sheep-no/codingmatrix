@@ -16,6 +16,8 @@ from enum import Enum
 from typing import Optional, Callable, List
 from datetime import datetime
 
+from app.core.time import utcnow_naive
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,7 +130,7 @@ class GracefulShutdownManager:
             logger.info("=" * 50)
 
             self._state = ShutdownState.DRAINING
-            self._drain_start_time = datetime.utcnow()
+            self._drain_start_time = utcnow_naive()
 
             for hook in self._pre_shutdown_hooks:
                 try:

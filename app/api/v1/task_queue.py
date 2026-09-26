@@ -6,12 +6,13 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from app.core.time import utcnow_naive
 from app.db.database import get_db
 from app.utils.security import verify_token, verify_token_ws
 from app.schema.task_schema import (
@@ -288,7 +289,7 @@ async def task_heartbeat(
     user_id = int(token.get("sub"))
     try:
         task = await heartbeat_task(
-            db, task_id, user_id, worker_id, datetime.utcnow() + timedelta(seconds=lease_seconds)
+            db, task_id, user_id, worker_id, utcnow_naive() + timedelta(seconds=lease_seconds)
         )
         await db.commit()
     except StateNotFoundError as error:
@@ -392,7 +393,7 @@ async def cancel_task(
         )
 
     task_record.status = "cancelled"
-    task_record.completed_at = task_record.completed_at or datetime.utcnow()
+    task_record.completed_at = task_record.completed_at or utcnow_naive()
     await append_task_event(db, task_id, user_id, "task.cancelled", status="cancelled")
     await db.commit()
 

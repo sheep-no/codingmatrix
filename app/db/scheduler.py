@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from app.core.time import utcnow_naive
 from app.db.database import async_session
 from app.db.chat_archiver import ChatArchiver
 from app.models.file import File
@@ -109,7 +110,7 @@ async def cleanup_files_task():
             for file in all_deleted:
                 # 检查是否超过 7 天
                 if file.updated_at:
-                    days_since_deleted = (datetime.utcnow() - file.updated_at).days
+                    days_since_deleted = (utcnow_naive() - file.updated_at).days
                     if days_since_deleted > 7:
                         # 仅当物理文件确认删除后才移除数据库记录；否则保留记录
                         # 以便下个周期重试，避免磁盘残留永久失去索引。
@@ -123,7 +124,7 @@ async def cleanup_files_task():
                             )
             
             # 2. 清理上传超过 30 天且无关联任务的孤立文件
-            orphaned_cutoff = datetime.utcnow() - timedelta(days=30)
+            orphaned_cutoff = utcnow_naive() - timedelta(days=30)
             
             orphaned_files = (await db.execute(
                 select(File)
@@ -175,7 +176,7 @@ async def cleanup_tasks_task():
         
         try:
             # 1. 清理数据库中 7 天前的任务
-            cutoff = datetime.utcnow() - timedelta(days=7)
+            cutoff = utcnow_naive() - timedelta(days=7)
             
             old_tasks = (await db.execute(
                 select(Task).where(

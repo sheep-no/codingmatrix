@@ -10,10 +10,11 @@ import logging
 import json
 import uuid
 import traceback
-from datetime import datetime
 from contextvars import ContextVar
 from typing import Optional, Any, Dict
 from functools import wraps
+
+from app.core.time import utcnow_naive
 
 request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 
@@ -45,7 +46,7 @@ class StructuredLogger:
     def _format_message(self, msg: str, extra: Dict[str, Any] = None) -> Dict:
         """格式化日志消息"""
         data = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": utcnow_naive().isoformat() + "Z",
             "level": "INFO",
             "logger": self.logger.name,
             "message": msg,
@@ -106,7 +107,7 @@ class RequestContextLogger:
     def _build_record(self, msg: str, **kwargs):
         """构建日志记录"""
         record = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": utcnow_naive().isoformat() + "Z",
             "message": msg,
         }
 

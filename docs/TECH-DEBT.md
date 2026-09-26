@@ -13,7 +13,7 @@
 | 3 | admin config router 重复注册 | 已解决 | `app/main.py` 仅在 `/api/v2` 挂载一次 |
 | 4 | drain middleware 缺少 `JSONResponse` | 已解决 | middleware 分支内显式导入 |
 | 5 | Celery signal 使用异步 task | 已解决 | `app/celery_app.py` signal handler 使用同步 SQLAlchemy `Session` |
-| 6 | 无时区 `datetime.utcnow()` | 部分解决 | 主要模型列已迁移，`app/models/file.py` 与 `app/models/aicloud.py` 仍有残留调用 |
+| 6 | 无时区 `datetime.utcnow()` | 已解决 | 非 Agent 子系统 62 处全部迁移：新增 `app/core/time.py:utcnow_naive()`，naive 列用该函数、`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`；Agent 子系统按归属裁定不在本轮范围 |
 | 7 | WebSocket Manager 单连接 | 已解决 | `app/services/websocket_manager.py` 按用户保存连接列表 |
 | 8 | CORS host 正则未转义 | 已解决 | `app/core/config.py` 的 `cors_origin_regex` 对 `ALLOWED_HOSTS` 逐项 `re.escape` 并锚定，`app/main.py` 改用该属性 |
 | 9 | PostgreSQL UUID 未使用导入 | 已解决 | `app/models/chat_history.py` 已无该导入 |
@@ -121,6 +121,7 @@
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P2 | 首页输入区上传附件后永久停留在「上传中」：`processFile` 把普通对象 push 进 `ref([])` 后直接改原始对象字段，未触发 Vue 响应式更新，父组件与 `FilePreview` 子组件都收不到 | `src/components/bottominput.vue` | 已解决；待上传的对象改用 `reactive()` 包装，上传成功或失败都会离开中间态。补 `upload-file.spec.js` 回归（修复前失败、修复后通过），已纳入门禁 |
+| P3 | 全仓库非 Agent 子系统仍在用 `datetime.utcnow()`（62 处 / 23 文件），Python 3.12 起弃用且返回值无时区 | `app/models`、`app/services`、`app/utils`、`app/db`、`app/core`、`app/api/v1` | 已解决；新增 `app/core/time.py:utcnow_naive()`（语义等同 `utcnow()`），按列类型配对迁移：naive 列用 `utcnow_naive()`，`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`。补 `tests/unit/test_time_utils.py`（3 项）。Agent 子系统按归属裁定不动 |
 
 ### 非 Agent 过期 spec 处置（2026-09-26）
 
@@ -134,7 +135,7 @@
 
 ## 当前验收基线
 
-- 后端 unit/integration 最近完整记录：`4943 passed, 2 skipped, 0 failed`（471s；2026-09-25 含本轮 5 项修复后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
+- 后端 unit/integration 最近完整记录：`4999 passed, 2 skipped, 0 failed`（345s；2026-09-26 含 utcnow 清理后的复核）。`--cov=app` 门禁门槛 `58%`，最近一次成功汇总覆盖率 `63.92%`；本机 `make test-cov` 收尾会因工作区陈旧的 `.coverage.*` 并行数据报 `Can't combine statement coverage data with branch data`，CI 全新环境不受影响。`test_process_guard_restart` 在高负载下偶发失败，单跑 `5 passed`。
 - 非 Agent 端点运行时冒烟：GET 87 个、选定变更端点 61 个（用不存在的资源 id + 空 body 探测），变更端点结果为 `404×33 / 422×22 / 200×4 / 400×2`，0 个 5xx。
 - 可信覆盖率测量（绕开 pytest-cov 的并行碎片合并问题，用 `python3 -m coverage run --branch --source=app -m pytest tests/unit tests/integration` 单进程采集，测量于 `750e976b`）：全部 `app` `67.99%`；**非 Agent `app` `62.73%`**（33711 statements；`app/agent/**` 29494 statements 占全部 `app` 的 46%，按范围约定不计入结论）。非 Agent 分模块：`services 75.20%`、`models 99.67%`、`schema 96.47%`、`db 74.32%`、`utils 64.84%`、`core 63.81%`、`api 55.04%`、`tasks 49.74%`、`adapter 25.45%`。改进优先级最低三块：`adapter`、`tasks`、`api`。
 - 前端全量 Vitest：`50 files / 251 passed`；`npm run build:budget` 成功（25.6s），四项预算全部通过（首屏 JS 87.7/450 KiB、CSS 55.1/100 KiB、最大图 124.6/200 KiB、路由块 49.7/150 KiB）。
@@ -162,7 +163,7 @@
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
 | 5 | Celery 信号 asyncio.create_task | `app/celery_app.py` | 改用同步数据库操作 |
-| 6 | datetime.utcnow() 无时区 | 历史修复覆盖部分模型时间列 | 改用 `datetime.now(timezone.utc)`；当前仍有残留 |
+| 6 | datetime.utcnow() 无时区 | 非 Agent 全部时间列 | 迁移到 `utcnow_naive()` / `datetime.now(timezone.utc)`，按列类型配对；Agent 子系统不在范围 |
 | 7 | WebSocket Manager 单连接 | `app/services/websocket_manager.py` | 支持同一用户多连接 |
 | 8 | CORS ALLOWED_HOSTS 正则 | `app/core/config.py` | `cors_origin_regex` 锚定 + 转义，`app/main.py` 改用该属性 |
 | 10 | file_upload.py CHUNKS_DIR | `app/api/v1/file_upload.py` | 移动配置到类定义之前 |

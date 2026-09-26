@@ -12,7 +12,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request
 from fastapi.responses import FileResponse
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.time import utcnow_naive
 from app.utils.security import verify_token
 from app.utils.image_generation import (
     text_to_image,
@@ -103,7 +104,7 @@ async def get_cached_image(
     try:
         from datetime import datetime, timedelta
         cache_key = f"image:{prompt}:{seed}"
-        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         
         query_conditions = [
             History.user_id == user_id,
@@ -162,7 +163,7 @@ async def cache_image_to_history(
             "seed": seed,
             "path": image_path,
             "cache_key": f"image:{prompt}:{seed}",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": utcnow_naive().isoformat()
         }
         if fingerprint:
             metadata["fingerprint"] = fingerprint

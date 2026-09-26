@@ -191,5 +191,5 @@ async def model_health_check():
     return {
         "status": "success",
         "models": health_report,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }

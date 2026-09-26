@@ -15,12 +15,13 @@ import logging
 import time
 import asyncio
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List, Optional
 
 from sqlalchemy import select, and_, delete, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.time import utcnow_naive
 from app.models.chat_history import ChatHistory, ChatSummary
 from app.utils import call_llm
 from app.db.database import async_session
@@ -121,7 +122,7 @@ class ChatArchiver:
         - 详细的性能日志
         """
         start_time = time.time()
-        now = datetime.utcnow()
+        now = utcnow_naive()
         start_date = now - timedelta(days=days_ago_start)
         # 冷启动（无历史摘要）时的回填上界
         default_end_date = now - timedelta(days=days_ago_end)

@@ -11,7 +11,7 @@ aicloud API 端点
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
+from app.core.time import utcnow_naive
 from app.db.database import get_db
 from app.utils.security import verify_token
 from app.schema.aicloud import (
@@ -263,7 +264,7 @@ async def chat(
     )
     db.add(ai_message)
 
-    session.last_active_at = datetime.utcnow()
+    session.last_active_at = datetime.now(timezone.utc)
     await db.commit()
     await append_legacy_message(
         db, user_id, session_id, ai_message.role, ai_message.content, str(ai_message.id)
@@ -282,7 +283,7 @@ async def chat(
         session_id=session_id,
         message=ai_response_content,
         model_id=model_info.id,
-        created_at=datetime.utcnow()
+        created_at=utcnow_naive()
     )
 
 
@@ -390,7 +391,7 @@ async def chat_stream(
                 content=ai_response_content
             )
             db.add(ai_message)
-            session.last_active_at = datetime.utcnow()
+            session.last_active_at = datetime.now(timezone.utc)
             await db.commit()
             await append_legacy_message(
                 db, user_id, session_id, ai_message.role, ai_message.content, str(ai_message.id)
@@ -546,7 +547,7 @@ async def get_history(
     await check_aicloud_permission(user_id, db)
 
     from datetime import timedelta
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     result = await db.execute(
         select(AicloudSession)
@@ -782,7 +783,7 @@ async def search_history(
     await check_aicloud_permission(user_id, db)
 
     from datetime import timedelta
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     result = await db.execute(
         select(AicloudSession)
@@ -817,7 +818,7 @@ async def search_history(
         if matching_messages:
             matching_sessions.append(SessionExportResponse(
                 session_id=session.id,
-                exported_at=datetime.utcnow(),
+                exported_at=utcnow_naive(),
                 message_count=len(matching_messages),
                 messages=matching_messages
             ))
@@ -858,7 +859,7 @@ async def export_session(
 
     return SessionExportResponse(
         session_id=session.id,
-        exported_at=datetime.utcnow(),
+        exported_at=utcnow_naive(),
         message_count=len(messages),
         messages=[
             MessageResponse(

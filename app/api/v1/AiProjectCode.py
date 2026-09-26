@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import json
 from pathlib import Path
@@ -111,7 +111,7 @@ async def update_model_stats(
                 stats.success_count += 1
             else:
                 stats.failure_count += 1
-            stats.last_used_at = datetime.utcnow()
+            stats.last_used_at = datetime.now(timezone.utc)
         else:
             stats = ModelUsageStats(
                 user_id=user_id,
@@ -122,7 +122,7 @@ async def update_model_stats(
                 success_count=1 if success else 0,
                 failure_count=0 if success else 1,
                 avg_execution_time=execution_time,
-                last_used_at=datetime.utcnow()
+                last_used_at=datetime.now(timezone.utc)
             )
             db.add(stats)
 
