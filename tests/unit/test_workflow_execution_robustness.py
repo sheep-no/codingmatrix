@@ -9,6 +9,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -83,11 +84,12 @@ def test_session_workflows_evict_oldest(monkeypatch):
     monkeypatch.setattr(workflow_api, "_MAX_SESSION_WORKFLOWS", 3)
     workflow_api._session_workflows.clear()
     try:
+        now = datetime.now()
         for index in range(4):
             workflow_api._remember_session_workflow(
                 "u1",
                 f"s{index}",
-                {"updated_at": f"2026-01-0{index + 1}T00:00:00"},
+                {"updated_at": (now - timedelta(minutes=10 - index)).isoformat()},
             )
 
         assert len(workflow_api._session_workflows) == 3
