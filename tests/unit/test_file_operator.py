@@ -209,3 +209,44 @@ class TestReadStreaming:
 
         assert result["total_files"] == 2
         assert result["total_lines"] == 4
+
+
+class TestWriteExtensionWhitelist:
+    """FO3: 扩展名白名单此前仅 create 生效，write 可写任意扩展名。"""
+
+    def _operator(self, root: Path) -> FileOperator:
+        return FileOperator(base_path=str(root), allow_protected_paths=True)
+
+    def test_write_rejects_unknown_extension(self, tmp_path):
+        operator = self._operator(tmp_path)
+
+        with pytest.raises(PathSecurityError, match="不支持的文件扩展名"):
+            operator.write("payload.unknownext", "x")
+
+    def test_write_allows_whitelisted_extension(self, tmp_path):
+        operator = self._operator(tmp_path)
+
+        result = operator.write("src/main.py", "x = 1\n")
+
+        assert result["success"] is True
+        assert (tmp_path / "src" / "main.py").read_text(encoding="utf-8") == "x = 1\n"
+
+    def test_write_allows_extensionless_files(self, tmp_path):
+        operator = self._operator(tmp_path)
+
+        assert operator.write("Dockerfile", "FROM python\n")["success"] is True
+        assert operator.write("LICENSE", "MIT\n")["success"] is True
+
+    @pytest.mark.parametrize("name", ["go.mod", "go.sum", "build.gradle", "app.csproj", "schema.proto", "app.log"])
+    def test_write_and_create_allow_common_project_files(self, tmp_path, name):
+        """FO3: 白名单补充常见工程文件后，create/write 均放行（否则 create 会误拒）。"""
+        operator = self._operator(tmp_path)
+
+        assert operator.write(f"w/{name}", "content\n")["success"] is True
+        assert operator.create(f"c/{name}", content="content\n")["success"] is True
+
+    def test_create_also_enforces_whitelist(self, tmp_path):
+        operator = self._operator(tmp_path)
+
+        with pytest.raises(PathSecurityError, match="不支持的文件扩展名"):
+            operator.create("payload.unknownext", content="x")

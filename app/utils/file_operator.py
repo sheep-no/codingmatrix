@@ -74,6 +74,13 @@ class FileOperator:
         # 静态资源
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
         ".woff", ".woff2", ".ttf", ".eot", ".otf",
+        # 常见生成格式补充（FO3：白名单统一应用到 write 后，需覆盖各语言
+        # 工程实际会产生的构建/配置文件，否则 go.mod/sum、build.gradle 等被误拒）
+        ".pyi", ".mjs", ".cjs", ".mts", ".cts", ".svelte", ".astro",
+        ".mod", ".sum", ".gradle", ".kts", ".sbt", ".gemspec",
+        ".csproj", ".sln", ".fsproj", ".vbproj", ".props", ".targets",
+        ".tf", ".tfvars", ".hcl", ".proto", ".graphql", ".gql",
+        ".log", ".mdx", ".adoc", ".tex", ".jsonl", ".ndjson", ".ipynb", ".map",
     }
 
     SKIP_DIRS: Set[str] = {
@@ -256,7 +263,9 @@ class FileOperator:
         Returns:
             操作结果
         """
-        target = self._validate_path(path, must_exist=False, check_extension=False)
+        # FO3: write 与 create 同属「创建内容」操作，此前 write 传 False
+        # 使 SAFE_EXTENSIONS 白名单对最常见的写入路径完全失效。
+        target = self._validate_path(path, must_exist=False, check_extension=True)
 
         old_size = target.stat().st_size if target.exists() else 0
 
