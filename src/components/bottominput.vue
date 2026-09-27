@@ -67,14 +67,14 @@
         </div>
         <div class="associations-list">
           <div
-            v-for="item in associations"
-            :key="item.id"
+            v-for="(item, index) in associations"
+            :key="index"
             class="association-item"
             :class="{ confirmed: item.confirmed }"
             @click="selectAssociation(item)"
           >
-            <span class="association-type">{{ item.type }}</span>
-            <span class="association-text">{{ item.text }}</span>
+            <span class="association-type">{{ item.category }}</span>
+            <span class="association-text">{{ item.content }}</span>
             <span v-if="item.confirmed" class="association-check">✓</span>
           </div>
         </div>
@@ -326,12 +326,14 @@
 
   // 选择联想项，追加到输入框
   const selectAssociation = item => {
-    if (item.text) {
-      inputMessage.value += '\n' + item.text
+    // 后端联想项字段为 content/category（无 text/id/type）。
+    const text = item.content || item.text || ''
+    if (text) {
+      inputMessage.value += '\n' + text
     }
     item.confirmed = true
     setTimeout(() => {
-      associations.value = associations.value.filter(a => a.id !== item.id)
+      associations.value = associations.value.filter(a => a !== item)
     }, 300)
   }
 

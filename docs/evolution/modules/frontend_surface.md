@@ -205,3 +205,9 @@ Vue Router
 - 新增 `FRESCAN-28`：`HistoryItem.vue` 的活跃历史标题直接进入 `v-html`，与 `AgentFilePanel.vue` 待实测高亮链保持独立。
 - 新增 `FRESCAN-29` 至 `FRESCAN-36`：PPT 错误态、鼠标专用交互、图标按钮、图片 `alt`、label 关联、弹窗语义和静默初始化失败。
 - 新增 `FRESCAN-37` 至 `FRESCAN-40`：任务列表/取消响应、项目文件参数和快照对比参数契约。
+
+## 11. 状态更新（2026-09-27）
+
+- **FESURF-009 [P2] 已修：首页输入框需求联想面板与后端契约错位（实码可证 + 回归测试）**——`src/components/bottominput.vue` 的联想面板按 `item.type` / `item.text` / `item.id` 渲染与选择，而 `POST /agent/requirement-association` 返回的 `items` 字段为 `content` / `category` / `source` / `confidence`（无 `id` / `type` / `text`，见 `association_endpoints.py`）。后果：面板每行类型与文本恒空；`selectAssociation` 因 `item.text` 不存在而不追加任何文本，且用 `a.id !== item.id`（两边恒 `undefined`）过滤，点击任一联想项会清空**全部**联想项。
+  - 修复：模板改用 `item.category` / `item.content`，`v-for` 以 index 为 key；`selectAssociation` 追加 `item.content` 并按对象标识 `a !== item` 只移除被点击项。
+  - 回归 `src/components/bottominput.test.js` 1 项（渲染 category/content、点击追加文本且只移除该项）；回退 `bottominput.vue` 后失败。
