@@ -55,3 +55,13 @@
 - **dynamic_chunker.py（DC1/DC2）**：全库零生产引用，属被取代/未接线型死代码；按既定策略不主动删除或重构，故其缺陷不被触发。
 
 若后续放宽 Agent 范围或做死代码收敛，再回到本模块。
+
+## 六、状态更新（2026-09-27 核实）
+
+按用户本轮放宽后的范围（agent 及其子系统，含 agent 消费的 `app/utils/` 模块）复核，逐项对照当前代码：
+
+- **DCC1 已修（复核，文档陈旧）**：`dynamic_concurrent.py:41-52` 现为模块级 `_lock = threading.Lock()` + `__new__` 内正确双检（`if cls._instance is None: with cls._lock: if cls._instance is None: ...`），不再是文档记录的 `threading.Lock() if False else None` 与无锁双检。构造竞态与限额配置丢失在当前代码下不成立。
+- **DCC2 结论修正**：`can_create_session` 在生产代码中**零调用点**（`rg` 全库仅测试 `tests/unit/test_v4_8_features.py` 命中；`system_config.can_create_new_session` 亦无生产调用方）。因此「检查与注册非原子 TOCTOU」不成立——真实形态是**限额检查点从未接线**：`orchestrate/stream`（orchestrate_endpoints.py:1223）无条件 `register_session`，只有 DB 层「每用户一个 running 会话」在非流式端点生效。属接线/产品口径决策，保留待决。
+- **DCC5 仍成立**：`update_limit`（:86-91）对 `new_limit` 无边界校验，`-1` 使 `active < -1` 恒 False（该角色全员被拒），超大值使限流失效。管理员 API 输入加固，保留待决。
+- **SL2 已修（阻塞部分）**：`_get_model_queue_depths` 原先在 async 协程内直接 `celery_app.control.inspect(timeout=2.0).active()/reserved()`，同步阻塞事件循环 2s+（`dynamic_model_router` 路由决策每轮取快照）。现抽同步方法 `_collect_model_queue_depths` 并以 `await asyncio.to_thread(...)` 在工作线程执行；两处完全重复的计数循环合并为一个 `_accumulate`，并按 Celery task id 去重，消除 active/reserved 快照交错时的重复计数（队列深度虚高）。新增 `tests/unit/test_system_load_queue_depths.py` 3 例（工作线程断言、同 task id 去重、不同 task id 分别计数），回退源码后 2 例失败。
+- **SL1/SL3、RG1/RG2、DCC3/DCC4 未触及**：维持原判，均属接线/设计级或指标语义项。
