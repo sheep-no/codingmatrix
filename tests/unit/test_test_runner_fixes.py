@@ -1,8 +1,11 @@
-"""test_runner 缺陷回归：TR3 / TR5 / TR6 / TR8。"""
+"""test_runner 缺陷回归：TR3 / TR5 / TR6 / TR8 / 清理阻塞。"""
 
+import asyncio
 import shutil
 import tempfile
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -112,3 +115,104 @@ class TestCleanupBoundary:
             assert pycache.exists()
         finally:
             shutil.rmtree(str(project), ignore_errors=True)
+
+
+class TestCleanupRunsOffEventLoop:
+    """沙箱回收（rmtree 遍历删除大量文件）不得在事件循环线程执行"""
+
+    async def test_cleanup_rmtree_runs_in_worker_thread(self, monkeypatch):
+        project = Path(tempfile.mkdtemp(prefix="test_cleanup_worker_"))
+        sandbox = project / "sandbox"
+        sandbox.mkdir()
+        (sandbox / "f.txt").write_text("x")
+
+        runner = IsolatedTestRunner(project_path=project, enable_security_scan=False)
+        runner._temp_dir = sandbox
+
+        loop_thread = threading.get_ident()
+        seen_threads = []
+        real_rmtree = tr.shutil.rmtree
+
+        def spy_rmtree(*args, **kwargs):
+            seen_threads.append(threading.get_ident())
+            return real_rmtree(*args, **kwargs)
+
+        monkeypatch.setattr(tr.shutil, "rmtree", spy_rmtree)
+        monkeypatch.setattr(tr.asyncio, "sleep", _noop_sleep)
+        try:
+            await runner._cleanup()
+        finally:
+            real_rmtree(str(project), ignore_errors=True)
+
+        assert seen_threads, "shutil.rmtree 应被调用"
+        assert loop_thread not in seen_threads, "rmtree 不得在事件循环线程执行"
+        assert not sandbox.exists()
+
+    async def test_run_tests_fallback_rmtree_runs_in_worker_thread(
+        self, tmp_path, monkeypatch
+    ):
+        runner = IsolatedTestRunner(project_path=tmp_path, enable_security_scan=False)
+        sandbox = Path(tempfile.mkdtemp(prefix="test_run_tests_worker_"))
+        (sandbox / "f.txt").write_text("x")
+
+        async def _noop_async(*_args, **_kwargs):
+            return None
+
+        async def _fake_create_venv():
+            runner._temp_dir = sandbox
+            runner._venv_dir = sandbox / "venv"
+            runner._work_dir = sandbox / "project"
+            runner._work_dir.mkdir()
+            runner._venv_python = "/usr/bin/python3"
+
+        async def _fake_build_command(*_args, **_kwargs):
+            return ["pytest", "-q"]
+
+        async def _fake_execute_test(_cmd):
+            return TestResult(
+                success=True, total_tests=1, passed=1, failed=0,
+                errors=0, logs="1 passed", failed_tests=[],
+            )
+
+        async def _fake_install_dependencies():
+            return True
+
+        runner._framework_detector = SimpleNamespace(
+            detect=lambda _p: SimpleNamespace(language="python", framework="pytest")
+        )
+        monkeypatch.setattr(runner, "_scan_security", lambda: [])
+        monkeypatch.setattr(runner, "_start_service_containers", _noop_async)
+        monkeypatch.setattr(runner, "_cleanup_service_containers", _noop_async)
+        monkeypatch.setattr(runner, "_cleanup", _noop_async)
+        monkeypatch.setattr(runner, "_create_venv", _fake_create_venv)
+        monkeypatch.setattr(runner, "_copy_project", _noop_async)
+        monkeypatch.setattr(runner, "_install_dependencies", _fake_install_dependencies)
+        monkeypatch.setattr(runner, "_build_test_command", _fake_build_command)
+        monkeypatch.setattr(runner, "_execute_test", _fake_execute_test)
+        monkeypatch.setattr(
+            runner, "_parse_with_output_parser", lambda result: result
+        )
+
+        loop_thread = threading.get_ident()
+        seen_threads = []
+        real_rmtree = tr.shutil.rmtree
+
+        def spy_rmtree(*args, **kwargs):
+            seen_threads.append(threading.get_ident())
+            return real_rmtree(*args, **kwargs)
+
+        monkeypatch.setattr(tr, "_get_semaphore", lambda: asyncio.Semaphore(1))
+        monkeypatch.setattr(tr.tempfile, "mkdtemp", lambda prefix="": str(sandbox))
+        monkeypatch.setattr(tr.shutil, "rmtree", spy_rmtree)
+        try:
+            await runner.run_tests(test_paths=["tests"])
+        finally:
+            real_rmtree(str(sandbox), ignore_errors=True)
+
+        assert seen_threads, "兜底 rmtree 应被调用"
+        assert loop_thread not in seen_threads, "兜底 rmtree 不得在事件循环线程执行"
+        assert not sandbox.exists()
+
+
+async def _noop_sleep(*_args, **_kwargs):
+    return None
