@@ -48,6 +48,12 @@ if self.validator and file_path.endswith('.py'):
 - **影响**：单文件验证退化为语法检查，CodeValidator 的依赖校验在文件生成主链不生效；缓存体系分裂（CV1 内存/文件 + 此私有 dict）。这是「验证器多套并存」的又一处（CV8 四套之外的第 5 处简化验证）。
 - **验证方式**：生成含缺失 import 的 .py → 该路径 ast.parse 通过 → 缓存写入且无依赖告警（实码可证）。
 
+- **OF1 已修（2026-09-27）**：
+  - 读取改用正式接口 `validator.get_cached_validation_by_key(cache_key)`，不再直接读 `validator._validation_cache` 私有 dict（TTL/LRU/命中统计随之生效）。
+  - 最终门禁由「仅 `ast.parse` + 手工写 `{"is_valid": True, "import_errors": []}`」改为调用 `validator.validate_single_file`（语法 + 运行时导入 + API 兼容），并以临时文件方式校验（与 `error_recovery.validate_and_fix` 同一模式），临时文件在校验后清理。门禁同时受 `enable_validation` 开关约束。
+  - 修正缓存污染：仅当整体验证通过时才 `store_validation`。此前即使 `validation_success` 已因 error_recovery 失败或 review 高风险置 False，只要 `ast.parse` 通过就写入 `is_valid: True`，相同内容重试会在缓存命中处提前返回成功，绕过 error_recovery 与审查。
+  - 回归：`tests/unit/test_orchestrator_files.py` 新增 `test_validate_and_review_flags_missing_project_import`（缺 `app.missing_module` → 失败、失败不入缓存、临时文件不残留）与 `test_validate_and_review_caches_valid_project_file`（通过后按内容哈希入缓存、二次命中）；既有 `test_validate_and_review_syntax_error_is_failure` / 高风险审查两项改用真实 `CodeValidator`。回退源码后缺失导入用例失败（`assert True is False`）。
+
 ### OF2 [P2] git stash 回滚的全局栈语义：非 git 项目回滚不完整 + 多层 stash 顺序错乱风险
 
 - **Bug 代码**：
