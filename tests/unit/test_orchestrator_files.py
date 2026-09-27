@@ -3340,3 +3340,15 @@ async def test_initialize_components_requires_assignment(tmp_path):
 
     with pytest.raises(RuntimeError, match="model assignment is required to initialize components"):
         await _Harness()._initialize_components("print hello")
+
+
+def test_normalize_file_path_converts_windows_separators(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+
+    assert orchestrator._normalize_file_path(r"src\utils\api.py") == "src/utils/api.py"
+
+
+def test_normalize_file_path_rewrites_trailing_extension_segment(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+
+    assert orchestrator._normalize_file_path(r"events\rpy") == "events.rpy"
