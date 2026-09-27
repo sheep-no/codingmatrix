@@ -80,6 +80,44 @@ class TestDynamicImports:
         assert not analyzer._has_dynamic_imports("body { color: red; }\n")
 
 
+class TestNonPythonSymbols:
+    """IA2: 非 Python 文件应按扩展名分发到语言适配器，而非返回空符号。"""
+
+    def test_javascript_symbols_extracted(self, tmp_path):
+        _write(
+            tmp_path,
+            "app.js",
+            "export function helper() {}\n"
+            "export class Service {}\n"
+            "const run = () => {};\n",
+        )
+        analyzer = ImpactAnalyzer(str(tmp_path))
+
+        summary = analyzer.analyze(["app.js"], old_versions={"app.js": "// empty\n"})
+
+        assert "helper" in summary.new_symbols
+        assert "Service" in summary.new_symbols
+
+    def test_go_symbols_extracted(self, tmp_path):
+        _write(tmp_path, "main.go", "package main\n\nfunc Hello() {}\n\ntype Server struct {}\n")
+        analyzer = ImpactAnalyzer(str(tmp_path))
+
+        summary = analyzer.analyze(["main.go"], old_versions={"main.go": "package main\n"})
+
+        assert "Hello" in summary.new_symbols
+        assert "Server" in summary.new_symbols
+
+    def test_unknown_extension_degrades_to_filename_symbol(self, tmp_path):
+        _write(tmp_path, "widget.unknownext", "some opaque content\n")
+        analyzer = ImpactAnalyzer(str(tmp_path))
+
+        summary = analyzer.analyze(
+            ["widget.unknownext"], old_versions={"widget.unknownext": ""}
+        )
+
+        assert summary.new_symbols == ["widget"]
+
+
 class _Stub(TestingMixin):
     def __init__(self, output_dir):
         self.output_dir = Path(output_dir)

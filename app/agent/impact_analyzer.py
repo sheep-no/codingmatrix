@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from app.agent.adapters import LanguageAdapterRegistry
 from app.utils.performance_metrics import metrics_collector
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,23 @@ class ImpactAnalyzer:
         Returns:
             符号列表，每个符号包含 name, type, line_number
         """
-        symbols = []
+        # Python 走 AST（保留方法与嵌套定义语义），非 Python 按扩展名分发到
+        # 对应语言适配器，避免多语言项目（JS/TS/Go/Java/Rust）符号全盲（IA2）。
+        if Path(file_path).suffix.lower() in (".py", ".pyw", ".pyi"):
+            return self._extract_python_symbols(content, file_path)
+
+        adapter = LanguageAdapterRegistry.get_adapter_for_file(file_path)
+        if adapter is not None and adapter.language != "generic":
+            symbols = self._extract_adapter_symbols(adapter, content, file_path)
+            if symbols:
+                return symbols
+
+        # 无专用适配器或解析不出符号时降级为文件名级推断，而非返回空。
+        return self._filename_level_symbols(content, file_path)
+
+    def _extract_python_symbols(self, content: str, file_path: str) -> List[Dict[str, str]]:
+        """用 AST 提取 Python 的函数/类符号。"""
+        symbols: List[Dict[str, str]] = []
 
         try:
             tree = ast.parse(content)
@@ -152,6 +169,36 @@ class ImpactAnalyzer:
                 })
 
         return symbols
+
+    def _extract_adapter_symbols(self, adapter, content: str, file_path: str) -> List[Dict[str, str]]:
+        """用语言适配器提取非 Python 文件符号。"""
+        try:
+            definitions = adapter.extract_definitions(content)
+        except Exception as e:  # noqa: BLE001 - 适配器解析失败降级处理
+            logger.warning(f"{adapter.language} 符号解析失败 {file_path}: {e}")
+            return []
+
+        return [
+            {
+                'name': name,
+                'type': definition.symbol_type,
+                'line_number': definition.line_number,
+                'file': file_path,
+            }
+            for name, definition in definitions.items()
+        ]
+
+    def _filename_level_symbols(self, content: str, file_path: str) -> List[Dict[str, str]]:
+        """无法解析语法时，用文件名给出一个保守的文件级符号。"""
+        stem = Path(file_path).stem
+        if not stem or not content.strip():
+            return []
+        return [{
+            'name': stem,
+            'type': 'file',
+            'line_number': 0,
+            'file': file_path,
+        }]
 
     def _has_dynamic_imports(self, content: str) -> bool:
         """
