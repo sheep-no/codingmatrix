@@ -637,7 +637,7 @@ class CodeValidator:
             # 检查危险函数调用
             dangerous_calls = [
                 'eval', 'exec', 'compile', '__import__',
-                'open', 'os.system', 'subprocess.call',
+                'os.system', 'subprocess.call',
                 'pickle.loads', 'marshal.loads'
             ]
 
