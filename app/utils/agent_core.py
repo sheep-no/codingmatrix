@@ -773,15 +773,25 @@ class CodeValidator:
             def visit_Compare(self, node):
                 # 检查常量比较
                 if isinstance(node.left, ast.Num) or isinstance(node.left, ast.Str):
-                    for op, right in zip(node.ops, node.comparators):
+                    for _op, right in zip(node.ops, node.comparators, strict=True):
                         if isinstance(right, ast.Num) or isinstance(right, ast.Str):
                             warnings.append("常量比较可能总是True或False")
                 self.generic_visit(node)
 
             def visit_For(self, node):
-                # 检查未使用的循环变量
+                # 检查未使用的循环变量：仅当循环体（含 else 子句）中确实
+                # 没有以读取方式引用该名字时才提示。原实现对每个 for
+                # 无条件报警，导致正常使用循环变量的代码也产生全量误报。
                 if isinstance(node.target, ast.Name):
-                    warnings.append(f"循环变量 {node.target.id} 可能未使用")
+                    used = any(
+                        isinstance(child, ast.Name)
+                        and child.id == node.target.id
+                        and isinstance(child.ctx, ast.Load)
+                        for stmt in (*node.body, *node.orelse)
+                        for child in ast.walk(stmt)
+                    )
+                    if not used:
+                        warnings.append(f"循环变量 {node.target.id} 可能未使用")
                 self.generic_visit(node)
 
         visitor = WarningVisitor()
@@ -2108,8 +2118,6 @@ class ProjectGeneratorAgent(BaseModel):
 
     def _fix_json_strings(self, json_str: str) -> str:
         """修复 JSON 字符串值中的非法控制字符（如裸换行符、制表符等）"""
-        import re as _re
-        
         # 逐字符解析 JSON，只在字符串值内部进行修复
         result = []
         in_string = False
@@ -2246,7 +2254,6 @@ class ProjectGeneratorAgent(BaseModel):
                 logger.debug(f"JSON代码块直接解析失败: {e}")
                 # 尝试修复 JSON：将字符串值中的裸换行符转义
                 try:
-                    import re as _re
                     json_str = json_code_block.group(1).strip()
                     # 在 JSON 字符串值中，将实际的换行符替换为 \n
                     # 这需要小心处理，不能替换键名或结构中的换行
