@@ -7,6 +7,8 @@
 
 > 后续变更（2026-09-16）：AC10 提到的 `app/utils/project_validator.py` 已确认零外部引用并删除（`agent_core.py` 内同名 `ProjectValidator` 为实际活跃实现），正文保留扫描时的判定与行号。
 
+> 后续变更（2026-09-27）：AC8 已修复。`_check_syntax_warnings` 的 `visit_For` 改为仅当循环体（含 `else` 子句）中确实未以读取方式引用循环变量时才提示，消除全量误报；同批顺清 `visit_Compare` 的 B007/B905 与两处无引用 `import re as _re`（F401）。新增 `tests/unit/test_agent_core_syntax_warnings.py` 3 项约束。
+
 ## 1. 模块定位
 
 项目生成 Agent 核心，包含五个部分：
@@ -66,9 +68,10 @@
 
 - **Bug 代码**：:569 `exec(open(...).read())` 子进程在宿主机执行生成代码——无 docker/bwrap 隔离、无内存/CPU/网络/文件系统限制（仅 10s 超时）——生成代码含危险操作（删文件/写任意路径/网络请求）直接执行（与 docker_runner 隔离执行矛盾——两套验证执行路径：docker 隔离 + 宿主机直跑并存）。
 
-### AC8 [P3] _check_syntax_warnings 无条件报 for 循环变量未使用——全量误报
+### AC8 [P3] ~~_check_syntax_warnings 无条件报 for 循环变量未使用——全量误报~~（已修复 2026-09-27）
 
 - **Bug 代码**：:781-785 visit_For 对每个 for 循环无条件 `warnings.append("循环变量可能未使用")`——即使循环体使用变量也报——**任何 for 循环都产生警告**（全量误报注入验证结果）。
+- **修复**：`visit_For` 遍历循环体与 `else` 子句，仅当无 `ast.Name(..., ctx=Load)` 引用该变量时才告警；正常使用循环变量的代码不再产生警告。
 
 ### AC9 [P3] _validate_security 'open' 列危险函数 + 安全结果恒 success（DGV1/DR2 家族）
 
