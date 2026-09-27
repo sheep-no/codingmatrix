@@ -132,3 +132,9 @@ max_tokens=self.model_config["max_tokens"], thinking_budget=self.model_config["t
 - **SFG4 已修**：`_generate_types`（:297-306）补 str 防御——字符串规范先 `_extract_json` 重新解析，非 dict 或空规范直接 `return False` 不进入 LLM 调用，与 `_generate_db_schema`（:356-361）语义对齐。新增用例断言字符串规范按 JSON 结构注入 prompt（不再出现转义字符串字面量），且无规范时不调用 `call_llm`。
 - **SFG7 已修**：`LayeredModelRouter` 改为从 `app.agent.dynamic_model_router` 直接导入（:121），与 `specialist_base`/`mixin`/`evaluate_mixin`/`incremental_modify` 一致，去掉经编排层的中转依赖。
 - **SFG5/SFG6/SFG8、截断项未逐一复核**：维持扫描时判定，后续批次再核。
+
+## 8. 修复状态（2026-09-27）
+
+- **OpenAPI 规范形状校验缺失已修**：`_generate_openapi_spec` 解析出 dict 后只校验 `isinstance(openapi_spec, dict)` 即 `save_spec("openapi", ...)`，未确认它是真正的 OpenAPI 对象——LLM 返回的任何合法 JSON dict（如 `{"error": "..."}` 或片段）都会被当成规范保存，随后 `_generate_types` 基于错误规范生成类型。同方法内 list 提取分支早已用 `"openapi" in extracted` 把关，最终 dict 分支与之不一致。现补 `if "openapi" not in openapi_spec: return False`（附 keys 日志）。
+- **裸 `except:` 修复**：字符串 JSON 直接解析分支的 `except:` 改为 `except (ValueError, TypeError):`（`json.JSONDecodeError` 属 `ValueError`），不再吞掉 `KeyboardInterrupt`/`SystemExit`（ruff E722）。
+- **测试**：`tests/unit/test_spec_first_generator.py` 新增 `test_openapi_spec_rejects_dict_without_openapi_field`（回退源码后该用例失败，实测旧实现返回 True 并落库错误规范）。

@@ -246,7 +246,7 @@ class SpecFirstGenerator:
                                 openapi_spec = parsed
                                 logger.info(f"OpenAPI 规范从字符串直接解析")
                                 break
-                        except:
+                        except (ValueError, TypeError):
                             pass
                         # 策略 2: 在字符串中搜索嵌入的 JSON 对象
                         str_content = openapi_spec[0]
@@ -283,6 +283,14 @@ class SpecFirstGenerator:
             
             if not isinstance(openapi_spec, dict):
                 logger.warning(f"OpenAPI 规范解析失败或类型不正确: {type(openapi_spec).__name__}")
+                return False
+
+            # 必须是 OpenAPI 规范对象，而非任意合法 JSON dict（否则会把错误对象/片段当规范保存）
+            if "openapi" not in openapi_spec:
+                logger.warning(
+                    "OpenAPI 规范缺少 openapi 字段: keys=%s",
+                    list(openapi_spec.keys())[:5],
+                )
                 return False
 
             # 保存到上下文
