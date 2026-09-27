@@ -99,8 +99,12 @@ def parse_document(file_path: str) -> str:
         return parse_text_file(file_path)
     elif suffix == ".pdf":
         return parse_pdf_file(file_path)
-    elif suffix in (".docx", ".doc"):
+    elif suffix == ".docx":
         return parse_docx_file(file_path)
+    elif suffix == ".doc":
+        # 旧版 .doc 是二进制复合文档，python-docx 无法打开，会抛出难以理解的
+        # PackageNotFoundError（KP4）；这里明确拒绝并提示转存格式。
+        raise ValueError("不支持旧版 .doc 二进制格式，请另存为 .docx 后重试")
     else:
         # 尝试作为文本解析
         return parse_text_file(file_path)
