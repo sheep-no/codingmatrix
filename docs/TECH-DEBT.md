@@ -191,13 +191,21 @@
 
 SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不在本轮范围。
 
-本轮同时补齐三处可修活跃缺陷，均在 `app/utils/aicloud/code_executor.py`，前两处从 `POST /api/v1/aicloud/execute`（admin）可达：
+本轮同时补齐六处可修活跃缺陷与卫生项，均在 aicloud 执行链。
+
+**安全类**（`app/utils/aicloud/code_executor.py`，前两处从 `POST /api/v1/aicloud/execute`（admin）可达）：
 
 - **CE2 Go 沙箱逃逸**：Go 路径原仅禁 `net`/`os/exec`/`syscall`/`unsafe` 四个子串，`import "os"` 合法，可编译执行 `os.ReadFile`/`os.WriteFile` 任意读写宿主文件。现以 `GO_BANNED_IMPORTS` + `_find_banned_go_import()` 解析 import 声明（含反引号原始字符串与 cgo 伪包 `C`）并扩充禁用集，在调用 `go` 工具链前拦截。
 - **CE5 Python 属性链逃逸**：AST 检查原先只在 Call 节点拦 `ast.Name` 直调与 `__builtins__` 前缀，`().__class__.__bases__[0].__subclasses__()` 等属性链可找回任意对象（实测回退后旧实现 `success=True`）。现新增 `DANGEROUS_PYTHON_ATTRS` 属性名拦截并把 `__builtins__` 检查提升到 `ast.Name` 层，逃逸链在解析阶段即被拒绝。
 - **CI1 沙箱环境未生效**：`ContextIsolator.setup_sandbox` 声明的 `HOME`/`WORK_DIR` 从未落到任何子进程。现 `CodeExecutor._sandbox_dirs()` 按 workspace 根推导并注入三语言子进程环境（Python 原硬编码 `HOME=/tmp`，JS/Go 原未覆盖），与声明值 `/sandbox/{user_id}`、`/sandbox/{user_id}/workspace` 一致。
 
-三者合计新增 18 项用例（`tests/unit/test_aicloud_execution_regressions.py`，Go 10 + Python 属性链 7 + 沙箱环境 1），回退后相关用例全失败；连同原有测试集合 245 passed。黑名单沙箱固有的绕过面（Go 编译期 `//go:embed` 等）与 OS 级隔离（容器/namespace/seccomp）仍为架构级待办，见 `docs/evolution/modules/aicloud_execution.md` §六。
+**代码卫生类**：
+
+- **AE2 缺省 workspace 落裸 `/tmp`**：`CodeExecutor` 缺省目录由 `tempfile.gettempdir()` 改为 `tempfile.gettempdir()/aicloud_sandbox` 并自动创建，避免与宿主临时文件混放。
+- **AE3 循环记录截断无标记**：`auto_executor` 内 `[:500]`/`[:200]` 等截断改为 `_clip()`，带丢失长度标记。
+- **AE5 `conversation_history` 死数据**：轮次记录此前仅收集、无任何消费；现达到最大循环时写入审计日志。
+
+六者合计新增 21 项用例（`tests/unit/test_aicloud_execution_regressions.py`，Go 10 + Python 属性链 7 + 沙箱环境 1 + AE2/AE3/AE5 各 1），回退后相关用例全失败；连同原有测试集合 248 passed。黑名单沙箱固有的绕过面（Go 编译期 `//go:embed` 等）与 OS 级隔离（容器/namespace/seccomp）仍为架构级待办，见 `docs/evolution/modules/aicloud_execution.md` §六。
 
 另更正一条过时结论：`docs/evolution/modules/aicloud_execution.md` 的 SB1（`SandboxFileOperator` 符号链接逃逸）判断不成立——`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验落点是否在 `base_path` 内，实际安全校验走基类，`get_absolute_path` 的 `normpath` 仅用于展示/拼接。
 

@@ -116,7 +116,11 @@ class CodeExecutor:
     MAX_MEMORY_MB = 256  # 最大内存限制（MB）
 
     def __init__(self, workspace_path: Optional[str] = None):
-        self.workspace_path = workspace_path or tempfile.gettempdir()
+        if workspace_path is None:
+            # 缺省时不落裸 /tmp（AE2）：用独立子目录，避免与宿主临时文件混放
+            workspace_path = os.path.join(tempfile.gettempdir(), "aicloud_sandbox")
+            os.makedirs(workspace_path, exist_ok=True)
+        self.workspace_path = workspace_path
 
     def _sandbox_dirs(self) -> Dict[str, str]:
         """
