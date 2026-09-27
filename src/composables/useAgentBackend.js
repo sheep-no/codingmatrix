@@ -157,15 +157,17 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   const downloadProject = async (currentProjectPath) => {
     if (!currentProjectPath) {
       ElMessage.warning('当前没有可下载的项目')
-      return
+      return false
     }
     try {
       ElMessage.info('正在准备下载...')
       await projectApi.downloadProject(currentProjectPath)
       ElMessage.success('下载已开始')
+      return true
     } catch (error) {
       console.error('下载失败:', error)
       ElMessage.error('下载失败，请重试')
+      return false
     }
   }
 
