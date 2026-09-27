@@ -128,3 +128,13 @@
 - **TSK15 已修复**：`_get_related_tests` 原用 `pattern.replace('*', '') in target or target in pattern` 做匹配，通配符只被删掉，导致 `configs/file_to_test_map.yaml` 中 `app/models/*.py`、`app/middleware/*.py`、`app/agent/workflow/*.py`、`app/utils/aicloud/*.py` 四条 glob 映射永不命中，同时短模式存在子串假阳性。改为 `fnmatch.fnmatchcase`（规范化路径）匹配 glob，精确路径模式仍生效，无目录分隔符的模式回退按文件名匹配；结果同样排序保证确定性。
 - **同源未改**：`app/utils/agent_skills.py:296-301`（ASK5）存在相同的 `reverse_index` 子串匹配，但其唯一调用方 `RiskSelfAssessmentSkill.assess` 未传入 `dep_graph`（`agent_skills.py:395`），该分支当前不可达，留待接线时一并处理。
 - **测试**：新增 `tests/unit/test_code_tasks_dependency_matching.py`（8 项）；回退 `app/tasks/code_tasks.py` 后 5 项失败。
+
+## 状态更新（2026-09-27 modify_with_test 循环与验证语义）
+
+- **循环终止缺陷（新增，已修）**：`modify_with_test._execute` 的测试重试循环 `while retry_count <= max_retries` 在最后一轮失败时只执行 `else` 分支记录日志，**不 `break` 也不自增 `retry_count`**——`retry_count == max_retries` 时循环条件仍为真，持续重复运行测试直到外部超时。现 `else` 分支补 `break`，循环最多执行 `max_retries + 1` 次。
+- **TSK19 已修**：返回的 `success` 原为 `all(t.get("success") for t in test_logs)`，早期轮次失败会永久否定后续修复成功。现改为以最后一轮结果为准（`test_logs[-1]`），历史轮次完整保留在 `test_results` 中。
+- **TSK18 已修**：无关联测试时 `_run_tests([])` 返回 `success=True`，`modify_with_test` 进而报告成功——无验证证据被当作验证通过。现 `_run_tests([])` 返回 `success=False`（`total=0` + 明确 error）；`_execute` 在 `test_files` 为空时直接返回 `success=False`、`verification="no_tests"`，不再进入重试循环。
+- **TSK17 已修**：新增 `_is_safe_target_path`，`_collect_guard_violations` 读取前拒绝含目录穿越的相对路径（`../../etc/passwd`、`app/../etc/passwd`），跳过并记 warning；项目内相对路径与绝对路径保持原行为（不破坏既有绝对临时路径契约）。
+- **顺带清理**：移除 `code_tasks.py` 未使用的 `json`、`celery.Task` 导入与 `_execute` 内未使用的 `get_agent_knowledge_base` 导入。
+- **测试**：新增 `tests/unit/test_code_tasks_modify_loop.py`（6 项：循环终止、末轮成功语义、无测试不报成功、`_run_tests([])`、越界路径解析、越界文件跳过）；回退 `app/tasks/code_tasks.py` 后 6 项全部失败。
+- **仍未处理**：TSK8（错误信息经 WebSocket 外发 + 双轨通知）、TSK10（结果落盘无清理/权限）、TSK16（`_agent_modify` 只返回文本不写文件，需接入真实生成器）、TSK20（宿主 `pytest` 回退不受限）、TSK24/TSK26。
