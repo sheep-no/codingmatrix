@@ -14,7 +14,6 @@ from sqlalchemy import select, delete as sql_delete, and_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.utils.security import verify_token
-from app.db.database import get_db
 from app.db.models import ProjectSession
 from app.utils.guard_contracts import get_guard_contracts
 from app.utils.agent_skills import get_skills_manager
@@ -382,21 +381,8 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
     for old_sess in sessions_to_cleanup:
         sm = await get_session_manager()
         session_file = sm._session_file(old_sess.session_id)
-        if session_file.exists():
-            try:
-                session_file.unlink()
-                logger.info(f"已删除旧会话文件: {session_file}")
-            except OSError as e:
-                logger.warning(f"删除会话文件失败: {e}")
-
-        if old_sess.output_dir:
-            output_path = Path(old_sess.output_dir)
-            if output_path.exists():
-                try:
-                    shutil.rmtree(output_path)
-                    logger.info(f"已删除旧项目目录: {output_path}")
-                except OSError as e:
-                    logger.warning(f"删除项目目录失败: {e}")
+        # 会话文件与项目目录删除是阻塞 I/O，项目目录可能很大；移出事件循环执行。
+        await asyncio.to_thread(_delete_session_files, session_file, old_sess.output_dir)
 
         from app.models.history import History
         await db.execute(
@@ -413,6 +399,25 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
 
     if sessions_to_cleanup:
         logger.info(f"已清理用户 {user_id} 的 {len(sessions_to_cleanup)} 个旧会话资源（保留最新 {max_sessions} 个）")
+
+
+def _delete_session_files(session_file: Path, output_dir: Optional[str]) -> None:
+    """同步删除单个会话文件与项目目录，供 asyncio.to_thread 在工作线程调用。"""
+    if session_file.exists():
+        try:
+            session_file.unlink()
+            logger.info(f"已删除旧会话文件: {session_file}")
+        except OSError as e:
+            logger.warning(f"删除会话文件失败: {e}")
+
+    if output_dir:
+        output_path = Path(output_dir)
+        if output_path.exists():
+            try:
+                shutil.rmtree(output_path)
+                logger.info(f"已删除旧项目目录: {output_path}")
+            except OSError as e:
+                logger.warning(f"删除项目目录失败: {e}")
 
 
 async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> int:

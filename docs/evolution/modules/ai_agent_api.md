@@ -120,3 +120,10 @@
 ## 九、修复状态（2026-09-27）
 
 - **`_collect_files` 阻塞事件循环已修**：原实现是 async generator，循环体内直接调用 `project_dir.rglob("*")` / `file_path.stat()` / `open(...)`（ruff ASYNC240/ASYNC230，`helpers.py:193-224`）。活跃端点 `GET /generate/files`（`generate_endpoints.py:209`）会完整消费该生成器并聚合成列表返回，扫描大型项目目录时整个事件循环被阻塞。现抽出同步扫描 `_collect_files_sync`，async 版改为 `await asyncio.to_thread(_collect_files_sync, project_dir)` 后逐条 `yield`，过滤逻辑（隐藏文件、`SKIP_DIRS`、超大文件、非 UTF-8 文件）与异常处理完全不变。新增 `tests/unit/test_ai_agent_collect_files.py`（2 项：过滤行为 / `Path.rglob` 必须发生在工作线程；回退源码后后者失败）。
+
+## 十、修复状态（2026-09-27 第二批）
+
+- **`_cleanup_old_session` 删除会话资源阻塞事件循环已修**：`_cleanup_old_session`（`:360`）在 async 函数内对每个待清理会话直接执行 `session_file.unlink()`（`Path` 同步删除，ruff ASYNC240，`:394`）与 `shutil.rmtree(output_path)`。后者删除的是项目输出目录，可能包含大量小文件，删除期间整个事件循环被阻塞；该函数在会话创建链（`orchestrate_endpoints.py` / `generate_endpoints.py` 的 `create_session` 路径）每次创建新会话时都会触发。现抽出同步辅助 `_delete_session_files(session_file, output_dir)`，async 侧改为 `await asyncio.to_thread(_delete_session_files, session_file, old_sess.output_dir)` 逐会话执行，删除顺序与 `OSError` 吞掉记 warning 的语义完全不变。
+- **顺手移除死导入**：`helpers.py:17` `from app.db.database import get_db` 全库无引用（F401），删除。
+
+回归：新增 `tests/unit/test_ai_agent_helpers_session_cleanup.py`（2 项：`_cleanup_old_session` 端到端删除旧会话文件 + 项目目录且删除发生在工作线程、`_delete_session_files` 缺路径容错；回退 `helpers.py` 后 2 项均失败）。修后 `ruff --select F,B,ASYNC` 对 `helpers.py` 全绿。
