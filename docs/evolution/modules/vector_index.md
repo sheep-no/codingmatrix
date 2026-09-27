@@ -50,3 +50,9 @@ vector_index（历史项目语义）+ memory.py（会话语义）+ DB MemoryEntr
 ## 5. 测试状态
 
 无 vector_index 专项测试；layer2_semantic 的降级路径（keyword fallback）可能在编排层测试中被覆盖，但「语义路径实际不可用」从未被测试暴露——测试固化「降级成功」为预期（TR2 家族）。
+
+## 6. 状态更新（2026-09-27）
+
+- **VI8 [P2] 已修（索引/元数据 I/O 阻塞事件循环）**：`build_from_metadata` 的元数据读取（`open` + `json.load`）与 `_save_index`（`faiss.write_index` + `id_map.json` 写入）原为同步调用，直接在 async 方法内执行；`load_or_create`（同步方法，读整个 `faiss_index.bin` 与 `id_map.json`）在两个 async 消费点（`layer2_semantic_match`、`ProjectMetadataManager.extract_and_save`）被同步调用。索引文件随项目数增长可达 MB 级，读写会整段阻塞事件循环，而消费点在需求分析编排协程内。
+  - 修复：`build_from_metadata` 的读取抽为闭包 `_load_projects` 经 `asyncio.to_thread`；两处 `_save_index` 调用改 `await asyncio.to_thread(self._save_index)`；两个 async 消费点的 `load_or_create()` 改 `await asyncio.to_thread(vi.load_or_create)`（`load_or_create` 保持同步，供潜在同步调用方使用）。ruff `ASYNC240` 已消除。
+  - 回归 `tests/unit/test_vector_index_blocking_io.py` 4 项（元数据读取、`add_project` 的索引写入、layer2 与 project_metadata 的索引加载均断言在工作线程执行），回退源码后 4 项全失败。

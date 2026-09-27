@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 from typing import List, Dict
@@ -16,7 +17,8 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
     try:
         from app.agent.vector_index import VectorIndexManager
         vi = VectorIndexManager()
-        vi.load_or_create()
+        # 读取 FAISS 索引文件为阻塞 I/O，放入工作线程避免卡住事件循环
+        await asyncio.to_thread(vi.load_or_create)
 
         if vi.total_count() >= MIN_VECTOR_RESULTS:
             results = await vi.search(requirement, top_k=10)

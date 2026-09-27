@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import numpy as np
@@ -58,14 +59,18 @@ class VectorIndexManager:
     async def build_from_metadata(self) -> int:
         from app.utils.AiCodeUtil import get_embedding
 
-        if not METADATA_PATH.exists():
+        def _load_projects():
+            if not METADATA_PATH.exists():
+                return None
+            with open(METADATA_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        projects = await asyncio.to_thread(_load_projects)
+        if projects is None:
             logger.info("project_metadata.json 不存在，跳过索引构建")
             return 0
 
         self._create_empty_index()
-
-        with open(METADATA_PATH, "r", encoding="utf-8") as f:
-            projects = json.load(f)
 
         count = 0
         for project in projects:
@@ -90,7 +95,7 @@ class VectorIndexManager:
             except Exception as e:
                 logger.warning(f"项目 {project.get('project_id', '?')} embedding 失败: {e}")
 
-        self._save_index()
+        await asyncio.to_thread(self._save_index)
         logger.info(f"FAISS 索引构建完成: {count} 条向量")
         return count
 
@@ -116,7 +121,7 @@ class VectorIndexManager:
                 "feature_count": len(project.get("feature_list", [])),
             }
             self._next_id += 1
-            self._save_index()
+            await asyncio.to_thread(self._save_index)
             return True
         except Exception as e:
             logger.warning(f"项目 embedding 失败: {e}")
