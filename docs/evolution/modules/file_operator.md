@@ -121,3 +121,10 @@
 - **FO6 [P3] 已修**：`_collect_files`（search/grep/stats）、`list_dir`、`tree` 原先一律跳过 `.` 开头的目录/文件，使 `.github/`、`.gitignore`、`.env.example`、`.eslintrc` 等工程文件在遍历中全部不可见。新增 `_should_skip_entry`，只跳过显式的 `SKIP_DIRS`（`.git`/`.venv`/`node_modules` 等 VCS/构建/缓存目录）与 `PROTECTED_FILES`（`.env`/`id_rsa` 等敏感文件），其余隐藏项正常纳入。副作用是遍历结果对敏感文件更安全：此前 `search`/`grep` 直接读文件绕过 `_validate_path`，隐藏过滤是唯一屏障；现由 `PROTECTED_FILES` 显式排除 `.env`/`id_rsa`。`tree` 的 `file_count` 改为复用 `_collect_files`，与 search/grep/stats 口径一致。
 - **行为变更**：`search`/`grep`/`stats`/`list_dir`/`tree` 对隐藏工程文件的可见性提升；`.env`、`id_rsa`、`.git/config` 等仍不可见（且 `node_modules` 等 SKIP_DIRS 仍跳过）。
 - **回归**：`tests/unit/test_file_operator.py` 新增 `TestHiddenVisibility`（7 项：`_collect_files` 纳入隐藏工程文件、排除 SKIP_DIRS/PROTECTED_FILES、grep 可见/不可见断言、stats 计数、list_dir 顶层与递归、tree 展示与 file_count），该文件共 31 项；回退 `file_operator.py` 后 6 项失败。
+
+### FO1 复核与 FO8（2026-09-27）
+
+- **FO1 已修（复核确认）**：`_is_protected_file` 已改为精确匹配——含 "/" 的条目按路径尾段匹配，其余按文件全名 `target.name.lower() == protected_file`；`.env` 子串不再误伤 `.envrc`/`notes.env.bak` 等。§3 正文 FO1 条目为历史记录。
+- **FO8 [P2] 已修（FO1 修复的过度回退）**：精确匹配在消除子串误伤的同时，放开了 `.env.local`/`.env.production`/`.env.development`/`.env.test` 等 `.env` 变体——这些文件在 Next.js/Vite 项目中常含真实密钥，而 `read`/`delete`/`move` 均以 `check_extension=False` 调用 `_validate_path`，不受 `SAFE_EXTENSIONS` 拦截，因此可被直接读取，构成敏感信息泄露缺口（写入路径因扩展名非白名单会被拒，读取路径不会）。
+  - 修复：新增类常量 `_ENV_TEMPLATE_SUFFIXES = {"example", "sample", "template", "dist", "tpl"}`；`.env` 规则同时命中 `.env.<suffix>`，仅当 suffix 在模板集合中时放行。`_should_skip_entry`（search/grep/stats/list_dir/tree 的遍历过滤）同步该规则，密钥变体在遍历结果中同样不可见。
+  - 回归 `tests/unit/test_file_operator.py` 3 项（`.env.local` 等被 `_validate_path` 拒绝、模板后缀 `.env.example/.env.sample/.env.template/.env.dist` 放行、遍历过滤与 `_is_protected_file` 一致且 `.envrc` 不误伤），回退 `file_operator.py` 后 2 项失败。

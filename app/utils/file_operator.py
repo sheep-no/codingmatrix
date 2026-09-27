@@ -82,6 +82,10 @@ class FileOperator:
         ".log", ".mdx", ".adoc", ".tex", ".jsonl", ".ndjson", ".ipynb", ".map",
     }
 
+    # ".env" 规则覆盖的模板后缀：这些是仓库内可提交的示例文件，
+    # 其余 ".env.<suffix>"（.env.local/.env.production 等）按敏感文件处理。
+    _ENV_TEMPLATE_SUFFIXES: Set[str] = {"example", "sample", "template", "dist", "tpl"}
+
     SKIP_DIRS: Set[str] = {
         "__pycache__", ".git", ".svn", ".hg", "node_modules",
         ".pytest_cache", ".mypy_cache", ".tox", "venv", ".venv",
@@ -164,12 +168,19 @@ class FileOperator:
 
         PROTECTED_FILES 条目为文件名或相对路径：含 "/" 的按路径尾段匹配，
         其余按文件全名精确匹配。避免 ".env" 子串把 ".env.example" 等
-        SAFE_EXTENSIONS 明确允许的模板文件一并误伤。
+        SAFE_EXTENSIONS 明确允许的模板文件一并误伤；同时 ".env" 规则覆盖
+        ".env.local"/".env.production" 等常含真实密钥的变体，仅放行
+        _ENV_TEMPLATE_SUFFIXES 中的模板后缀。
         """
         protected_file = protected_file.lower()
         if "/" in protected_file:
             return abs_path_str.endswith("/" + protected_file)
-        return target.name.lower() == protected_file
+        name = target.name.lower()
+        if name == protected_file:
+            return True
+        if protected_file == ".env" and name.startswith(".env."):
+            return name.rsplit(".", 1)[-1] not in FileOperator._ENV_TEMPLATE_SUFFIXES
+        return False
 
     def _should_skip_entry(self, rel_path: Path) -> bool:
         """判断相对路径是否应在目录遍历中跳过。
@@ -183,7 +194,13 @@ class FileOperator:
         if any(part in self.SKIP_DIRS for part in rel_path.parts):
             return True
         name = rel_path.name.lower()
-        return any("/" not in pf and name == pf for pf in self.PROTECTED_FILES)
+        if any("/" not in pf and name == pf for pf in self.PROTECTED_FILES):
+            return True
+        # 与 _is_protected_file 的 ".env" 规则一致：密钥变体在遍历结果中
+        # 也不可见，仅模板后缀放行。
+        if name.startswith(".env."):
+            return name.rsplit(".", 1)[-1] not in self._ENV_TEMPLATE_SUFFIXES
+        return False
 
     def _collect_files(self, base_dir: Path) -> List[Path]:
         """收集目录下所有文件"""
