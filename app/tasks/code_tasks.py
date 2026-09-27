@@ -4,14 +4,12 @@ Code Generation Tasks
 Celery tasks for AI code generation and execution.
 """
 import asyncio
-import json
 import logging
 import subprocess
 import yaml
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Dict, List
-from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from app.celery_app import celery_app
@@ -116,7 +114,7 @@ def modify_with_test(
         dict with modification results
     """
     async def _execute():
-        from app.api.v1.ai_agent import load_dependency_graph, get_agent_knowledge_base
+        from app.api.v1.ai_agent import load_dependency_graph
         from app.core.config import settings
 
         progress_cb = self._get_progress_callback(task_id, user_id)
@@ -141,6 +139,19 @@ def modify_with_test(
             progress_cb=progress_cb,
             **kwargs
         )
+
+        # 没有关联测试 => 无验证证据，不得声称成功（TSK18）
+        if not test_files:
+            await progress_cb.update(95, "未找到关联测试，无法验证修改结果")
+            return {
+                "success": False,
+                "verification": "no_tests",
+                "modification": modification_result,
+                "test_results": [],
+                "guard_violations": _collect_guard_violations(target_files),
+                "affected_files": affected_files,
+                "retry_count": 0,
+            }
 
         # Step 4: 运行关联测试
         retry_count = 0
@@ -174,13 +185,15 @@ def modify_with_test(
                 retry_count += 1
             else:
                 await progress_cb.update(90, f"测试失败，已达最大重试次数 {max_retries}")
+                break
 
         # Step 5: 守护合约检查
         await progress_cb.update(95, "守护合约检查...")
         guard_violations = _collect_guard_violations(target_files)
 
         return {
-            "success": all(t.get("success", False) for t in test_logs) if test_logs else True,
+            # 最终状态以最后一轮结果为准：历史轮次的失败不应否定最终修复（TSK19）
+            "success": bool(test_logs) and test_logs[-1].get("success", False),
             "modification": modification_result,
             "test_results": test_logs,
             "guard_violations": guard_violations,
@@ -206,6 +219,9 @@ def _collect_guard_violations(target_files: List[str]) -> List[Dict]:
 
     violations: List[Dict] = []
     for file_path in (target_files or []):
+        if not _is_safe_target_path(file_path):
+            logger.warning(f"跳过越界的目标文件：{file_path}")
+            continue
         full_path = Path(file_path)
         if full_path.exists():
             content = full_path.read_text(encoding='utf-8')
@@ -213,6 +229,17 @@ def _collect_guard_violations(target_files: List[str]) -> List[Dict]:
                 v.__dict__ for v in check_file_against_contracts(file_path, content)
             )
     return violations
+
+
+def _is_safe_target_path(file_path: str) -> bool:
+    """拒绝含目录穿越的相对路径，避免读取项目外文件（TSK17）。"""
+    normalized = _normalize_repo_path(file_path)
+    if not normalized:
+        return False
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return True
+    return ".." not in candidate.parts
 
 
 def _normalize_repo_path(path: str) -> str:
@@ -340,7 +367,13 @@ async def _agent_fix_from_test_logs(test_logs: List[Dict], original_result: Dict
 async def _run_tests(test_files: List[str]) -> Dict:
     """运行测试文件（安全隔离版，使用 IsolatedTestRunner）"""
     if not test_files:
-        return {"success": True, "message": "无测试文件"}
+        # 无测试文件不等于验证通过（TSK18）
+        return {
+            "success": False,
+            "total": 0,
+            "message": "无测试文件",
+            "error": "未找到关联测试文件，无法验证修改结果",
+        }
 
     project_root = Path(__file__).parent.parent.parent
 
