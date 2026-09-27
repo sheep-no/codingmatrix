@@ -2585,6 +2585,10 @@ class FilesMixin:
         if not file_path:
             return file_path
 
+        # Windows 风格分隔符（LLM 偶尔生成）统一为 POSIX，否则在 Linux 上
+        # 会落盘成名为 `src\utils\api.py` 的单一文件。
+        file_path = file_path.replace('\\', '/')
+
         # 已知文件扩展名（不含点）
         KNOWN_EXTENSIONS = {'py', 'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'css', 'scss', 'sass',
                            'less', 'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',

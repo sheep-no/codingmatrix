@@ -137,6 +137,7 @@ if last_part and last_part.lower() in KNOWN_EXTENSIONS:
 - **根因**：只修 `events/rpy → events.rpy` 一类错误；Windows 风格 `\`（LLM 偶尔生成）不规范化；`file_path` 含 `.` 但最后一段非纯扩展名的其他格式错误不修。
 - **影响**：路径规范化的覆盖有限，LLM 生成的其他路径变体仍会落盘错误位置。
 - **验证方式**：`src\\utils\\api.py` → 不处理（实码可证）。
+- **OF7 已修**：`_normalize_file_path` 开头补 `file_path = file_path.replace('\\', '/')`，Windows 风格分隔符先统一为 POSIX 再走「目录/扩展名」合并，`src\utils\api.py` → `src/utils/api.py`、`events\rpy` → `events.rpy`。与 `app/agent/utils.py:1137` 的既约（`(file_path or "").replace("\\", "/")`）对齐。新增 `tests/unit/test_orchestrator_files.py::test_normalize_file_path_converts_windows_separators` 与 `::test_normalize_file_path_rewrites_trailing_extension_segment`（回退后两项均失败）。
 
 ### OF8 [P3] `_validate_and_review_file` 中 review high 后内容已采用但 success=False 语义
 
