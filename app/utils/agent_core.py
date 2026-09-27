@@ -1769,7 +1769,7 @@ class ProjectGeneratorAgent(BaseModel):
                 continue  # 跳过本轮，让 LLM 重新生成
 
             # 解析工具调用
-            tool_calls, pure_text = self._parse_tool_calls(assistant_content)
+            tool_calls, pure_text = self._parse_tool_calls(assistant_content, str(output_path))
             logger.info(f"解析结果: 工具调用 {len(tool_calls)} 个，纯文本长度 {len(pure_text)}")
 
             if tool_calls:
@@ -2164,8 +2164,14 @@ class ProjectGeneratorAgent(BaseModel):
         
         return ''.join(result)
 
-    def _parse_tool_calls(self, content: str) -> tuple[List[Dict], str]:
-        """从LLM回复中提取工具调用，支持多种格式"""
+    def _parse_tool_calls(self, content: str, output_dir: Optional[str] = None) -> tuple[List[Dict], str]:
+        """从LLM回复中提取工具调用，支持多种格式
+
+        Args:
+            content: LLM 回复原文
+            output_dir: 本次生成的输出目录，用于为「尝试4」直接输出的代码块
+                拼装目标路径；未提供时回退到 ./projects（不再硬编码 user_api）
+        """
         logger.debug("开始解析工具调用")
         logger.debug(f"原始内容前500字符: {content[:500]}")
         import re
@@ -2290,9 +2296,10 @@ class ProjectGeneratorAgent(BaseModel):
         if direct_matches:
             logger.warning("LLM未使用工具调用，直接输出了文件内容，尝试转换为工具调用")
             tool_calls = []
+            base_dir = output_dir or "./projects"
 
             for i, (filename, code_content) in enumerate(direct_matches, 1):
-                file_path = f"./projects/user_api/{filename}"
+                file_path = str(Path(base_dir) / filename)
 
                 tool_call = {
                     "id": f"call_{i:03d}",

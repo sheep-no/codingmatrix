@@ -7,7 +7,10 @@
 
 > 后续变更（2026-09-16）：AC10 提到的 `app/utils/project_validator.py` 已确认零外部引用并删除（`agent_core.py` 内同名 `ProjectValidator` 为实际活跃实现），正文保留扫描时的判定与行号。
 
-> 后续变更（2026-09-27）：AC8 已修复。`_check_syntax_warnings` 的 `visit_For` 改为仅当循环体（含 `else` 子句）中确实未以读取方式引用循环变量时才提示，消除全量误报；同批顺清 `visit_Compare` 的 B007/B905 与两处无引用 `import re as _re`（F401）。新增 `tests/unit/test_agent_core_syntax_warnings.py` 3 项约束。
+> 后续变更（2026-09-27）：AC2、AC8 已修复，AC3 经复核为陈旧项。
+> - AC8：`_check_syntax_warnings` 的 `visit_For` 改为仅当循环体（含 `else` 子句）中确实未以读取方式引用循环变量时才提示，消除全量误报；同批顺清 `visit_Compare` 的 B007/B905 与两处无引用 `import re as _re`（F401）。新增 `tests/unit/test_agent_core_syntax_warnings.py` 3 项。
+> - AC2：`_parse_tool_calls` 新增可选 `output_dir` 参数，「尝试4」直接输出代码块时按本次生成的输出目录拼装 `file_path`（缺省回退 `./projects`），不再硬编码 `./projects/user_api/`；调用点传入 `str(output_path)`。新增 `tests/unit/test_agent_core_toolcall_path.py` 2 项。
+> - AC3：`_execute_tools` 中访问 `self.current_output_dir` 的死代码块已不存在（`rg current_output_dir` 全文件无命中），正文保留扫描时判定。
 
 ## 1. 模块定位
 
@@ -41,10 +44,11 @@
 - **根因**：create_project_file 是生成主工具（LLM 每轮创建文件都用它），但路径完全由 LLM 输出决定——可写 `/etc/xxx`、`../outside.txt` 等任意服务进程权限内路径。
 - **对照**：同模块 create_file（:2551）/edit_file（:2507）/delete_file（:2527）均走 ProjectFileManager→FileOperator（有路径防护）——**同一模块两套文件写入路径，主工具无防护**。
 
-### AC2 [P2] _parse_tool_calls 尝试4 硬编码 file_path `./projects/user_api/`——无视 output_dir（GRD3 家族）
+### AC2 [P2] ~~_parse_tool_calls 尝试4 硬编码 file_path `./projects/user_api/`——无视 output_dir（GRD3 家族）~~（已修复 2026-09-27）
 
 - **Bug 代码**：:2288 `file_path = f"./projects/user_api/{filename}"`——LLM 直接输出代码块（未走工具调用格式）时，转换工具调用**硬编码相对路径**——无视 ProjectGeneratorAgent 的 output_dir 参数。
 - **影响**：LLM 直接输出代码块时文件写入错误位置（./projects/user_api/）；且相对路径 CWD 漂移（worker CWD 不同则写错目录）。
+- **修复**：`_parse_tool_calls(content, output_dir=None)`，从 `generate_project` 传入 `str(output_path)`；尝试4 用 `str(Path(output_dir or "./projects") / filename)`。
 
 ### AC3 [P3] _execute_tools 访问不存在的 self.current_output_dir——目录快照逻辑恒 AttributeError 静默失效
 
