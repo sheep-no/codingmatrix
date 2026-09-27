@@ -182,3 +182,10 @@ from app.db.database import async_session
 - **SM2/SM3 [P2]、SM10 [P2]、SM1/SM8 [P3] 保留**：`update_file_status` 零消费 / embedding 恒空是能力未接线（需产品决定复用口径）；「DB 唯一真相源」声明与实际同步面矛盾需扩展 DB 字段或修正声明；`approval_queue` 跨事件循环与 `SESSION_DIR` 相对 CWD 属结构性/配置项，均保留。
 
 回归：`tests/unit/test_session_manager.py` 由 2 项扩到 6 项（默认 ID 唯一、小变更不重复、读取失败按变更、状态含复用依据）；回退 `session_manager.py` 后新增 4 项失败。
+
+## 7. 状态更新（2026-09-27）
+
+- **SM15 [P1] `resume_session` 调用不存在的 `_get_session_lock` → 磁盘会话恢复静默失败（已修）**：`resume_session`（:225）在内存未命中时走磁盘恢复分支，调用 `self._get_session_lock(session_id)`，但 `SessionManager` 从未定义该方法，抛出的 `AttributeError` 被方法末尾的宽 `except Exception` 吞掉，只记一条「恢复会话失败」日志并返回 `None`。后果：进程重启、TTL 驱逐或换 worker 后，断点续传/增量生成所需的 `resume_session` 对任何已落盘会话恒返回 `None`，`detect_incremental_changes` 随之抛「会话不存在」。此前无测试覆盖磁盘恢复路径（既有 `test_create_and_resume_session` 因会话仍在内存而提前返回，恰好掩盖）。现补 `_get_session_lock`（`_session_locks` 中惰性创建 `asyncio.Lock`），`_save_session` 复用同一方法，消除内联建锁的重复。
+- **SM16 [P3] 异步方法内阻塞文件 I/O 移出事件循环（已修）**：`resume_session` 的 `open/json.load`（:211）、`detect_incremental_changes` 的逐文件 `open/read`（:505）、`_save_session` 的 `open/json.dump/replace`（:593）均为 async 方法内同步磁盘 I/O，阻塞事件循环。现抽 `_read_session_json`/`_read_text_file`/`_write_session_json` 三个同步辅助方法，分别以 `await asyncio.to_thread(...)` 在工作线程执行，保持原子写入与异常语义不变。
+
+回归：`tests/unit/test_session_manager.py` 由 6 项扩到 11 项，新增磁盘恢复（内存未命中、独立实例模拟重启）、与三处 I/O 的工作线程线程 id 断言（`builtins.open` 探针）；回退 `session_manager.py` 后新增 5 项全部失败。

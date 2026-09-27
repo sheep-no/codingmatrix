@@ -105,3 +105,118 @@ class TestSessionManager:
 
         assert status["files"]["a.py"]["content_hash"] == ""
         assert status["files"]["a.py"]["has_embedding"] is False
+
+    def test_resume_session_restores_from_disk_when_not_cached(self, manager):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = asyncio.run(manager.create_session(
+                requirement="persisted", output_dir=tmpdir, architecture={}, file_plan=[]
+            ))
+            manager._active_sessions.clear()
+            resumed = asyncio.run(manager.resume_session(session.session_id))
+
+        assert resumed is not None
+        assert resumed.session_id == session.session_id
+        assert resumed.requirement == "persisted"
+
+    def test_fresh_manager_restores_session_from_disk(self, manager):
+        from app.agent.session_manager import SessionManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = asyncio.run(manager.create_session(
+                requirement="persisted", output_dir=tmpdir, architecture={}, file_plan=[]
+            ))
+            # 模拟进程重启：新实例，内存中没有该会话，只能从磁盘恢复
+            fresh = SessionManager(manager.session_dir)
+            resumed = asyncio.run(fresh.resume_session(session.session_id))
+
+        assert resumed is not None
+        assert resumed.session_id == session.session_id
+
+
+def _record_open_threads(monkeypatch):
+    """记录每次 builtins.open 调用所在的线程 id。"""
+    import builtins
+    import threading
+
+    records = []
+    real_open = builtins.open
+
+    def spy(file, *args, **kwargs):
+        records.append((threading.get_ident(), str(file)))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", spy)
+    return records
+
+
+def test_save_session_writes_file_off_event_loop(monkeypatch):
+    import threading
+    from app.agent.session_manager import SessionManager
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = SessionManager(Path(tmpdir))
+        main_thread = threading.get_ident()
+        session = asyncio.run(manager.create_session(
+            requirement="test", output_dir=tmpdir, architecture={}, file_plan=[]
+        ))
+
+        records = _record_open_threads(monkeypatch)
+        asyncio.run(manager._save_session(session))
+
+    written = [
+        tid for tid, path in records
+        if session.session_id in path and path.endswith(".tmp")
+    ]
+    assert written, "未观察到会话文件写入"
+    assert all(tid != main_thread for tid in written)
+
+
+def test_resume_session_reads_file_off_event_loop(monkeypatch):
+    import threading
+    from app.agent.session_manager import SessionManager
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = SessionManager(Path(tmpdir))
+        main_thread = threading.get_ident()
+        session = asyncio.run(manager.create_session(
+            requirement="test", output_dir=tmpdir, architecture={}, file_plan=[]
+        ))
+        manager._active_sessions.clear()
+
+        records = _record_open_threads(monkeypatch)
+        resumed = asyncio.run(manager.resume_session(session.session_id))
+
+    assert resumed is not None
+    read = [
+        tid for tid, path in records
+        if session.session_id in path and path.endswith(".json")
+    ]
+    assert read, "未观察到会话文件读取"
+    assert all(tid != main_thread for tid in read)
+
+
+def test_detect_incremental_reads_project_files_off_event_loop(monkeypatch):
+    import threading
+    from app.agent.session_manager import SessionManager
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = SessionManager(Path(tmpdir))
+        main_thread = threading.get_ident()
+        session = asyncio.run(manager.create_session(
+            requirement="test",
+            output_dir=tmpdir,
+            architecture={},
+            file_plan=[{"path": "main.py"}],
+        ))
+        manager._active_sessions.clear()
+        Path(tmpdir, "main.py").write_text("print('hello')")
+
+        records = _record_open_threads(monkeypatch)
+        result = asyncio.run(manager.detect_incremental_changes(
+            session.session_id, "test", Path(tmpdir)
+        ))
+
+    assert "state" in result
+    read = [tid for tid, path in records if path.endswith("main.py")]
+    assert read, "未观察到项目文件读取"
+    assert all(tid != main_thread for tid in read)

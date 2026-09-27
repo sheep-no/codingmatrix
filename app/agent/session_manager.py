@@ -203,13 +203,12 @@ class SessionManager:
                 return self._active_sessions[session_id]
 
         session_file = self._session_file(session_id)
-        if not session_file.exists():
+        if not await asyncio.to_thread(session_file.exists):
             logger.warning(f"会话不存在: {session_id}")
             return None
 
         try:
-            with open(session_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = await asyncio.to_thread(self._read_session_json, session_file)
             state = SessionState.from_dict(data)
 
             # 检查会话是否已过期
@@ -502,8 +501,7 @@ class SessionManager:
             full_path = output_dir / file_path
             if full_path.exists():
                 try:
-                    with open(full_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                    content = await asyncio.to_thread(self._read_text_file, full_path)
                 except (OSError, UnicodeDecodeError) as e:
                     # 单文件读取失败（权限/损坏/非 UTF-8）不应中断整个增量检测，按已变更处理
                     logger.warning(f"增量检测读取文件失败，按已变更处理: {file_path} ({e})")
@@ -578,21 +576,44 @@ class SessionManager:
         """获取会话文件路径"""
         return self.session_dir / f"{session_id}.json"
 
+    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        """获取（惰性创建）per-session 锁，串行化同一会话的恢复与写入。"""
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    @staticmethod
+    def _read_session_json(session_file: Path) -> Dict[str, Any]:
+        """同步读取会话文件，供 asyncio.to_thread 在工作线程调用。"""
+        with open(session_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    @staticmethod
+    def _read_text_file(path: Path) -> str:
+        """同步读取文本文件，供 asyncio.to_thread 在工作线程调用。"""
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    @staticmethod
+    def _write_session_json(session_file: Path, data: Dict[str, Any]) -> None:
+        """原子写入会话文件（先写临时文件再重命名），供 asyncio.to_thread 调用。"""
+        tmp_file = session_file.with_suffix('.tmp')
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp_file.replace(session_file)
+
     @traced("session.save", attributes={"component": "session"})
     async def _save_session(self, state: SessionState):
         """保存会话到磁盘（使用 per-session 锁防止并发写入竞争）"""
         session_id = state.session_id
-        if session_id not in self._session_locks:
-            self._session_locks[session_id] = asyncio.Lock()
-        async with self._session_locks[session_id]:
+        async with self._get_session_lock(session_id):
             session_file = self._session_file(session_id)
             try:
                 data = state.to_dict()
-                # 使用原子写入：先写临时文件，再重命名，防止并发写入导致文件损坏
-                tmp_file = session_file.with_suffix('.tmp')
-                with open(tmp_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                tmp_file.replace(session_file)
+                # 原子写入（先写临时文件再重命名）放到工作线程，避免阻塞事件循环
+                await asyncio.to_thread(self._write_session_json, session_file, data)
             except Exception as e:
                 logger.error(f"保存会话失败: {e}")
                 raise
