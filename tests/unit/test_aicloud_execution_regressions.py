@@ -40,6 +40,32 @@ async def test_python_safe_code_still_runs(executor):
     assert result.output.strip() == "4"
 
 
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "().__class__.__bases__[0].__subclasses__()",
+        "''.__class__.__mro__[1].__subclasses__()",
+        "f = lambda: 0\nf.__globals__",
+        "print.__self__",
+        "__builtins__",
+        "(lambda: 0).__code__",
+    ],
+)
+async def test_python_attribute_chain_escape_rejected(executor, snippet):
+    """CE5：经 dunder 属性链找回任意对象的逃逸必须在静态检查阶段被拒绝。"""
+    result = await executor.execute(snippet, "python")
+    assert result.success is False
+    assert "禁止访问" in result.error
+
+
+async def test_python_common_dunder_still_runs(executor):
+    """CE5 收紧后常规 dunder 调用不受影响。"""
+    code = "class A:\n    def __init__(self):\n        self.x = 1\nprint(A().x)"
+    result = await executor.execute(code, "python")
+    assert result.success is True
+    assert result.output.strip() == "1"
+
+
 async def test_python_child_has_memory_and_cpu_limits(executor):
     """CE4：子进程需带上 MAX_MEMORY_MB 的地址空间上限与 CPU 上限。"""
     code = (

@@ -40,7 +40,7 @@
 
 ### P3（16 项）
 
-- **CE5 [P3] Python AST 检查可绕过（attribute 链不受限）**——code_executor.py:164-180 只拦 `ast.Name` 直调或 `__builtins__` 前缀的 Call——`().__class__.__mro__[1].__subclasses__()` 全走 attribute 链不拦（getattr/__import__ 限制可被 __subclasses__ 找到任意文件/网络对象绕过）。
+- **CE5 [P3] Python AST 检查可绕过（attribute 链不受限）**——code_executor.py:164-180 只拦 `ast.Name` 直调或 `__builtins__` 前缀的 Call——`().__class__.__mro__[1].__subclasses__()` 全走 attribute 链不拦（getattr/__import__ 限制可被 __subclasses__ 找到任意文件/网络对象绕过）。（**2026-09-27 已加固**：新增 `DANGEROUS_PYTHON_ATTRS` 属性名拦截，见 §六。）
 - **CE7 [P3] 执行脚本明文落盘无权限限制**——code_executor.py:114-115 把代码写 `{workspace}/exec_{uuid}.py`（/sandbox/{uid}/workspace 用户可读），执行窗口内明文暴露；JS/Go 同理（:195-200/:258-264）。
 - **AE2 [P3] workspace_path 缺省时 CodeExecutor 落 `/tmp`（tempfile.gettempdir()）**——code_executor.py:55 默认值——当前 aicloud.py 传真实 sandbox 路径，但任何未来调用方漏传即无沙箱目录（与 SB1 配合更弱）。
 - **AE3 [P3] 循环迭代记录截断无标记**——auto_executor.py:167-169 `[:500]/[:200]/[:200]` 截断无截断标记（JP2/TR2 家族）。
@@ -99,7 +99,7 @@
 - **SO2**：`raw_content` 仍原样入库与写回。
 - **SO4**：~~`SandboxFileOperator.PROTECTED_PATHS` 仍为基类不消费的死字段（基类用自身清单）。~~ → **判断不成立（PR #27 更正，见下）**
 - **SB2**：`ensure_user_sandbox` 仍声明 `async` 但仅同步 `os.makedirs`（P3）。
-- **CE5/CE7**：Python AST 仍不拦 attribute 链逃逸；执行脚本仍明文落盘（P3）。
+- **CE5 已加固（2026-09-27）**：Python AST 新增 `DANGEROUS_PYTHON_ATTRS` 属性名拦截（`__subclasses__`/`__globals__`/`__bases__`/`__mro__`/`__reduce__`/`__reduce_ex__`/`__getattribute__`/`__code__`/`__closure__`/`__loader__`/`__spec__`/`__self__`/`__func__`/`__import__`），并把 `__builtins__` 检查提升到 `ast.Name` 层；`().__class__.__bases__[0].__subclasses__()` 等属性链逃逸在解析阶段即被拒绝。新增 7 项用例（6 项拦截 + 1 项正常回归），回退 `code_executor.py` 后 6 项拦截用例全失败（旧实现可实际执行属性链逃逸）。属黑名单纵深防御，不追求完备——彻底隔离仍需 OS 级沙箱，见 §四建议①与 §六。**CE7 仍在**：执行脚本仍明文落盘（P3）。
 - **AE2/AE3/AE5**：`CodeExecutor` 默认落 `/tmp`；循环记录截断无标记；`conversation_history` 收集后无消费（P3）。
 - **CI1**：`context_isolator.setup_sandbox` 产出的 `sandbox_env` 仍未注入 `CodeExecutor`（后者使用固定环境字典）（P3）。
 - **KP2/KP3 已修复（2026-09-22）**：`embed_chunks` 向量化失败不再写入 `[0.0] * 768` 零向量占位，改为跳过该块并记录跳过数量；返回值非列表或为空同样按失败处理。`search_similar_chunks` 丢弃相似度非正的结果（零向量、维度不匹配、与查询正交），不再让它们占用 `top_k` 名额。上传端点在全部分块都向量化失败时把文档标记为 `failed` 并返回 500（原实现落一个 `completed` 但不可检索的空壳文档），`chunk_count` 改为实际入库分块数；`embedding_model` 改记 `DEFAULT_EMBEDDING_MODEL`，不再硬编码 `BAAI/bge-m3`（可能与实际调用模型不符）。新增 `tests/unit/test_aicloud_embedding_failure.py`（6 项），回退两个源文件后 6 项全失败。
@@ -129,5 +129,5 @@
 - **CA6 [P3] 部分仍在（子断言更正）**：`content_analyzer.py:21` 仅匹配 `subprocess\.call`，漏 `subprocess.run`；:22 仅匹配 `os\.system\s*\(`，漏 `os .system` 变体；:26 `base64\.b64decode\s*\(` 仍误伤正常解码。原文「`rm -rf /etc` 只禁 `rm -rf /`」子断言不成立——:15 `rm\s+-rf\s+/` 能匹配 `rm -rf /etc`。
 - **SF1 [P3] 部分仍在（子断言更正）**：`sensitive_filter.py:19` 要求分隔符为 `=` 或 `:`，空格分隔的 `PASSWORD xxx` 仍漏检；原文「大小写变体漏检」不成立——:26-29 编译时使用 `re.IGNORECASE`。
 - **仍在（未处理）**：SO2、SB2、CE5、CE7、AE2、AE3、AE5、CI1、CA7、CI3、KP2、KP3、KP4。
-- **2026-09-27 最终判定（列表同步）**：子列表中 CE2（Go 侧已补齐）、CI3、KP2/KP3、CA6 已在 §五 / 本条标记修复，原文「仍在」列表未同步，现更正。**SB1 更正**：`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验解析后路径是否落在 `base_path` 内，沙箱内 symlink 无法越界，原「normpath 未解析 symlink」判断不成立（`SandboxFileOperator.get_absolute_path` 的 normpath 仅用于展示/拼接，实际安全校验走基类）。**SO2 保留**：审批者需原文才能审阅、批准后按原文回写沙箱文件，仅存储层脱敏会破坏回写，属产品口径。**CA7 保留待确认**：`check_dangerous_extensions` / `SAFE_FILE_EXTENSIONS` 在 `app/` 内零生产消费，删除需同步调整 `tests/unit/test_aicloud.py`。**SB2、CE5、CE7、AE2、AE3、AE5、CI1、KP4 保留**：均为 P3 卫生 / 设计项，其中 CE5（Python AST 未拦 `().__class__.__bases__` 等属性链）与 CE7 属黑名单沙箱固有的绕过面，彻底收敛需改为 OS 级隔离（容器/namespace/seccomp）或按 §四 建议下调「安全执行」承诺，属架构级改动。
+- **2026-09-27 最终判定（列表同步）**：子列表中 CE2（Go 侧已补齐）、CE5（属性链已加固）、CI3、KP2/KP3、CA6 已在 §五 / 本条标记修复，原文「仍在」列表未同步，现更正。**SB1 更正**：`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验解析后路径是否落在 `base_path` 内，沙箱内 symlink 无法越界，原「normpath 未解析 symlink」判断不成立（`SandboxFileOperator.get_absolute_path` 的 normpath 仅用于展示/拼接，实际安全校验走基类）。**SO2 保留**：审批者需原文才能审阅、批准后按原文回写沙箱文件，仅存储层脱敏会破坏回写，属产品口径。**CA7 保留待确认**：`check_dangerous_extensions` / `SAFE_FILE_EXTENSIONS` 在 `app/` 内零生产消费，删除需同步调整 `tests/unit/test_aicloud.py`。**SB2、CE7、AE2、AE3、AE5、CI1、KP4 保留**：均为 P3 卫生 / 设计项（`ensure_user_sandbox` 同步实现、执行脚本明文落盘、默认落 `/tmp`、循环记录截断无标记、`conversation_history` 无消费、`sandbox_env` 未注入、`.doc` 旧格式解析）。CE2/CE3/CE5 已收窄的绕过面之后，彻底隔离仍需改为 OS 级隔离（容器/namespace/seccomp）或按 §四 建议下调「安全执行」承诺，属架构级改动。
 - **已修复（PR #27）**：RQ1、SO1/CA5、RQ2 已删死分支/隔离到位，SO4 判断不成立；详见 §五 末节。
