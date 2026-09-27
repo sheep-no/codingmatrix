@@ -83,6 +83,7 @@ projects/
 sessions/
 embeddings/
 data/agent_state_checkpoints/
+data/orchestration_core_checkpoints/*_untitled_*.json
 
 # =============================================================================
 # PPT 相关
