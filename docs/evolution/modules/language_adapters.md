@@ -86,3 +86,10 @@ LanguageAdapter 是生成链依赖推断的**入口语法层**（architect 依�
 - AD12：`_file_plan_data` 类级状态的真正隔离需 `DependencyGraph` 持有独立 adapter 实例，属架构级改造。
 - AD8：混合语言项目回 generic 属阈值策略选择。
 - AD5/AD13：go/java 适配器现已存在（`go.py`/`java.py`/`rust.py`），AD13 静默降级不再成立。
+
+## 7. 状态更新（2026-09-27）
+
+- **AD3 已修（剩余项：多行 import / 行尾注释）**：新增模块级 `iter_logical_lines(content)`（language_adapter.py）——只有以导入关键字（`from ` / `import ` / `import(` / `export ` / `const ` / `let ` / `var `）开头的行才可能触发括号续行合并，普通代码行原样输出，避免把无关的多行表达式拼接到一起。Python 与 JavaScript 的 `parse_imports` 均改用该函数遍历并跳过空行。
+  - Python 额外剥离行尾注释：`from a import b  # noqa` 的 `symbols` 不再含注释尾；`from x import (a,\n b)` 合并为单个逻辑行后由既有 `_parse_import_symbols` 正确拆分，相对导入的 `level` 与符号一并保留。
+  - JS `import {\n a,\n b\n} from 'm'` 现被完整解析（module + symbols），此前逐行处理导致整条导入丢失。
+  - 回归 `tests/unit/test_language_adapter_multiline_imports.py` 7 项（多行括号分组、别名、相对层级、Python 行尾注释、JS 多行 named import、普通代码行不合并），回退源码后 5 项失败。

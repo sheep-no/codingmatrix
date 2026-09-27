@@ -21,6 +21,40 @@ _EXTERNAL_SOURCE_SUFFIXES = {
 }
 
 
+_IMPORT_LINE_PREFIXES = (
+    "from ", "import ", "import(", "export ", "const ", "let ", "var ",
+)
+
+
+def iter_logical_lines(content: str) -> List[str]:
+    """把导入语句的括号续行合并为单个逻辑行。
+
+    Python/JS 的导入可用括号/花括号跨多行书写（`from x import (a,\\n b)`、
+    `import {a,\\n b} from 'm'`），逐行解析会漏掉续行中的符号。只有以导入
+    关键字开头的行才可能触发合并，普通代码行原样输出，避免把无关的多行
+    表达式拼到一起。
+    """
+    logical: List[str] = []
+    buf = ""
+    depth = 0
+    for raw in content.split("\n"):
+        piece = raw.strip()
+        starting = not buf
+        if starting and piece and not piece.startswith(_IMPORT_LINE_PREFIXES):
+            logical.append(piece)
+            continue
+        buf = piece if starting else f"{buf} {piece}"
+        depth += piece.count("(") + piece.count("[") + piece.count("{")
+        depth -= piece.count(")") + piece.count("]") + piece.count("}")
+        if depth <= 0:
+            logical.append(buf)
+            buf = ""
+            depth = 0
+    if buf:
+        logical.append(buf)
+    return logical
+
+
 @dataclass
 class ImportInfo:
     """导入信息"""

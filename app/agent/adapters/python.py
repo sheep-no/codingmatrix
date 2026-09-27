@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .language_adapter import (
     LanguageAdapter, LanguageAdapterRegistry,
-    ImportInfo, SymbolDefinition
+    ImportInfo, SymbolDefinition, iter_logical_lines
 )
 
 
@@ -170,11 +170,19 @@ class PythonLanguageAdapter(LanguageAdapter):
         if not content:
             return imports
 
-        for line in content.split('\n'):
+        for line in iter_logical_lines(content):
             stripped = line.strip()
+
+            if not stripped:
+                continue
 
             # 跳过注释
             if stripped.startswith('#'):
+                continue
+
+            # 剥离行尾注释（导入语句中 # 之后必为注释）
+            stripped = stripped.split('#', 1)[0].strip()
+            if not stripped:
                 continue
 
             # from xxx import yyy
