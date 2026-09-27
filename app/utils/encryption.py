@@ -32,6 +32,22 @@ logger = logging.getLogger(__name__)
 
 # 密钥目录环境变量；未设置时使用仓库根下 keys/，避免 CWD 漂移导致密钥位置漂移
 KEY_DIR_ENV = "RSA_KEY_DIR"
+# 私钥口令环境变量；设置后私钥以口令加密落盘，未设置则保持明文（仅靠文件权限保护）
+KEY_PASSPHRASE_ENV = "RSA_KEY_PASSPHRASE"
+
+
+def _get_passphrase() -> Optional[bytes]:
+    """返回私钥口令字节；未配置时为 None（保持明文落盘）"""
+    value = os.getenv(KEY_PASSPHRASE_ENV)
+    return value.encode("utf-8") if value else None
+
+
+def _private_key_encryption():
+    """返回私钥序列化加密算法：配置口令则加密，否则明文"""
+    passphrase = _get_passphrase()
+    if passphrase is None:
+        return serialization.NoEncryption()
+    return serialization.BestAvailableEncryption(passphrase)
 
 
 def _default_key_paths() -> Tuple[str, str]:
@@ -81,18 +97,40 @@ class RSAKeyManager:
         公钥文件缺失或与私钥不匹配时，按私钥重建，不轮换私钥。
         """
         try:
-            # 加载私钥
-            with open(self.private_key_path, "rb") as f:
-                self.private_key = serialization.load_pem_private_key(
-                    f.read(),
-                    password=None,
-                    backend=default_backend()
-                )
+            raw_private = Path(self.private_key_path).read_bytes()
         except FileNotFoundError:
             logger.warning("密钥文件不存在，生成新的密钥对")
             self._generate_keys()
             self.save_keys()
             return
+        except OSError as e:
+            raise RuntimeError(
+                f"读取 RSA 私钥失败（{self.private_key_path}）：{e}"
+            ) from e
+
+        passphrase = _get_passphrase()
+        upgrade_to_encrypted = False
+        try:
+            # 先按明文加载，兼容既有未加密密钥
+            self.private_key = serialization.load_pem_private_key(
+                raw_private, password=None, backend=default_backend()
+            )
+            upgrade_to_encrypted = passphrase is not None
+        except TypeError:
+            # 私钥已加密：必须提供匹配口令
+            if passphrase is None:
+                raise RuntimeError(
+                    f"RSA 私钥已加密（{self.private_key_path}），"
+                    f"但未设置 {KEY_PASSPHRASE_ENV} 环境变量"
+                )
+            try:
+                self.private_key = serialization.load_pem_private_key(
+                    raw_private, password=passphrase, backend=default_backend()
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"加载加密 RSA 私钥失败（{self.private_key_path}）：{e}"
+                ) from e
         except Exception as e:
             raise RuntimeError(
                 f"加载 RSA 私钥失败（{self.private_key_path}），拒绝覆盖既有密钥：{e}"
@@ -112,6 +150,10 @@ class RSAKeyManager:
         except Exception as e:
             logger.warning(f"公钥文件不可用（{e}），按私钥重建")
             self.save_keys()
+
+        if upgrade_to_encrypted:
+            # 已配置口令但磁盘为明文，升级为加密存储
+            self.save_keys()
     
     def save_keys(self):
         """保存密钥到文件"""
@@ -122,12 +164,17 @@ class RSAKeyManager:
             os.makedirs(os.path.dirname(os.path.abspath(key_path)), exist_ok=True)
         
         # 保存私钥
-        with open(self.private_key_path, "wb") as f:
-            f.write(self.private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
+        private_pem = self.private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=_private_key_encryption(),
+        )
+        # 先写临时文件再原子替换，避免写入中断损坏既有私钥
+        tmp_private = self.private_key_path + ".tmp"
+        with open(tmp_private, "wb") as f:
+            f.write(private_pem)
+        os.chmod(tmp_private, 0o600)
+        os.replace(tmp_private, self.private_key_path)
         
         # 保存公钥
         with open(self.public_key_path, "wb") as f:
