@@ -58,8 +58,9 @@ class ConversationHistoryManager:
         """追加消息到历史"""
         async with self._lock:
             if session_id not in self._data:
-                self._data[session_id] = {"messages": [], "output_dir": None}
+                self._data[session_id] = {"messages": [], "output_dir": None, "last_update": 0.0}
             self._data[session_id]["messages"].extend(messages)
+            self._data[session_id]["last_update"] = time.time()
             # 限制单个会话的消息数
             if len(self._data[session_id]["messages"]) > self.MAX_MESSAGES_PER_SESSION:
                 self._data[session_id]["messages"] = self._data[session_id]["messages"][-self.MAX_MESSAGES_PER_SESSION:]
@@ -70,8 +71,9 @@ class ConversationHistoryManager:
         """设置完整对话历史（用于恢复）"""
         async with self._lock:
             if session_id not in self._data:
-                self._data[session_id] = {"output_dir": None}
+                self._data[session_id] = {"output_dir": None, "last_update": 0.0}
             self._data[session_id]["messages"] = messages
+            self._data[session_id]["last_update"] = time.time()
             # 限制单个会话的消息数
             if len(messages) > self.MAX_MESSAGES_PER_SESSION:
                 self._data[session_id]["messages"] = messages[-self.MAX_MESSAGES_PER_SESSION:]
@@ -80,8 +82,9 @@ class ConversationHistoryManager:
         """设置输出目录"""
         async with self._lock:
             if session_id not in self._data:
-                self._data[session_id] = {"messages": []}
+                self._data[session_id] = {"messages": [], "last_update": 0.0}
             self._data[session_id]["output_dir"] = output_dir
+            self._data[session_id]["last_update"] = time.time()
     
     async def get_output_dir(self, session_id: str) -> Optional[str]:
         """获取输出目录"""
@@ -106,7 +109,7 @@ class ConversationHistoryManager:
             # 按最后更新时间排序，移除最旧的
             sorted_sessions = sorted(
                 self._data.items(),
-                key=lambda x: x[1].get("messages", [{}])[-1].get("timestamp", 0) if x[1].get("messages") else 0,
+                key=lambda x: x[1].get("last_update", 0.0),
                 reverse=True
             )
             # 保留最新的 MAX_ACTIVE_SESSIONS 个
