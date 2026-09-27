@@ -144,7 +144,6 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, nextTick, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/user'
 import { useApiKeyStore } from '@/stores/apikey'
 import { useProviderStore } from '@/stores/providers'
 import { useAgentSession } from '@/composables/useAgentSession'
@@ -169,7 +168,6 @@ import VersionHistoryModal from '@/components/agent/modals/VersionHistoryModal.v
 import DiffModal from '@/components/agent/modals/DiffModal.vue'
 import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
-const userStore = useUserStore()
 const apiKeyStore = useApiKeyStore()
 const providerStore = useProviderStore()
 const router = useRouter()
@@ -228,7 +226,7 @@ const handlePageKeydown = (event) => {
 const session = useAgentSession()
 const generation = useAgentGeneration()
 const files = useAgentFiles()
-const workspace = useAgentWorkspace({ session, files, generation })
+const workspace = useAgentWorkspace({ session, files })
 const taskFeedback = useTaskFeedback('agent')
 const taskFeedbackState = taskFeedback.feedback
 const taskFeedbackConnection = taskFeedback.connectionStatus
@@ -272,7 +270,6 @@ const generatedFiles = computed(() => files.generatedFiles || [])
 const isGenerating = computed(() => generation.isGenerating)
 const workflowStages = computed(() => generation.workflowStages)
 const selectedFile = computed(() => files.selectedFile || null)
-const templates = computed(() => files.templates)
 
 const agentStatus = computed(() => {
   if (generation.isGenerating) return 'running'
@@ -282,7 +279,6 @@ const agentStatus = computed(() => {
 })
 
 // ========== Helpers ==========
-const getFileType = (path) => files.getFileType(path)
 const getPlaceholder = computed(() => generation.getPlaceholder(generatedFiles.value.length > 0))
 const getOverallProgress = computed(() => generation.getOverallProgress())
 const getETA = computed(() => generation.getETA())
@@ -509,7 +505,6 @@ const copyFileContent = () => workspace.copyFileContent()
 const downloadFile = (f) => workspace.downloadFile(f)
 const deleteFileFromBackend = (filePath) => backend.deleteFileFromBackend(filePath, workspace.currentProjectPath)
 const downloadProject = () => backend.downloadProject(workspace.currentProjectPath)
-const useTemplate = (template) => session.projectPrompt = templates.value[template]?.prompt || ''
 const toggleCategory = (category) => files.toggleCategory(category)
 const selectFile = (file) => files.selectFile(file)
 
@@ -525,7 +520,7 @@ const saveSettings = (localSettings) => {
   backend.settings = localSettings
   backend.saveSettings()
 }
-const copySettingsToClipboard = (localSettings) => {
+const copySettingsToClipboard = () => {
   backend.copySettingsToClipboard()
 }
 const exportPerformanceData = () => backend.exportPerformanceData()

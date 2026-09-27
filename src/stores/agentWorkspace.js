@@ -1,7 +1,6 @@
 import { ref, computed, nextTick } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
-import JSZip from 'jszip'
 
 export const useAgentWorkspaceStore = defineStore('agentWorkspace', () => {
   // ========== Files State ==========
