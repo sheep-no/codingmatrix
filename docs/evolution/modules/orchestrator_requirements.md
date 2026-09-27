@@ -95,3 +95,13 @@
 ### 9.3 测试状态
 
 本轮新增 3 项（OA1 独立实例化 1、OA8 清理语义与频率闸 2），`test_v5_1_requirement_deep.py` 由 28 项增至 31 项，全部通过。
+
+## 10. 状态更新（2026-09-27）
+
+- **OA3 [P2] 已修**：`llm_prompts.parse_llm_response` 弃用贪婪 `re.search(r'\{[\s\S]*\}', response)` + `json.loads`。改调 `json_parser.extract_first_json_object(response)` 取响应中**首个** JSON 对象——LLM 输出两段 JSON（代码块 + 补充）时不再跨块贪婪拼接以致 `json.loads` 抛 `Extra data` 并整体降级。文本降级改为 `_extract_text_items`：只接受 `- * • 1. 1、1)` 列表项（`_LIST_ITEM_RE`），跳过含 `{}[]"` 的 JSON 片段与普通说明/prompt 回显文字，长度 ≤3 的碎片亦丢弃。原降级把整块 JSON 原文与「你是一位资深的全栈架构顾问。」等 prompt 说明当功能项的问题消除（OA3 / PM2 家族）。移除未使用 `json` 导入。
+  - 回归 `tests/unit/test_requirement_association.py` 新增 `TestParseLLMResponse::test_two_json_blocks_use_first_not_greedy`（两段合法 JSON 拼接只取首段）与 `::test_text_fallback_skips_prompt_and_json_fragments`（prompt 文字与 JSON 片段不计入）；回退 `llm_prompts.py` 后 2 项失败。该文件现共 30 项。
+
+仍未处理：
+
+- **OA2 [P2]**：confirm/helpfulness 端点与 `AssociationFeedbackTracker` 三处错位（方法不存在/签名不符/传输层 422），需先确定「association_id 语义」这一跨前后端契约口径。
+- **OA4/OA5/OA6/OA7/OA9 [P3]**：无架构师时静默空、merge key/置信度硬编码、`devil_review` 死字段、模型配置双轨、Layer 2 门槛不一致，均保持原状。
