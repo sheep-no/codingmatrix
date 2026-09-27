@@ -111,6 +111,13 @@ async def update_model_stats(
                 stats.success_count += 1
             else:
                 stats.failure_count += 1
+
+            total_requests = stats.success_count + stats.failure_count
+            if total_requests > 0:
+                stats.avg_execution_time = (
+                    (stats.avg_execution_time * (total_requests - 1) + execution_time) / total_requests
+                )
+
             stats.last_used_at = datetime.now(timezone.utc)
         else:
             stats = ModelUsageStats(

@@ -33,7 +33,7 @@
 
 - **AIC1 [P3] `PROJECTS_BASE_DIR = "./projects"`（:232）相对路径依赖 CWD**——与 ai_agent/project_config.py:1 同源（helpers.py:23 亦 import 此值）。当前以 `uwsgi/gunicorn` 从项目根启动时恰好正确，但多 worker / systemd / cron 启动 CWD 漂移时 `_validate_project_path`（helpers.py:47）/ `resolve_output_dir` 全部路径错位——活跃面路径体系的基础假设是「CWD=项目根」，无启动时 CWD 校验。
 
-- **AIC2 [P3] `update_model_stats` 更新分支不维护 `avg_execution_time`（:108-115）**——仅首次创建时赋值（:125），此后 request_count/total_tokens/success/failure/last_used_at 递增但 `avg_execution_time` 恒为首次值。orchestrate 端点每请求调用，统计失真（AGM5 已记分母含失败请求，此处补充「字段从不更新」面）。
+- **AIC2 [P3] `update_model_stats` 更新分支不维护 `avg_execution_time`（:108-115）**——仅首次创建时赋值（:125），此后 request_count/total_tokens/success/failure/last_used_at 递增但 `avg_execution_time` 恒为首次值。orchestrate 端点每请求调用，统计失真（AGM5 已记分母含失败请求，此处补充「字段从不更新」面）。**已修（2026-09-27）**：更新分支补递增均值 `(old_avg * (n-1) + execution_time) / n`，与 `app/services/agent_memory_service.py:303-307` 行为对齐；新增 `tests/unit/test_ai_project_code_update_model_stats.py`。
 
 - **AIC3 [P3] project_tasks.py:39 经本文件 re-export 引用 `ProjectGeneratorAgent`（实际定义 agent_core.py:1288）**——脆弱间接引用：AiProjectCode 仅 `from app.utils.agent_core import ProjectGeneratorAgent`（:31）后即被 project_tasks 再导出消费。迁移/删除本文件将直接破坏该 Celery 任务，修复方向是 project_tasks 改直接 `from app.utils.agent_core import ProjectGeneratorAgent`。
 
