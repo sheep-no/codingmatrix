@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
-test.use({ baseURL: process.env.BASE_URL || 'http://127.0.0.1:8000' })
+// 使用 playwright.config.js 的默认 baseURL（前端 dev server），
+// 页面内对后端的调用由下方 route mock 拦截，无需把 baseURL 指向后端。
 
 const companionState = revision => ({
   conversation_id: 'e2e-conversation',
@@ -61,10 +62,11 @@ async function openCompanion(page) {
   const toolkit = page.getByRole('button', { name: /^工具集/ })
   await expect(toolkit).toBeVisible({ timeout: 30000 })
   await toolkit.click()
-  const launcher = page.getByText('虚拟姬', { exact: true }).first()
-  if (!(await launcher.isVisible({ timeout: 15000 }).catch(() => false))) {
-    throw new Error(`伙伴入口未渲染，当前页面文本：${(await page.locator('body').innerText()).slice(0, 1000)}`)
-  }
+  // 限定在工具集菜单内定位，并等待菜单展开动画结束，避免点击时元素不稳定
+  const menu = page.locator('#toolkit-menu')
+  await expect(menu).toBeVisible({ timeout: 15000 })
+  const launcher = menu.getByText('虚拟姬', { exact: true }).first()
+  await expect(launcher).toBeVisible({ timeout: 15000 })
   await launcher.click()
   await expect(page.locator('.virtual-girl-window')).toBeVisible()
 }
@@ -76,12 +78,12 @@ test.describe('GirlAI 伙伴交互', () => {
     await mockCompanionApis(page, () => companionState(revision))
 
     await openCompanion(page)
-    await expect(page.locator('.companion-emotion')).toHaveText('neutral')
+    await expect(page.locator('.companion-emotion')).toHaveText('平静')
     await expect(page.locator('.companion-degraded')).toHaveText('文字模式')
 
     revision = 7
     await openCompanion(page)
-    await expect(page.locator('.companion-emotion')).toHaveText('focused')
+    await expect(page.locator('.companion-emotion')).toHaveText('专注')
   })
 
   test('旧 revision 响应不会覆盖当前伙伴状态', async ({ page }) => {
@@ -93,14 +95,14 @@ test.describe('GirlAI 伙伴交互', () => {
     })
 
     await openCompanion(page)
-    await expect(page.locator('.companion-emotion')).toHaveText('focused')
+    await expect(page.locator('.companion-emotion')).toHaveText('专注')
 
     const stateResponse = await page.evaluate(async () => {
       const response = await fetch('/api/v1/GirlAi/companion/state')
       return response.json()
     })
     expect(stateResponse.state_revision).toBe(6)
-    await expect(page.locator('.companion-emotion')).toHaveText('focused')
+    await expect(page.locator('.companion-emotion')).toHaveText('专注')
   })
 
   test('伙伴异步状态更新保持文字主链路可用', async ({ page }) => {
@@ -123,6 +125,6 @@ test.describe('GirlAI 伙伴交互', () => {
     await expect(window.locator('.send-button')).toBeEnabled()
     await window.locator('.send-button').click()
     await expect(window.locator('.message.assistant .message-content').last()).toHaveText('我在这里，先陪你聊聊。')
-    await expect(window.locator('.companion-emotion')).toHaveText('focused')
+    await expect(window.locator('.companion-emotion')).toHaveText('专注')
   })
 })

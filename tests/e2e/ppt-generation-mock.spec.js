@@ -29,10 +29,23 @@ function json(route, body, status = 200) {
 
 test.describe('PPT 三步生成流程（mock）', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('access_token', 'e2e-token')
+    // tokenManager.performRefresh 要求 access_token 是合法的三段 JWT，用固定 payload 构造
+    const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64')
+    const fakeJwt = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ sub: 'e2e-user', exp: Math.floor(Date.now() / 1000) + 3600 })}.e2e-signature`
+
+    await page.addInitScript(({ jwt, keyExpiry }) => {
+      // /ppt-generate 有 requiresAuth 守卫，tokenManager 需要完整的
+      // sessionStorage/localStorage token 与未过期的 _token_expiry 才认为已登录。
+      const expiry = Date.now() + 3600000
+      sessionStorage.setItem('_token', jwt)
+      sessionStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('access_token', jwt)
+      localStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('username', 'e2e-user')
+      localStorage.setItem('permission_level', 'superadmin')
+      // apikeyStore.hasSiliconflowKey 要求存在 provider=siliconflow、enabled 且 expires_at 未过期
       localStorage.setItem('codingmatrix_apikeys', JSON.stringify([
-        { token: 'e2e-provider-token', provider: 'siliconflow', enabled: true },
+        { token: 'e2e-provider-token', provider: 'siliconflow', enabled: true, expires_at: keyExpiry },
       ]))
 
       class MockWebSocket {
@@ -54,7 +67,10 @@ test.describe('PPT 三步生成流程（mock）', () => {
         }
       }
       window.WebSocket = MockWebSocket
-    })
+    }, { jwt: fakeJwt, keyExpiry: new Date(Date.now() + 86400000).toISOString() })
+
+    await page.route('**/api/v1/csrf-token', route => json(route, { csrf_token: 'e2e-csrf' }))
+    await page.route('**/api/v1/refresh', route => json(route, { access_token: fakeJwt, expires_in: 3600 }))
 
     await page.route('**/api/v1/pptx/**', async route => {
       const request = route.request()
@@ -112,12 +128,12 @@ test.describe('PPT 三步生成流程（mock）', () => {
 
     await expect(page.getByText('第 3 步：选择质量模式')).toBeVisible()
     await page.getByRole('button', { name: '开始生成 PPT' }).click()
-    await expect(page.getByText('生成成功!')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('生成成功！')).toBeVisible({ timeout: 15000 })
 
     await page.getByRole('main').getByRole('button', { name: '在线预览' }).click()
     await expect(page).toHaveURL(/ppt-preview\/ppt-e2e/)
     await expect(page.getByText('生成质量 92')).toBeVisible()
-    await expect(page.getByText('需人工复核：slide-1')).toBeVisible()
+    await expect(page.getByText('需人工复核：第 1 页')).toBeVisible()
     await expect(page.getByText('修复动作：缩减文本或切换布局')).toBeVisible()
 
     const download = page.waitForEvent('download')
