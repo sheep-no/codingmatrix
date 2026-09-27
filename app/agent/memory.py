@@ -551,14 +551,18 @@ class AgentMemory:
         """保存记忆到存储"""
         try:
             data = {
-                "session_id": self._session_id,
+                # 用属性而非 _session_id：后者在未访问过属性时为 None，会把
+                # 会话标识存成 null，load 后会话身份丢失。
+                "session_id": self.session_id,
                 "created_at": self._created_at,
                 "conversation": [e.to_dict() for e in self.conversation.get_recent(100)],
                 "knowledge": [e.to_dict() for e in self.knowledge.get_recent(100)],
                 "reflections": [e.to_dict() for e in self.reflection.get_recent(50)]
             }
 
-            async def _write_json():
+            # 必须是同步函数：asyncio.to_thread 不接受协程，async def 会在工作线程里
+            # 返回未 await 的协程对象，导致文件从未写入却返回成功（报告≠实际）。
+            def _write_json():
                 with open(storage_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -573,7 +577,8 @@ class AgentMemory:
     async def load_from_storage(self, storage_path: str) -> bool:
         """从存储加载记忆"""
         try:
-            async def _read_json():
+            # 同 _write_json：同步函数才能被 asyncio.to_thread 正确执行。
+            def _read_json():
                 with open(storage_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
 
