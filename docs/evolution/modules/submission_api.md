@@ -49,6 +49,8 @@
 
 仍属未处理：GH11（read 类型审查批准无落盘动作，属设计性空转）、GH10（三套 git 封装收敛，架构级）。`tests/unit/test_github_readonly_api.py` 覆盖路径穿越、前缀同族、空对象、无凭据远端 URL 与名称校验；`tests/unit/test_aicloud_review_isolation.py` 覆盖归属隔离、沙箱越界与状态机守卫。
 
+最终判定（2026-09-27）：GH10 三套 git 封装收敛需统一提交消息 / 分支名 / 空提交语义，属架构级改动，保留现状；GH11 为设计性空转，保留。理由见 `docs/TECH-DEBT.md`「非 Agent 深扫剩余项最终判定（2026-09-27）」。
+
 
 ### P2（7 项）
 

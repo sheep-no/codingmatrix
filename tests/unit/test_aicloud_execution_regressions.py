@@ -86,3 +86,43 @@ def test_is_safe_code_normalizes_whitespace_and_case(code):
 
 def test_is_safe_code_allows_normal_code():
     assert is_safe_code("print('hello')")[0] is True
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        'package main\nimport "os"\nfunc main() { os.ReadFile("/etc/passwd") }',
+        'package main\nimport (\n\t"fmt"\n\to "os"\n)\nfunc main() { fmt.Println(o.Args) }',
+        'package main\nimport _ "net/http"\nfunc main() {}',
+        'package main\nimport "os/exec"\nfunc main() {}',
+        "package main\nimport\n\"io/ioutil\"\nfunc main() {}",
+        "package main\nimport `os`\nfunc main() {}",
+        'package main\nimport "C"\nfunc main() {}',
+    ],
+)
+def test_go_dangerous_imports_are_detected(snippet):
+    """CE2：Go 侧文件系统/进程/网络导入必须在静态检查阶段被识别。"""
+    from app.utils.aicloud.code_executor import _find_banned_go_import
+
+    assert _find_banned_go_import(snippet) is not None
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        'package main\nimport "fmt"\nfunc main() { fmt.Println("os") }',
+        'package main\nimport (\n\t"strings"\n\t"strconv"\n)\nfunc main() {}',
+    ],
+)
+def test_go_safe_imports_pass(snippet):
+    """收紧检查后正常导入与含同名文本的字符串字面量不受影响。"""
+    from app.utils.aicloud.code_executor import _find_banned_go_import
+
+    assert _find_banned_go_import(snippet) is None
+
+
+async def test_go_banned_import_blocked_before_compilation(executor):
+    """CE2：禁用导入在调用 go 工具链之前即返回失败，无需本机安装 Go。"""
+    result = await executor.execute('package main\nimport "os"\nfunc main() {}', "go")
+    assert result.success is False
+    assert "禁止导入包" in result.error

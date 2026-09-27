@@ -150,3 +150,11 @@
 - **MM2 已核实（低危，需产品口径）**：端点有正常前端消费者（`src/stores/agentSession.js` 的 `fetchRoles` 取 `roles`/`version`）；返回的 `models` 仅含模型元数据（name/provider/context_length 等），`model_key` 已由 `/models/` 公开，无凭据泄露；v2.0 兼容分支 MEDIUM 缺失回退 LARGE 属既有兼容行为，是否收紧需产品口径。
 - **MM3 已核实（低危）**：`_runtime_default_model` 为进程内全局，2 worker 下确会不同步、重启即失效，但仅影响 `/models` 浏览接口的 `is_default` 标记，不参与实际 LLM 路由（后者走 `dynamic_model_router`/配置文件）；404 detail 列出的 model_key 已公开。跨 worker 持久化需引入共享存储，属独立设计改动，本次未改。
 - **测试**：新增 `tests/unit/test_pptx_generator_hardening.py`(7)、`tests/unit/test_vision_ocr_model_reporting.py`(1) 与 `tests/unit/test_ppt_template_upload_offloads_parse.py`(1)；回退 `aiGeneratorPptx.py` 后模板解析用例 1 项失败。
+
+## 2026-09-27 最终判定
+
+- **MM1**：`/models` 四端点维持公开定位；返回仅模型元数据（`model_key`/供应商/上下文长度），不含凭据，加认证会破坏匿名浏览。
+- **MM2**：v2.0 兼容分支 MEDIUM 缺失回退 LARGE 为刻意兼容兜底，保留。
+- **MM3**：`_runtime_default_model` 跨 worker 一致性需引入共享存储，属独立设计改动，保留。
+
+理由汇总见 `docs/TECH-DEBT.md`「非 Agent 深扫剩余项最终判定（2026-09-27）」。

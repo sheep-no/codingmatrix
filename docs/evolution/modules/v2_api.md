@@ -120,3 +120,11 @@
 测试：新增 `tests/unit/test_v2_api_hardening.py`(16)；回退五个源文件后 13 项失败。定向回归 `test_v2_api_hardening + test_v2_user_manage_privilege + test_mcp_admin_api + test_model_admin_api` = 68 passed。
 
 V2N4 测试：新增 `tests/unit/test_admin_backup_download_url.py`(4)；回退 `app/api/v2/guardian_router.py` 后 3 项失败。
+
+### 2026-09-27 最终判定
+
+- **V2N1 过时更正**：`app/api/v2/nginx_ai.py` 已随零引用死代码清理删除（见 `docs/TECH-DEBT.md` 2026-09-23 段），本条不再适用。
+- **V2M1 / V2M2 最终判定：保留**。旧 `model_admin` 独有 `context-lengths` / `default` / `error-type-model` 能力，仍被活跃前端 `AdminModelManager.vue`（`Settings.vue` 的 admin tab）消费，新 `model_config_api` 未覆盖，退役会破坏功能；`/models/default` 运行时全局仅影响浏览接口的默认标记，不参与实际路由。双轨是否收敛属产品口径。
+- **V2M3 / V2A1 最终判定：保留**。分别属降级链存储结构、`sandbox-config` 非持久化两类设计债，收敛属架构级改动。
+
+理由汇总见 `docs/TECH-DEBT.md`「非 Agent 深扫剩余项最终判定（2026-09-27）」。
