@@ -110,7 +110,8 @@ class ConversationStore:
         """
         # 1. 先查 Redis
         try:
-            data = self.redis.get(self._key(session_id))
+            # 同步 Redis 客户端在事件循环里会阻塞，投递到线程池执行。
+            data = await asyncio.to_thread(self.redis.get, self._key(session_id))
             if data:
                 return json.loads(data)
         except Exception as e:
@@ -121,7 +122,7 @@ class ConversationStore:
             messages = await self._load_from_db_async(session_id, user_id)
             if messages:
                 # 3. 写回 Redis
-                self._save_to_redis(session_id, messages)
+                await asyncio.to_thread(self._save_to_redis, session_id, messages)
             return messages
 
         return []
@@ -210,7 +211,8 @@ class ConversationStore:
             # get_history 会短路返回 []，使缓存被覆盖为仅最新一条、历史不可见。
             seed: Optional[List[Dict[str, str]]] = None
             try:
-                if not self.redis.exists(self._key(session_id)):
+                exists = await asyncio.to_thread(self.redis.exists, self._key(session_id))
+                if not exists:
                     seed = await self._load_from_db_async(session_id, user_id)
             except Exception as e:
                 logger.warning(f"Failed to seed conversation cache: {e}")
@@ -225,7 +227,7 @@ class ConversationStore:
                 return False
 
             # 2. 原子追加 Redis（key 已存在时 seed 被忽略，不会重复历史）
-            self._append_to_redis(session_id, message, seed)
+            await asyncio.to_thread(self._append_to_redis, session_id, message, seed)
             return True
 
     async def _save_message_to_db(self, session_id: str, user_id: str, role: str, content: str, timestamp: int) -> bool:
@@ -271,7 +273,7 @@ class ConversationStore:
 
         # 2. 清 Redis
         try:
-            self.redis.delete(self._key(session_id))
+            await asyncio.to_thread(self.redis.delete, self._key(session_id))
         except Exception as e:
             logger.warning(f"Failed to clear Redis: {e}")
 
