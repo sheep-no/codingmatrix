@@ -63,6 +63,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 流式调用的并发额度必须覆盖整个消费期：迭代器一返回上游连接仍在持续输出 token。若只在获取迭代器时持有额度，第二个请求会立即插入，免费档必现 429（code 1305）。排查 429 时先确认本地并发是否真的被压到上限，再怀疑上游拥塞。
   - 认证类 E2E（`01-auth`、`02-core-navigation`、`encrypted-login` 等）依赖 `TEST_ADMIN_PASSWORD` 与已存在的管理员账号：`tests/e2e/fixtures/auth.js` 在该变量缺失时直接抛错，表现为大面积失败而非用例断言失败。
   - 预置方式：先 `POST /api/v1/register` 注册 `admin_test@example.com`，再把 `permission` 表对应用户的 `permission_level` 改为 `superadmin`，然后带 `TEST_ADMIN_EMAIL`/`TEST_ADMIN_PASSWORD` 运行；`encrypted-login.spec.js` 另读 `TEST_EMAIL`/`TEST_PASSWORD`，需一并提供。补上凭据后 `01-auth` + `encrypted-login` + `02-core-navigation` 为 17/17 通过。
+  - `encrypted-login.spec.js:106`「后端应支持加密登录模式」在 CI E2E 中偶发失败，日志里 `加密登录测试结果` 为 `{"success":false,"error":"端点限制：5次/60秒"}`。根因是 `/api/v1/login` 在 `app/services/rate_limit_config.py` 限 5 次/60 秒，而 `core.spec + 01-auth + encrypted-login` 在同一 60s 窗口登录次数贴近上限（CI `workers=1`、`retries=2`，用例本身重试再叠加 3 次）。这不是业务回归，重跑失败的 E2E job 通常即通过。
   - 切角色做实测前先备份角色快照：`set_roles.py` 的 `set` 模式会用「当前角色」覆盖 `orig_roles.json`，连续两次 `set` 后快照变成 GLM 值，`restore` 就回不到默认值。默认值为 architect `qwen3-8b` / frontend `deepseek-r1` / backend `qwen3.5-4b` / reviewer `glm-z1-9b` / fallback `qwen3-8b`；跑全量 unit 前必须处于默认值，否则 `test_multi_model_agent` 会多一条失败。
   - 活管线重试要把上游 429（code 1305）、流式 180s 超时、架构师输出缺 `project_spec` 都按瞬时错误处理，否则单次抖动就会中断实测。
   - `tests/unit/test_tools.py::TestWriteSyntaxWarning::test_real_defects_are_still_reported` 在内存紧张的全量 run 中会偶发失败：`check_js_source` 依赖 `node -c` 子进程，node 被信号终止时退回的括号启发式抓不到 `const x = ;`。单独复跑通过即属环境性偶发，不是回归。
