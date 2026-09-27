@@ -18,8 +18,7 @@ import json
 import logging
 import os
 import shutil
-import uuid
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 
 import httpx
 
@@ -426,15 +425,9 @@ class MCPClientManager:
             成功连接的 Server 数量
         """
         path = config_path or MCP_CONFIG_PATH
-        if not os.path.exists(path):
-            logger.info(f"MCP 配置文件不存在: {path}，跳过 MCP 加载")
-            return 0
-
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 MCP 配置失败: {e}")
+        # 配置文件读取是阻塞 I/O，放到工作线程执行，避免阻塞事件循环。
+        config = await asyncio.to_thread(self._read_servers_config, path)
+        if config is None:
             return 0
 
         servers_config = config.get("mcp_servers", {})
@@ -475,6 +468,20 @@ class MCPClientManager:
         connected = len(self._servers)
         logger.info(f"MCP 加载完成: {connected}/{len(servers_config)} 个 Server 连接成功，共 {len(self._all_tools)} 个工具")
         return connected
+
+    @staticmethod
+    def _read_servers_config(path: str) -> Optional[Dict[str, Any]]:
+        """同步读取 MCP 配置文件（供工作线程调用）。"""
+        if not os.path.exists(path):
+            logger.info(f"MCP 配置文件不存在: {path}，跳过 MCP 加载")
+            return None
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"读取 MCP 配置失败: {e}")
+            return None
 
     def get_server(self, name: str) -> Optional[MCPServerConnection]:
         return self._servers.get(name)

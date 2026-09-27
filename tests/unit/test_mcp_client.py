@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 
@@ -253,6 +254,32 @@ class TestMCPClientManager:
             result = await mgr.load_servers(f.name)
             assert result == 0
         os.unlink(f.name)
+
+    @pytest.mark.asyncio
+    async def test_load_servers_reads_config_off_event_loop(self, monkeypatch):
+        """配置文件读取应放到工作线程，避免阻塞事件循环。"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"mcp_servers": {}}, f)
+            f.flush()
+            path = f.name
+
+        mgr = MCPClientManager()
+        seen = {}
+        original = MCPClientManager._read_servers_config
+
+        def spy(config_path):
+            seen["thread"] = threading.get_ident()
+            return original(config_path)
+
+        monkeypatch.setattr(MCPClientManager, "_read_servers_config", staticmethod(spy))
+
+        try:
+            result = await mgr.load_servers(path)
+        finally:
+            os.unlink(path)
+
+        assert result == 0
+        assert seen["thread"] != threading.get_ident()
 
     @pytest.mark.asyncio
     async def test_load_servers_disabled(self):
