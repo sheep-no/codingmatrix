@@ -68,7 +68,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 活管线重试要把上游 429（code 1305）、流式 180s 超时、架构师输出缺 `project_spec` 都按瞬时错误处理，否则单次抖动就会中断实测。
   - `tests/unit/test_tools.py::TestWriteSyntaxWarning::test_real_defects_are_still_reported` 在内存紧张的全量 run 中会偶发失败：`check_js_source` 依赖 `node -c` 子进程，node 被信号终止时退回的括号启发式抓不到 `const x = ;`。单独复跑通过即属环境性偶发，不是回归。
   - `tests/unit/test_toolchain.py::test_validation_isolates_project_imports_from_host[False]` 同样依赖子进程 pytest，全量 run 负载下偶发；单文件/单独复跑通过即属环境性偶发，与 `orchestrator_files` 等无导入关系的改动无关。
-  - `tests/unit/test_aicloud_execution_regressions.py::test_auto_loop_records_iteration_history` 用 `caplog.text` 断言「自动执行轮次记录」，全量 run 中偶发捕获为空而失败（日志文件里该行实际已输出）；单独复跑通过即属 caplog 捕获时序的偶发，不是回归，与 agent_core 等改动无关。
+  - `tests/unit/test_aicloud_execution_regressions.py::test_auto_loop_records_iteration_history` 用 `caplog.text` 断言「自动执行轮次记录」，在导入过 `app.main` 的进程里必然捕获为空而失败。根因是 `app/main.py` 导入期调用 `setup_logging()`，`app/core/logging_config.py` 把 `app` logger 设 `propagate=False`，caplog 默认挂 root 收不到 `app.utils.aicloud.auto_executor` 日志；只要同进程有任一用例先 `import app.main`（`test_v2_api_hardening`/`test_ppt_endpoints`/`test_rate_limiter` 等数十处）就会触发。这是确定性测试隔离缺陷，不是环境性偶发，也不是业务回归。修复方式：把 `caplog.handler` 直接挂到目标 logger 并在 `finally` 移除，配 `caplog.at_level(logging.INFO, logger=<目标 logger 名>)`（勿依赖 root propagate）。新增断言日志的测试一律按此模式，不要用 `caplog.text`。
   - 架构师输出缺 `project_spec` 时 `architect.py` 硬抛是被测试固定的契约（`test_canonicalize_missing_project_spec_raises`、`test_design_architecture_missing_project_spec_raises`），不要当误报门禁改掉；`_build_default_project_spec` 只服务「架构完全失败」的默认路径。
 
 ### 扫描文件先定作用与状态再深入
