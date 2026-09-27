@@ -106,29 +106,42 @@ class SystemLoadMonitor:
             return 0
     
     async def _get_model_queue_depths(self) -> Dict[str, int]:
+        return await asyncio.to_thread(self._collect_model_queue_depths)
+
+    @staticmethod
+    def _collect_model_queue_depths() -> Dict[str, int]:
+        """同步采集 Celery worker 的模型队列深度。
+
+        `control.inspect(...).active()/reserved()` 是同步阻塞调用（各自带
+        socket 超时），必须放到工作线程执行，否则在 async 链路里会卡住事件
+        循环（`dynamic_model_router` 的路由决策每轮都会取快照）。active 与
+        reserved 理论上互斥，仍按 task id 去重，防止两次快照交错时同一任务
+        被计两次导致队列深度虚高。
+        """
         depths: Dict[str, int] = {}
+        seen_task_ids: set = set()
+
+        def _accumulate(tasks_by_worker) -> None:
+            for worker_tasks in (tasks_by_worker or {}).values():
+                for task in worker_tasks:
+                    task_id = task.get("id")
+                    if task_id:
+                        if task_id in seen_task_ids:
+                            continue
+                        seen_task_ids.add(task_id)
+                    model = "default"
+                    args = task.get("args")
+                    if args and isinstance(args, (list, tuple)) and len(args) > 0:
+                        params = args[0] if isinstance(args[0], dict) else {}
+                        model = params.get("model", params.get("language", "default"))
+                    depths[model] = depths.get(model, 0) + 1
+
         try:
             from app.celery_app import celery_app
             inspect = celery_app.control.inspect(timeout=2.0)
             if inspect:
-                active = inspect.active() or {}
-                reserved = inspect.reserved() or {}
-                for worker_tasks in active.values():
-                    for task in worker_tasks:
-                        model = "default"
-                        args = task.get("args")
-                        if args and isinstance(args, (list, tuple)) and len(args) > 0:
-                            params = args[0] if isinstance(args[0], dict) else {}
-                            model = params.get("model", params.get("language", "default"))
-                        depths[model] = depths.get(model, 0) + 1
-                for worker_tasks in reserved.values():
-                    for task in worker_tasks:
-                        model = "default"
-                        args = task.get("args")
-                        if args and isinstance(args, (list, tuple)) and len(args) > 0:
-                            params = args[0] if isinstance(args[0], dict) else {}
-                            model = params.get("model", params.get("language", "default"))
-                        depths[model] = depths.get(model, 0) + 1
+                _accumulate(inspect.active())
+                _accumulate(inspect.reserved())
         except Exception:
             pass
         return depths
