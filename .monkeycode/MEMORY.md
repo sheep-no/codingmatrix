@@ -66,6 +66,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 切角色做实测前先备份角色快照：`set_roles.py` 的 `set` 模式会用「当前角色」覆盖 `orig_roles.json`，连续两次 `set` 后快照变成 GLM 值，`restore` 就回不到默认值。默认值为 architect `qwen3-8b` / frontend `deepseek-r1` / backend `qwen3.5-4b` / reviewer `glm-z1-9b` / fallback `qwen3-8b`；跑全量 unit 前必须处于默认值，否则 `test_multi_model_agent` 会多一条失败。
   - 活管线重试要把上游 429（code 1305）、流式 180s 超时、架构师输出缺 `project_spec` 都按瞬时错误处理，否则单次抖动就会中断实测。
   - `tests/unit/test_tools.py::TestWriteSyntaxWarning::test_real_defects_are_still_reported` 在内存紧张的全量 run 中会偶发失败：`check_js_source` 依赖 `node -c` 子进程，node 被信号终止时退回的括号启发式抓不到 `const x = ;`。单独复跑通过即属环境性偶发，不是回归。
+  - `tests/unit/test_toolchain.py::test_validation_isolates_project_imports_from_host[False]` 同样依赖子进程 pytest，全量 run 负载下偶发；单文件/单独复跑通过即属环境性偶发，与 `orchestrator_files` 等无导入关系的改动无关。
   - 架构师输出缺 `project_spec` 时 `architect.py` 硬抛是被测试固定的契约（`test_canonicalize_missing_project_spec_raises`、`test_design_architecture_missing_project_spec_raises`），不要当误报门禁改掉；`_build_default_project_spec` 只服务「架构完全失败」的默认路径。
 
 ### 扫描文件先定作用与状态再深入
