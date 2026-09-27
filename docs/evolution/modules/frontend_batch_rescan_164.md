@@ -77,6 +77,13 @@
 
 `ProjectGenerator.vue:1193-1201` 调用 `getSnapshotDiff(tag1, tag2)`，而 `src/utils/api/agent.js:51-56` 签名为 `(sessionId, fromTag, toTag)`。请求会把标签当作 session ID，并发送 `to_tag=undefined`；后端 `orchestrate_endpoints.py:1226-1244` 将三项均视为必填。
 
+> **已修（2026-09-27）**：`src/components/ProjectGenerator.vue` 三处活跃调用补齐后端必填参数，同步处理同一根因的删除路径：
+> - `loadProjectFiles` 改传 `{ project_path: outputDir.value }`（原 `api.getProjectFiles()` 无参 → 后端 `GET /generate/files` 要求 `project_path`，返回 422）；
+> - `onSelectProjectFile` 改传 `{ project_path: outputDir.value, file_path: filePath }`（原把单个字符串当 params 传入，`client.get` 对字符串做 `Object.keys` 生成 `0=..&1=..` 垃圾查询键 → 422）；
+> - `onDeleteFile` 同族一并改传 `{ project_path, file_path }`；
+> - `compareSnapshots` 改 `api.getSnapshotDiff(form.value.sessionId, tag1, tag2)`（原缺 sessionId，标签错位为 session_id 且 `to_tag=undefined` → 422）。
+> 新增 `src/components/ProjectGenerator.contracts.test.js`（2 项）断言四处调用参数；回退源码后 2 项均失败。
+
 #### FRESCAN-41 [P1] 活跃 API Key 客户端默认固定请求本机后端
 
 `src/utils/request.ts:6` 的 fallback 是 `http://localhost:8000`，`src/api/apikey.js` 及 `stores/apikey.js` 活跃消费该客户端。其他客户端使用 `VITE_API_BASE` 或相对 `/api/v1`，生产环境未显式设置 `VITE_API_BASE_URL` 时 API Key 页面会请求用户本机后端。

@@ -481,7 +481,7 @@
 
   const onSelectProjectFile = async (filePath) => {
     try {
-      const result = await api.readProjectFile(filePath)
+      const result = await api.readProjectFile({ project_path: outputDir.value, file_path: filePath })
       fileContent.value = result.content || ''
       if (filePreviewPanelRef.value) {
         filePreviewPanelRef.value.setContent(fileContent.value)
@@ -509,7 +509,7 @@
       return
     }
     try {
-      await api.deleteProjectFile(filePath)
+      await api.deleteProjectFile({ project_path: outputDir.value, file_path: filePath })
       ElMessage.success('文件已删除')
       fileContent.value = ''
       showFilePreview.value = false
@@ -1158,7 +1158,7 @@
   // ========== 文件预览 ==========
   const loadProjectFiles = async () => {
     try {
-      const result = await api.getProjectFiles()
+      const result = await api.getProjectFiles({ project_path: outputDir.value })
       projectFiles.value = result.files || []
     } catch (error) {
       // 忽略加载失败
@@ -1196,7 +1196,7 @@
   const compareSnapshots = async (tag1, tag2) => {
     if (!tag1 || !tag2) return
     try {
-      const result = await api.getSnapshotDiff(tag1, tag2)
+      const result = await api.getSnapshotDiff(form.value.sessionId, tag1, tag2)
       diffResult.value = result
       showDiffView.value = true
     } catch (error) {
