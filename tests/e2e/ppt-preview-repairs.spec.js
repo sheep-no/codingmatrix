@@ -45,8 +45,19 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   test(`自动模板选择与规范结果 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport)
     await page.addInitScript(() => {
+      // /ppt-generate 有 requiresAuth 守卫，需要完整 token 存储；
+      // 生成动作还要求 apikeyStore.hasSiliconflowKey 为真（含未过期的 expires_at）。
+      const expiry = Date.now() + 3600000
+      sessionStorage.setItem('_token', 'mock-preview-token')
+      sessionStorage.setItem('_token_expiry', String(expiry))
       localStorage.setItem('access_token', 'mock-preview-token')
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{ provider: 'siliconflow', enabled: true, token: 'mock-model-token' }]))
+      localStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
+        provider: 'siliconflow',
+        enabled: true,
+        token: 'mock-model-token',
+        expires_at: new Date(Date.now() + 86400000).toISOString(),
+      }]))
     })
     let submittedTemplate
     await page.route('**/api/v1/**', route => {

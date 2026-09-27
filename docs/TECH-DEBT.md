@@ -127,6 +127,20 @@
 | P3 | 全仓库非 Agent 子系统仍在用 `datetime.utcnow()`（62 处 / 23 文件），Python 3.12 起弃用且返回值无时区 | `app/models`、`app/services`、`app/utils`、`app/db`、`app/core`、`app/api/v1` | 已解决；新增 `app/core/time.py:utcnow_naive()`（语义等同 `utcnow()`），按列类型配对迁移：naive 列用 `utcnow_naive()`，`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`。补 `tests/unit/test_time_utils.py`（3 项）。Agent 子系统按归属裁定不动 |
 | P3 | AJP12（`85208591`）从 `aiGeneratorPptx.py` 移除图片搜索消费时漏删本体 `app/utils/pptx/image_search.py`（183 行）；`app/utils/structured_logging.py`（170 行）被 `app/utils/logging.py` 取代后残留。两模块均 0% 覆盖、零外部引用 | `app/utils/pptx/image_search.py`、`app/utils/structured_logging.py` | 已解决；删除两个死模块，删除后全量 unit/integration `4987 passed, 2 skipped` 不变 |
 
+### 非 Agent E2E 门禁扩展（2026-09-26）
+
+门禁由 13 个 spec / 98 项扩展到 18 个 spec / 110 项，新增 5 个不依赖外部模型服务的 spec（自 mock 后端或只依赖本地后端与种子账号）。纳入前逐个排查失败原因，全部为随 UI 演进出现的**测试侧过期**，非产品缺陷：
+
+| spec | 覆盖 | 修复内容 |
+|---|---|---|
+| `chart-editor` | 导入/编辑/撤销重做/导出/深色主题/草稿恢复 + 移动端无横向溢出（2 项） | 无需改；自 mock `csrf-token`/`refresh`，纯前端离线 |
+| `chart-editor-scenarios` | 经首页工具集打开编辑器、返回后再进草稿保留、刷新后草稿恢复（2 项） | 无需改；真实登录 + 纯前端编辑 |
+| `ppt-generation-mock` | PPT 三步生成（大纲→质量模式→生成）、质量报告、下载 PPTX（1 项） | 补全 `_token`/`_token_expiry` 存储与 `csrf-token`/`refresh` mock（`tokenManager.performRefresh` 要求合法三段 JWT）；`codingmatrix_apikeys` 补 `expires_at`（`isTokenExpired` 缺字段即判过期→`hasSiliconflowKey=false`→跳设置页）；断言改全角「生成成功！」与「需人工复核：第 1 页」（前端按页序渲染，非 `slide-1`） |
+| `girlai-companion` | 伙伴状态 revision 恢复与降级、旧响应不覆盖当前状态、异步更新保文字链路（3 项） | 删除误设的 `test.use({ baseURL: ...8000 })`（后端 dist 无该入口，应为前端 dev server）；情绪断言改中文（`neutral→平静`、`focused→专注`）；工具集入口限定 `#toolkit-menu` 内定位，规避展开动画导致的 `element is not stable` |
+| `ppt-preview-repairs` | 结构预览与质量报告同屏、自动模板选择（桌面/移动各 2 项） | 第二个用例补全 token 存储与 `expires_at`，否则 `/ppt-generate` 的 `requiresAuth` 守卫与 `hasSiliconflowKey` 判定使其跳设置页 |
+
+共同根因：token 存储字段不完整、情绪标签本地化、标点全半角、页序文案。CI 门禁维持 `CI=1` 单 worker，本机以 `--workers=1` 串行复跑一次 `12 passed` 全绿。
+
 ### 依赖安全审计与修复（2026-09-26）
 
 对生产镜像依赖做完整漏洞审计。首轮策略为「升级到修复版本、不裁剪包」；随后按用户决定追加「裁剪零引用包」：
