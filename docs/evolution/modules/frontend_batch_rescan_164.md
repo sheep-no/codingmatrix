@@ -31,6 +31,8 @@
 
 #### FRESCAN-30 [P1] Agent 下载失败后仍结束会话
 
+> **已修（2026-09-27）**：根因有两层——`doStopSession` 把下载调用与 `ElMessageBox` 取消判定放在同一 `try`，且 `useAgentBackend.downloadProject` 内部吞异常只返回 `undefined`，故下载失败后仍继续 `stopSession()`。现 `downloadProject` 返回布尔成功标志，`doStopSession` 拆分确认分支与下载分支，下载失败即中止结束会话并提示；新增 `src/views/AgentDashboard.stopSession.test.js`（2 项，回退源码后失败用例复现误调用）。
+
 `src/views/AgentDashboard.vue:206-228` 将下载和 `backend.stopSession()` 放在同一流程；下载失败进入捕获逻辑后仍会继续结束会话。生成文件可能随会话清理，用户失去可用副本。
 
 #### FRESCAN-31 [P2] 多个活跃交互仅支持鼠标点击
