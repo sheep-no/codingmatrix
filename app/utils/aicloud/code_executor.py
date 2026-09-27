@@ -43,6 +43,39 @@ BANNED_PYTHON_MODULES = {
     "pty", "dbm", "sqlite3", "webbrowser",
 }
 
+# Go 侧禁用导入包。仅禁 net/os/exec/syscall/unsafe 会漏掉 `import "os"`——
+# os.ReadFile/os.WriteFile/os.Remove 可任意读写宿主文件，io/ioutil 同理。
+GO_BANNED_IMPORTS = {
+    "os", "os/exec", "os/user", "os/signal",
+    "io/ioutil",
+    "net", "net/http", "net/rpc",
+    "syscall", "unsafe", "plugin", "runtime/cgo",
+    # cgo 伪包：import "C" 可直接执行任意 C 代码
+    "C",
+}
+
+
+def _find_banned_go_import(code: str) -> Optional[str]:
+    """
+    返回代码中首个被禁的 Go 导入包名，未命中返回 None。
+
+    只解析 import 声明里的字符串字面量，兼容单行 `import "pkg"`、
+    带别名 `import _ "pkg"` 与多行 `import ( ... )` 三种写法；
+    普通字符串字面量中的同名文本不会误判。
+    """
+    # Go 的导入路径可用解释字符串（"pkg"）或原始字符串（`pkg`），两者都要覆盖。
+    candidates: List[str] = []
+    for block in re.finditer(r"import\s*\(([^)]*)\)", code, re.DOTALL):
+        candidates.extend(re.findall(r'["`]([^"`\n]+)["`]', block.group(1)))
+    for match in re.finditer(r'import\s+(?:[\w.]+\s+)?["`]([^"`\n]+)["`]', code):
+        candidates.append(match.group(1))
+
+    for pkg in candidates:
+        if pkg in GO_BANNED_IMPORTS:
+            return pkg
+    return None
+
+
 # JavaScript 侧禁止的语法/全局对象。子串检查可被空格、大小写与动态拼接绕过，
 # 因此统一用忽略大小写的正则匹配关键标识符。
 JS_FORBIDDEN_PATTERNS = [
@@ -297,12 +330,12 @@ class CodeExecutor:
                 exit_code=1, execution_time=0.0, language="go"
             )
 
-        for mod in ["net", "os/exec", "syscall", "unsafe"]:
-            if f'"{mod}"' in code:
-                return CodeExecutionResult(
-                    success=False, output="", error=f"禁止导入包: {mod}",
-                    exit_code=1, execution_time=0.0, language="go"
-                )
+        banned_import = _find_banned_go_import(code)
+        if banned_import:
+            return CodeExecutionResult(
+                success=False, output="", error=f"禁止导入包: {banned_import}",
+                exit_code=1, execution_time=0.0, language="go"
+            )
 
         file_name = f"exec_{uuid.uuid4().hex[:8]}"
         file_path = os.path.join(self.workspace_path, f"{file_name}.go")

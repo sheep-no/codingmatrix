@@ -79,7 +79,7 @@
 
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
-| P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 仍在；当前依赖密钥卷权限与文件系统隔离。升级路径（按成本从低到高）：①带口令私钥 + 环境变量注入口令；②私钥改由 docker/k8s secret 挂载只读卷、不以文件落盘；③接入 KMS/Secret Manager，私钥不出后端服务边界。生产部署建议至少做到 ② |
+| P3 | 私钥为无口令明文 PEM，仅靠文件权限（`0o600`）保护 | `app/utils/crypto.py`、`app/utils/encryption.py` | 已解决；新增可选 `RSA_KEY_PASSPHRASE`，设置后私钥以 `BestAvailableEncryption` 加密落盘、未设置保持原行为，既有明文密钥在配置口令后自动升级，私钥写入改临时文件 + `os.replace` 原子替换，两个 Compose 透传该变量，补 7 项口令化单测与 1 项编排守卫（见「2026-09-26 生产就绪复核新增项」）。更进一步的只读卷挂载 / KMS 仍作为生产部署建议保留 |
 | P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针与 1 个失效 spec 已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），当前 `tests/e2e/` 下 94 个 spec。`e2e.yml` 门禁由 5 个扩到 13 个稳定非 Agent spec：新增 `theme-switcher`/`10-admin`/`tools`/`capability-center`（串行与默认并行各跑一遍，`28 passed`），修复后复跑全绿的 `tools-panel`（11 项）与 `admin-panel-scenarios`（2 项），以及重写后复跑全绿的 `system-monitor`（7 项）与 `upload-file`（6 项）。**剩余非 Agent spec 的失败已逐条定性**：`03-chat.spec.js` 的 6 项失败为纯负载型 flaky（本机负载 7.5 时超时；负载 1.8 时 11 项全过），非产品缺陷；`tools-panel`（2 项过期工具清单选择器）、`admin-panel-scenarios`（错误断言 `模型管理` 不存在，实为 superadmin 有意保留）已修复；`system-monitor`、`upload-file` 两个「断言不存在功能」的过期 spec 已按真实功能重写并纳入门禁；`sprint-1-rbac`（17 项，断言产品未实现的高级 RBAC）已归档（详见下方说明）；2026-09-26 复核：对 5 个额外非 Agent 候选（`smoke`、`smoke-test-simple`、`auth`、`api-endpoint-validation`、`chart-editor`）与门禁 13 spec 合并串行跑得 `117 passed, 3 skipped, 0 failed`，但候选断言偏弱（`smoke` 多数 `catch` 后 `test.skip`）、`api-endpoint-validation` 内嵌大量 Agent 硬编码路由、`chart-editor` 曾在大批次 flake，故不纳入门禁 |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 已裁定保留；判定为 Agent 相邻的预留能力，按本轮「不触碰 Agent 子系统」的范围约定保留，不计入死代码，其 3 个相关测试一并保留 |
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
@@ -176,6 +176,30 @@
 | P3 | 安全审计模块全库零调用：登录成功/失败、Token 刷新、权限变更、敏感操作均不产生审计记录 | `app/utils/security_audit.py`、`app/api/v1/auth.py`、`app/api/v2/user_manage.py` | 已解决；见上表 P3 项，PR #347 |
 
 接线明细：登录失败区分 `user_not_found`（`user_id` 为 `None`）与 `wrong_password`（带用户 ID），均记录客户端 IP；登录成功与 Token 刷新记录用户 ID；`update_user` 仅在权限级别实际变化时记录 `permission_change`（含新旧级别与操作者）；`delete_user`、`reset_password` 记录 `sensitive_operation`。新增 `tests/unit/test_security_audit.py`（5 项，覆盖各便捷函数落盘载荷）与 `tests/unit/test_v2_user_manage_privilege.py` 的 4 项成功路径审计断言。回退接线后 4 项新用例如期失败；受影响测试集合 `36 passed`。
+
+### 非 Agent 深扫剩余项最终判定（2026-09-27）
+
+对 `docs/evolution/modules/` 下非 Agent 模块中标注为「仍在 / 待产品口径」的项逐条复核，结论为均已修复、判定不成立、所属模块已删除，或属设计取舍。后者的最终判定如下（保留现状，均非代码缺陷）：
+
+| 项 | 位置 | 判定 |
+|---|---|---|
+| V2M1 `model_admin` 声明废弃仍挂载 | `app/api/v2/model_admin.py`、`app/main.py:346` | 保留；旧接口独有 `context-lengths` / `default` / `error-type-model` 能力，仍被活跃前端 `AdminModelManager.vue`（`Settings.vue` 的 admin tab）消费，新 `model_config_api` 未覆盖这些能力，退役会破坏功能。双 tab 是否合并属产品口径 |
+| MM1 `/models` 四端点无认证 | `app/api/v1/model_manager.py` | 保留公开定位；返回仅模型元数据（`model_key` / 供应商 / 上下文长度），不含凭据，属公开模型目录，加认证会破坏匿名浏览 |
+| MM2 v2.0 兼容分支 MEDIUM 缺失回退 LARGE | `app/api/v1/model_manager.py:177` | 保留；为 v2.0 `assignments` 格式的刻意兼容兜底，收紧会变更兼容语义 |
+| GH10 三套 git 封装并存 | `app/api/v1/github.py`、`app/utils/git_operations.py`、`app/agent/orchestrator_utils.py` | 保留；收敛需统一提交消息 / 分支名 / 空提交语义，属架构级改动，风险高于收益 |
+| SO2 review `raw_content` 原样入库与写回 | `app/utils/aicloud/review_queue.py`、`app/api/v1/aicloud.py` | 保留；审批者需原文才能审阅，批准后需按原文回写沙箱文件，仅展示层脱敏而存储层脱敏会破坏回写，改动涉及产品口径 |
+
+SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不在本轮范围。
+
+本轮同时补齐一处可修活跃安全缺陷：**CE2 Go 沙箱逃逸**。`app/utils/aicloud/code_executor.py` 的 Go 路径原仅禁 `net`/`os/exec`/`syscall`/`unsafe` 四个子串，`import "os"` 合法，可从 `POST /api/v1/aicloud/execute`（admin）编译执行 `os.ReadFile`/`os.WriteFile` 任意读写宿主文件。现以 `GO_BANNED_IMPORTS` + `_find_banned_go_import()` 解析 import 声明（含反引号原始字符串与 cgo 伪包 `C`）并扩充禁用集，在调用 `go` 工具链前拦截；新增 10 项用例（`tests/unit/test_aicloud_execution_regressions.py`），回退后相关用例全失败。黑名单沙箱固有的绕过面（Python AST 属性链 CE5、Go 编译期 `//go:embed` 等）与 OS 级隔离（容器/namespace/seccomp）仍为架构级待办，见 `docs/evolution/modules/aicloud_execution.md` §六。
+
+另更正一条过时结论：`docs/evolution/modules/aicloud_execution.md` 的 SB1（`SandboxFileOperator` 符号链接逃逸）判断不成立——`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验落点是否在 `base_path` 内，实际安全校验走基类，`get_absolute_path` 的 `normpath` 仅用于展示/拼接。
+
+### 本轮逐文件验证（2026-09-27）
+
+- 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
+- 套件外逐文件补跑：`tests/frontend/test_components.py`（1 passed）、`tests/performance/test_smart_modifications.py`（4 passed）、`tests/archive/legacy/test_cache.py`（12 passed）、`tests/archive/integration_old/test_auth_api.py`（16 passed）、`tests/e2e`（`test_web_search_flow_e2e` 14 passed、`test_debug_search` 1 passed 全绿；其余失败均为平台 LLM Key 无效 `status=401` 与 DuckDuckGo 网络异常，非代码缺陷）。`tests/archive` 其余文件为损坏的遗留脚本（`IndentationError`）或脚本式文件，本就不在测试套件内。
+- 服务健康：Uvicorn `:8000` 与 `/docs`、Vite `:3000` 均返回 200。
 
 ## 当前验收基线
 
