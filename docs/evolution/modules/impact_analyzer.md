@@ -95,3 +95,14 @@ docstring 声称「通过轻量级符号提取和文件级变更对比，**准�
 - **IA5 的符号粒度**（变量/Import/嵌套层级）未扩展，仅补了 AsyncFunctionDef。
 
 回归：`tests/unit/test_impact_analyzer.py`（8 项，覆盖 IA1/IA4/IA5/IA7 + OT16 真实协作对象跑通）；回退 `impact_analyzer.py` / `orchestrator_testing.py` 后 6 项失败。
+
+## 状态更新（2026-09-27）
+
+- **IA2 [P2] 已修**：`_extract_symbols` 不再对全部文件无条件 `ast.parse`。按扩展名分发——`.py/.pyw/.pyi` 走原 AST 路径（保留函数/类语义，行为不变）；其余扩展名经 `LanguageAdapterRegistry.get_adapter_for_file` 取得对应语言适配器（JS/TS/Go/Java/Rust），把 `extract_definitions()` 返回的 `SymbolDefinition` 映射为 `{name, type, line_number, file}`。无专用适配器（generic）或适配器解析不出符号时，降级为「文件名级」符号（stem + type=`file`，内容为空则返回空），不再返回空符号导致影响分析全盲。
+  - JS/TS 现已提取 `export function helper` / `export class Service` / 箭头函数 `const run = () => {}` 等符号；Go 提取 `func Hello` / `type Server struct`。
+  - 回归 `tests/unit/test_impact_analyzer.py` 新增 `TestNonPythonSymbols` 3 项（JS 符号、Go 符号、未知扩展名降级为文件名符号）；回退 `impact_analyzer.py` 后 3 项失败。该文件现共 11 项。
+
+仍未处理：
+
+- **IA3 [P2]**：仍只做符号 diff，不做影响传播（无 `affected_files`），需复用 DG 依赖图专项设计。
+- **IA5 的符号粒度**（变量/Import/嵌套层级）未扩展。
