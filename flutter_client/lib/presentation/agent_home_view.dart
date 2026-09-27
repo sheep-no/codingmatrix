@@ -397,11 +397,20 @@ class _OverviewCard extends StatelessWidget {
               children: [
                 Text('状态', style: Theme.of(context).textTheme.bodySmall),
                 const Spacer(),
-                Chip(
-                  label: Text(status),
-                  side: BorderSide.none,
-                  backgroundColor: statusColor.withValues(alpha: 0.16),
-                  labelStyle: TextStyle(color: statusColor),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Chip(
+                      label: Text(
+                        status,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      side: BorderSide.none,
+                      backgroundColor: statusColor.withValues(alpha: 0.16),
+                      labelStyle: TextStyle(color: statusColor),
+                    ),
+                  ),
                 ),
               ],
             ),

@@ -1,10 +1,10 @@
 # 待环境验收清单
 
-> 核对日期：2026-09-22 ~ 2026-09-26 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
+> 核对日期：2026-09-22 ~ 2026-09-27 | 范围：Flutter 双端（Android/Linux/Windows）与 VS Code 扩展
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 492 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 100 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 497 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 100 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
 
 ## 已经完成的验证
 
@@ -28,9 +28,9 @@
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 492 passed | `flutter test --no-pub --concurrency=1` |
+| Flutter 全量测试 | 497 passed | `flutter test --no-pub --concurrency=1` |
 | Flutter 静态分析 | No issues found | `flutter analyze lib test` |
-| Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、34 个测试文件 | `flutter_client/` |
+| Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、35 个测试文件 | `flutter_client/` |
 | 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
 | 弹层控制器退场崩溃 | 已修并回归：管理员后台「创建用户」在提交失败（如后端 400）后关闭弹层会整屏红屏。根因是 `showDialog` 返回后立即 `dispose` 了 `TextEditingController`，退场动画期间 `TextField` 重建时 `addListener` 抛 `A TextEditingController was used after being disposed.`，级联为 `'_dependents.isEmpty': is not true.`。新增 `DialogControllers`（在子树的 `State.dispose()` 里释放，晚于退场动画），套用于 6 处弹层 | 回归测试 `test/admin_page_test.dart`「创建用户弹层随退场动画关闭时不释放仍在使用的控制器」；Linux 端实跑 400 场景不再红屏，显示「用户创建失败：请求失败（HTTP 400）…」，成功场景 `POST create_user` 200 且列表刷新 |
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
@@ -71,6 +71,7 @@
 | `workbench_controller.dart:146`、`WorkbenchState.artifacts`、`unified_models.dart:209` `Artifact` | **已删除**。不可达死代码：只有当 SSE 事件的 `data.artifact` 存在时才会收集，而后端全部 SSE 生产者都不产出 `artifact` 字段（`rg 'artifact' app` 无 SSE 命中）；且 `artifacts` 自引入起从未在 `lib/presentation` 被渲染（`git log -S artifacts -- flutter_client/lib/presentation` 无结果）。现状只被自身测试引用 | `git log -S artifacts -- flutter_client/lib/application/workbench_controller.dart` → `8f6c261`；删除后 `rg 'Artifact\|artifacts' flutter_client/lib` 无命中 |
 | `agent_home_view.dart:473` | **已修复**。事件卡原先按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文，`file_diff`（`:224`）内嵌 `old_content`/`new_content`。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。现对这两类事件只显示摘要，其余事件截断到 2000 字符 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」；见上文已完成验证表 |
 | `workbench_controller.dart:443`、`agent_home_view.dart:143` | **已修复**。后端 `error` 事件的原因文本原先只存入 `task.errorJson`，UI 从不读取：主状态区只显示 `task.status == 'failed'` 与本地 `actionError`（后者仅覆盖「停止未确认」「决策校验/超时」三种本地失败）。编排中断时的真实原因（如 `unknown file types were not inferred: vue.py`）只能在「实时事件」卡片的原始 JSON 里看到。现于 `_OverviewCard` 展示 `errorJson['error']` | 修复前 `rg errorJson lib/` 只有赋值（`:443`、`:256`、`:275`、`:287`）无读取；新增用例覆盖 |
+| `agent_home_view.dart:396` | **已修复**。`_OverviewCard` 状态行的 `Chip` 是 `Row` 里的非弹性子项，以无界宽度布局；概览卡在宽视口固定 300px、减去内边距后可用宽约 252px，当状态为较长的 `awaitingDecision`（服务端 `critical_decisions` 或 `stage == awaiting_user_decision` 时由 `WorkbenchController._applyEvent` 写入）时整行溢出 30px，Flutter 计入异常。现改为 `Flexible` + `Align` + 单行省略。该页此前只有外壳冒烟级实例化（`workbench_shell_test.dart` 循环建页），无自身用例，本轮补 `test/agent_home_view_test.dart` | 新用例「有待决策时展示入口并可进入决策页」修前报 `A RenderFlex overflowed by 30 pixels on the right`，改用例修后通过（反向验证：临时回退 Chip 布局后重新失败）；另含决策入口显隐、项目入口显隐与超长事件截断 4 项。全量 492 → 497 passed，`flutter analyze lib test` → No issues found |
 
 ## Linux 实跑记录
 
