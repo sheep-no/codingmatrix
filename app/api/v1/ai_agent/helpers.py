@@ -190,7 +190,13 @@ def cleanup_session_files(output_dir: str) -> bool:
         return False
 
 
-async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
+def _collect_files_sync(project_dir: Path) -> List[dict]:
+    """同步扫描目录并收集文件元信息。
+
+    该过程包含 `rglob`/`stat`/`open` 等阻塞文件系统调用，因此被放在线程池中
+    执行，避免阻塞事件循环（见 `_collect_files`）。
+    """
+    entries: List[dict] = []
     try:
         for file_path in project_dir.rglob("*"):
             try:
@@ -211,18 +217,25 @@ async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
                         f.read(1024)
                 except (UnicodeDecodeError, PermissionError, IOError):
                     continue
-                yield {
+                entries.append({
                     'name': file_path.name,
                     'path': str(rel_path),
                     'type': file_type,
                     'size': stat.st_size,
                     'modified': datetime.fromtimestamp(stat.st_mtime).isoformat()
-                }
+                })
             except (ValueError, TypeError, RuntimeError, OSError) as e:
                 logger.debug(f"读取文件失败 | 文件：{file_path} | 错误：{str(e)}")
                 continue
     except Exception as e:
         logger.error(f"扫描目录失败 | 目录：{project_dir} | 错误：{str(e)}")
+    return entries
+
+
+async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
+    entries = await asyncio.to_thread(_collect_files_sync, project_dir)
+    for entry in entries:
+        yield entry
 
 
 def _build_agent_config(req: GenerateRequest, stream: bool = False) -> AgentConfig:

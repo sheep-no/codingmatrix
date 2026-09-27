@@ -116,3 +116,7 @@
 - **AA7 已修**：`helpers.py:_validate_project_path` 归属校验三支收敛为「首段目录 == user_id 或 目录名末段 == user_id」。原 `elif len(parts) == 2 and parts[1] == user_id` 恒被 `elif user_id == parts[-1]` 覆盖（`rsplit("_", 1)` 后 `parts[-1] == parts[1]`），「兼容旧格式」注释亦误导；现语义等价且可读。`tests/unit/test_ai_agent_endpoint_authz.py::TestProjectPathOwnership` 新增 6 项（3 种布局 × 允许/拒绝）。
 
 - **AA5 已修（删除损坏端点）**：`requirement_association_confirm` 调用不存在的 `tracker.record_feedback`（`AttributeError`），`requirement_association_helpfulness` 以 `(association_id, helpful)` 调用签名 `(session_id, requirement, helpfulness)` 的 `record_helpfulness`（`TypeError`），两端点被调用即 500，且唯一潜在调用方为前端未接线的死方法。删除两端点及前端死链：`association_endpoints.py`、`src/utils/api/agent.js`（`confirmAssociation`/`submitAssociationHelpful`）、`ProjectGenerator.vue`（`confirmAssociation`/`rateAssociation`）、`tests/e2e/api-endpoint-validation.spec.js`（两处清单）。`AssociationFeedbackTracker` 类与 `record_choice`/`record_helpfulness` 保留（仍由 `tests/unit/test_v5_1_requirement_deep.py` 覆盖，属记录能力 API 面）；`stats` 端点保留（被 `getAssociationStats` 消费）。
+
+## 九、修复状态（2026-09-27）
+
+- **`_collect_files` 阻塞事件循环已修**：原实现是 async generator，循环体内直接调用 `project_dir.rglob("*")` / `file_path.stat()` / `open(...)`（ruff ASYNC240/ASYNC230，`helpers.py:193-224`）。活跃端点 `GET /generate/files`（`generate_endpoints.py:209`）会完整消费该生成器并聚合成列表返回，扫描大型项目目录时整个事件循环被阻塞。现抽出同步扫描 `_collect_files_sync`，async 版改为 `await asyncio.to_thread(_collect_files_sync, project_dir)` 后逐条 `yield`，过滤逻辑（隐藏文件、`SKIP_DIRS`、超大文件、非 UTF-8 文件）与异常处理完全不变。新增 `tests/unit/test_ai_agent_collect_files.py`（2 项：过滤行为 / `Path.rglob` 必须发生在工作线程；回退源码后后者失败）。
