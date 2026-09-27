@@ -22,7 +22,7 @@
 - `orchestrator.py:30/:41`：`OrchestratorAgent` 继承 `RequirementAssociationMixin`（宿主契约齐备：`_report_progress` orchestrator_progress.py:138 签名兼容 + `architect` 实例属性）
 - `orchestrator_generation/{traditional_generate,spec_first_generate}.py:52/:57`、`evaluate_mixin.py:57`：主生成链调用 `_generate_requirement_associations`
 - `api/v1/ai_agent/association_endpoints.py:40-47`：独立 API `POST /requirement-association` **单独 `RequirementAssociationMixin()` 实例化**
-- `api/v1/ai_agent/association_endpoints.py:85/:104/:120`：confirm/helpfulness/stats 反馈端点
+- `api/v1/ai_agent/association_endpoints.py`：`GET /requirement-association/stats` 统计端点（原 confirm/helpfulness 反馈端点已于 `6542dffe`/AA5 删除，见 §10）
 
 ### 依赖链
 
@@ -61,7 +61,7 @@
 
 需求联想是「历史数据 → 新需求补全」的闭环输入端，当前最大缺陷在**对外契约断裂**：
 - **宿主契约显式化（OA1，最高优先）**：mixin 将 `_report_progress`/`architect` 声明为依赖或提供默认实现（空 progress + 空 architect 时层 3/魔鬼代言人可跳过并标记 `llm_called=False`），endpoint 复用 `OrchestratorAgent` 实例或注入存根——结束「单独实例化恒降级」。
-- **反馈链路接线（OA2）**：补 `record_feedback` 或改 confirm 走 `record_choice`；统一反馈键为 association_id/session_id 单一语义；`record_helpfulness` 签名对齐调用方。
+- **反馈链路接线（OA2，已随端点删除消解，见 §10）**：破损的 confirm/helpfulness 端点已删除；若要恢复反馈能力，需先统一 association_id/session_id 单一语义。
 - **解析加固（OA3）**：贪婪 `\{[\s\S]*\}` 换非贪婪/JSON 边界定位（EC3/PM1/TE3 同款修复）；文本降级过滤非功能行（JSON 串/说明文字）。
 - **清理语义（OA8）**：LIMIT 改按行数百分比或先查 count；`_cleanup` 移出 `__init__` 或加频率闸（避免每请求 DELETE）。
 - **契约收敛（OA6/OA7/OA9）**：魔鬼代言人结果 merge 回 item 并影响置信度；模型配置统一到 `agent_model_config.json`；Layer 2 门槛与萃取阈值对齐。
@@ -103,5 +103,6 @@
 
 仍未处理：
 
-- **OA2 [P2]**：confirm/helpfulness 端点与 `AssociationFeedbackTracker` 三处错位（方法不存在/签名不符/传输层 422），需先确定「association_id 语义」这一跨前后端契约口径。
-- **OA4/OA5/OA6/OA7/OA9 [P3]**：无架构师时静默空、merge key/置信度硬编码、`devil_review` 死字段、模型配置双轨、Layer 2 门槛不一致，均保持原状。
+- **OA2 [P2] 已消解（复核 2026-09-27）**：§2/§9.2 记录的「confirm/helpfulness 端点三处错位」对应的**两个端点及前端调用已在 `6542dffe`（AA5，2026-09-24）删除**——`association_endpoints.py` 现仅剩联想与 stats 两个端点，全库不再有 `record_feedback`/`record_helpfulness` 调用，原 AttributeError/TypeError 500 不复存在。副作用：`AssociationFeedbackTracker.record_choice`/`record_helpfulness`（实现正确）现**零调用**，联想反馈从不落库，stats 端点恒空。若要恢复反馈能力，仍需先确定「association_id 语义」这一跨前后端契约口径。
+- **OA6 [P3] 保留**：`AssociationItem.devil_review`（data_models.py:16）确为死字段（全库无写入，endpoint 逐项回传恒空字符串）；`devil_review_items` 已由 `devil_advocate_review` 填充并被 evaluate_mixin/前端消费。把审视结果 merge 回 item 并影响置信度属行为语义变更，保留待产品决策。
+- **OA4/OA5/OA7/OA9 [P3]**：无架构师时静默空、merge key/置信度硬编码、模型配置双轨、Layer 2 门槛不一致，均保持原状。
