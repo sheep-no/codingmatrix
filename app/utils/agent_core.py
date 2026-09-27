@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -30,6 +31,30 @@ except ImportError:
     load_directory_status_prompt = None
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_installed_packages() -> frozenset:
+    """`pip freeze` 结果在进程内缓存一次。
+
+    `validate_file` 每次工具调用都会新建 CodeValidator，若每次都跑
+    `pip freeze` 子进程，会在生成循环里反复付出 ~秒级开销。
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "freeze"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return frozenset(
+            line.split('==')[0].lower().replace('-', '_')
+            for line in result.stdout.splitlines()
+            if '==' in line
+        )
+    except Exception as e:
+        logger.warning(f"获取已安装包失败: {e}")
+        return frozenset()
 
 
 # ==================== 对话历史管理器 ====================
@@ -363,21 +388,7 @@ class CodeValidator:
 
     def _get_installed_packages(self) -> set:
         """获取已安装的包"""
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "freeze"],
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            packages = set()
-            for line in result.stdout.splitlines():
-                if '==' in line:
-                    packages.add(line.split('==')[0].lower().replace('-', '_'))
-            return packages
-        except Exception as e:
-            logger.warning(f"获取已安装包失败: {e}")
-            return set()
+        return set(_cached_installed_packages())
 
     def _get_standard_library_modules(self) -> set:
         """获取Python标准库模块"""
