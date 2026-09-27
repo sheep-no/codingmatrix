@@ -12,7 +12,16 @@ from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 from app.api.v1 import aicloud_knowledge as knowledge
-from app.utils.aicloud.knowledge_processor import chunk_text
+from app.utils.aicloud.knowledge_processor import chunk_text, parse_document
+
+
+def test_parse_document_rejects_legacy_doc(tmp_path):
+    """KP4：旧版 .doc 二进制格式应返回明确错误，而非 python-docx 的晦涩异常。"""
+    legacy = tmp_path / "old.doc"
+    legacy.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+
+    with pytest.raises(ValueError, match=r"旧版 \.doc"):
+        parse_document(str(legacy))
 
 
 def test_chunk_text_rejects_non_positive_chunk_size():
