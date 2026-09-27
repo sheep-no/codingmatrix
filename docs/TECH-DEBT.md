@@ -49,7 +49,7 @@
 | P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
 | P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 已解决；`clean` 目标改指 `./scripts/_archive/cleanup.sh` |
 | P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 已解决；注释与警告改为说明真实调用位置，不再引用已删除的 `call_siliconflow` |
-| P3 | 已实现的安全审计能力未接线：`log_security_event` 与 `log_login_success`/`log_login_failed`/`log_permission_change`/`log_token_refresh`/`log_sensitive_operation` 全库零调用，登录与权限变更链不产生审计记录 | `app/utils/security_audit.py` | 仍在；模块与 `security_audit` 日志 handler（`app/core/logging_config.py`）均已就绪，缺调用点 |
+| P3 | 已实现的安全审计能力未接线：`log_security_event` 与 `log_login_success`/`log_login_failed`/`log_permission_change`/`log_token_refresh`/`log_sensitive_operation` 全库零调用，登录与权限变更链不产生审计记录 | `app/utils/security_audit.py`、`app/api/v1/auth.py`、`app/api/v2/user_manage.py` | 已解决；登录成功/失败（含用户不存在）、Token 刷新、权限变更（记录新旧级别）、删除用户与重置密码均已接线，`log_security_event`/`log_login_failed` 的 `user_id` 放宽为可选以承载未识别用户，PR #347 |
 
 ## 2026-09-23 生产就绪复核新增项
 
@@ -166,6 +166,16 @@
 | `system-monitor.spec.js` | 重写 | 系统监控已迁入 AdminPanel `/admin` 默认菜单；改测真实监控看板（CPU/内存/磁盘资源卡片、网络状态、手动刷新、4 个 ECharts canvas），7 项全绿，纳入门禁 |
 | `upload-file.spec.js` | 重写 | 改测首页输入区真实上传 UI（隐藏 file input、附件预览、多文件、离开上传中间态、移除附件、拖拽区），6 项全绿，纳入门禁 |
 | `sprint-1-rbac.spec.js` | 归档 | 断言的高级 RBAC 能力（角色/部门/多租户/审计/2FA 等）产品未实现，移入 `tests/archive/playwright/` |
+
+## 2026-09-27 生产就绪复核新增项
+
+### 本轮已修复
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P3 | 安全审计模块全库零调用：登录成功/失败、Token 刷新、权限变更、敏感操作均不产生审计记录 | `app/utils/security_audit.py`、`app/api/v1/auth.py`、`app/api/v2/user_manage.py` | 已解决；见上表 P3 项，PR #347 |
+
+接线明细：登录失败区分 `user_not_found`（`user_id` 为 `None`）与 `wrong_password`（带用户 ID），均记录客户端 IP；登录成功与 Token 刷新记录用户 ID；`update_user` 仅在权限级别实际变化时记录 `permission_change`（含新旧级别与操作者）；`delete_user`、`reset_password` 记录 `sensitive_operation`。新增 `tests/unit/test_security_audit.py`（5 项，覆盖各便捷函数落盘载荷）与 `tests/unit/test_v2_user_manage_privilege.py` 的 4 项成功路径审计断言。回退接线后 4 项新用例如期失败；受影响测试集合 `36 passed`。
 
 ## 当前验收基线
 
