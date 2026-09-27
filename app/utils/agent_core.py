@@ -1147,12 +1147,38 @@ class ProjectValidator:
 _file_locks: Dict[str, asyncio.Lock] = {}
 
 
+def _resolve_project_write_path(file_path: str, output_dir: Optional[str] = None) -> Path:
+    """将 create_project_file 的目标路径约束在项目输出范围内。
+
+    file_path 完全由 LLM 决定，历史上直接 `aiofiles.open` 可写任意路径。
+    这里要求解析（含符号链接）后的绝对路径落在本次生成的 output_dir 或
+    项目根目录（ProjectFileManager.PROJECT_BASE_DIR）之下，与同模块其余文件
+    工具（FileOperator 防护）保持一致。
+
+    Raises:
+        PermissionError: 目标路径越出允许范围
+    """
+    roots = [Path(ProjectFileManager.PROJECT_BASE_DIR).resolve()]
+    if output_dir:
+        roots.append(Path(output_dir).resolve())
+
+    target = Path(file_path)
+    if not target.is_absolute():
+        target = Path.cwd() / target
+    resolved = target.resolve()
+
+    if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
+        raise PermissionError(f"拒绝越权写入路径: {file_path}")
+    return resolved
+
+
 @ToolRegistry.register("create_project_file", "创建项目文件到指定路径")
 async def create_project_file(
         file_path: str,
         content: str,
         overwrite: bool = False,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        output_dir: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     logger.info(f"创建项目文件: {file_path}, 覆盖: {overwrite}, 会话: {session_id}")
     
@@ -1166,10 +1192,9 @@ async def create_project_file(
     async with _file_locks[lock_key]:
         try:
             import aiofiles
-            from pathlib import Path
 
             # 记录更多路径信息
-            path = Path(file_path)
+            path = _resolve_project_write_path(file_path, output_dir)
             logger.debug(f"解析的Path对象: {path}")
             logger.debug(f"绝对路径: {path.absolute()}")
             logger.debug(f"当前工作目录: {Path.cwd()}")
@@ -1189,7 +1214,7 @@ async def create_project_file(
 
             # 写入文件
             logger.debug(f"开始写入文件: {file_path}")
-            async with aiofiles.open(file_path, 'w', encoding="utf-8") as f:
+            async with aiofiles.open(str(path), 'w', encoding="utf-8") as f:
                 await f.write(extracted_content)
 
             logger.info(f"文件创建成功: {file_path}, 大小: {len(extracted_content)} 字符")
@@ -1203,7 +1228,7 @@ async def create_project_file(
                 else:
                     logger.warning(f"文件大小不匹配，预期: {len(extracted_content)}, 实际: {actual_size}")
 
-            return {"status": "success", "file_path": str(path.resolve())}
+            return {"status": "success", "file_path": str(path)}
         except Exception as e:
             logger.error(f"创建文件失败: {file_path}, 错误: {str(e)}", exc_info=True)
             return {"status": "error", "message": str(e)}
@@ -1795,7 +1820,7 @@ class ProjectGeneratorAgent(BaseModel):
                         }, callback)
 
                 # 执行工具
-                tool_messages = await self._execute_tools(tool_calls, session_id, callback)
+                tool_messages = await self._execute_tools(tool_calls, session_id, callback, str(output_path))
                 logger.debug(f"工具执行完成，返回 {len(tool_messages)} 条消息")
 
                 # 检查失败和文件验证 - 重新规划逻辑
@@ -2326,7 +2351,8 @@ class ProjectGeneratorAgent(BaseModel):
             self,
             tool_calls: List[Dict],
             session_id: Optional[str],
-            callback: Optional[Callable] = None
+            callback: Optional[Callable] = None,
+            output_dir: Optional[str] = None
     ) -> List[Any]:
         """并发执行工具，支持根据文件类型动态切换模型"""
         logger.info(f"并发执行 {len(tool_calls)} 个工具")
@@ -2385,6 +2411,8 @@ class ProjectGeneratorAgent(BaseModel):
 
                 if tool_name == "create_project_file":
                     args["session_id"] = session_id
+                    # 注入本次输出目录，作为 create_project_file 的写入范围校验基准
+                    args["output_dir"] = output_dir
                     logger.debug(f"添加session_id后的参数: {args}")
 
                 validated_args = tool_def.parameters(**args).dict()

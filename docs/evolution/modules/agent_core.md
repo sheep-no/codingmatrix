@@ -7,7 +7,8 @@
 
 > 后续变更（2026-09-16）：AC10 提到的 `app/utils/project_validator.py` 已确认零外部引用并删除（`agent_core.py` 内同名 `ProjectValidator` 为实际活跃实现），正文保留扫描时的判定与行号。
 
-> 后续变更（2026-09-27）：AC2、AC8 已修复，AC3 经复核为陈旧项。
+> 后续变更（2026-09-27）：AC1、AC2、AC8 已修复，AC3 经复核为陈旧项。
+> - AC1：`create_project_file` 新增 `_resolve_project_write_path` 写入范围校验——解析（含符号链接）后的目标须位于本次 `output_dir` 或 `ProjectFileManager.PROJECT_BASE_DIR`（`./projects`）之下，越权路径在 mkdir/写入前返回 `status=error`，写入改用解析后的绝对路径；`_execute_tools` 新增并注入 `output_dir`，`generate_project` 传入 `str(output_path)`。新增 `tests/unit/test_agent_core_write_path.py` 7 项。
 > - AC8：`_check_syntax_warnings` 的 `visit_For` 改为仅当循环体（含 `else` 子句）中确实未以读取方式引用循环变量时才提示，消除全量误报；同批顺清 `visit_Compare` 的 B007/B905 与两处无引用 `import re as _re`（F401）。新增 `tests/unit/test_agent_core_syntax_warnings.py` 3 项。
 > - AC2：`_parse_tool_calls` 新增可选 `output_dir` 参数，「尝试4」直接输出代码块时按本次生成的输出目录拼装 `file_path`（缺省回退 `./projects`），不再硬编码 `./projects/user_api/`；调用点传入 `str(output_path)`。新增 `tests/unit/test_agent_core_toolcall_path.py` 2 项。
 > - AC3：`_execute_tools` 中访问 `self.current_output_dir` 的死代码块已不存在（`rg current_output_dir` 全文件无命中），正文保留扫描时判定。
@@ -38,11 +39,12 @@
 
 ## 3. 发现
 
-### AC1 [P2] create_project_file 无路径校验——LLM 可写任意路径（越权写文件）
+### AC1 [P2] ~~create_project_file 无路径校验——LLM 可写任意路径（越权写文件）~~（已修复 2026-09-27）
 
 - **Bug 代码**：:1182 `aiofiles.open(file_path, 'w')` 直接用 LLM 工具参数；:1177 `path.parent.mkdir` 任意目录创建——无 FileOperator._validate_path/无 PathSecurityError/无 FileContract 检查。
 - **根因**：create_project_file 是生成主工具（LLM 每轮创建文件都用它），但路径完全由 LLM 输出决定——可写 `/etc/xxx`、`../outside.txt` 等任意服务进程权限内路径。
 - **对照**：同模块 create_file（:2551）/edit_file（:2507）/delete_file（:2527）均走 ProjectFileManager→FileOperator（有路径防护）——**同一模块两套文件写入路径，主工具无防护**。
+- **修复**：新增 `_resolve_project_write_path(file_path, output_dir)`——相对路径按 CWD 解析、`resolve()` 跟随符号链接后，要求落在 `output_dir` 或 `PROJECT_BASE_DIR`（`./projects`）之下，否则抛 `PermissionError` 由工具返回 `status=error`；写入改用解析后的绝对路径。允许范围通过 `_execute_tools(... output_dir=...)` 由 `generate_project` 注入 `str(output_path)`，缺省回退 `./projects`，兼容 `./generated_project` 默认输出目录与提示词 few-shot 里的 `./projects/<name>/...` 路径。新增 `tests/unit/test_agent_core_write_path.py` 7 项（越权拒绝、output_dir/项目根放行、端到端写入与拒绝）。
 
 ### AC2 [P2] ~~_parse_tool_calls 尝试4 硬编码 file_path `./projects/user_api/`——无视 output_dir（GRD3 家族）~~（已修复 2026-09-27）
 
