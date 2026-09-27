@@ -55,6 +55,19 @@ GO_BANNED_IMPORTS = {
 }
 
 
+# Python 沙箱逃逸链普遍经 dunder 属性找回任意对象：`().__class__.__bases__[0]
+# .__subclasses__()` 可枚举出 `subprocess.Popen` 等；函数对象的 `__globals__`
+# 可拿到模块全局。这里拦截逃逸专用属性名，属对黑名单的纵深防御，不追求完备
+# （彻底隔离需 OS 级沙箱）。常见的 `__init__`/`__str__`/`__class__` 等正常
+# dunder 不在其中，避免误伤常规代码。
+DANGEROUS_PYTHON_ATTRS = {
+    "__subclasses__", "__globals__", "__bases__", "__mro__",
+    "__reduce__", "__reduce_ex__", "__getattribute__",
+    "__code__", "__closure__", "__loader__", "__spec__",
+    "__self__", "__func__", "__import__",
+}
+
+
 def _find_banned_go_import(code: str) -> Optional[str]:
     """
     返回代码中首个被禁的 Go 导入包名，未命中返回 None。
@@ -252,13 +265,17 @@ class CodeExecutor:
             elif isinstance(node, ast.ImportFrom):
                 if node.module and node.module.split(".")[0] in BANNED_PYTHON_MODULES:
                     raise ValueError(f"禁止导入模块: {node.module}")
+            elif isinstance(node, ast.Name):
+                if node.id == "__builtins__":
+                    raise ValueError("禁止访问 __builtins__")
+            elif isinstance(node, ast.Attribute):
+                if node.attr in DANGEROUS_PYTHON_ATTRS:
+                    raise ValueError(f"禁止访问属性: {node.attr}")
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id in banned_calls:
                     raise ValueError(f"禁止调用函数: {node.func.id}")
                 if isinstance(node.func, ast.Attribute):
-                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "__builtins__":
-                        raise ValueError("禁止访问 __builtins__")
-                    if node.func.attr in ("__import__", "system", "popen"):
+                    if node.func.attr in ("system", "popen"):
                         raise ValueError(f"禁止调用方法: {node.func.attr}")
 
     async def _execute_javascript(self, code: str, timeout: int) -> CodeExecutionResult:

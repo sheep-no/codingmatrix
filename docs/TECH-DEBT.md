@@ -191,7 +191,12 @@
 
 SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不在本轮范围。
 
-本轮同时补齐一处可修活跃安全缺陷：**CE2 Go 沙箱逃逸**。`app/utils/aicloud/code_executor.py` 的 Go 路径原仅禁 `net`/`os/exec`/`syscall`/`unsafe` 四个子串，`import "os"` 合法，可从 `POST /api/v1/aicloud/execute`（admin）编译执行 `os.ReadFile`/`os.WriteFile` 任意读写宿主文件。现以 `GO_BANNED_IMPORTS` + `_find_banned_go_import()` 解析 import 声明（含反引号原始字符串与 cgo 伪包 `C`）并扩充禁用集，在调用 `go` 工具链前拦截；新增 10 项用例（`tests/unit/test_aicloud_execution_regressions.py`），回退后相关用例全失败。黑名单沙箱固有的绕过面（Python AST 属性链 CE5、Go 编译期 `//go:embed` 等）与 OS 级隔离（容器/namespace/seccomp）仍为架构级待办，见 `docs/evolution/modules/aicloud_execution.md` §六。
+本轮同时补齐两处可修活跃安全缺陷，均在 `app/utils/aicloud/code_executor.py`、均从 `POST /api/v1/aicloud/execute`（admin）可达：
+
+- **CE2 Go 沙箱逃逸**：Go 路径原仅禁 `net`/`os/exec`/`syscall`/`unsafe` 四个子串，`import "os"` 合法，可编译执行 `os.ReadFile`/`os.WriteFile` 任意读写宿主文件。现以 `GO_BANNED_IMPORTS` + `_find_banned_go_import()` 解析 import 声明（含反引号原始字符串与 cgo 伪包 `C`）并扩充禁用集，在调用 `go` 工具链前拦截。
+- **CE5 Python 属性链逃逸**：AST 检查原先只在 Call 节点拦 `ast.Name` 直调与 `__builtins__` 前缀，`().__class__.__bases__[0].__subclasses__()` 等属性链可找回任意对象（实测回退后旧实现 `success=True`）。现新增 `DANGEROUS_PYTHON_ATTRS` 属性名拦截并把 `__builtins__` 检查提升到 `ast.Name` 层，逃逸链在解析阶段即被拒绝。
+
+两者合计新增 17 项用例（`tests/unit/test_aicloud_execution_regressions.py`，Go 10 + Python 属性链 7，含 1 项正常回归），回退后相关用例全失败；连同原有测试集合 185 passed。黑名单沙箱固有的绕过面（Go 编译期 `//go:embed` 等）与 OS 级隔离（容器/namespace/seccomp）仍为架构级待办，见 `docs/evolution/modules/aicloud_execution.md` §六。
 
 另更正一条过时结论：`docs/evolution/modules/aicloud_execution.md` 的 SB1（`SandboxFileOperator` 符号链接逃逸）判断不成立——`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验落点是否在 `base_path` 内，实际安全校验走基类，`get_absolute_path` 的 `normpath` 仅用于展示/拼接。
 
