@@ -118,6 +118,20 @@ class CodeExecutor:
     def __init__(self, workspace_path: Optional[str] = None):
         self.workspace_path = workspace_path or tempfile.gettempdir()
 
+    def _sandbox_dirs(self) -> Dict[str, str]:
+        """
+        返回沙箱子进程的 HOME / WORK_DIR。
+
+        `ContextIsolator.setup_sandbox` 声明的沙箱环境此前从未落到任何子进程
+        （CI1），这里按 workspace 根推导并注入，使家目录固定在工作目录的
+        父目录，避免子进程读写宿主 HOME。
+        """
+        workspace = os.path.abspath(self.workspace_path)
+        sandbox_home = os.path.dirname(workspace)
+        if sandbox_home in ("", os.sep):
+            sandbox_home = workspace
+        return {"HOME": sandbox_home, "WORK_DIR": workspace}
+
     @staticmethod
     def _child_limits(cpu_seconds: int, limit_address_space: bool = False):
         """
@@ -218,7 +232,7 @@ class CodeExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 env={
                     "PATH": "/usr/local/bin:/usr/bin:/bin",
-                    "HOME": "/tmp",
+                    **self._sandbox_dirs(),
                     "PYTHONUNBUFFERED": "1",
                     "PYTHONDONTWRITEBYTECODE": "1",
                     "LANG": os.environ.get("LANG", "en_US.UTF-8"),
@@ -304,6 +318,7 @@ class CodeExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.workspace_path,
+                env={**os.environ, **self._sandbox_dirs()},
                 preexec_fn=self._child_limits(timeout),
             )
 
@@ -390,6 +405,7 @@ class CodeExecutor:
                 cwd=self.workspace_path,
                 env={
                     **os.environ,
+                    **self._sandbox_dirs(),
                     "GOMEMLIMIT": f"{self.MAX_MEMORY_MB}MiB",
                 },
                 preexec_fn=self._child_limits(timeout),

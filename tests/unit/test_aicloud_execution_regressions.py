@@ -114,6 +114,16 @@ def test_is_safe_code_allows_normal_code():
     assert is_safe_code("print('hello')")[0] is True
 
 
+def test_child_env_uses_sandbox_home(tmp_path):
+    """CI1：子进程 HOME / WORK_DIR 必须指向沙箱，而非宿主 HOME。"""
+    workspace = tmp_path / "sandbox" / "1" / "workspace"
+    executor = CodeExecutor(workspace_path=str(workspace))
+
+    dirs = executor._sandbox_dirs()
+    assert dirs["HOME"] == str(tmp_path / "sandbox" / "1")
+    assert dirs["WORK_DIR"] == str(workspace)
+
+
 @pytest.mark.parametrize(
     "snippet",
     [
