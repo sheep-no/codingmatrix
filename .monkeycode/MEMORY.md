@@ -482,3 +482,12 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 修复范围限定为 `agent` 及其子系统（`app/agent/`、agent 相关 `app/api/v1/ai_agent/`、`app/tasks/`、agent 消费的 `app/utils/` 模块），以及前端中与 agent 相关的界面（`src/` 下 agent 交互页）。
   - 范围内见到的 bug 都要修到可生产，不停留在静态告警；范围外文件除非被范围内修复直接依赖，否则不改动。
+
+### 演化模块缺陷清单的复核方式
+- Date: 2026-09-27
+- Context: Agent 在消费 `docs/evolution/modules/` 缺陷清单批量修复时发现文档普遍滞后
+- Category: 排障与调试
+- Instructions:
+  - 判断某条缺陷是否仍开放，先读该文档末尾的「状态校准 / 状态更新」章节并以实码复核；正文的「已探明 Bug」与「修改建议」表格常年滞后，会把已修项继续列为待办（实测 `react_engine` RE1/RE2/RE3、`executor` B1/B2/B3、`react_agent` RA1-RA6、`error_recovery` ERR1-ERR6、`specialist_base` SB3/SB4、`tools` T1-T6、`architecture_inspector` AI1/AI2/AI4/AI5 均已修）。
+  - 每条缺陷先判定「真实可修 / 设计或产品保留 / 文档陈旧」三类，只对第一类动码；保留项（如接线/语义决策/结构性重构）不要强行修改。
+  - 文档已写「保留 / 待产品决策」的条目（如 IV1 补缺语义、JP2 截断标记、DCC2 限额接线、MEM1 embedding 写入、CEC1 A/B 框架空转）重复核查后仍未变化时直接沿用，不重复投入。
