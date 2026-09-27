@@ -28,4 +28,18 @@ describe('user store 注销清理', () => {
     expect(localStorage.getItem('project_generator_state')).toBeNull()
     expect(localStorage.getItem('access_token')).toBeNull()
   })
+
+  it('clearUser 清除 API Key / 供应商 / 模型覆盖缓存（FRESCAN-47）', () => {
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{ provider: 'siliconflow', token: 'x' }]))
+    localStorage.setItem('codingmatrix_rsa_public_key', 'pubkey')
+    localStorage.setItem('codingmatrix_model_overrides', JSON.stringify({ siliconflow: ['m'] }))
+    localStorage.setItem('codingmatrix_providers', JSON.stringify([{ base_url: 'https://x' }]))
+
+    useUserStore().clearUser()
+
+    expect(localStorage.getItem('codingmatrix_apikeys')).toBeNull()
+    expect(localStorage.getItem('codingmatrix_rsa_public_key')).toBeNull()
+    expect(localStorage.getItem('codingmatrix_model_overrides')).toBeNull()
+    expect(localStorage.getItem('codingmatrix_providers')).toBeNull()
+  })
 })

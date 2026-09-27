@@ -116,6 +116,8 @@
 
 `stores/apikey.js:12-14,36-83` 与 `stores/providers.js:12,18-33` 使用固定 localStorage 键并在认证状态建立前恢复；注销流程不清理。A 的 token、供应商地址、模型映射可能在 B 的请求完成前展示、回退使用或继续写回。
 
+> **已修（2026-09-27）**：`stores/user.js` 的 `clearUser()` 追加移除 `codingmatrix_apikeys`、`codingmatrix_rsa_public_key`、`codingmatrix_model_overrides`、`codingmatrix_providers` 四个按浏览器持久化的键，注销后不再被下一账户在请求完成前复用。`src/stores/user.logout.test.js` 增加 1 项断言（回退源码后失败）。
+
 #### FRESCAN-48 [P2] 管理日志持久化状态跨账户复用
 
 `stores/logs.js:90-140` 将最多 500 条系统日志和筛选状态写入固定 `systemLogsState`；`SystemLogs.vue:356-373` 恢复与保存；注销流程未调用清理。新账户连接建立前可能看到旧账户日志及过滤状态。
