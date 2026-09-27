@@ -162,6 +162,23 @@ class TestSpecModelConfigAndTypeDefense:
         assert captured["thinking_budget"] == 111
 
     @pytest.mark.asyncio
+    async def test_openapi_spec_rejects_dict_without_openapi_field(self, generator, monkeypatch):
+        """合法 JSON 但不是 OpenAPI 对象时不得当作规范保存。"""
+        generator.model_config = {"max_tokens": 100, "thinking_budget": 10}
+
+        async def fake_call_llm(**kwargs):
+            return {"choices": [{"message": {"content": '{"error": "boom", "code": 500}'}}]}
+
+        monkeypatch.setattr("app.agent.spec_first_generator.call_llm", fake_call_llm)
+
+        ok = await generator._generate_openapi_spec(
+            "做一个 FastAPI 用户接口", {"has_backend": True}
+        )
+
+        assert ok is False
+        assert "openapi" not in generator.context.specs
+
+    @pytest.mark.asyncio
     async def test_generate_types_parses_string_spec(self, generator, monkeypatch):
         from app.agent.shared_context import SpecArtifact
 
