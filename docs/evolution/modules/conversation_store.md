@@ -89,7 +89,7 @@ Redis + 数据库混合会话历史存储。设计原则（docstring :4-14）：
 | CS2 | 已修 | `db_success` 为 False 时跳过 Redis 追加并记录 warning，不再产生「DB 没有、Redis 有」的幽灵消息；DB 失败返回 False 的语义保持。 |
 | CS4 | 已修 | `_estimate_tokens` 由「总字符 / 2」改为按 docstring 口径分别估算（CJK ≈1.5 字/token、非 CJK ≈4 字符/token），消除英文高估约 2 倍导致的历史过早截断；同步更新 `TestEstimateTokens` 与 `test_truncate_by_tokens`/`test_compression_when_exceeded` 的预算口径，并新增中英混排用例。 |
 | CS3 | **保留** | `compress_history` 仍全库零调用（未接线的历史压缩能力）且 clear + 逐条 re-append 非事务。事务化或删除该能力属独立决策，未在本批处理。 |
-| CS5 | **保留** | async 方法内仍用同步 `redis` 客户端（阻塞事件循环）。迁移 `redis.asyncio` 与 CS6 的双实现收敛是同一模块级重构，应合并专项处理。 |
+| CS5 | **已修（2026-09-26）** | async 方法内的同步 Redis 调用改为 `await asyncio.to_thread(...)`，不再阻塞事件循环：`get_history_async` 的 `redis.get` 与回填 `_save_to_redis`、`append_message` 的 `redis.exists` 与 `_append_to_redis`、`clear_history` 的 `redis.delete`。仍使用同步 `redis` 客户端（未迁移 `redis.asyncio`），CS6 双实现收敛保留待专项。新增 `tests/unit/test_conversation_store_async_thread.py` 4 例（回退源码后 4 例全失败）。 |
 | CS6 | **保留** | `get_history` / `get_history_async` 双实现重复；收敛需先统一 sync/async 边界。 |
 | CS7 | **保留** | 模块级单例 `get_conversation_store` 仍无锁。 |
 | CS8 | **保留** | `truncate_history` 仍按 `max_rounds * 2` 假设每轮 user+assistant；tool/system 混入时轮次语义不准，属 P3。 |
