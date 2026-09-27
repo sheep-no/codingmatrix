@@ -17,6 +17,14 @@ from app.utils.aicloud.code_executor import CodeExecutor, CodeExecutionResult
 
 logger = logging.getLogger(__name__)
 
+
+def _clip(text: str, limit: int) -> str:
+    """截断长文本并显式标记丢失长度，避免无声截断（AE3）。"""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...[截断 {len(text) - limit} 字符]"
+
+
 # 最大循环次数，防止死循环
 MAX_EXECUTE_ITERATIONS = 3
 
@@ -132,7 +140,7 @@ async def execute_with_llm_loop(
         
         # 有代码块，执行第一个代码块
         code_to_execute = code_blocks[0]
-        logger.info(f"检测到代码块，准备执行:\n{code_to_execute[:100]}...")
+        logger.info("检测到代码块，准备执行:\n%s", _clip(code_to_execute, 100))
         
         # 安全检查
         is_safe, safety_msg = is_safe_code(code_to_execute)
@@ -157,7 +165,7 @@ async def execute_with_llm_loop(
                 else:
                     execution_result = f"[ERROR] 代码执行失败:\n错误:\n{result.error}\n退出码: {result.exit_code}"
                     
-                logger.info(f"代码执行结果: {execution_result[:200]}...")
+                logger.info("代码执行结果: %s", _clip(execution_result, 200))
                 
             except Exception as e:
                 logger.error(f"代码执行异常: {e}")
@@ -169,11 +177,13 @@ async def execute_with_llm_loop(
         # 保存本轮对话
         conversation_history.append({
             "iteration": iteration + 1,
-            "ai_response": ai_content[:500],
-            "executed_code": code_to_execute[:200],
-            "execution_result": execution_result[:200]
+            "ai_response": _clip(ai_content, 500),
+            "executed_code": _clip(code_to_execute, 200),
+            "execution_result": _clip(execution_result, 200)
         })
     
     # 达到最大循环次数
-    logger.warning(f"达到最大循环次数 ({MAX_EXECUTE_ITERATIONS})，返回最后一次回复")
+    logger.warning("达到最大循环次数 (%s)，返回最后一次回复", MAX_EXECUTE_ITERATIONS)
+    # 轮次记录此前仅收集、无任何消费（AE5），在此写入审计日志
+    logger.info("自动执行轮次记录: %s", conversation_history)
     return ai_content + "\n\n---\n*注：已达到最大自动执行次数，如需继续操作请发送新消息。*"

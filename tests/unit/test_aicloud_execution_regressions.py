@@ -5,11 +5,18 @@
 - CE3 JS 仅做 require 子串检查：process/fetch 等全局对象可绕过
 - CE4 MAX_MEMORY_MB 死配置：子进程未施加任何内存/CPU 上限
 - AE1 is_safe_code 子串检查可被空白与大小写绕过
+- AE2 缺省 workspace 落裸 /tmp
+- AE3 循环记录截断无标记
+- AE5 conversation_history 收集后无消费
 """
+
+import logging
+import os
+import tempfile
 
 import pytest
 
-from app.utils.aicloud.auto_executor import is_safe_code
+from app.utils.aicloud.auto_executor import execute_with_llm_loop, is_safe_code
 from app.utils.aicloud.code_executor import CodeExecutor
 
 
@@ -122,6 +129,47 @@ def test_child_env_uses_sandbox_home(tmp_path):
     dirs = executor._sandbox_dirs()
     assert dirs["HOME"] == str(tmp_path / "sandbox" / "1")
     assert dirs["WORK_DIR"] == str(workspace)
+
+
+def test_default_workspace_is_isolated_subdir(tmp_path, monkeypatch):
+    """AE2：缺省 workspace 不落裸 /tmp，而是独立子目录并自动创建。"""
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    executor = CodeExecutor()
+    assert executor.workspace_path == str(tmp_path / "aicloud_sandbox")
+    assert os.path.isdir(executor.workspace_path)
+
+
+def test_clip_marks_truncation():
+    """AE3：截断需带丢失长度标记，短文本原样返回。"""
+    from app.utils.aicloud.auto_executor import _clip
+
+    assert _clip("abc", 5) == "abc"
+
+    clipped = _clip("a" * 10, 4)
+    assert clipped.startswith("aaaa")
+    assert "截断 6 字符" in clipped
+
+
+async def test_auto_loop_records_iteration_history(tmp_path, caplog):
+    """AE5：达到最大循环时的轮次记录需写入审计日志。"""
+
+    async def fake_llm(**kwargs):
+        return {"choices": [{"message": {"content": "```python\nprint(1)\n```"}}]}
+
+    with caplog.at_level(logging.INFO):
+        await execute_with_llm_loop(
+            initial_prompt="hi",
+            history_context="",
+            system_prompt="",
+            model_key="m",
+            max_tokens=10,
+            call_llm_func=fake_llm,
+            user_id=1,
+            workspace_path=str(tmp_path),
+        )
+
+    assert "自动执行轮次记录" in caplog.text
 
 
 @pytest.mark.parametrize(
