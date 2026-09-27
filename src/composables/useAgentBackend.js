@@ -207,7 +207,6 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     showPerformanceModal.value = true
     const data = await loadPerformanceMetrics()
     if (!data) return
-    const metrics = data.metrics.metrics || {}
     const trends = data.trends.trends || {}
     performanceStats.value = {
       startTime: generation.startTime ? new Date(generation.startTime).toLocaleTimeString() : '未知',

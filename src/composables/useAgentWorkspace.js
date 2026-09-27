@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import JSZip from 'jszip'
 
 export function useAgentWorkspace({
-  session, files, generation
+  session, files
 }) {
   const logs = ref([])
   const executionDetails = ref([])

@@ -591,7 +591,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           ElMessage.error('停止项目失败：' + stopError.message)
         }
       }
-    } catch (action) {
+    } catch {
       // 用户点击"知道了"或关闭弹窗，不做任何操作
     }
   }
