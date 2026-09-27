@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .language_adapter import (
     LanguageAdapter, LanguageAdapterRegistry,
-    ImportInfo, SymbolDefinition
+    ImportInfo, SymbolDefinition, iter_logical_lines
 )
 
 
@@ -158,8 +158,11 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         if not content:
             return imports
 
-        for line in content.split('\n'):
+        for line in iter_logical_lines(content):
             stripped = line.strip()
+
+            if not stripped:
+                continue
 
             # 跳过注释
             if stripped.startswith('//') or stripped.startswith('/*'):
