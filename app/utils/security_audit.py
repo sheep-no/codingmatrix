@@ -18,7 +18,7 @@ security_logger = logging.getLogger("security")
 
 async def log_security_event(
     event_type: str,
-    user_id: int,
+    user_id: Optional[int],
     details: Optional[Dict[str, Any]] = None,
     ip_address: str = None,
     success: bool = True
@@ -65,7 +65,7 @@ async def log_login_success(user_id: int, ip: str = None):
     await log_security_event("login_success", user_id, {"method": "token"}, ip, success=True)
 
 
-async def log_login_failed(user_id: int, reason: str, ip: str = None):
+async def log_login_failed(user_id: Optional[int], reason: str, ip: str = None):
     """记录登录失败"""
     await log_security_event(
         "login_failed",

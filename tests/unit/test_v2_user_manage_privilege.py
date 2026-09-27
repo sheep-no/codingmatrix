@@ -4,6 +4,8 @@
 superadmin，或删除/重置超管账号，从而拿到平台全部高危权限。
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import HTTPException
 
@@ -21,6 +23,7 @@ class _User:
         self.id = uid
         self.username = f"user{uid}"
         self.email = f"user{uid}@example.com"
+        self.created_at = None
         self.permission = _Permission(level) if level else None
 
 
@@ -148,6 +151,81 @@ async def test_admin_cannot_modify_existing_superadmin():
 
     assert error.value.status_code == 403
     assert len(db.writes) == 1
+
+
+@pytest.mark.asyncio
+async def test_update_user_logs_permission_change():
+    db = _FakeDb(_User(7, "normal"))
+    body = UserUpdateRequest(permission_level="admin")
+
+    with patch.object(
+        user_manage, "log_permission_change", new_callable=AsyncMock
+    ) as log_change, patch.object(
+        user_manage, "invalidate_cache_by_prefix", new_callable=AsyncMock
+    ):
+        await user_manage.update_user(
+            user_id=7, body=body, db=db,
+            token={"sub": "1", "permission_level": "superadmin"},
+        )
+
+    log_change.assert_awaited_once_with(7, "normal", "admin", 1)
+
+
+@pytest.mark.asyncio
+async def test_update_user_without_level_change_hits_no_audit():
+    db = _FakeDb(_User(7, "admin"))
+    body = UserUpdateRequest(permission_level="admin")
+
+    with patch.object(
+        user_manage, "log_permission_change", new_callable=AsyncMock
+    ) as log_change, patch.object(
+        user_manage, "invalidate_cache_by_prefix", new_callable=AsyncMock
+    ):
+        await user_manage.update_user(
+            user_id=7, body=body, db=db,
+            token={"sub": "1", "permission_level": "superadmin"},
+        )
+
+    log_change.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_user_logs_sensitive_operation():
+    db = _FakeDb(_User(7, "normal"))
+
+    with patch.object(
+        user_manage, "log_sensitive_operation", new_callable=AsyncMock
+    ) as log_op, patch.object(
+        user_manage, "invalidate_user_cache", new_callable=AsyncMock
+    ), patch.object(
+        user_manage, "invalidate_cache_by_prefix", new_callable=AsyncMock
+    ):
+        await user_manage.delete_user(
+            user_id=7, db=db,
+            token={"sub": "1", "permission_level": "superadmin"},
+        )
+
+    log_op.assert_awaited_once_with(1, "delete_user", "user:7")
+
+
+@pytest.mark.asyncio
+async def test_reset_password_logs_sensitive_operation():
+    db = _FakeDb(_User(7, "normal"))
+    body = type("Body", (), {"new_password": "Secret123!"})()
+
+    with patch.object(
+        user_manage, "log_sensitive_operation", new_callable=AsyncMock
+    ) as log_op, patch.object(
+        user_manage, "invalidate_user_cache", new_callable=AsyncMock
+    ), patch.object(
+        user_manage, "invalidate_cache_by_prefix", new_callable=AsyncMock
+    ):
+        await user_manage.reset_password(
+            user_id=7, body=body, db=db,
+            token={"sub": "1", "permission_level": "superadmin"},
+        )
+
+    log_op.assert_awaited_once_with(1, "reset_password", "user:7")
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.utils.security import verify_token, hash_password, validate_password_strength
 from app.utils.permissions import is_admin, is_superadmin
+from app.utils.security_audit import log_permission_change, log_sensitive_operation
 
 from app.schema.manageUser import *
 from app.utils.cache import invalidate_user_cache
@@ -266,6 +267,7 @@ async def update_user(
     _ensure_superadmin_scope(
         actor_level, user.permission.permission_level if user.permission else "normal"
     )
+    previous_permission_level = user.permission.permission_level if user.permission else "normal"
     if body.permission_level is not None:
         _ensure_superadmin_scope(actor_level, body.permission_level)
     if body.username is not None:
@@ -300,6 +302,11 @@ async def update_user(
     await db.refresh(user)
     if user.permission:
         await db.refresh(user.permission)
+
+    if body.permission_level is not None and previous_permission_level != body.permission_level:
+        await log_permission_change(
+            user_id, previous_permission_level, body.permission_level, int(token["sub"])
+        )
     
     if body.email:
         await invalidate_user_cache(user.id)
@@ -348,6 +355,8 @@ async def delete_user(
     await db.delete(user)
     await db.commit()
     await invalidate_user_cache(user.id)
+
+    await log_sensitive_operation(int(token["sub"]), "delete_user", f"user:{user_id}")
     
     try:
         await invalidate_cache_by_prefix("profile")
@@ -382,6 +391,8 @@ async def reset_password(
     )
     await db.commit()
     await invalidate_user_cache(user.id)
+
+    await log_sensitive_operation(int(token["sub"]), "reset_password", f"user:{user_id}")
     
     try:
         await invalidate_cache_by_prefix("profile")

@@ -24,6 +24,7 @@ from app.utils.cache_decorator import cache_response, invalidate_cache_by_prefix
 from app.middleware.rate_limiter import check_login_rate_limit, record_login_failure, record_login_success
 from app.utils.csrf import get_csrf_token, csrf_protect
 from app.utils.encryption import get_public_key_for_client, decrypt_sensitive_data
+from app.utils.security_audit import log_login_success, log_login_failed, log_token_refresh
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -197,6 +198,7 @@ async def login(
     if not user:
         logger.warning(f"登录失败：用户不存在 | email={email}")
         record_login_failure(identifier)
+        await log_login_failed(None, "user_not_found", client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",
@@ -219,6 +221,7 @@ async def login(
     if not verify_password(password, user.hashed_password):
         logger.warning(f"登录失败：密码错误 | email={email} | user_id={user.id}")
         record_login_failure(identifier)
+        await log_login_failed(user.id, "wrong_password", client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",
@@ -228,6 +231,7 @@ async def login(
     
     # 登录成功，清除失败记录
     record_login_success(identifier)
+    await log_login_success(user.id, client_ip)
     
     # 根据权限级别确定用户角色
     role = "user"
@@ -496,6 +500,7 @@ async def refresh_token(
         )
         
         logger.info(f"Token 刷新成功 | user_id={user_id_str}")
+        await log_token_refresh(int(user_id_str))
         return response
         
     except HTTPException as e:
