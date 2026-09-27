@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -106,7 +107,8 @@ class ProjectMetadataManager:
         try:
             from app.agent.vector_index import VectorIndexManager
             vi = VectorIndexManager()
-            vi.load_or_create()
+            # 读取 FAISS 索引文件为阻塞 I/O，放入工作线程避免卡住事件循环
+            await asyncio.to_thread(vi.load_or_create)
             await vi.add_project(project_meta)
         except Exception as e:
             logger.warning(f"向量索引追加失败: {e}")
