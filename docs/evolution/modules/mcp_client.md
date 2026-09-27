@@ -140,3 +140,8 @@ async def _mcp_tool_fn(project_path: str = "", _sn=server_name, _tn=tool_name, *
 | MCP8 | 待处理 | `call_tool` 非 text 内容仍 `str(content)` 退化。 |
 
 本批测试：`tests/unit/test_mcp_client.py` 33 → 40，新增 9 项（MCP1 2 项、MCP2 4 项、MCP6 3 项，其中 2 项为按新契约重写的原用例）。回退 `app/agent/mcp_client.py` 后 9 项全部失败，验证测试可捕获缺陷。
+
+## 8. 状态更新（2026-09-27）
+
+- **MCP9（新增，已修）**：`load_servers` 为 `async`，但配置读取（`os.path.exists` + `open` + `json.load`）在事件循环内同步执行。默认仅在启动时读一次小配置，影响有限，但会与同批「阻塞 I/O 移出事件循环」统一口径。现抽出同步 `_read_servers_config(path)`，`load_servers` 改为 `await asyncio.to_thread(self._read_servers_config, path)`；文件不存在与解析失败的日志/返回值语义保持不变。
+  - 回归 `tests/unit/test_mcp_client.py::TestMCPClientManager::test_load_servers_reads_config_off_event_loop`（记录读取线程 id，断言不在事件循环线程）；回退 `mcp_client.py` 后该项失败（`_read_servers_config` 不存在）。该文件现共 41 项。
