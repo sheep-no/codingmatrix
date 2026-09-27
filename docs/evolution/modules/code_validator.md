@@ -205,3 +205,12 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 配套测试：`tests/unit/test_code_validator.py::TestCodeValidatorDefectFixes` 新增 5 项（CV1 缓存命中、CV5 两个方向、CV6 tomllib、CV4 不再产出伪前端错误）；本轮 CV2 新增 `TestRuntimeImportStaticAnalysis` 5 项（模块级副作用不执行、阻塞代码不挂起、缺失项目符号仍报错、相对导入不误报、`sys.path`/`sys.modules` 不被改写）；CV7 新增 1 项实例隔离（内容相同的两个项目实例各自 miss、缓存条目不交叉），并把 2 项直接操作类级缓存的旧用例改为实例级，文件累计 54 项。
 
 **复核说明**：CV8 保留为结构性演化项。CV7 已修（缓存/统计实例级隔离，跨实例命中与统计串扰消除）。CV2 静态化后，检出能力收敛到「结构上可静态判定的导入错误」，这是消除执行风险的代价；此前相对导入在单文件校验中会产生假「运行时导入失败」，现已消除。
+
+## 8. 状态校准（2026-09-27，阻塞 I/O 批次）
+
+以当前代码复核 `run_full_validation` 链路，修复两处「全项目文件读取占用事件循环」：
+
+- **CV9（新增）全项目缓存键计算阻塞事件循环**：缓存键由「所有待校验文件内容拼接后哈希」构成，原实现直接在协程里 `for f in all_files: all_contents += f.read_text(...)` 读全项目内容，文件多/大时占住事件循环，使紧随其后的 `asyncio.gather` 并发校验整体延后。现抽出同步类方法 `_project_content_hash(files)`，`run_full_validation` 改用 `await asyncio.to_thread(self._project_content_hash, all_files)`。
+- **CV10（新增）跨文件一致性校验阻塞事件循环**：`validate_cross_file_consistency` 声明为 async 但函数体全同步（`project_path.rglob('*.py')` + 逐个 `open`/`ast.parse`），既阻塞事件循环又让调用方误以为可并发。现把同步实现整体抽为 `_validate_cross_file_consistency_sync`，async 入口改为 `await asyncio.to_thread(...)`；对外契约（`(bool, List[str])`）与错误文案不变。`rglob` 与全项目 `.py` 解析一并移出事件循环，同时消除该方法的 2 个 `ASYNC240` 告警。
+- **回归测试**：新增 `tests/unit/test_code_validator_blocking_io.py` 3 项——`validate_cross_file_consistency` 的同步实现只在非主线程触发、`run_full_validation` 的项目哈希在非主线程执行、连续两次全项目校验第二次 `cache_hit=True`（行为保持）。回退源码后前两项失败（记录到 `thread=None`），缓存命中项仍通过。
+- **CV1-CV7 复核确认已修，CV8 仍为结构性演化项**（四套验证器归位），维持原判。

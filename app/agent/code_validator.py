@@ -249,6 +249,21 @@ class CodeValidator:
         import hashlib
         return hashlib.sha256(file_content.encode('utf-8')).hexdigest()[:16]
 
+    @classmethod
+    def _project_content_hash(cls, files: List[Path]) -> str:
+        """读取全部待校验文件内容并计算项目级哈希（同步，供工作线程调用）。
+
+        `run_full_validation` 的缓存键是全项目内容拼接后的哈希，需要逐个读取
+        每个文件；文件较多或较大时同步读取会占住事件循环，故整体抽到工作线程。
+        """
+        parts = []
+        for f in files:
+            try:
+                parts.append(f.read_text(encoding='utf-8', errors='ignore'))
+            except Exception:
+                parts.append(str(f))
+        return cls._compute_content_hash("".join(parts))
+
     def _clear_old_cache(self):
         now = time.time()
         expired_keys = []
@@ -588,7 +603,15 @@ class CodeValidator:
             return False, [f"CSS 验证异常: {str(e)}"]
 
     async def validate_cross_file_consistency(self) -> Tuple[bool, List[str]]:
-        """跨文件一致性检查：验证导入、导出、路由定义是否匹配"""
+        """跨文件一致性检查：验证导入、导出、路由定义是否匹配。
+
+        该方法整体是同步的（rglob 全项目 + 读取并 AST 解析每个 `.py`），放在
+        事件循环上会阻塞其他协程；统一抽到工作线程执行，同步实现见
+        `_validate_cross_file_consistency_sync`。
+        """
+        return await asyncio.to_thread(self._validate_cross_file_consistency_sync)
+
+    def _validate_cross_file_consistency_sync(self) -> Tuple[bool, List[str]]:
         errors = []
 
         # 收集所有 Python 文件
@@ -855,13 +878,8 @@ class CodeValidator:
 
         # 检查是否有缓存结果（使用所有文件的哈希作为缓存 key）
         if all_files:
-            all_contents = ""
-            for f in all_files:
-                try:
-                    all_contents += f.read_text(encoding='utf-8', errors='ignore')
-                except Exception:
-                    all_contents += str(f)
-            content_hash = self._compute_content_hash(all_contents)
+            # 读取全项目内容并哈希是纯阻塞操作，放到工作线程，避免占住事件循环。
+            content_hash = await asyncio.to_thread(self._project_content_hash, all_files)
             cache_key = f"full_validation:{content_hash}"
             cached = self.get_cached_validation_by_key(cache_key)
             if cached:
