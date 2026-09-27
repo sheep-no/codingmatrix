@@ -2551,19 +2551,20 @@ class FilesMixin:
 
         if "timeout" in error_lower or "timed out" in error_lower:
             return "请求超时，请稍后重试"
-        if "rate limit" in error_lower or "429" in error_lower:
+        # HTTP 状态码按独立词匹配，避免把 "500 chars"、"4293 tokens" 等文本误判
+        if "rate limit" in error_lower or re.search(r'\b429\b', error_lower):
             return "请求频率过高，请稍后重试"
-        if "401" in error_lower or "unauthorized" in error_lower:
+        if "unauthorized" in error_lower or re.search(r'\b401\b', error_lower):
             return "API 认证失败，请检查 API Key 配置"
-        if "403" in error_lower or "forbidden" in error_lower:
+        if "forbidden" in error_lower or re.search(r'\b403\b', error_lower):
             return "API 访问被拒绝，请检查权限"
-        if "404" in error_lower or "not found" in error_lower:
+        if "not found" in error_lower or re.search(r'\b404\b', error_lower):
             return "API 端点不存在"
-        if "500" in error_lower or "internal server" in error_lower:
+        if "internal server" in error_lower or re.search(r'\b500\b', error_lower):
             return "API 服务异常，请稍后重试"
         if "connection" in error_lower or "network" in error_lower:
             return "网络连接失败，请检查网络"
-        if "out of memory" in error_lower or "oom" in error_lower:
+        if "out of memory" in error_lower or re.search(r'\boom\b', error_lower):
             return "内存不足，请减少项目复杂度"
         if "json" in error_lower or "parse" in error_lower:
             return "模型返回格式异常，请重试"
