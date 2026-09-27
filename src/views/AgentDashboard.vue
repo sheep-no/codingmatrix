@@ -315,8 +315,9 @@ const regenerateProject = async () => {
 }
 const doStopSession = async () => {
   const hasFiles = generatedFiles.value.length > 0
-  try {
-    if (hasFiles) {
+  let shouldDownload = false
+  if (hasFiles) {
+    try {
       await ElMessageBox.confirm(
         '会话结束后项目文件将被清理，是否先下载？',
         '结束会话',
@@ -327,10 +328,17 @@ const doStopSession = async () => {
           distinguishCancelAndClose: true
         }
       )
-      await backend.downloadProject(workspace.currentProjectPath)
+      shouldDownload = true
+    } catch (action) {
+      if (action === 'close') return
     }
-  } catch (action) {
-    if (action === 'close') return
+  }
+  if (shouldDownload) {
+    const downloaded = await backend.downloadProject(workspace.currentProjectPath)
+    if (!downloaded) {
+      ElMessage.error('下载失败，已取消结束会话以保留项目文件')
+      return
+    }
   }
   try {
     await backend.stopSession(session.currentSessionId)
