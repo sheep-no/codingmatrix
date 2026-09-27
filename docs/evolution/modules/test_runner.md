@@ -198,3 +198,8 @@ if self.project_path.exists():
 - **TR4 / TR7 保留**：全局信号量跨事件循环、无条件注入 sqlite `DATABASE_URL`，分别属单例收敛与配置探测，均需独立设计。
 
 新增回归 `tests/unit/test_test_runner_fixes.py`（6 项）：退出码 0 叠加解析失败时 success 翻转与无失败时保持、150 文件全量扫描、白名单外依赖日志与无剔除不告警、清理不触碰用户项目 `__pycache__`。回退源码后 4 项失败（2 项为反向保护断言），确认测试可捕获缺陷。
+
+## 8. 状态更新（2026-09-27）
+
+- **TR9 [P2] 已修（清理阻塞事件循环）**：`_cleanup`（:806）与 `run_tests` finally 的兜底回收原先在事件循环内直接 `shutil.rmtree(...)`——Python 分支沙箱含复制的项目与 venv，动辄数千文件，同步递归删除会整段阻塞事件循环（`run_tests` 被 `orchestrator_testing` 在 agent 编排协程中调用）。现两处均改为 `await asyncio.to_thread(shutil.rmtree, ..., ignore_errors=True)`；`run_tests` 兜底分支同时删除多余的 `Path(temp_dir_path).exists()` 同步 stat（`ignore_errors=True` 已保证路径不存在时不抛），消除该处 ASYNC240。
+  - 回归 `tests/unit/test_test_runner_fixes.py::TestCleanupRunsOffEventLoop`（2 项：`_cleanup` 与 `run_tests` 兜底路径的 rmtree 均在工作线程执行、且沙箱最终被回收），回退源码后 2 项均失败。

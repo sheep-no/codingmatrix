@@ -268,11 +268,12 @@ class IsolatedTestRunner:
 
                 if language == "python":
                     await self._cleanup()
-                    if temp_dir_path and Path(temp_dir_path).exists():
-                        try:
-                            shutil.rmtree(temp_dir_path, ignore_errors=True)
-                        except Exception as e:
-                            logger.debug(f"清理临时目录失败 {temp_dir_path}：{e}")
+                    # 兜底回收：_cleanup 已删除时 rmtree 为空操作，ignore_errors 保证
+                    # 不抛；放入工作线程避免在事件循环里同步遍历删除大量沙箱文件。
+                    if temp_dir_path:
+                        await asyncio.to_thread(
+                            shutil.rmtree, temp_dir_path, ignore_errors=True
+                        )
 
         return result
 
@@ -807,7 +808,9 @@ class IsolatedTestRunner:
         if self._temp_dir and self._temp_dir.exists():
             try:
                 await asyncio.sleep(0.5)
-                shutil.rmtree(str(self._temp_dir), ignore_errors=True)
+                await asyncio.to_thread(
+                    shutil.rmtree, str(self._temp_dir), ignore_errors=True
+                )
                 logger.info(f"临时资源已释放: {self._temp_dir}")
             except Exception as e:
                 logger.warning(f"临时目录清理失败: {e}")
