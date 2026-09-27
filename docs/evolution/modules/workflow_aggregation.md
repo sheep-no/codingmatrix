@@ -51,3 +51,33 @@
 ## 四、测试状态
 
 零单元测试。TDC1（retry/on_failure 丢弃）、TDC2（花括号分解失败）、RSA1（切片丢事件）全部实码可证无任何用例保护。修复建议：① TDC1 透传策略字段；② TDC2 模板改占位符替换（template.replace 或 format_map 防御）；③ RSA1 修切片；④ TDC3/validate_result 删除或收敛到 GraphValidator；⑤ 下轮扫 node_types/ 10 节点文件（base.py merge_context 契约）。
+
+## 五、状态更新（2026-09-27 核实）
+
+按当前 master 源码逐条复核，原判定的多项缺陷已在此前修复（文档滞后），部分为误判；本轮核验如下。
+
+**已修复**
+
+- **TDC1 已修**：`_parse_response` 现把 `retry`/`on_failure` 透传给 `TaskNode`（task_decomposer.py:235-238），并新增模块级 `_normalize_on_failure`，将非法取值归一化到 `fail`/`skip`/`fallback` 并记 warning，LLM 规划的容错策略不再整块丢失。
+- **TDC4 已修**：`_parse_response` 内联了图级校验——重复节点 ID 直接抛 `TaskDecomposerError`（:242-245），依赖指向不存在的节点同样抛出（:247-253），不再依赖下游 `GraphValidator` 才拦截。
+- **TDC8 已修**：解析改为 `choices[0].get('message', {})` 安全取值、`content = content or ''` 兜底（:179-192），非标准 JSON 时从首个 `{` 起提取完整对象（:203-219），消除 `content.strip()` 取 None 崩溃与结构异常直接失败。
+- **TDC5 已修**：提示词文件读取由模块级 `SYSTEM_PROMPT = _load_system_prompt()` 推迟到 `__init__`（:121-122），不再在 import 时产生读盘副作用。
+- **TDC6 部分已修**：`DEFAULT_MODEL` 改为复用统一常量 `DEFAULT_REASONING_MODEL`（:19），不再硬编码模型名；`temperature=0.3` 仍为硬编码（维持原判定）。
+- **RSA1 已修**：切片改为 `self._completed_order[last_count:current_count]`（result_aggregator.py:271），并调整为「先补发增量再判断完成」，首个轮询不再只发最后一个节点事件。
+- **RSA4 已修**：`_build_node_context` 仅注入节点自身与其 `depends_on` 上游（:194-207），不再每次 record 全量遍历 `_node_results`。
+- **RSA6 已修**：`get_workflow_summary` 的 `execution_order` 改为返回 `self._completed_order.copy()`（:248），外部无法改动内部顺序表。
+- **RSA3 已消解**：随 WFE1（`complete_node` 末尾补 `_check_workflow_stuck`）修复后，失败节点阻塞场景由状态机标记 FAILED；`is_complete()`/`completion_rate` 反映真实执行比例，属正确语义，非缺陷。
+
+**误判更正**
+
+- **TDC2 判断不成立**：`USER_PROMPT_TEMPLATE.format(request=request)` 的模板仅含一个 `{request}` 占位符，`str.format` 只解析模板字面量本身，用户请求作为参数值传入、不参与格式化解析。请求文本含 `{`/`}` 不会触发 KeyError/ValueError，原「含花括号即分解失败」不成立。
+
+**仍在（结论仍有效，尚未处理）**
+
+- **TDC3 仍在**：`validate_result`（:262-289）与 `GraphValidator` 逻辑重叠且全库零生产消费（仅 `tests/unit/test_task_decomposer.py` 引用），双轨验证器未收敛。
+- **RSA2 仍在**：`stream_results`（:251）/`export_results`（:299）全库零生产消费，聚合器三套输出结构并存。
+- **RSA5 仍在**：`get_upstream_results`（:89）全库零生产消费，executor 走 `get_context`。
+- **TDC7 仍在**：`decompose_request`（:292）全库零生产消费，`app/api/v1/workflow.py` 直接实例化 `TaskDecomposer`。
+- **RSA7 保留**：`_node_results`/`_node_contexts` 为进程内 dict 且无锁，低危，维持原判定。
+
+**测试**：原「零单元测试」结论已过时——`tests/unit/test_task_decomposer.py` 与 `tests/unit/test_result_aggregator.py` 已存在，覆盖 `validate_result` 等路径。
