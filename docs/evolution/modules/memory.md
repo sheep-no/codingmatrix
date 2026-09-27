@@ -95,3 +95,27 @@ Agent 记忆系统：三类记忆（对话/知识/反思）+ `AgentMemory` 整�
 - **MEM2 仍成立（待产品决策）**：`COMPRESSION_THRESHOLD = 15` 与
   `AgentMemory(conversation_max=100)` 的 `max_entries` 仍不匹配，16 条即摘要化。调整阈值
   会改变压缩时机与既有测试预期，属行为级决策。
+
+## 状态更新（2026-09-27）
+
+- **MEM8 [P2] 已修（新增，持久化出口实际失效）**：`AgentMemory.save_to_storage` /
+  `load_from_storage`（:550/:573）虽然按「阻塞 I/O 移出事件循环」的写法调用了
+  `asyncio.to_thread`，但传给它的 `_write_json` / `_read_json` 却是 `async def`——工作线程里
+  只创建了未被 await 的协程对象：
+  - `save_to_storage` 从不写文件，却 `return True`（**报告≠实际**，SC6/OP1/TR1 同族）；
+  - `load_from_storage` 拿到的 `data` 是协程对象，`data.get(...)` 抛
+    `'coroutine' object has no attribute 'get'` 被 `except` 吞掉 → **恒返回 False**。
+  修复：把两个辅助函数改为同步 `def`，`asyncio.to_thread` 才真正在工作线程执行。
+  同时 `save_to_storage` 序列化 `self._session_id` 改为属性 `self.session_id`——前者在会话属性
+  未被访问过时为 `None`，会把会话标识存成 `null`，load 后会话身份丢失。
+  这也修正了 MEM6「无序列化出口」的判断：出口一直存在，只是从未真正工作过。
+  - 回归 `tests/unit/test_memory_storage_roundtrip.py` 3 项（save 真实落盘 + load 往返还原、
+    load 预置文件、缺失文件返回 False）；回退 `app/agent/memory.py` 后前 2 项失败
+    （save 后文件不存在；load 报 `'coroutine' object has no attribute 'get'`）。
+
+仍未处理：
+
+- **MEM1**：`MemoryEntry.embedding` 无写入路径，语义搜索分支恒空。
+- **MEM2**：压缩阈值与 `max_entries` 不匹配，待产品决策。
+- **MEM6（剩余部分）**：`AgentMemory` 仍无自动持久化接线（谁在何时调用
+  `save_to_storage` 尚未接线），需与 DB 记忆层专项设计。
