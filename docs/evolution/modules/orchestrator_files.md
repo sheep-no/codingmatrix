@@ -208,3 +208,14 @@ async def llm_caller(prompt: str) -> str:
 - OF4/OF5/OF9 硬编码模型名与直连 call_llm 归入 DMR 绕开 + LCL1 收敛范围（IM1/CEC4/EV1 同源）。
 - OF10 `_apply_patches_incremental` 死代码揭示跨文件补丁方向（CrossFilePatcher）缺接线——与 incremental_modify（IM 系列）的「增量修改」演化主线相关，是两套增量实现收敛时需要决策的接线点。
 - OF6 重复（DRY）与 `_generate_single_file` 大方法拆分是文件生成编排的代码健康主线。
+
+## 7. 状态更新（2026-09-27）
+
+- **OF11（新增，已修）**：§4 记录的 `_friendly_error` 状态码子串匹配误判已修。原用 `"500" in error_lower` 判断，含状态码数字的普通文本（如「processed 5000 records」「token count 4293」）会被误分类为「API 服务异常」等提示；`"oom" in error_lower` 同理会把「cannot open room file」判为 OOM。现将 429/401/403/404/500 与 `oom` 改为词边界正则 `re.search(r'\b429\b', ...)` / `r'\boom\b'`，正常文本不再命中，合法状态码（`HTTP 500 Internal Server Error`、`status=404`）仍正常识别。语义关键词（`rate limit`/`unauthorized`/`internal server`/`out of memory` 等）分支不变。
+  - 回归 `tests/unit/test_orchestrator_files.py::TestFriendlyErrorStatusMatching` 3 项（合法状态码识别、含数字普通文本不误判、`oom` 词边界）；回退 `orchestrator_files.py` 后 2 项失败。
+
+仍未处理：
+
+- **OF8 [P3]**：`validation_success=False` 但内容已被采用（验证-采用语义不一致），需产品确认采用语义。
+- **OF9 [P3]**：`llm_caller` 内联硬编码模型（DMR/LCL1 主线）。
+- **OF10 [P3]**：`_apply_patches_incremental` 死代码，接线或删除需决策。

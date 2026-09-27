@@ -3405,3 +3405,28 @@ def test_normalize_file_path_rewrites_trailing_extension_segment(tmp_path):
     orchestrator = _FilesTestOrchestrator(tmp_path)
 
     assert orchestrator._normalize_file_path(r"events\rpy") == "events.rpy"
+
+
+class TestFriendlyErrorStatusMatching:
+    """OF11：HTTP 状态码按独立词匹配，避免误判含数字的普通文本。"""
+
+    def test_status_code_matched_as_standalone_token(self, tmp_path):
+        orchestrator = _FilesTestOrchestrator(tmp_path)
+
+        assert orchestrator._friendly_error("HTTP 500 Internal Server Error") == "API 服务异常，请稍后重试"
+        assert orchestrator._friendly_error("upstream returned 429") == "请求频率过高，请稍后重试"
+        assert orchestrator._friendly_error("status=404") == "API 端点不存在"
+
+    def test_numeric_substrings_not_misclassified(self, tmp_path):
+        orchestrator = _FilesTestOrchestrator(tmp_path)
+
+        # 非状态码数字不得命中错误分类提示
+        assert orchestrator._friendly_error("processed 5000 records") == "processed 5000 records"
+        assert orchestrator._friendly_error("token count 4293 exceeded") == "token count 4293 exceeded"
+        assert orchestrator._friendly_error("line 4010 is invalid") == "line 4010 is invalid"
+
+    def test_oom_requires_word_boundary(self, tmp_path):
+        orchestrator = _FilesTestOrchestrator(tmp_path)
+
+        assert orchestrator._friendly_error("cannot open room file") == "cannot open room file"
+        assert orchestrator._friendly_error("OOM killed") == "内存不足，请减少项目复杂度"
