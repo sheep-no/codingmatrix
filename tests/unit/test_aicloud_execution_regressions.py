@@ -157,17 +157,25 @@ async def test_auto_loop_records_iteration_history(tmp_path, caplog):
     async def fake_llm(**kwargs):
         return {"choices": [{"message": {"content": "```python\nprint(1)\n```"}}]}
 
-    with caplog.at_level(logging.INFO):
-        await execute_with_llm_loop(
-            initial_prompt="hi",
-            history_context="",
-            system_prompt="",
-            model_key="m",
-            max_tokens=10,
-            call_llm_func=fake_llm,
-            user_id=1,
-            workspace_path=str(tmp_path),
-        )
+    # app 日志器在 setup_logging() 中配置为 propagate=False，caplog 默认挂在
+    # root 上收不到；把 caplog.handler 直接挂到目标日志器，避免全量 run 中
+    # 其它用例先导入 app.main 时偶发抓不到日志。
+    target_logger = logging.getLogger("app.utils.aicloud.auto_executor")
+    with caplog.at_level(logging.INFO, logger=target_logger.name):
+        target_logger.addHandler(caplog.handler)
+        try:
+            await execute_with_llm_loop(
+                initial_prompt="hi",
+                history_context="",
+                system_prompt="",
+                model_key="m",
+                max_tokens=10,
+                call_llm_func=fake_llm,
+                user_id=1,
+                workspace_path=str(tmp_path),
+            )
+        finally:
+            target_logger.removeHandler(caplog.handler)
 
     assert "自动执行轮次记录" in caplog.text
 
