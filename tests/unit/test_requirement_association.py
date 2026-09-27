@@ -233,3 +233,32 @@ class TestParseLLMResponse:
         })
         items = parse_llm_response(response)
         assert len(items) == 0
+
+    def test_two_json_blocks_use_first_not_greedy(self):
+        """OA3：响应含两段 JSON 时取首个对象，不跨块贪婪解析后降级。"""
+        first = json.dumps({
+            "functional_requirements": [{"item": "搜索功能", "confidence": 0.7}],
+            "architectural_impacts": [], "risks": [], "key_decisions": []
+        })
+        second = json.dumps({
+            "functional_requirements": [{"item": "第二段功能", "confidence": 0.6}],
+            "architectural_impacts": [], "risks": [], "key_decisions": []
+        })
+
+        items = parse_llm_response(first + "\n补充说明：\n" + second)
+
+        assert [i.content for i in items] == ["搜索功能"]
+
+    def test_text_fallback_skips_prompt_and_json_fragments(self):
+        """OA3：文本降级不把 prompt 说明文字或 JSON 片段当成功能项。"""
+        response = (
+            "你是一位资深的全栈架构顾问。\n"
+            "请分析以上信息，联想用户可能遗漏的功能。\n"
+            "{functional_requirements: not-json}\n"
+            "- 用户登录功能\n"
+            "- 订单管理系统"
+        )
+
+        items = parse_llm_response(response)
+
+        assert [i.content for i in items] == ["用户登录功能", "订单管理系统"]

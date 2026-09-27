@@ -1,11 +1,16 @@
-import json
 import re
 import logging
 from typing import List
 
 from app.agent.orchestrator_requirements.data_models import AssociationItem
+from app.agent.json_parser import extract_first_json_object
 
 logger = logging.getLogger(__name__)
+
+# 文本降级只接受列表项：LLM 未按 JSON 契约输出时的结构化内容。
+# 普通说明文字（含 prompt 回显）与 JSON 片段不作为联想项。
+_LIST_ITEM_RE = re.compile(r'^\s*(?:[-*•]|\d+[.、)])\s*(.+)$')
+_JSON_FRAGMENT_CHARS = '{}[]"'
 
 
 def llm_system_prompt() -> str:
@@ -50,24 +55,12 @@ def build_llm_prompt(
 def parse_llm_response(response: str) -> List[AssociationItem]:
     items = []
 
-    try:
-        json_str = response
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            json_str = json_match.group()
-
-        parsed = json.loads(json_str)
-    except json.JSONDecodeError:
+    # 用首个 JSON 对象替换贪婪 ``\{[\s\S]*\}``：响应含多段 JSON 时不再跨块
+    # 拼接导致 json.loads 失败并降级（OA3）。
+    parsed = extract_first_json_object(response)
+    if parsed is None:
         logger.warning("LLM 联想输出非 JSON, 尝试文本提取")
-        for line in response.strip().split("\n"):
-            line = line.strip()
-            if line and len(line) > 5 and not line.startswith("#"):
-                items.append(AssociationItem(
-                    content=line,
-                    category="functional",
-                    source="llm_association",
-                    confidence=0.5
-                ))
+        items = _extract_text_items(response)
         return items
 
     for item in parsed.get("functional_requirements", []):
@@ -110,6 +103,31 @@ def parse_llm_response(response: str) -> List[AssociationItem]:
             impact="architecture",
         ))
 
+    return items
+
+
+def _extract_text_items(response: str) -> List[AssociationItem]:
+    """从非 JSON 响应中提取列表项作为联想项。
+
+    只接受带列表标记的行并跳过 JSON 片段，避免把 prompt 说明文字或整块
+    JSON 原文当成功能项（OA3 / PM2 家族）。
+    """
+    items: List[AssociationItem] = []
+    for line in response.splitlines():
+        match = _LIST_ITEM_RE.match(line)
+        if not match:
+            continue
+        content = match.group(1).strip()
+        if len(content) <= 3:
+            continue
+        if any(ch in content for ch in _JSON_FRAGMENT_CHARS):
+            continue
+        items.append(AssociationItem(
+            content=content,
+            category="functional",
+            source="llm_association",
+            confidence=0.5
+        ))
     return items
 
 
