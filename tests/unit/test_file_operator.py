@@ -51,6 +51,41 @@ def test_env_named_file_is_protected():
     )
 
 
+def test_env_secret_variants_are_protected():
+    """.env.local/.env.production 等变体常含真实密钥，须按敏感文件拒绝。"""
+    for name in (".env.local", ".env.production", ".env.development", ".env.test"):
+        assert (
+            FileOperator._is_protected_file(
+                Path(f"/srv/app/{name}"), f"/srv/app/{name}", ".env"
+            )
+            is True
+        ), name
+        with pytest.raises(PathSecurityError):
+            FileOperator()._validate_path(
+                f"/srv/app/{name}", must_exist=False, check_extension=False
+            )
+
+
+def test_env_template_variants_are_allowed():
+    """.env.example/.env.sample 等模板后缀仍应放行。"""
+    for name in (".env.example", ".env.sample", ".env.template", ".env.dist"):
+        assert (
+            FileOperator._is_protected_file(
+                Path(f"/srv/app/{name}"), f"/srv/app/{name}", ".env"
+            )
+            is False
+        ), name
+
+
+def test_env_secret_variants_hidden_from_listing():
+    """遍历结果同样不得暴露 .env 密钥变体，模板后缀保持可见。"""
+    op = FileOperator()
+    assert op._should_skip_entry(Path(".env.local")) is True
+    assert op._should_skip_entry(Path(".env.production")) is True
+    assert op._should_skip_entry(Path(".env.example")) is False
+    assert op._should_skip_entry(Path(".envrc")) is False
+
+
 def test_git_config_is_rejected():
     with pytest.raises(PathSecurityError):
         FileOperator()._validate_path("/srv/app/.git/config", must_exist=False)
