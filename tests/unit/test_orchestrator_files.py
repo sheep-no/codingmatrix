@@ -31,6 +31,7 @@ from app.agent.orchestrator_files import _repair_python_sync_async_calls
 from app.agent.orchestrator_files import _validate_python_sqlalchemy_metadata_owner
 from app.agent.orchestrator_files import _validate_python_schema_field_access
 from app.agent.architect import Architect
+from app.agent.code_validator import CodeValidator
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.backend_engineer import BackendEngineer
 from app.agent.shared_context import SharedContext
@@ -3141,7 +3142,7 @@ async def test_validate_and_review_syntax_error_is_failure(tmp_path):
     orchestrator.enable_validation = True
     orchestrator.enable_error_recovery = False
     orchestrator.enable_review = False
-    orchestrator.validator = types.SimpleNamespace(_validation_cache={})
+    orchestrator.validator = CodeValidator(tmp_path)
     success, _content = await orchestrator._validate_and_review_file(
         "main.py", "def (\n", "entry"
     )
@@ -3153,7 +3154,7 @@ def _orchestrator_with_high_risk_review(tmp_path):
     orchestrator.enable_validation = True
     orchestrator.enable_review = True
     orchestrator.enable_error_recovery = False
-    orchestrator.validator = types.SimpleNamespace(_validation_cache={})
+    orchestrator.validator = CodeValidator(tmp_path)
     orchestrator.reviewer = types.SimpleNamespace(
         review_code=AsyncMock(return_value={
             "needs_fix": True,
@@ -3187,6 +3188,58 @@ async def test_high_risk_review_still_blocks_source_file(tmp_path):
     )
 
     assert success is False
+
+
+@pytest.mark.asyncio
+async def test_validate_and_review_flags_missing_project_import(tmp_path):
+    """最终门禁走 CodeValidator 单文件接口，缺项目内模块不再只做 ast.parse。"""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "__init__.py").write_text("", encoding="utf-8")
+
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.enable_validation = True
+    orchestrator.enable_error_recovery = False
+    orchestrator.enable_review = False
+    orchestrator.validator = CodeValidator(tmp_path)
+
+    content = "from app.missing_module import thing\n\nprint(thing)\n"
+    success, _content = await orchestrator._validate_and_review_file(
+        "main.py", content, "entry"
+    )
+
+    assert success is False
+    # 失败结果不得入缓存，否则相同内容重试会在缓存命中处提前返回成功。
+    cache_key = f"main.py:{CodeValidator._compute_content_hash(content)}"
+    assert orchestrator.validator.get_cached_validation_by_key(cache_key) is None
+    # 校验用临时文件必须清理，不能残留进项目产物。
+    assert list(tmp_path.glob(".temp_validate_*")) == []
+
+
+@pytest.mark.asyncio
+async def test_validate_and_review_caches_valid_project_file(tmp_path):
+    """通过验证的项目文件按内容哈希写入正式缓存，二次相同内容命中缓存。"""
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.enable_validation = True
+    orchestrator.enable_error_recovery = False
+    orchestrator.enable_review = False
+    orchestrator.validator = CodeValidator(tmp_path)
+
+    content = "def main():\n    return 1\n"
+    success, _content = await orchestrator._validate_and_review_file(
+        "main.py", content, "entry"
+    )
+    assert success is True
+
+    cache_key = f"main.py:{CodeValidator._compute_content_hash(content)}"
+    cached = orchestrator.validator.get_cached_validation_by_key(cache_key)
+    assert cached is not None
+    assert cached["is_valid"] is True
+
+    orchestrator.generated_files = []
+    success_again, _content = await orchestrator._validate_and_review_file(
+        "main.py", content, "entry"
+    )
+    assert success_again is True
 
 
 @pytest.mark.asyncio

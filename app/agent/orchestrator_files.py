@@ -2739,7 +2739,10 @@ router = APIRouter()
             raise RuntimeError("model assignment is required for file validation")
         content_hash = CodeValidator._compute_content_hash(content)
         cache_key = f"{file_path}:{content_hash}"
-        cached_result = self.validator._validation_cache.get(cache_key) if self.validator else None
+        cached_result = (
+            self.validator.get_cached_validation_by_key(cache_key)
+            if self.validator else None
+        )
         if cached_result:
             self._report_progress(
                 "validation_cache_hit",
@@ -2793,21 +2796,40 @@ router = APIRouter()
                 if review_result.get("risk_level") == "high" and not is_documentation_file(file_path):
                     validation_success = False
 
-        if self.validator and file_path.endswith('.py'):
+        if self.validator and self.enable_validation and file_path.endswith('.py'):
+            # 走 CodeValidator 的正式单文件接口（语法 + 运行时导入 + API 兼容），
+            # 不再只做 ast.parse：此前的简化检查会把含缺失项目内导入的文件也当
+            # 成功并写入 `is_valid: True` 的缓存，后续相同内容重试会被该假成功
+            # 缓存放行。验证内容与 error_recovery.validate_and_fix 一致，均以临
+            # 时文件方式校验。
+            full_path = self.output_dir / file_path
+            temp_file = full_path.parent / f".temp_validate_{full_path.name}"
             try:
-                import ast
-                ast.parse(content)
-                self.validator.store_validation(cache_key, {
-                    "is_valid": True,
-                    "syntax_errors": [],
-                    "import_errors": []
-                })
-            except SyntaxError as e:
-                validation_success = False
-                logger.warning(f"文件语法错误: {file_path}: {e}")
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_file.write_text(content, encoding='utf-8')
+                validation_result = await self.validator.validate_single_file(temp_file)
             except Exception as e:
                 validation_success = False
                 logger.warning(f"文件语法校验异常: {file_path}: {e}")
+            else:
+                if not validation_result.get("is_valid", True):
+                    validation_success = False
+                    logger.warning(
+                        "文件验证失败: %s (syntax=%s runtime=%s api=%s)",
+                        file_path,
+                        validation_result.get("syntax_errors"),
+                        validation_result.get("runtime_errors"),
+                        validation_result.get("api_errors"),
+                    )
+                # 仅在整体验证通过时入缓存：失败结果若被缓存，相同内容重试会在
+                # 缓存命中处提前返回成功，绕过 error_recovery 与审查。
+                if validation_success:
+                    self.validator.store_validation(cache_key, validation_result)
+            finally:
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
 
         return validation_success, content
 
