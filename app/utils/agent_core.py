@@ -852,6 +852,20 @@ class ProjectValidator:
                 all_errors.extend(file_val.get("issues", []))
                 all_warnings.extend(file_val.get("warnings", []))
 
+            # 依赖与入口点是可运行性的硬条件，必须计入 runnable
+            dependency_check = validation_results["dependency_check"] or {}
+            for dep in dependency_check.get("missing", []):
+                all_errors.append(f"缺少依赖: {dep}")
+            if dependency_check.get("error"):
+                all_errors.append(f"依赖检查失败: {dependency_check['error']}")
+
+            entrypoint_check = validation_results["entrypoint_check"] or {}
+            all_errors.extend(entrypoint_check.get("issues", []))
+
+            # 结构问题（如缺 README）只作为警告，不阻断可运行性
+            structure_check = validation_results["structure_check"] or {}
+            all_warnings.extend(structure_check.get("structure_issues", []))
+
             validation_results["errors"] = all_errors
             validation_results["warnings"] = all_warnings
             validation_results["runnable"] = len(all_errors) == 0
