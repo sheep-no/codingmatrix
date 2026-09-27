@@ -126,6 +126,7 @@
 | P2 | 首页输入区上传附件后永久停留在「上传中」：`processFile` 把普通对象 push 进 `ref([])` 后直接改原始对象字段，未触发 Vue 响应式更新，父组件与 `FilePreview` 子组件都收不到 | `src/components/bottominput.vue` | 已解决；待上传的对象改用 `reactive()` 包装，上传成功或失败都会离开中间态。补 `upload-file.spec.js` 回归（修复前失败、修复后通过），已纳入门禁 |
 | P3 | 全仓库非 Agent 子系统仍在用 `datetime.utcnow()`（62 处 / 23 文件），Python 3.12 起弃用且返回值无时区 | `app/models`、`app/services`、`app/utils`、`app/db`、`app/core`、`app/api/v1` | 已解决；新增 `app/core/time.py:utcnow_naive()`（语义等同 `utcnow()`），按列类型配对迁移：naive 列用 `utcnow_naive()`，`DateTime(timezone=True)` 列用 `datetime.now(timezone.utc)`。补 `tests/unit/test_time_utils.py`（3 项）。Agent 子系统按归属裁定不动 |
 | P3 | AJP12（`85208591`）从 `aiGeneratorPptx.py` 移除图片搜索消费时漏删本体 `app/utils/pptx/image_search.py`（183 行）；`app/utils/structured_logging.py`（170 行）被 `app/utils/logging.py` 取代后残留。两模块均 0% 覆盖、零外部引用 | `app/utils/pptx/image_search.py`、`app/utils/structured_logging.py` | 已解决；删除两个死模块，删除后全量 unit/integration `4987 passed, 2 skipped` 不变 |
+| P3 | RSA 私钥以无口令明文 PEM 落盘，仅靠文件权限（`0o600`/`0o700`）保护，私钥文件或备份泄露即等同私钥泄露 | `app/utils/crypto.py`、`app/utils/encryption.py` | 已解决；新增可选 `RSA_KEY_PASSPHRASE`：设置后私钥以 `BestAvailableEncryption` 加密落盘，未设置则保持原有明文行为；既有明文密钥在配置口令后自动升级为加密存储；私钥写入改为临时文件 + `os.replace` 原子替换；两个 Compose 透传该变量并在示例 env 登记；补 7 项口令化单元测试与 1 项编排守卫 |
 
 ### 非 Agent E2E 门禁扩展（2026-09-26）
 

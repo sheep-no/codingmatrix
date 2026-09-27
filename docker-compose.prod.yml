@@ -33,6 +33,8 @@ services:
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       # 与 celery/scheduler 共用同一密钥卷，避免各容器各自生成 RSA 密钥
       - RSA_KEY_DIR=/app/keys
+      # 可选：设置后私钥以口令加密落盘，留空则保持明文（仅 0o600 权限保护）
+      - RSA_KEY_PASSPHRASE=${RSA_KEY_PASSPHRASE:-}
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
@@ -87,6 +89,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - RSA_KEY_DIR=/app/keys
+      - RSA_KEY_PASSPHRASE=${RSA_KEY_PASSPHRASE:-}
     volumes:
       - api-logs:/app/logs
       - api-data:/app/data
@@ -132,6 +135,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - RSA_KEY_DIR=/app/keys
+      - RSA_KEY_PASSPHRASE=${RSA_KEY_PASSPHRASE:-}
     volumes:
       - api-data:/app/data
       - ./data/unified_model_config.yaml:/app/data/unified_model_config.yaml:ro

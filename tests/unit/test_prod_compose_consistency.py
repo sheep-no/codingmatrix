@@ -339,3 +339,14 @@ def test_healthcheck_target_matches_the_application_route():
             assert any(HEALTH_PATH in str(item) for item in test), (
                 f"{path.name} 的 {name} 探针未指向 {HEALTH_PATH}: {test}"
             )
+
+
+def test_compose_passes_rsa_key_passphrase_to_app_services():
+    """私钥口令化只有透传到容器才可启用；留空时 _get_passphrase 返回 None，行为不变。"""
+    for path, names in ((COMPOSE_PATH, APP_SERVICES), (LOCAL_COMPOSE_PATH, LOCAL_APP_SERVICES)):
+        services = _load_services(path)
+        for name in names:
+            env = _env_map(services[name])
+            assert "RSA_KEY_PASSPHRASE" in env, (
+                f"{path.name} 的 {name} 未透传 RSA_KEY_PASSPHRASE"
+            )
