@@ -7,12 +7,13 @@
 
 > 后续变更（2026-09-16）：AC10 提到的 `app/utils/project_validator.py` 已确认零外部引用并删除（`agent_core.py` 内同名 `ProjectValidator` 为实际活跃实现），正文保留扫描时的判定与行号。
 
-> 后续变更（2026-09-27）：AC1、AC2、AC4（排序部分）、AC8 已修复，AC3 经复核为陈旧项。
+> 后续变更（2026-09-27）：AC1、AC2、AC4（排序部分）、AC8、AC9（open 误报部分）已修复，AC3 经复核为陈旧项。
 > - AC1：`create_project_file` 新增 `_resolve_project_write_path` 写入范围校验——解析（含符号链接）后的目标须位于本次 `output_dir` 或 `ProjectFileManager.PROJECT_BASE_DIR`（`./projects`）之下，越权路径在 mkdir/写入前返回 `status=error`，写入改用解析后的绝对路径；`_execute_tools` 新增并注入 `output_dir`，`generate_project` 传入 `str(output_path)`。新增 `tests/unit/test_agent_core_write_path.py` 7 项。
 > - AC8：`_check_syntax_warnings` 的 `visit_For` 改为仅当循环体（含 `else` 子句）中确实未以读取方式引用循环变量时才提示，消除全量误报；同批顺清 `visit_Compare` 的 B007/B905 与两处无引用 `import re as _re`（F401）。新增 `tests/unit/test_agent_core_syntax_warnings.py` 3 项。
 > - AC2：`_parse_tool_calls` 新增可选 `output_dir` 参数，「尝试4」直接输出代码块时按本次生成的输出目录拼装 `file_path`（缺省回退 `./projects`），不再硬编码 `./projects/user_api/`；调用点传入 `str(output_path)`。新增 `tests/unit/test_agent_core_toolcall_path.py` 2 项。
 > - AC3：`_execute_tools` 中访问 `self.current_output_dir` 的死代码块已不存在（`rg current_output_dir` 全文件无命中），正文保留扫描时判定。
 > - AC4（排序部分）：`ConversationHistoryManager._cleanup_if_needed` 原按 `messages[-1].get("timestamp", 0)` 排序，但消息 dict 只含 `role/content/tool_call_id`，key 恒为 0，实际退化为按插入顺序淘汰最新会话、留下最旧会话；改为在每个会话上维护 `last_update`（`add_messages`/`set_history`/`set_output_dir` 均刷新）并据此排序。新增 `tests/unit/test_agent_core_conversation_cleanup.py` 2 项。AC4 的「内存级历史（重启丢失 + 多 worker 不共享）」仍为待决架构项。
+> - AC9（open 误报部分）：`_validate_security` 的 `dangerous_calls` 移除 `'open'`——文件读写是生成代码的常规操作，原实现让任何用 `open()` 的文件都追加「使用了潜在危险函数: open」，噪声淹没真正的危险调用；`eval`/`exec`/`os.system`/`pickle.loads` 等仍告警。新增 `tests/unit/test_agent_core_security_warnings.py` 2 项。AC9 的「security 恒 success（只告警不阻断）」为既定的验证语义，保留。
 
 ## 1. 模块定位
 
