@@ -110,6 +110,8 @@
 
 `stores/agentSession.js:7,37-67` 使用固定 `agent_project_sessions` 键保存 prompt、时间和状态；`stores/user.js:59-73` 注销不清理该键。用户 A 退出后，用户 B 在同一浏览器初始化 Agent 页面可看到 A 的本地会话元数据并进入旧上下文。
 
+> **已修（2026-09-27）**：`stores/user.js` 的 `clearUser()` 在原有清理项后追加移除 `agent_project_sessions` 与 `project_generator_state` 两个按浏览器持久化的 Agent 页面键——前者保存会话 prompt/文件/日志快照，后者保存 `ProjectGenerator` 的需求文本与 `outputDir`，注销后不再被下一账户复用。新增 `src/stores/user.logout.test.js`（1 项）；回退源码后失败。
+
 #### FRESCAN-47 [P2] API Key、供应商和模型覆盖缓存跨账户复用
 
 `stores/apikey.js:12-14,36-83` 与 `stores/providers.js:12,18-33` 使用固定 localStorage 键并在认证状态建立前恢复；注销流程不清理。A 的 token、供应商地址、模型映射可能在 B 的请求完成前展示、回退使用或继续写回。

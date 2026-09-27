@@ -70,6 +70,11 @@ export const useUserStore = defineStore(
       localStorage.removeItem('username')
       localStorage.removeItem('email')
       localStorage.removeItem('permission_level')
+
+      // 清除按浏览器持久化的 Agent 页面数据，避免注销后
+      // 同一浏览器上的其他账户复用上一账户的会话历史与提示词
+      localStorage.removeItem('agent_project_sessions')
+      localStorage.removeItem('project_generator_state')
     }
 
     /**
