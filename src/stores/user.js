@@ -75,6 +75,13 @@ export const useUserStore = defineStore(
       // 同一浏览器上的其他账户复用上一账户的会话历史与提示词
       localStorage.removeItem('agent_project_sessions')
       localStorage.removeItem('project_generator_state')
+
+      // 清除 API Key / 供应商 / 模型覆盖缓存，避免下一账户在请求完成前
+      // 展示或回退使用上一账户的令牌、供应商地址与模型映射
+      localStorage.removeItem('codingmatrix_apikeys')
+      localStorage.removeItem('codingmatrix_rsa_public_key')
+      localStorage.removeItem('codingmatrix_model_overrides')
+      localStorage.removeItem('codingmatrix_providers')
     }
 
     /**
