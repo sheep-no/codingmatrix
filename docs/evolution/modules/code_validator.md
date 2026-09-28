@@ -214,3 +214,25 @@ MAX_CACHE_SIZE = 100   # 定义未使用（实际用 _max_cache_bytes）
 - **CV10（新增）跨文件一致性校验阻塞事件循环**：`validate_cross_file_consistency` 声明为 async 但函数体全同步（`project_path.rglob('*.py')` + 逐个 `open`/`ast.parse`），既阻塞事件循环又让调用方误以为可并发。现把同步实现整体抽为 `_validate_cross_file_consistency_sync`，async 入口改为 `await asyncio.to_thread(...)`；对外契约（`(bool, List[str])`）与错误文案不变。`rglob` 与全项目 `.py` 解析一并移出事件循环，同时消除该方法的 2 个 `ASYNC240` 告警。
 - **回归测试**：新增 `tests/unit/test_code_validator_blocking_io.py` 3 项——`validate_cross_file_consistency` 的同步实现只在非主线程触发、`run_full_validation` 的项目哈希在非主线程执行、连续两次全项目校验第二次 `cache_hit=True`（行为保持）。回退源码后前两项失败（记录到 `thread=None`），缓存命中项仍通过。
 - **CV1-CV7 复核确认已修，CV8 仍为结构性演化项**（四套验证器归位），维持原判。
+
+## 9. 状态校准（2026-09-28，单文件阻塞 I/O 收尾）
+
+§8 批次只处理了全项目级阻塞读；单文件校验与依赖清单校验中仍有直接阻塞调用，
+本轮一并清除，`code_validator.py` 的 `ASYNC240`/`ASYNC230` 告警归零：
+
+- **CV11（新增）单文件校验阻塞事件循环**：`validate_syntax`、`validate_imports`、
+  `validate_runtime_imports`、`validate_api_compatibility`、
+  `validate_html_structure`、`validate_css_syntax` 都在 async 函数里用
+  `open(...).read()` / `read_text()` 读整个文件。它们由 `run_full_validation`
+  经 `asyncio.gather` 逐文件并发调用，阻塞读会串行占住事件循环。现新增模块级
+  `_read_text_async(path)`（`asyncio.to_thread(path.read_text, ...)`），六处读取
+  统一改经该辅助函数；异常类型（`UnicodeDecodeError`/`OSError`）与各方法既有的
+  `except` 分支不变。
+- **CV12（新增）依赖清单校验阻塞事件循环**：`validate_requirements` 读
+  `requirements.txt` / `pyproject.toml`，并调用 `_python_third_party_imports()`
+  扫描全项目 `.py`（`rglob` + 逐文件 `read_text` + `ast.parse`），全部同步执行。
+  现抽出同步实现 `_validate_requirements_sync()`，async 入口改为
+  `await asyncio.to_thread(...)`，对外契约 `Tuple[bool, List[str]]` 与错误文案不变。
+- **回归测试**：`tests/unit/test_code_validator_blocking_io.py` 追加 2 项——
+  `validate_syntax` 的文件读取发生在非主线程（monkeypatch `Path.read_text` 记录
+  线程 id）、`_validate_requirements_sync` 只在非主线程触发。回退源码后两项均失败。
