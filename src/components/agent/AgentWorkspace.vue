@@ -198,7 +198,16 @@
 
       <!-- Execution Steps -->
       <div v-if="executionSteps && executionSteps.length > 0" class="merged-section">
-        <div class="merged-section-header" @click="toggleMerged('steps')">
+        <div
+          class="merged-section-header"
+          role="button"
+          tabindex="0"
+          :aria-expanded="mergedExpanded.steps"
+          aria-label="展开或收起执行步骤"
+          @click="toggleMerged('steps')"
+          @keydown.enter.self.prevent="toggleMerged('steps')"
+          @keydown.space.self.prevent="toggleMerged('steps')"
+        >
           <div class="merged-header-left">
             <span class="merged-dot steps-dot-bg"></span>
             <span class="merged-title">执行步骤</span>
@@ -227,7 +236,16 @@
 
       <!-- Logs -->
       <div v-if="logs && logs.length > 0" class="merged-section">
-        <div class="merged-section-header" @click="toggleMerged('logs')">
+        <div
+          class="merged-section-header"
+          role="button"
+          tabindex="0"
+          :aria-expanded="mergedExpanded.logs"
+          aria-label="展开或收起消息日志"
+          @click="toggleMerged('logs')"
+          @keydown.enter.self.prevent="toggleMerged('logs')"
+          @keydown.space.self.prevent="toggleMerged('logs')"
+        >
           <div class="merged-header-left">
             <span class="merged-dot logs-dot-bg"></span>
             <span class="merged-title">消息日志</span>
@@ -816,6 +834,10 @@ watch(
   padding: 10px 14px;
   background: var(--bg-secondary);
   cursor: pointer;
+}
+.merged-section-header:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .merged-header-left { display: flex; align-items: center; gap: 8px; }
 .merged-dot { width: 8px; height: 8px; border-radius: 50%; }
