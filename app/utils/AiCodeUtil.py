@@ -47,6 +47,7 @@ _EMBEDDING_CACHE_MAXSIZE = 512
 _embedding_memory_cache: OrderedDict = OrderedDict()  # {text_hash: vector}
 _embedding_memory_ttl = 3600  # 1 小时 TTL
 _embedding_memory_expiry: dict = {}  # {text_hash: expire_time}
+_disk_cache_cleanup_counter = 0  # 每 N 次新写入触发一次磁盘清理
 
 
 def _get_embedding_cache_key(text: str, model: str) -> str:
@@ -164,8 +165,13 @@ async def get_embedding(text: str, model: str = DEFAULT_EMBEDDING_MODEL) -> list
     _evict_memory_cache()
     _save_embedding_to_disk(cache_key, vector)
 
-    # 定期清理过期磁盘缓存（每 100 次调用清理一次）
-    if len(_embedding_memory_cache) % 100 == 0:
+    # 定期清理过期磁盘缓存（每 100 次新写入清理一次）
+    # 不能用 len(_embedding_memory_cache) % 100 判断：内存缓存封顶后长度恒定，
+    # 该条件可能永不成立，导致磁盘清理不可达。
+    global _disk_cache_cleanup_counter
+    _disk_cache_cleanup_counter += 1
+    if _disk_cache_cleanup_counter >= 100:
+        _disk_cache_cleanup_counter = 0
         _clean_expired_disk_cache()
 
     return vector

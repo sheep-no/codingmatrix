@@ -110,3 +110,27 @@ async def test_memory_cache_evicts_when_over_maxsize(clean_cache, monkeypatch):
     assert len(aicu._embedding_memory_cache) == aicu._EMBEDDING_CACHE_MAXSIZE
     assert first_key not in aicu._embedding_memory_cache
     assert first_key not in aicu._embedding_memory_expiry
+
+
+async def test_disk_cache_cleanup_triggers_after_fixed_write_count(clean_cache, monkeypatch):
+    """AIU7：磁盘清理按新写入计数确定性触发，不依赖会被封顶的内存缓存长度。"""
+    monkeypatch.setattr(aicu.settings, "SILICONFLOW_API_KEY", "sk-test")
+    client = _mock_client()
+
+    # 内存缓存已封顶：旧实现用 len(_embedding_memory_cache) % 100 判断，
+    # 封顶后长度恒定，该条件可能永不成立，清理不可达。
+    for index in range(aicu._EMBEDDING_CACHE_MAXSIZE):
+        aicu._embedding_memory_cache[f"k{index}"] = [0.0]
+        aicu._embedding_memory_expiry[f"k{index}"] = 1e12
+    assert aicu._EMBEDDING_CACHE_MAXSIZE % 100 != 0
+
+    monkeypatch.setattr(aicu, "_disk_cache_cleanup_counter", 99)
+    with (
+        patch.object(aicu, "get_http_client", AsyncMock(return_value=client)),
+        patch.object(aicu, "_load_embedding_from_disk", return_value=None),
+        patch.object(aicu, "_save_embedding_to_disk"),
+        patch.object(aicu, "_clean_expired_disk_cache") as cleanup,
+    ):
+        await aicu.get_embedding("new-text")
+
+    cleanup.assert_called_once()

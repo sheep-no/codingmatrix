@@ -48,3 +48,8 @@
 - **AIU5 [P2] 已修**：调用 API 前校验 `settings.SILICONFLOW_API_KEY`，缺失时抛 `HTTPException(401, ...)`（与已删除的 `base._validate_api_key` 语义一致），不再发出 `Authorization: Bearer None` 请求。
 - **新增回归**：`tests/unit/test_aicode_util.py`（3 项：共享客户端复用 + 请求超时、Key 缺失快速失败、超上限 LRU 淘汰）。回退 `app/utils/AiCodeUtil.py` 后 3/3 失败。
 - **AIU2 / AIU4 / AIU6 / AIU7 / AIU8 [P3] 未处理**：CWD 相对路径、无锁竞态、64-bit 缓存键、磁盘清理触发条件与磁盘无上限保留原状。
+
+## 六、状态更新（2026-09-28）
+
+- **AIU7 [P3] 已修复（磁盘清理触发条件不可达）**：原 `get_embedding` 末尾用 `len(_embedding_memory_cache) % 100 == 0` 触发 `_clean_expired_disk_cache()`。内存缓存受 `_EMBEDDING_CACHE_MAXSIZE=512` 封顶，长度趋于恒定（512），`512 % 100 != 0` 恒成立，长运行进程一旦缓存饱和，磁盘过期清理将**永不触发**，24h TTL 形同虚设（叠加 AIU8 无大小上限）。现改为模块级 `_disk_cache_cleanup_counter`，每次成功新增磁盘写入递增，满 100 次即清理并归零，与内存缓存长度解耦。新增回归 `tests/unit/test_aicode_util.py::test_disk_cache_cleanup_triggers_after_fixed_write_count`（内存缓存灌满 512 后写入新键，断言清理被调用一次），回退 `app/utils/AiCodeUtil.py` 后该用例失败（`_disk_cache_cleanup_counter` 不存在 / 旧逻辑不触发）。
+- **AIU8 [P3] 保留**：磁盘缓存仍无条数/字节上限。24h TTL 清理在 AIU7 修复后恢复可达，短期过期文件能被回收；是否再加硬上限属容量策略，需按部署磁盘配额决定，保留原状。

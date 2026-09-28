@@ -86,7 +86,7 @@ class DynamicProviderManager:
             DynamicProvider(
                 id=p.id, name=p.name, base_url=p.base_url,
                 protocol=p.protocol, api_key="", enabled=p.enabled,
-                models=p.models, last_sync=p.last_sync, sync_error=p.sync_error,
+                models=list(p.models), last_sync=p.last_sync, sync_error=p.sync_error,
             )
             for p in self.providers.values() if (not owner_id or p.owner_id == owner_id)
         ]

@@ -96,3 +96,8 @@
 - **MR4 [P3] 仍在（子项更正）**：sense-voice、telespeech-asr、bge-m3、bge-reranker、bge-large-zh 仍标 `[ModelCapability.TEXT]`；原文提及的 `bce-embedding` 在当前注册表中不存在，该子项不成立。
 - **PAPI1 / PR1 现状确认**：`app/api/v1/providers.py:76` admin 门禁与 `dynamic_provider.py` owner 过滤仍在，`provider_router.py:116` 传 `get_user_id()`。残余：`app/utils/logging.py:40-42 get_user_id()` 可返回 None，`provider_router.py:116 get_user_id() or ""` 在 owner 为空时退化为全局搜索。
 - **仍在（未处理）**：PR2、DP1、DP3、DP4、DP5、PR3、PR4、PR5、PRV1、PAPI4、PERM1、ADT3、ADT4、HC4。
+
+## 七、状态更新（2026-09-28）
+
+- **DP3 [P3] 已修复（列表引用隔离）**：`dynamic_provider.py` 的 `DynamicProviderManager.list()` 用 `DynamicProvider(...)` 新建列表元素对象，但 `models=p.models` 仍共享内部 `models` 列表引用——外部对返回对象的 `models` 做 `append` 等变更会直接改写管理器内部状态（实测：返回项与内部项 `models` 为同一对象，外部 append 后内部模型列表被污染）。现改为 `models=list(p.models)`，返回浅拷贝，内部状态不再受外部修改影响。新增回归 `tests/unit/test_dynamic_provider.py::TestDynamicProviderManager::test_list_providers_models_are_isolated_copy`，回退 `dynamic_provider.py` 后失败。
+- **ADT4 [P3] 保留（判定为审计策略 + 零消费）**：`audit_logger.py:257-262` 的 `cleanup_old_audit_logs` 删除条件含 `status == "success"`，失败/其他状态日志不被清理。该行注释显式声明「只清理成功的操作日志」，属「失败日志长期保留以便追查」的审计策略；且函数在全库零调用方（app/tests/src 均无引用），改动无运行影响。保留原行为，不擅自变更语义。

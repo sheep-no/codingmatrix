@@ -210,6 +210,15 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 另更正一条过时结论：`docs/evolution/modules/aicloud_execution.md` 的 SB1（`SandboxFileOperator` 符号链接逃逸）判断不成立——`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验落点是否在 `base_path` 内，实际安全校验走基类，`get_absolute_path` 的 `normpath` 仅用于展示/拼接。
 
+### aicloud 模块剩余 P3 收敛（2026-09-28）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P3 | `DynamicProviderManager.list()` 返回对象与内部共享同一 `models` 列表引用，外部 append 可污染管理器内部状态 | `app/utils/aicloud/dynamic_provider.py` | 已解决；改为 `models=list(p.models)` 浅拷贝，新增 `test_dynamic_provider.py` 1 项，回退后失败 |
+| P3 | 磁盘过期缓存清理触发条件 `len(_embedding_memory_cache) % 100 == 0` 不可达：内存缓存封顶 512 后长度恒定，`512 % 100 != 0` 恒成立 | `app/utils/AiCodeUtil.py` | 已解决；改为模块级 `_disk_cache_cleanup_counter`（每次新写入递增，满 100 清理），新增 `test_aicode_util.py` 1 项，回退后失败 |
+
+`ADT4`（`audit_logger.py` 的 `cleanup_old_audit_logs` 仅清 `status=="success"`）判定保留：行内注释显式声明「只清理成功的操作日志」属失败日志长期保留的审计策略，且该函数全库零调用方，改动无运行影响；`AIU8`（磁盘缓存无大小上限）保留，容量硬上限属部署策略。相关结论已同步至 `docs/evolution/modules/aicloud_core.md` §七 与 `docs/evolution/modules/aicode_util.md` §六。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
