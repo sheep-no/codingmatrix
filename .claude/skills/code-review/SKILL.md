@@ -129,13 +129,20 @@
 ### 在 CodeReviewAgent 中使用
 
 ```python
+from pathlib import Path
+
 from app.utils.review.code_review_agent import CodeReviewAgent
 
 # 启用特定 skills
 agent = CodeReviewAgent(skills=["production", "security"])
 
-# 执行审查
-issues = await agent.review_code(file_path)
+# 审查单个文件（同步方法，需要 Path 与语言）
+issues = agent.review_file(Path("app/main.py"), language="python")
+
+# 或审查整个项目目录，直接拿到统计报告
+from app.utils.review.code_review_agent import review_project
+
+report = review_project(Path("output/project"), skills=["production", "security"])
 ```
 
 ### 可用的 Skill ID

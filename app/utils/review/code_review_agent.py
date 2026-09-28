@@ -30,6 +30,7 @@ class ReviewCategory(str, Enum):
     """审查类别"""
     SECURITY = "security"
     PERFORMANCE = "performance"
+    ACCESSIBILITY = "accessibility"
     STYLE = "style"
     MAINTAINABILITY = "maintainability"
     TESTING = "testing"
