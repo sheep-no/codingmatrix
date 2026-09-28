@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import tomllib
@@ -33,6 +34,11 @@ _TEXT_ASSET_EXTENSIONS = frozenset({
     ".txt", ".yaml", ".yml",
 })
 _TEXT_FILE_NAMES = frozenset({".dockerignore", ".gitignore", "Dockerfile"})
+
+
+def _target_has_entries(path: Path) -> bool:
+    """同步检查目录是否存在且非空（供线程池调用，避免阻塞事件循环）。"""
+    return path.exists() and any(path.iterdir())
 
 
 class ScaffoldRequest(BaseModel):
@@ -96,11 +102,11 @@ async def execute_official_scaffold(
     runner: ToolchainRunner | None = None,
 ) -> GenerationPlan:
     """Execute a known scaffold and import its files into a frozen plan."""
-    workspace = workspace.resolve()
-    if not workspace.is_dir():
+    workspace = await asyncio.to_thread(workspace.resolve)
+    if not await asyncio.to_thread(workspace.is_dir):
         raise ValueError("scaffold workspace must be an existing directory")
     target = _resolve_inside(workspace, request.target_dir)
-    if target.exists() and any(target.iterdir()):
+    if await asyncio.to_thread(_target_has_entries, target):
         raise ValueError("scaffold target directory must be absent or empty")
     returncode, stdout, stderr = await (runner or ToolchainRunner()).run(
         request.as_command_spec(), workspace
@@ -108,7 +114,7 @@ async def execute_official_scaffold(
     if returncode != 0:
         diagnostic = (stderr or stdout)[-4000:]
         raise RuntimeError(f"official scaffold failed with exit code {returncode}: {diagnostic}")
-    if not target.is_dir():
+    if not await asyncio.to_thread(target.is_dir):
         raise RuntimeError("official scaffold completed without creating target directory")
     return import_scaffold_plan(
         target, language=request.language, framework=request.framework

@@ -90,20 +90,22 @@ class ToolchainRunner:
     async def run(self, spec: CommandSpec, workspace: Path) -> Tuple[int, str, str]:
         if spec.shell:
             raise ValueError("toolchain runner requires shell=false")
-        workspace = workspace.resolve()
-        if not workspace.is_dir():
+        workspace = await asyncio.to_thread(workspace.resolve)
+        if not await asyncio.to_thread(workspace.is_dir):
             raise ValueError("toolchain workspace must be an existing directory")
         executable = spec.command[0]
         is_workspace_wrapper = executable in {"./gradlew", "./mvnw"}
         if executable not in self.allowed_executables and not is_workspace_wrapper:
             raise ValueError(f"executable is not allowlisted: {spec.command[0]}")
         if is_workspace_wrapper:
-            wrapper = (workspace / executable.removeprefix("./")).resolve()
+            wrapper = await asyncio.to_thread(
+                (workspace / executable.removeprefix("./")).resolve
+            )
             try:
-                wrapper.relative_to(workspace.resolve())
+                wrapper.relative_to(workspace)
             except ValueError as exc:
                 raise ValueError("toolchain wrapper must stay inside workspace") from exc
-            if not wrapper.is_file():
+            if not await asyncio.to_thread(wrapper.is_file):
                 raise FileNotFoundError(f"workspace wrapper not found: {executable}")
         environment = os.environ.copy()
         # A host regular package can shadow a project's namespace package even
