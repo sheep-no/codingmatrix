@@ -37,6 +37,8 @@
 
 #### FRESCAN-31 [P2] 多个活跃交互仅支持鼠标点击
 
+> **部分已修**：`AgentSidebar.vue` 会话项与 `AgentWorkspace.vue` 决策项/文件卡片此前已补 `role`/`tabindex`/键盘事件；本轮补齐 `AgentWorkspace.vue` 中「执行步骤」「消息日志」两个折叠标题（`merged-section-header`）的 `role="button"`、`tabindex="0"`、`aria-expanded` 与 Enter/Space 键盘切换，并补 `:focus-visible` 焦点样式。新增 `src/components/agent/AgentWorkspace.test.js`（1 项，回退源码后失败用例复现）。命中清单中的 `ModelSelector.vue` 已随模块移除而消失；`ChartEditorPage.vue`、`ImageGenerate.vue`、`VirtualGirl.vue` 属非 Agent 交互页，超当前范围，保持待评。
+
 `AgentSidebar.vue:12-18,49-63`、`AgentWorkspace.vue:33-53,100-112,137-149,166-178`、`ModelSelector.vue:4-5,59-64`、`ChartEditorPage.vue:55-56`、`ImageGenerate.vue:33-42` 和 `VirtualGirl.vue:102-105` 使用可点击 `div`，缺少原生控件语义、焦点入口和键盘事件。键盘及辅助技术用户无法稳定完成会话、文件、模型、上传或搜索操作。
 
 #### FRESCAN-32 [P2] Agent 发送和停止按钮缺少可访问名称
