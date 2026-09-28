@@ -240,22 +240,21 @@ class TestExecution:
         assert result["summary"]["total_nodes"] == 3
 
     @pytest.mark.asyncio
-    async def test_cancellation(self, simple_graph):
-        """取消执行"""
-        simple_graph.nodes[0].params = {"code": "import time; time.sleep(10)"}
+    async def test_cancellation(self, simple_graph, monkeypatch):
+        """取消执行后状态落定为 cancelled，而非停留在 running"""
+        async def slow_execute_node(self, node_id, context, cancel_event):
+            await asyncio.sleep(30)
+            return NodeResult.success_result(data={})
+
+        monkeypatch.setattr(WorkflowExecutor, "_execute_node", slow_execute_node)
         executor = WorkflowExecutor(simple_graph, node_timeout=30)
 
-        async def cancel_after_delay():
-            await asyncio.sleep(0.1)
-            executor.cancel()
-
         task = asyncio.create_task(executor.execute())
-        cancel_task = asyncio.create_task(cancel_after_delay())
+        await asyncio.sleep(0.2)
+        executor.cancel()
+        await asyncio.wait_for(task, timeout=5)
 
-        await asyncio.gather(task, cancel_task, return_exceptions=True)
-
-        result = task.result()
-        assert result["status"] in ("cancelled", "failed")
+        assert task.result()["status"] == "cancelled"
 
 
 class TestCleanup:

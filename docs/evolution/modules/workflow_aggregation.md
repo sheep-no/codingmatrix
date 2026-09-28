@@ -81,3 +81,10 @@
 - **RSA7 保留**：`_node_results`/`_node_contexts` 为进程内 dict 且无锁，低危，维持原判定。
 
 **测试**：原「零单元测试」结论已过时——`tests/unit/test_task_decomposer.py` 与 `tests/unit/test_result_aggregator.py` 已存在，覆盖 `validate_result` 等路径。
+
+## 六、实证复核（2026-09-28）
+
+用真实 `ResultAggregator` / `TaskDecomposer` 跑端到端脚本复核清单中被点名的项：
+
+- **RSA1（stream_results 切片越界、首次轮询只发最后一个节点事件）不存在**：`record_result` 三个节点后再迭代 `stream_results(interval=0)`，首轮补发 `["n1", "n2", "n3"]` 全部完成事件。切片已是 `self._completed_order[last_count:current_count]`（result_aggregator.py:271）。
+- **TDC2（用户请求含花括号导致分解抛错）不存在**：`TaskDecomposer._build_prompt('帮我生成 {"name": "x"} 的配置，并按 {a} 模板输出 {b}')` 正常返回，请求原文完整保留。`USER_PROMPT_TEMPLATE`（task_decomposer.py:107-111）只含单个 `{request}` 占位符，`str.format` 仅解析模板字面量，参数值中的花括号不参与格式化解析。原判定与 §五「误判更正」一致。
