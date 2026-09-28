@@ -234,3 +234,18 @@ FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及
 剪贴板不可用）；回退 `useAgentWorkspace.js` / `useAgentBackend.js` 后 3 项失败。
 前端全量 57 files/266 passed；`AgentDashboard.initErrors.test.js` 在全量并发下的
 worker 启动超时属高负载偶发，单独重跑通过。
+
+## 9. SSE 重连队列竞争修复（2026-09-28）
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FRESCAN-05 | 已修 | `/orchestrate/stream` 原先为每个会话只建一个 `asyncio.Queue`，同时充当「重连重放缓冲」与「实时通道」。`resume_events`（`is_resume` 路径）与 `reconnect_generator`（活跃任务重连路径）都从这同一个队列 `get()`：并发读者会互相抢走事件；且已被旧订阅者消费掉的事件不会重放，重连后状态不完整。现新增模块级 `_SseBroadcast`：保留有上限的事件历史（`deque(maxlen=5000)`）并向每个订阅者各自的队列 fan-out；`subscribe()` 先重放历史再接收实时事件，`unsubscribe()` 从活跃集合移除。`_watch_stream_disconnect` 与各 reader 的 `finally` 改为按 `channel.has_subscribers()` 维护 `connected`，不再盲目置 `False`。`_active_tasks[*]["queue"]` 替换为 `["channel"]`。 |
+
+语义变化：重连订阅者现在会重新收到 `pipeline_mode` 与断开期间产生的事件
+（含心跳），用于重建前端状态；事件不再因换客户端而丢失。`modify_project`
+的 SSE 路径无重连语义，仍使用单队列，未改。
+
+回归：`tests/unit/test_stream_cancel_reconnect.py` 新增 3 项（fan-out 不瓜分、
+晚订阅者重放历史、退订更新存活状态）；`test_explicit_reconnect_when_stale_connection`
+与 `test_flutter_session_history.py::test_explicit_reconnect_consumes_existing_queue`
+改用 `_SseBroadcast` 构造活跃任务。

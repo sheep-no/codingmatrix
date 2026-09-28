@@ -1,5 +1,4 @@
 """Session history and explicit reconnect contracts; no generation calls."""
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -31,10 +30,10 @@ async def test_history_payload_and_bounded_query(monkeypatch):
 async def test_explicit_reconnect_consumes_existing_queue(monkeypatch):
     session = SimpleNamespace(session_id="session", status="running")
     monkeypatch.setattr(endpoints, "verify_session_ownership", AsyncMock(return_value=session))
-    queue = asyncio.Queue()
-    await queue.put('data: {"type":"done","data":{}}\n\n')
-    await queue.put("[DONE]")
-    active = {"gen_task": SimpleNamespace(done=lambda: False), "queue": queue, "connected": False}
+    channel = endpoints._SseBroadcast()
+    channel.publish('data: {"type":"done","data":{}}\n\n')
+    channel.publish("[DONE]")
+    active = {"gen_task": SimpleNamespace(done=lambda: False), "channel": channel, "connected": False}
     monkeypatch.setattr(endpoints, "_active_tasks", {"session": active})
     response = await endpoints.orchestrate_project_stream(OrchestratorRequest(requirement="reconnect", session_id="session", is_resume=True), ConnectedRequest(), token={"sub": "42"}, db=None)
     assert active["connected"] is True
