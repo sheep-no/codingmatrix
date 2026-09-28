@@ -55,3 +55,16 @@
 - **BE1/BE7 姊妹问题**：BackendEngineer 与 FrontendEngineer 同款两个 bug——工具键 'function' vs 'fn' 已在全库出现 2 处（generate_file 路径全对、analyze 路径全错），提示 `SPECIALIST_TOOLS` 访问应封装统一 getter
 - **LLM 契约双轨**：generate_file 返回 call_llm 的 str（契约正确方）
 - **五支柱（§5.6 支柱 1）**：前端产物生产者，BE1 姊妹问题同样污染产物内容
+
+## 状态更新（2026-09-28）
+
+回归 `tests/unit/test_engineer_analyze_project_files.py`、
+`tests/unit/test_engineer_file_type_inference.py`。
+
+- **FE7 [P2] 已修**：与 BE7 同源，`analyze` 改按 `['fn']` + `project_path`
+  参数 + `asyncio.to_thread` 调用，返回结构取 `entries`；分析 prompt 恢复
+  项目文件结构注入。
+- **FE1 [P2] 已修**：`_infer_file_type_from_path` 改为路径段/单词匹配，
+  `preview.js` 不再判 frontend_page、`passage.ts` 仍归 frontend_component、
+  `interval/page.tsx` 正确判 frontend_page。
+- **FE5 [P3] 保留**：SYSTEM_PROMPT property 每次访问重新加载，未改。

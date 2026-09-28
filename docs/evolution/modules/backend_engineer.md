@@ -57,3 +57,20 @@
 - **LLM 契约双轨（v1.11 主线）**：generate_file :264/:267 返回 call_llm 的 str——契约正确方（architect AR3 是错误方）
 - **utils UT10/UT6**：generate_file 结果被消费方 extract_engineer_content 处理时触发 LLM 语言检测（"NO" 子串假阳性）与语言验证
 - **五支柱（§5.6 支柱 1 产物协议）**：engineer 是产物生产者，其输出经 utils 门禁后进入文件编排——BE1 注入错误约束会直接污染产物内容
+
+## 状态更新（2026-09-28）
+
+回归 `tests/unit/test_engineer_analyze_project_files.py`、
+`tests/unit/test_engineer_file_type_inference.py`。
+
+- **BE7 [P2] 已修**：`analyze` 的 `list_files_tool['function']` 改为
+  `['fn']`，并按 `SPECIALIST_TOOLS` 契约补 `project_path` 参数、经
+  `asyncio.to_thread` 调用（原调用即使键正确也会因缺少必填 `project_path`
+  与 await 同步函数而失败），返回结构改为实际的 `entries` 键。修复后
+  分析 prompt 含项目文件结构；回退源码后 `test_analyze_*` 2 项失败。
+- **BE1 [P2] 已修**：`_infer_file_type_from_path` 由整路径子串匹配改为
+  路径段/单词匹配（按非字母数字切分，含常见复数），`capital/service.py`
+  不再判 api、`apple.py`/`happened.py`/`domain.py`/`latest.py` 不再分别
+  误判 entry/entry/entry/test；回退源码后相关用例 6 项失败。
+- **BE5 [P3] 保留**：SYSTEM_PROMPT property 每次访问重新加载，属热路径
+  缓存优化，未改。
