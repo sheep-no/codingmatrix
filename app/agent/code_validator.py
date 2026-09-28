@@ -19,6 +19,15 @@ from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 logger = logging.getLogger(__name__)
 
 
+async def _read_text_async(path: Path, encoding: str = "utf-8") -> str:
+    """在工作线程读取文件，避免在协程里执行阻塞 I/O。
+
+    `validate_syntax` 等校验由 `run_full_validation` 通过 `asyncio.gather`
+    并发调用，逐个 `open(...).read()` 会串行占住事件循环。
+    """
+    return await asyncio.to_thread(path.read_text, encoding=encoding)
+
+
 def _imports_symbol_from_module(source: str, module: str, symbol: str) -> bool:
     """源码中是否存在 `from <module> import <symbol>`（AST 精确匹配符号名）。
 
@@ -369,8 +378,7 @@ class CodeValidator:
             return True, []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source = f.read()
+            source = await _read_text_async(file_path)
             ast.parse(source)
             return True, []
         except SyntaxError as e:
@@ -384,8 +392,7 @@ class CodeValidator:
             return True, []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source = f.read()
+            source = await _read_text_async(file_path)
 
             # 用 ast 提取真实导入语句。按行文本解析会把 docstring/注释里的
             # "示例: from x import y" 也当成导入，并给相对导入生成假模块名。
@@ -463,7 +470,7 @@ class CodeValidator:
 
         errors: List[str] = []
         try:
-            source = file_path.read_text(encoding='utf-8')
+            source = await _read_text_async(file_path)
         except Exception as e:
             return False, [f"运行时验证异常: {str(e)}"]
 
@@ -510,8 +517,7 @@ class CodeValidator:
 
         errors = []
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source = f.read()
+            source = await _read_text_async(file_path)
 
             # FastAPI OAuth2PasswordBearer 参数名：现代版本为 camelCase 的
             # tokenUrl，snake_case 的 token_url 是早期写法。方向取自
@@ -580,8 +586,7 @@ class CodeValidator:
             return True, []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = await _read_text_async(file_path)
 
             errors = html_structure_errors(content)
             return len(errors) == 0, errors
@@ -594,8 +599,7 @@ class CodeValidator:
             return True, []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = await _read_text_async(file_path)
 
             errors = css_structure_errors(content)
             return len(errors) == 0, errors
@@ -749,7 +753,14 @@ class CodeValidator:
         return [d.lower().replace('-', '_').split('[')[0] for d in deps if not d.startswith(('.', '/'))]
 
     async def validate_requirements(self) -> Tuple[bool, List[str]]:
-        """验证 requirements.txt / pyproject.toml / Pipfile 是否完整"""
+        """验证 requirements.txt / pyproject.toml / Pipfile 是否完整。
+
+        读取依赖清单、扫描全部 .py 收集第三方导入都是同步阻塞操作，
+        整体放到工作线程，避免占住事件循环。
+        """
+        return await asyncio.to_thread(self._validate_requirements_sync)
+
+    def _validate_requirements_sync(self) -> Tuple[bool, List[str]]:
         req_file = self.project_path / 'requirements.txt'
         pyproject_file = self.project_path / 'pyproject.toml'
         pipfile = self.project_path / 'Pipfile'
