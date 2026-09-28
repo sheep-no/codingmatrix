@@ -32,6 +32,37 @@ async def test_detect_resume_intent_skips_llm_for_plain_requirement(monkeypatch)
     assert result["has_changes"] is False
 
 
+def test_broadcast_fans_out_without_stealing():
+    """FRESCAN-05: 每个订阅者独占队列，事件不得被并发读者瓜分。"""
+    channel = endpoints._SseBroadcast()
+    first = channel.subscribe()
+    second = channel.subscribe()
+    channel.publish("data: a\n\n")
+    channel.publish("data: b\n\n")
+    assert first.qsize() == 2
+    assert second.qsize() == 2
+    assert first.get_nowait() == "data: a\n\n"
+    assert second.get_nowait() == "data: a\n\n"
+
+
+def test_broadcast_replays_history_to_reconnecting_subscriber():
+    """FRESCAN-05: 重连订阅者应收到此前已被消费的事件（重放）。"""
+    channel = endpoints._SseBroadcast()
+    first = channel.subscribe()
+    channel.publish("data: a\n\n")
+    assert first.get_nowait() == "data: a\n\n"
+    reconnected = channel.subscribe()
+    assert reconnected.get_nowait() == "data: a\n\n"
+
+
+def test_broadcast_unsubscribe_updates_liveness():
+    channel = endpoints._SseBroadcast()
+    subscriber = channel.subscribe()
+    assert channel.has_subscribers() is True
+    channel.unsubscribe(subscriber)
+    assert channel.has_subscribers() is False
+
+
 @pytest.mark.asyncio
 async def test_pending_stream_allows_cancel_before_db(monkeypatch):
     monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
@@ -120,12 +151,12 @@ async def test_mark_disconnected_if_stale_clears_connected_flag():
 async def test_explicit_reconnect_when_stale_connection(monkeypatch):
     session = SimpleNamespace(session_id="session", status="running")
     monkeypatch.setattr(endpoints, "verify_session_ownership", AsyncMock(return_value=session))
-    queue = asyncio.Queue()
-    await queue.put('data: {"type":"done","data":{}}\n\n')
-    await queue.put("[DONE]")
+    channel = endpoints._SseBroadcast()
+    channel.publish('data: {"type":"done","data":{}}\n\n')
+    channel.publish("[DONE]")
     active = {
         "gen_task": SimpleNamespace(done=lambda: False),
-        "queue": queue,
+        "channel": channel,
         "connected": True,
         "http_request": DisconnectedRequest(),
     }
@@ -148,7 +179,7 @@ async def test_live_connection_still_conflicts_on_explicit_resume(monkeypatch):
     monkeypatch.setattr(endpoints, "verify_session_ownership", AsyncMock(return_value=session))
     active = {
         "gen_task": SimpleNamespace(done=lambda: False),
-        "queue": asyncio.Queue(),
+        "channel": endpoints._SseBroadcast(),
         "connected": True,
         "http_request": ConnectedRequest(),
     }

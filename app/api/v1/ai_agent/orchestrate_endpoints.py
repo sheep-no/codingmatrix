@@ -4,6 +4,7 @@ import asyncio
 import time
 import re
 import shutil
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, List, FrozenSet, Optional, Tuple
@@ -247,6 +248,39 @@ _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 
+class _SseBroadcast:
+    """Per-subscriber SSE fan-out with replay.
+
+    A single asyncio.Queue shared by every (re)connecting client lets
+    concurrent readers steal each other's events and drops whatever was
+    consumed before a reconnect. Each subscriber owns a queue and receives a
+    replay of the retained history, so a reconnect rebuilds full state without
+    racing another subscriber.
+    """
+
+    def __init__(self, history_limit: int = 5000):
+        self._history: deque = deque(maxlen=history_limit)
+        self._subscribers: set = set()
+
+    def publish(self, item: str) -> None:
+        self._history.append(item)
+        for subscriber in list(self._subscribers):
+            subscriber.put_nowait(item)
+
+    def subscribe(self) -> asyncio.Queue:
+        subscriber: asyncio.Queue = asyncio.Queue()
+        for item in self._history:
+            subscriber.put_nowait(item)
+        self._subscribers.add(subscriber)
+        return subscriber
+
+    def unsubscribe(self, subscriber: asyncio.Queue) -> None:
+        self._subscribers.discard(subscriber)
+
+    def has_subscribers(self) -> bool:
+        return bool(self._subscribers)
+
+
 def _register_pending_stream(session_id: str, user_id: str) -> asyncio.Event:
     """Allow cancel before the session row exists in DB."""
     existing_owner = _pending_stream_owners.get(session_id)
@@ -370,15 +404,22 @@ async def _watch_stream_disconnect(
     session_id: str,
     cancel_event: asyncio.Event,
     generation_task: asyncio.Task,
+    *,
+    channel: "_SseBroadcast | None" = None,
+    subscriber_queue: asyncio.Queue | None = None,
 ) -> None:
     """Mark the SSE subscriber gone. Explicit cancel still stops generation."""
     try:
         while not cancel_event.is_set() and not generation_task.done():
             if await http_request.is_disconnected():
                 logger.info("[SSE] 检测到客户端断开，生成转后台 | session=%s", session_id)
+                if channel is not None and subscriber_queue is not None:
+                    channel.unsubscribe(subscriber_queue)
                 active = _active_tasks.get(session_id)
                 if active:
-                    active["connected"] = False
+                    active["connected"] = (
+                        channel.has_subscribers() if channel is not None else False
+                    )
                 return
             await asyncio.sleep(0.25)
     except asyncio.CancelledError:
@@ -986,10 +1027,12 @@ async def orchestrate_project_stream(
         active["connected"] = True
 
         async def resume_events():
+            channel = active["channel"]
+            subscriber_queue = channel.subscribe()
             try:
                 while True:
                     try:
-                        item = await asyncio.wait_for(active["queue"].get(), timeout=5)
+                        item = await asyncio.wait_for(subscriber_queue.get(), timeout=5)
                         if item == "[DONE]":
                             break
                         yield item
@@ -998,7 +1041,8 @@ async def orchestrate_project_stream(
                             break
                         yield ": heartbeat\n\n"
             finally:
-                active["connected"] = False
+                channel.unsubscribe(subscriber_queue)
+                active["connected"] = channel.has_subscribers()
 
         return StreamingResponse(resume_events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1080,11 +1124,12 @@ async def orchestrate_project_stream(
                     active_task["connected"] = True
                     logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
                     async def reconnect_generator():
-                        queue = active_task["queue"]
+                        channel = active_task["channel"]
+                        subscriber_queue = channel.subscribe()
                         try:
                             while True:
                                 try:
-                                    item = await asyncio.wait_for(queue.get(), timeout=30.0)
+                                    item = await asyncio.wait_for(subscriber_queue.get(), timeout=30.0)
                                     if item == "[DONE]":
                                         yield item
                                         break
@@ -1096,7 +1141,8 @@ async def orchestrate_project_stream(
                         except asyncio.CancelledError:
                             logger.info(f"[SSE] 重连客户端断开 | session={running_session.session_id}")
                         finally:
-                            active_task["connected"] = False
+                            channel.unsubscribe(subscriber_queue)
+                            active_task["connected"] = channel.has_subscribers()
 
                     return StreamingResponse(
                         reconnect_generator(),
@@ -1253,7 +1299,7 @@ async def orchestrate_project_stream(
     # 释放注入的 DB session，避免 SSE 长连接期间占用连接池
     await db.close()
 
-    queue: asyncio.Queue = asyncio.Queue()
+    channel = _SseBroadcast()
     approval_queue: asyncio.Queue = asyncio.Queue()
     decision_queue: asyncio.Queue = asyncio.Queue()
 
@@ -1262,7 +1308,7 @@ async def orchestrate_project_stream(
     _cancel_events[session_id] = cancel_event
 
     async def approval_callback(file_path: str) -> bool:
-        await queue.put(f"data: {json.dumps({'type': 'pause_for_approval', 'data': {'file_path': file_path, 'session_id': session_id}}, ensure_ascii=False)}\n\n")
+        channel.publish(f"data: {json.dumps({'type': 'pause_for_approval', 'data': {'file_path': file_path, 'session_id': session_id}}, ensure_ascii=False)}\n\n")
         try:
             # 使用两个独立任务明确判断哪个先完成
             approval_task = asyncio.create_task(approval_queue.get())
@@ -1310,11 +1356,12 @@ async def orchestrate_project_stream(
 
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] event_generator 开始 | session={session_id}")
+        subscriber_queue = channel.subscribe()
         try:
-            await queue.put(f"data: {json.dumps(pipeline_mode, ensure_ascii=False)}\n\n")
+            channel.publish(f"data: {json.dumps(pipeline_mode, ensure_ascii=False)}\n\n")
             async def decision_callback(questions):
                 """等待用户决策的回调"""
-                await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': questions}}, ensure_ascii=False)}\n\n")
+                channel.publish(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': questions}}, ensure_ascii=False)}\n\n")
                 decision_task = asyncio.create_task(decision_queue.get())
                 cancel_task = asyncio.create_task(cancel_event.wait())
                 pending = set()
@@ -1341,11 +1388,11 @@ async def orchestrate_project_stream(
                     # 决策已通过 decision_callback 处理，不再重复等待
                     msg_type = progress_data.get("type", "")
                     if msg_type in PASSTHROUGH_SSE_EVENTS:
-                        await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
+                        channel.publish(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
                     else:
-                        await queue.put(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")
+                        channel.publish(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")
                 except json.JSONDecodeError:
-                    await queue.put(f"data: {json.dumps({'type': 'log', 'data': {'message': msg}}, ensure_ascii=False)}\n\n")
+                    channel.publish(f"data: {json.dumps({'type': 'log', 'data': {'message': msg}}, ensure_ascii=False)}\n\n")
 
             logger.info(f"[SSE] 创建 orchestrator | session={session_id}")
             orchestrator = OrchestratorAgent(
@@ -1377,7 +1424,7 @@ async def orchestrate_project_stream(
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成启动前已取消 | session={session_id}")
                         await sm.cancel_session(session_id)
-                        await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        channel.publish(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
                         return
                     logger.info(f"[SSE] 开始生成任务 | session={session_id}")
                     core_task_id = f"{session_id}-{time.time_ns()}"
@@ -1427,13 +1474,13 @@ async def orchestrate_project_stream(
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")
                         await sm.cancel_session(session_id)
-                        await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        channel.publish(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
                         return
                     result_error = _generation_result_error(result)
                     if result_error:
                         logger.error("[SSE] 生成结果失败 | session=%s error=%s", session_id, result_error)
                         await sm.complete_session(session_id, errors=[result_error])
-                        await queue.put(
+                        channel.publish(
                             f"data: {json.dumps({'type': 'error', 'data': {'error': result_error}}, ensure_ascii=False)}\n\n"
                         )
                         return
@@ -1442,7 +1489,7 @@ async def orchestrate_project_stream(
                     logger.info(f"[SSE] 生成完成 | session={session_id} files={files_generated}/{files_total}")
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
                     result = {**result, "project_path": output_dir, "session_id": session_id}
-                    await queue.put(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
+                    channel.publish(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
                 except asyncio.CancelledError:
                     logger.info(f"[SSE] 生成任务被取消 | session={session_id}")
                     await sm.cancel_session(session_id)
@@ -1450,11 +1497,11 @@ async def orchestrate_project_stream(
                 except Exception as e:
                     logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
                     await sm.complete_session(session_id, errors=[str(e)])
-                    await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
+                    channel.publish(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
                     await _cleanup_session_queues(session_id, cancel_event)
                     concurrent_mgr.unregister_session(user_role)
-                    await queue.put("[DONE]")
+                    channel.publish("[DONE]")
 
             logger.info(f"[SSE] 创建生成任务 | session={session_id}")
             gen_task = asyncio.create_task(run_generation())
@@ -1462,7 +1509,7 @@ async def orchestrate_project_stream(
             # 存储活跃任务，支持浏览器重连
             _active_tasks[session_id] = {
                 "gen_task": gen_task,
-                "queue": queue,
+                "channel": channel,
                 "cancel_event": cancel_event,
                 "connected": True,
                 "http_request": http_request,
@@ -1473,7 +1520,7 @@ async def orchestrate_project_stream(
                 while not cancel_event.is_set():
                     await asyncio.sleep(5)
                     try:
-                        await queue.put("data: {\"type\": \"heartbeat\"}\n\n")
+                        channel.publish("data: {\"type\": \"heartbeat\"}\n\n")
                     except Exception:
                         break
 
@@ -1484,6 +1531,8 @@ async def orchestrate_project_stream(
                     session_id,
                     cancel_event,
                     gen_task,
+                    channel=channel,
+                    subscriber_queue=subscriber_queue,
                 )
             )
 
@@ -1492,7 +1541,7 @@ async def orchestrate_project_stream(
                 generation_completed = False
                 while True:
                     try:
-                        item = await asyncio.wait_for(queue.get(), timeout=30.0)
+                        item = await asyncio.wait_for(subscriber_queue.get(), timeout=30.0)
                         logger.info(f"[SSE] 从队列获取消息 | session={session_id} type={item[:30] if len(item) > 30 else item}")
                         if item == "[DONE]":
                             generation_completed = True
@@ -1511,9 +1560,10 @@ async def orchestrate_project_stream(
             finally:
                 heartbeat_task.cancel()
                 disconnect_task.cancel()
+                channel.unsubscribe(subscriber_queue)
                 active = _active_tasks.get(session_id)
                 if active:
-                    active["connected"] = False
+                    active["connected"] = channel.has_subscribers()
                 # 不设置 cancel_event，不取消 gen_task
                 # 生成任务在服务端独立运行，用户重新连接后可查看进度
                 if not gen_task.done():
