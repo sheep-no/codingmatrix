@@ -176,6 +176,23 @@ class ProgressType(str, Enum):
 
 # ==================== 多模型路由器 ====================
 
+def _count_keyword_hits(keywords: List[str], text: str) -> int:
+    """统计关键词命中数。
+
+    ASCII 关键词按整词匹配——短关键词如 "ui"/"api" 用子串匹配会命中
+    无关单词（"build" 含 "ui"、"capital" 含 "api"）导致模型误路由。
+    CJK 关键词无词边界概念，仍按子串匹配。
+    """
+    hits = 0
+    for kw in keywords:
+        if kw.isascii():
+            if re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text):
+                hits += 1
+        elif kw in text:
+            hits += 1
+    return hits
+
+
 class FileModelRouter:
     """根据文件类型自动选择最佳模型（从 agent_model_config.yaml 读取配置）。"""
 
@@ -245,8 +262,8 @@ class FileModelRouter:
         backend_keywords = ['api', '数据库', 'database', '后端', 'backend', 'server', '服务器', 'fastapi', 'django', 'flask']
         frontend_keywords = ['前端', 'frontend', 'ui', '界面', '页面', 'vue', 'react', 'html', 'css', '样式']
 
-        backend_count = sum(1 for kw in backend_keywords if kw in req_lower)
-        frontend_count = sum(1 for kw in frontend_keywords if kw in req_lower)
+        backend_count = _count_keyword_hits(backend_keywords, req_lower)
+        frontend_count = _count_keyword_hits(frontend_keywords, req_lower)
 
         if backend_count > frontend_count:
             return self.backend_model
