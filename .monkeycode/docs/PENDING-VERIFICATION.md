@@ -4,7 +4,7 @@
 
 本文件记录该范围内已经完成的验证，以及需要外部条件才能继续的验收项。跨边界发现只在末尾存档，不在本范围修复。
 
-下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 497 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 100 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
+下表中 Flutter 与插件各项已在当日对当前提交实跑复核（`flutter test` → 497 passed；`flutter analyze lib test` → 无问题；插件 `npm run build`、`node --test test/*.test.mjs` → 109 passed / 0 fail，两套 e2e 通过）。构建产物类条目已按 2026-09-25 的重新构建结果更新。
 
 ## 已经完成的验证
 
@@ -36,7 +36,7 @@
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
 | Provider 测试连接错误文案 | 设计内行为，非缺陷：`ProviderKeyClient.test()` 丢弃后端 `message`，页面统一显示「Provider Key 测试失败，请重试」。既有测试 `test/provider_key_test.dart:551`「测试连接网络断开显示测试失败」明确断言不出现 `connection lost` 与 `sensitive-token`，即刻意不向 UI 回显后端/网络细节。与 `dynamic_provider_client.dart:68`、`github_controller.dart:125-126` 展示后端原文的做法不同，属产品选择，不改 | `test/provider_key_test.dart:551-583` |
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
-| VS Code 插件单测 | 103 passed / 0 fail | `npm test`（tsc + `node --test test/*.test.mjs`） |
+| VS Code 插件单测 | 109 passed / 0 fail | `npm test`（tsc + `node --test test/*.test.mjs`） |
 | VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
 | VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
 | VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
@@ -72,6 +72,7 @@
 | `agent_home_view.dart:473` | **已修复**。事件卡原先按 `event.type: event.raw` 原样渲染，而 `file` 事件（`orchestrator_progress.py:196`）的 `raw` 内含整份文件正文，`file_diff`（`:224`）内嵌 `old_content`/`new_content`。大文件会把整段源码塞进单个 `SelectableText`，滚动到时需整段排版，存在卡顿与内存风险。现对这两类事件只显示摘要，其余事件截断到 2000 字符 | 新增 `test/widget_test.dart`「文件事件只展示路径与大小，不渲染源码正文」；见上文已完成验证表 |
 | `workbench_controller.dart:443`、`agent_home_view.dart:143` | **已修复**。后端 `error` 事件的原因文本原先只存入 `task.errorJson`，UI 从不读取：主状态区只显示 `task.status == 'failed'` 与本地 `actionError`（后者仅覆盖「停止未确认」「决策校验/超时」三种本地失败）。编排中断时的真实原因（如 `unknown file types were not inferred: vue.py`）只能在「实时事件」卡片的原始 JSON 里看到。现于 `_OverviewCard` 展示 `errorJson['error']` | 修复前 `rg errorJson lib/` 只有赋值（`:443`、`:256`、`:275`、`:287`）无读取；新增用例覆盖 |
 | `agent_home_view.dart:396` | **已修复**。`_OverviewCard` 状态行的 `Chip` 是 `Row` 里的非弹性子项，以无界宽度布局；概览卡在宽视口固定 300px、减去内边距后可用宽约 252px，当状态为较长的 `awaitingDecision`（服务端 `critical_decisions` 或 `stage == awaiting_user_decision` 时由 `WorkbenchController._applyEvent` 写入）时整行溢出 30px，Flutter 计入异常。现改为 `Flexible` + `Align` + 单行省略。该页此前只有外壳冒烟级实例化（`workbench_shell_test.dart` 循环建页），无自身用例，本轮补 `test/agent_home_view_test.dart` | 新用例「有待决策时展示入口并可进入决策页」修前报 `A RenderFlex overflowed by 30 pixels on the right`，改用例修后通过（反向验证：临时回退 Chip 布局后重新失败）；另含决策入口显隐、项目入口显隐与超长事件截断 4 项。全量 492 → 497 passed，`flutter analyze lib test` → No issues found |
+| `vscode-extension/src/skill-discovery.ts` | **补测试（源码未改）**。该模块 69 行、只被 `extension.ts:353` 的 `discoverWorkspaceSkills(workspaceFolders)` 调用，此前无任何单测：三个技能根目录（`.claude/skills`、`skills`、`data/custom_skills`）、仅 `data/custom_skills` 接受普通 `*.md`（另两个只认 `SKILL.md`）、命名空间 `workspace:<folder>` 与相对路径归一（剥离根前缀与 `SKILL.md`/`.md` 后缀）、单文件 100KB 上限、目录缺失（`ENOENT`）容忍、多工作区分别命名空间这些分支全部未覆盖。模块内其余三个「无测试引用」判定为误报：`workbench-html.ts`（530 行）由 `test/workbench-log.test.mjs` 经 `createAgentWorkbenchHtml` 执行内联脚本覆盖，`node-fetch.ts` 是 `CloudConnection` 默认 fetch，由两套 e2e 真实连后端覆盖，`result-sanitizer`/`approval-bridge` 等其余 14 个模块均有测试引用 | 新增 `test/skill-discovery.test.mjs` 6 项；插件单测 103 → 109 passed / 0 fail。非空转验证：临时把 `.claude/skills` 的 markdown 白名单放宽为 `true` 后「only data/custom_skills accepts plain markdown」失败，恢复后通过。`tsc -p tsconfig.json` 退出 0 |
 
 ## Linux 实跑记录
 
