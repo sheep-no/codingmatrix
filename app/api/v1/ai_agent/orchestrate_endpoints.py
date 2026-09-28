@@ -6,7 +6,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, Dict, Any, List, FrozenSet
+from typing import AsyncIterator, Dict, Any, List, FrozenSet, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -446,6 +446,43 @@ def _is_analyze_intent(requirement: str) -> bool:
     return False
 
 
+def _resolve_project_dir(project_path: str) -> Tuple[Optional[Path], Optional[str]]:
+    """同步解析项目目录（供线程池调用，避免阻塞事件循环）。
+
+    返回 (project_dir, error)：成功时 error 为 None；失败时 project_dir 为 None，
+    error 为 "missing"（不存在）或 "not_dir"（不是目录）。
+    """
+    if Path(project_path).is_absolute():
+        project_dir = Path(project_path).resolve()
+    else:
+        # 支持两种相对路径格式：
+        # 1. "projects/1/untitled_xxx" - 相对于工作区根目录
+        # 2. "1/untitled_xxx" - 相对于 projects 目录
+        workspace_dir = Path(".").resolve()
+        projects_dir = workspace_dir / "projects"
+        candidate = (workspace_dir / project_path).resolve()
+        if candidate.exists() and candidate.is_dir():
+            project_dir = candidate
+        else:
+            project_dir = (projects_dir / project_path).resolve()
+
+    if not project_dir.exists():
+        return None, "missing"
+    if not project_dir.is_dir():
+        return None, "not_dir"
+    return project_dir, None
+
+
+def _locate_snapshot_project_dir(session_id: str) -> Optional[Path]:
+    """同步定位快照所属项目目录（供线程池调用）；两处候选均不存在时返回 None。"""
+    project_dir = Path(f"orchestrator/{session_id}")
+    if not project_dir.exists():
+        project_dir = Path(f"user_uploads/{session_id}")
+    if not project_dir.exists():
+        return None
+    return project_dir
+
+
 async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event = None):
     """清理会话相关的队列，防止内存泄漏。
     
@@ -565,25 +602,13 @@ async def modify_project(
     if not project_path:
         raise HTTPException(status_code=400, detail="需要提供 project_path 或 output_dir")
 
-    # 解析项目目录
-    if Path(project_path).is_absolute():
-        project_dir = Path(project_path).resolve()
-    else:
-        # 支持两种相对路径格式：
-        # 1. "projects/1/untitled_xxx" - 相对于工作区根目录
-        # 2. "1/untitled_xxx" - 相对于 projects 目录
-        workspace_dir = Path(".").resolve()
-        projects_dir = workspace_dir / "projects"
-        candidate = (workspace_dir / project_path).resolve()
-        if candidate.exists() and candidate.is_dir():
-            project_dir = candidate
-        else:
-            # 尝试相对于 projects 目录
-            project_dir = (projects_dir / project_path).resolve()
-
-    if not project_dir.exists():
+    # 解析项目目录（文件系统操作放到工作线程）
+    project_dir, resolve_error = await asyncio.to_thread(
+        _resolve_project_dir, project_path
+    )
+    if resolve_error == "missing":
         raise HTTPException(status_code=404, detail=f"项目不存在: {project_path}")
-    if not project_dir.is_dir():
+    if resolve_error == "not_dir":
         raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
 
     # 意图判断：分析类请求走 analyze 逻辑
@@ -919,7 +944,9 @@ async def orchestrate_project(
             **close_generation_metrics(),
         }
         # Verification clients must inspect the same directory used by the agent.
-        result["output_dir"] = str(Path(orchestrator.output_dir).resolve())
+        result["output_dir"] = str(
+            await asyncio.to_thread(Path(orchestrator.output_dir).resolve)
+        )
         return OrchestratorResponse(**result)
 
     except HTTPException:
@@ -1867,11 +1894,8 @@ async def list_snapshots(
 
     await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = Path(f"orchestrator/{session_id}")
-    if not project_dir.exists():
-        project_dir = Path(f"user_uploads/{session_id}")
-
-    if not project_dir.exists():
+    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
     snapshots = await git_ops.list_snapshots(project_dir)
@@ -1893,11 +1917,8 @@ async def rollback_to_snapshot(
 
     await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = Path(f"orchestrator/{session_id}")
-    if not project_dir.exists():
-        project_dir = Path(f"user_uploads/{session_id}")
-
-    if not project_dir.exists():
+    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
     result = await snapshot_mgr.rollback_to_snapshot(
@@ -1929,11 +1950,8 @@ async def diff_snapshots(
 
     await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = Path(f"orchestrator/{session_id}")
-    if not project_dir.exists():
-        project_dir = Path(f"user_uploads/{session_id}")
-
-    if not project_dir.exists():
+    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
     diff = await git_ops.diff_between_commits(project_dir, from_tag, to_tag)
