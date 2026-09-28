@@ -5,6 +5,7 @@
 import re
 import json
 import time
+import asyncio
 import logging
 from typing import Optional, Dict, List, Callable, Tuple, Any
 from dataclasses import dataclass
@@ -132,8 +133,7 @@ class ErrorRecoveryLoop:
         # 创建临时文件进行验证
         temp_file = project_path / f".temp_{file_path.name}"
         try:
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+            await asyncio.to_thread(temp_file.write_text, content, encoding='utf-8')
 
             # 只验证单个文件（而非整个项目）
             validation = await self.validator.validate_single_file(temp_file)
@@ -300,8 +300,7 @@ class ErrorRecoveryLoop:
                     # 验证修复后的代码（只验证单个文件）
                     temp_file = file_path.parent / f".temp_fix_{file_path.name}"
                     try:
-                        with open(temp_file, 'w', encoding='utf-8') as f:
-                            f.write(fixed_content)
+                        await asyncio.to_thread(temp_file.write_text, fixed_content, encoding='utf-8')
 
                         validation = await self.validator.validate_single_file(temp_file)
                     finally:
@@ -416,8 +415,7 @@ class ErrorRecoveryLoop:
             # 创建临时文件进行审查
             temp_file = file_path.parent / f".temp_quality_{file_path.name}"
             try:
-                with open(temp_file, 'w', encoding='utf-8') as f:
-                    f.write(code)
+                await asyncio.to_thread(temp_file.write_text, code, encoding='utf-8')
 
                 # 运行轻量级审查（只检查基本问题）
                 validation = await self.validator.validate_single_file(temp_file)
@@ -615,6 +613,9 @@ class ErrorRecoveryLoop:
             logger.warning("降级链为空（用户禁用或未配置），跳过测试日志修复")
             return recovery_results
 
+        # 路径穿越校验的基准目录，解析一次即可（阻塞 stat 放到工作线程）
+        project_root = await asyncio.to_thread(project_path.resolve)
+
         for attempt in range(self.MAX_FIX_ATTEMPTS):
             if not recovery_results["failures"]:
                 break
@@ -686,8 +687,8 @@ class ErrorRecoveryLoop:
                         target = project_path / fp
                         # 路径穿越校验
                         try:
-                            resolved = target.resolve()
-                            resolved.relative_to(project_path.resolve())
+                            resolved = await asyncio.to_thread(target.resolve)
+                            resolved.relative_to(project_root)
                         except ValueError:
                             logger.warning(f"路径穿越检测: {fp} 超出项目范围，跳过")
                             continue
@@ -698,7 +699,10 @@ class ErrorRecoveryLoop:
                                 logger.warning(f"测试修复内容无效，跳过 {fp}: {reason}")
                                 continue
                             # 原子写：避免坏内容直接覆盖源文件，并复用占位符检测
-                            if not write_file_atomic(project_path, fp, content):
+                            written = await asyncio.to_thread(
+                                write_file_atomic, project_path, fp, content
+                            )
+                            if not written:
                                 logger.warning(f"测试修复写入失败: {fp}")
                                 continue
                             logger.info(f"已应用测试修复: {fp}")

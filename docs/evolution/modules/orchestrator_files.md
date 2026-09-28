@@ -219,3 +219,14 @@ async def llm_caller(prompt: str) -> str:
 - **OF8 [P3]**：`validation_success=False` 但内容已被采用（验证-采用语义不一致），需产品确认采用语义。
 - **OF9 [P3]**：`llm_caller` 内联硬编码模型（DMR/LCL1 主线）。
 - **OF10 [P3]**：`_apply_patches_incremental` 死代码，接线或删除需决策。
+
+## 阻塞 I/O 清理（2026-09-28）
+
+- **OF11（新增）错误恢复后的落盘阻塞事件循环**：`_validate_and_review_file`
+  在 `enable_error_recovery` 分支里用 `with open(full_path, 'w')` 同步写入
+  错误恢复后的完整文件内容（生成产物可能较大），而该方法在生成协程中对每个
+  文件调用。现改为 `await asyncio.to_thread(full_path.write_text, content,
+  encoding='utf-8')`，`OSError` 分支与 `validation_success=False` 语义不变；
+  该处 `ASYNC230` 告警消除。
+- **回归**：`tests/unit/test_patch_io_nonblocking.py` 覆盖 `FilesMixin` 该分支的
+  写入线程隔离（以及 code_patcher / error_recovery 的读写），回退源码后 3 项全失败。
