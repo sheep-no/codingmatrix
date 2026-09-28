@@ -53,3 +53,27 @@
 ## 5. 测试状态
 
 **零测试覆盖**——tests/ 无任何 global_constraint 用例。GC1-GC8 全部实测可复现但无用例保护。spec_first 集成链测试也未覆盖约束注入（约束相关功能全凭手工验证）。
+
+## 6. 状态更新（2026-09-28 GC2 修复）
+
+回归测试 `tests/unit/test_global_constraint_injection.py`（4 例，回退
+`global_constraint.py` 后 1 例失败）。
+
+- **GC2 已修**：`get_constraints_for_file` 在 `file_path == "all"` 或
+  `file_type == "all"` 时直接返回全部约束，不再走 applies_to/
+  `_file_matches_category` 过滤。此前 spec_first 只调用
+  `generate_prompt_fragment("all", "all")`，而 compatibility
+  （applies_to=["frontend"]）与 security（["backend","api"]）都不含 "all"、
+  `"frontend" in "all"` 恒 False，安全/兼容约束提取成功却从未进入生成 prompt。
+  实测需求「所有代码必须兼容 IE11。所有接口必须有权限校验。必须使用 FastAPI。」
+  修复后全量注入含三类约束；文件级调用（`app/api/users.py`/`api`、
+  `src/views/App.vue`/`frontend`）仍按作用域过滤，行为不变。
+
+**仍未处理**：
+
+- **GC1/GC3/GC4/GC8 仍成立**：单句多约束只取第一个（逗号不分句）、高频词误报、
+  性能关键词不可达、分句正则不含英文句点。GC1 需把 `_classify_constraint`
+  改为一句多约束并重新定义分句边界，会改变提取结果集；GC4 补关键词表会放大
+  GC3 噪声——均属提取语义的产品决策，保留待决。
+- **GC5/GC6/GC7 仍成立**：`_file_matches_category` 恒 True 分支、文件级筛选与
+  `merge_with_decisions` 零消费、`constraint_id` 全局序号混用。
