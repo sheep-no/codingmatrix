@@ -71,6 +71,25 @@ class ResultAggregator:
         """
         return self._node_results.get(node_id)
 
+    def record_skipped(self, node_id: str, reason: str = None) -> None:
+        """
+        记录被跳过的节点（如条件分支未选中）
+
+        跳过节点不计入成功/失败，也不计入执行顺序，但计入已结束节点，
+        保证完成度与流式输出能够收尾。
+
+        Args:
+            node_id: 节点 ID
+            reason: 跳过原因
+        """
+        self._node_results[node_id] = NodeResult(
+            success=True,
+            data={"skipped": True, "reason": reason},
+            metadata={"skipped": True},
+        )
+        self._node_contexts[node_id] = self._build_node_context(node_id)
+        logger.info(f"[{self.workflow_id}] 跳过节点: node={node_id}, reason={reason}")
+
     def get_context(self, node_id: str) -> Dict[str, Any]:
         """
         获取指定节点的执行上下文
@@ -126,7 +145,20 @@ class ResultAggregator:
         return {
             node_id: result
             for node_id, result in self._node_results.items()
-            if result.success
+            if result.success and not (result.metadata or {}).get("skipped")
+        }
+
+    def get_skipped_results(self) -> Dict[str, NodeResult]:
+        """
+        获取所有被跳过的结果
+
+        Returns:
+            被跳过的节点结果字典
+        """
+        return {
+            node_id: result
+            for node_id, result in self._node_results.items()
+            if (result.metadata or {}).get("skipped")
         }
 
     def get_failed_results(self) -> Dict[str, NodeResult]:
@@ -236,6 +268,7 @@ class ResultAggregator:
         completed = len(self._node_results)
         successful = len(self.get_successful_results())
         failed = len(self.get_failed_results())
+        skipped = len(self.get_skipped_results())
 
         return {
             "workflow_id": self.workflow_id,
@@ -244,6 +277,7 @@ class ResultAggregator:
             "pending_nodes": total - completed,
             "successful_nodes": successful,
             "failed_nodes": failed,
+            "skipped_nodes": skipped,
             "completion_rate": self.get_completion_rate(),
             "execution_order": self._completed_order.copy(),
         }

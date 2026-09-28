@@ -236,6 +236,9 @@ function handleWorkflowEvent(data) {
       node.output = data.data || ''
       node.error = data.error || null
     }
+  } else if (data.event === 'node_skipped') {
+    const node = workflowNodes.value.find(item => item.id === data.node_id)
+    if (node) node.status = 'skipped'
   } else if (data.event === 'workflow_completed') {
     if (data.workflow_id) workflowId.value = data.workflow_id
     if (data.session_id) sessionId.value = data.session_id

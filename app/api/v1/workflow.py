@@ -270,9 +270,20 @@ async def execute_workflow(
                     event_data["error"] = result.error
                 event_queue.put_nowait(json.dumps(event_data) + "\n")
 
+            def on_node_skip(node_id: str):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        node.status = TaskStatus.SKIPPED
+                event_queue.put_nowait(json.dumps({
+                    "event": "node_skipped",
+                    "node_id": node_id,
+                    "timestamp": datetime.now().isoformat(),
+                }) + "\n")
+
             executor_task = asyncio.create_task(executor.execute(
                 on_node_start=on_node_start,
                 on_node_complete=on_node_complete,
+                on_node_skip=on_node_skip,
             ))
             def record_terminal(task):
                 record = _workflows.get(task_graph.workflow_id)

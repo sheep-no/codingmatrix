@@ -165,6 +165,7 @@ class WorkflowExecutor:
         completed: Set[str],
         failed: Set[str],
         running: Set[str],
+        skipped: Optional[Set[str]] = None,
     ) -> List[str]:
         """
         获取可执行的节点
@@ -178,15 +179,22 @@ class WorkflowExecutor:
             completed: 已完成的节点
             failed: 失败的节点
             running: 正在运行的节点
+            skipped: 已跳过的节点（条件分支未选中）
 
         Returns:
             可执行节点列表
         """
+        skipped = skipped or set()
         executable = []
 
         for node in self.task_graph.nodes:
             # failed 节点必须排除，否则会被反复调度并触发状态机异常
-            if node.id in completed or node.id in failed or node.id in running:
+            if (
+                node.id in completed
+                or node.id in failed
+                or node.id in running
+                or node.id in skipped
+            ):
                 continue
 
             deps_completed = all(dep in completed for dep in node.depends_on)
@@ -194,6 +202,74 @@ class WorkflowExecutor:
                 executable.append(node.id)
 
         return executable
+
+    def _select_branch_path(self, result: NodeResult) -> Optional[List[str]]:
+        """从条件节点结果中取出本次选中的分支节点列表"""
+        value = None
+        if isinstance(result.metadata, dict):
+            value = result.metadata.get("branch_path")
+        if value is None and isinstance(result.data, dict):
+            value = result.data.get("branch_path")
+        return value if isinstance(value, list) else None
+
+    def _compute_skip_nodes(
+        self,
+        conditional_id: str,
+        branch_path: List[str],
+        skipped: Set[str],
+    ) -> List[str]:
+        """
+        计算条件节点未选中分支及下游需要跳过的节点。
+
+        条件节点通过 branch_path 声明本次选中的分支目标；未选中的已声明目标
+        不应执行。任一依赖被跳过的节点同样无法执行（依赖永不完成），需要
+        一并跳过，否则残留的 pending 节点会让工作流永远无法收尾。
+        """
+        node = self._node_map.get(conditional_id)
+        if node is None:
+            return []
+
+        params = node.params or {}
+        declared = set(params.get("true_branch") or []) | set(params.get("false_branch") or [])
+        if not declared:
+            return []
+
+        skipped_now = set(skipped)
+        excluded = declared - set(branch_path)
+
+        to_skip: List[str] = []
+        for node_id in self._compute_topological_order():
+            if node_id == conditional_id or node_id in skipped_now:
+                continue
+            if self._state_machine.get_node_status(node_id) != TaskStatus.PENDING:
+                continue
+
+            child = self._node_map[node_id]
+            if node_id in excluded or any(dep in skipped_now for dep in child.depends_on):
+                skipped_now.add(node_id)
+                to_skip.append(node_id)
+
+        return to_skip
+
+    def _apply_conditional_branches(
+        self,
+        conditional_id: str,
+        result: NodeResult,
+        skipped: Set[str],
+        on_node_skip: Optional[Callable[[str], None]],
+    ) -> None:
+        """条件节点完成后，跳过未选中分支及其下游节点"""
+        branch_path = self._select_branch_path(result)
+        if branch_path is None:
+            return
+
+        reason = "Conditional branch not taken"
+        for node_id in self._compute_skip_nodes(conditional_id, branch_path, skipped):
+            self._state_machine.skip_node(node_id, reason)
+            skipped.add(node_id)
+            self._aggregator.record_skipped(node_id, reason)
+            if on_node_skip:
+                on_node_skip(node_id)
 
     async def _execute_node(
         self,
@@ -291,6 +367,7 @@ class WorkflowExecutor:
         on_node_start: Callable[[str], None] = None,
         on_node_complete: Callable[[str, NodeResult], None] = None,
         on_workflow_complete: Callable[[Dict], None] = None,
+        on_node_skip: Callable[[str], None] = None,
     ) -> Dict[str, Any]:
         """
         执行工作流
@@ -299,6 +376,7 @@ class WorkflowExecutor:
             on_node_start: 节点开始回调
             on_node_complete: 节点完成回调
             on_workflow_complete: 工作流完成回调
+            on_node_skip: 节点被跳过回调（条件分支未选中）
 
         Returns:
             执行结果字典
@@ -317,6 +395,7 @@ class WorkflowExecutor:
         completed: Set[str] = set()
         failed: Set[str] = set()
         running: Set[str] = set()
+        skipped: Set[str] = set()
 
         topological_order = self._compute_topological_order()
 
@@ -335,7 +414,7 @@ class WorkflowExecutor:
                     self._state_machine.cancel_workflow("Workflow timeout")
                     break
 
-                executable = self._get_executable_nodes(completed, failed, running)
+                executable = self._get_executable_nodes(completed, failed, running, skipped)
 
                 if not executable and not running:
                     if failed:
@@ -385,6 +464,10 @@ class WorkflowExecutor:
                             if result.success:
                                 completed.add(node_id)
                                 self._state_machine.complete_node(node_id, result.data)
+                                if self._node_map[node_id].type == TaskType.CONDITIONAL:
+                                    self._apply_conditional_branches(
+                                        node_id, result, skipped, on_node_skip
+                                    )
                             else:
                                 failed.add(node_id)
                                 self._state_machine.fail_node(node_id, result.error)
