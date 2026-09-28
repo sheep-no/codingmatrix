@@ -63,3 +63,25 @@
 ## 5. 测试状态
 
 **存在性断言、零行为断言**——仅 test_v4_8_features.py:137-140 一个用例断言 `len(FRAMEWORK_PRESETS) == 6`（REQ-1「6 种测试框架预设」计数）。无字段级断言、无 get_framework_config/get_default_config 用例、无消费链路（detect → docker/test_runner 命令选择）测试。TFC1（setup_commands 零消费，非 Python 项目依赖安装缺失）全库确认可复现但零用例保护——测试固化「6 个预设存在」而完全未触及「预设如何被消费、安装命令是否执行」。
+
+## 6. 状态更新（2026-09-28）
+
+以实码复核后：
+
+- **TFC1 [P2] 已修（本地 test_runner 链路）**：`app/agent/test_runner.py` 非 Python
+  分支新增 `_install_dependencies_for_config()`，按 `_detected_config.setup_commands`
+  执行依赖安装（`npm install` / `go mod download` / `mvn dependency:resolve` /
+  `cargo build` / `make build`），超时 300s，失败只告警不阻断测试。此前
+  `setup_commands` 全库零读取，JS/Go/Java/Rust/CPP 项目在无依赖状态下执行测试。
+  新增 `tests/unit/test_test_runner_dependency_setup.py`（6 例，回退源码后 6 例全失败）。
+- **TFC1 文档中的 docker 链路已不存在**：文档反复引用
+  `docker_runner.py:41/:492/:531/:536-539`，但 `app/agent/docker_runner.py` 全库
+  不存在（`rg` + `find` 均为空），故「容器内 npm test 失败」一段为陈旧描述；本次
+  只修真实存在的本地沙箱链路。
+- **TFC2/TFC3 [P3] 保留**：`get_framework_config` 零调用、`custom_args` 零消费，
+  修复方向是删除或收敛访问，属死代码清理，需单独决策。
+- **TFC4 [P3] 保留**：`test_runner.py` 与 `orchestrator_testing.py` 各自硬编码
+  `output_format = "pytest_xml"` 默认值，收敛到 `get_default_config()` 属重构，
+  保留。
+- **TFC5 [P3] 部分改善**：新增的 6 例覆盖 setup_commands 消费链路（命令、cwd、
+  失败、超时、无配置、run_tests 接线），字段级预设值断言仍缺。

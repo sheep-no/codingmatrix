@@ -112,6 +112,9 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 MAX_CONCURRENT_TESTS = 5
 
+# 非 Python 项目依赖安装（npm install / go mod download / ...）的时限
+DEPENDENCY_SETUP_TIMEOUT = 300
+
 
 class _SemaphoreHolder:
     semaphore: Optional[asyncio.Semaphore] = None
@@ -242,6 +245,9 @@ class IsolatedTestRunner:
                 else:
                     self._work_dir = self.project_path
                     logger.info(f"非 Python 项目，直接在原目录执行: {language}")
+                    install_ok = await self._install_dependencies_for_config()
+                    if not install_ok:
+                        logger.warning("部分依赖安装失败，继续尝试运行测试")
 
                 # 6. 构建测试命令
                 cmd = await self._build_test_command(test_paths, test_command)
@@ -504,6 +510,60 @@ class IsolatedTestRunner:
             if src_node.exists() and not node_modules.exists():
                 shutil.copytree(str(src_node), str(node_modules))
                 logger.info("复用已有 node_modules")
+
+        return ok
+
+    async def _install_dependencies_for_config(self) -> bool:
+        """按框架预设执行依赖安装（非 Python 项目）。
+
+        Python 项目在 venv 沙箱内走 ``_install_dependencies``（白名单 pip）。
+        其余语言此前从不安装依赖，node_modules / go module / maven 本地仓库
+        等缺失会让测试命令直接失败。这里执行预设的 ``setup_commands``
+        （``npm install`` / ``go mod download`` / ``mvn dependency:resolve`` 等）。
+        安装失败只记录警告并返回 False，不阻断后续测试执行。
+        """
+        config = self._detected_config
+        if not config or not config.setup_commands:
+            return True
+
+        ok = True
+        for command in config.setup_commands:
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(self._work_dir),
+                    preexec_fn=os.setsid if sys.platform != 'win32' else None,
+                )
+            except Exception as e:
+                logger.warning(f"依赖安装命令启动失败: {command}: {e}")
+                ok = False
+                continue
+
+            try:
+                _, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=DEPENDENCY_SETUP_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                if sys.platform != 'win32':
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                else:
+                    proc.kill()
+                await proc.wait()
+                logger.warning(f"依赖安装超时 ({DEPENDENCY_SETUP_TIMEOUT}s): {command}")
+                ok = False
+                continue
+
+            if proc.returncode != 0:
+                err = stderr.decode('utf-8', errors='replace')[:500]
+                logger.warning(f"依赖安装失败: {command}: {err}")
+                ok = False
+            else:
+                logger.info(f"依赖安装完成: {command}")
 
         return ok
 
