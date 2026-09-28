@@ -217,3 +217,15 @@ UI 子组件
 - 新增 `FRESCAN-46` 至 `FRESCAN-48`：Agent 会话、API Key/供应商/模型覆盖和管理日志使用固定 localStorage 键，注销流程未清理，形成跨账户复用风险。
 - 新增 `FRESCAN-49`：`WebSocketManager.disconnect()` 没有手动关闭标记，异步 `onclose` 仍会安排自动重连。
 - `FRESCAN-05` 的 SSE 队列竞争与本轮 `FRESCAN-49` 的 WebSocket 生命周期竞态属于不同传输实现，保持独立登记。
+
+## 10. FESTATE-05 修复（2026-09-28）
+
+- `useAgentBackend.copySettingsToClipboard` 改为 async 并 `await`
+  `navigator.clipboard.writeText(...)`；成功才提示「配置已复制到剪贴板」，
+  失败记录日志并提示「复制失败，请检查浏览器剪贴板权限」。原实现用同步
+  `try/catch` 包裹未 `await` 的 Promise，权限拒绝时不进入 catch，并立即弹出
+  假成功。
+- 同族的 `FRESCAN-09`（`useAgentWorkspace.copyFileContent` 无 try/catch）
+  在同一批修复，见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 第 8 节。
+- FESTATE-05 建议复用的 `useClipboard.js` 在库中不存在，故按就地修复；
+  回归 `src/composables/useAgentClipboard.test.js` 5 项（回退源码后 3 项失败）。

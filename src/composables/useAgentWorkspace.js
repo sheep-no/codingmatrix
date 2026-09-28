@@ -137,9 +137,13 @@ export function useAgentWorkspace({
   }
 
   const copyFileContent = async () => {
-    if (files.selectedFile) {
+    if (!files.selectedFile) return
+    try {
       await navigator.clipboard.writeText(files.selectedFile.content)
       ElMessage.success('已复制到剪贴板')
+    } catch (error) {
+      console.error('复制文件内容失败:', error)
+      ElMessage.error('复制失败，请手动选择内容复制')
     }
   }
 

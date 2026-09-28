@@ -219,3 +219,18 @@ FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及
 | FRESCAN-49 | 已修（文档滞后） | `src/utils/api/websocket.js` 已引入 `_manualClose` 标记：`connect()` 置 false、`disconnect()` 置 true，`onclose` 仅在 `!this._manualClose` 时调用 `attemptReconnect()`，主动断开后不再自动重连。 |
 
 `frontend_batch_rescan_164.md` 位于 `.gitignore`（160+ 轮日志，不纳入版本控制），非 Agent 结论以本表为准。
+
+## 8. Agent 剪贴板异步错误处理修复（2026-09-28）
+
+`FRESCAN-09` 与 `FESTATE-05` 同族一并修复（两者都是「`navigator.clipboard.writeText`
+返回 Promise 但未被 `await`/`catch`」导致的假成功与未处理 rejection）。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FRESCAN-09 | 已修 | `src/composables/useAgentWorkspace.js::copyFileContent` 原先直接 `await navigator.clipboard.writeText(...)`，无 try/catch；剪贴板权限被拒或处于非安全上下文时会抛出未处理 rejection，用户也看不到失败提示。现包入 try/catch：成功仍提示「已复制到剪贴板」，失败记录日志并提示「复制失败，请手动选择内容复制」，`navigator.clipboard` 缺失时同样收敛为失败提示而非抛出。 |
+| FESTATE-05 | 已修 | `src/composables/useAgentBackend.js::copySettingsToClipboard` 原为同步 `try/catch` 包裹未 `await` 的 `writeText`：Promise 拒绝逃逸同步捕获，且函数立即弹出「配置已复制到剪贴板」的假成功。现改为 async 并 `await`，成功才提示，失败记录日志并提示「复制失败，请检查浏览器剪贴板权限」。FESTATE-05 建议复用的 `useClipboard.js` 在库中不存在，故按就地修复处理。 |
+
+回归：`src/composables/useAgentClipboard.test.js`（5 项：两处成功、两处拒绝、
+剪贴板不可用）；回退 `useAgentWorkspace.js` / `useAgentBackend.js` 后 3 项失败。
+前端全量 57 files/266 passed；`AgentDashboard.initErrors.test.js` 在全量并发下的
+worker 启动超时属高负载偶发，单独重跑通过。
