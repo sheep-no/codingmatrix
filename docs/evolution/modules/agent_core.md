@@ -146,3 +146,24 @@ agent_core 是活跃核心（generate_endpoints 主消费），修复优先级�
   回退源码后 6 项全部失败。
 - **残余**：AC1/AC4/AC5/AC7/AC10 等结构性/协议级项仍保留；`_check_project_structure`
   等处的 `Path.exists()` 未被本次门禁标记（ruff 未识别该二元表达式形式），保持原样。
+
+## 8. AC5 / AC11 修复（2026-09-28）
+
+- **AC5 已修**：`generate_project` 结尾的 `result["success"]` 原先只判断
+  `len([s for s in steps if s.get("type") == "final"]) > 0`，完全忽略
+  `validation_report["runnable"]`——验证不可运行的项目仍返回 `success=True`
+  （结果谎报）。现改为 `has_final_step and validation_runnable`，验证被禁用时
+  `validation_report` 为 `{"runnable": True}`，语义不变；`generate_endpoints`
+  消费方本就检查 `validation.runnable` 并抛 400，本次使结果层与接口层一致。
+- **AC11 已修**：完成检测原先对全部关键词做子串匹配
+  （`any(indicator in pure_text.lower() ...)`），`"abandoned"` 会命中 `"done"`、
+  `"unsuccessful"` 会命中 `"success"`，导致 LLM 中途一句「The change is undone」
+  即被误判完成、提前结束生成。现抽出模块级 `_has_completion_signal`：ASCII 关键词
+  按整词边界匹配（与 `_count_keyword_hits` 同款 `(?<![a-z0-9])…(?![a-z0-9])`），
+  CJK 关键词仍按子串匹配；并补入 `successful`/`successfully` 变体，避免整词匹配后
+  丢失常见正向表达。
+- **回归**：新增 `tests/unit/test_agent_core_success_and_completion.py`（10 项：
+  完成信号正反例 + `generate_project` 在 runnable 真/假下的 `success` 断言）；
+  单独回退 AC5 改动后 `test_success_false_when_validation_not_runnable` 失败，
+  回退 AC11 的词边界后 3 项 false-positive 用例失败。
+- **测试状态**：AC5 从「结构性/协议级保留」转为已修；AC11 从 P3 未处理转为已修。

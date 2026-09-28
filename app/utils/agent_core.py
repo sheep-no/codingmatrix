@@ -210,6 +210,29 @@ def _count_keyword_hits(keywords: List[str], text: str) -> int:
     return hits
 
 
+_COMPLETION_INDICATORS = [
+    "完成", "项目生成完成", "所有文件已创建", "项目创建完毕", "生成完毕", "【完成】",
+    "success", "successful", "successfully", "finished", "done",
+]
+
+
+def _has_completion_signal(text: str) -> bool:
+    """检测 LLM 回复中的生成完成信号。
+
+    ASCII 关键词按整词匹配——子串匹配会让 "abandoned" 命中 "done"、
+    "unsuccessful" 命中 "success" 而误判完成、提前终止生成。CJK 无词
+    边界概念，仍按子串匹配。
+    """
+    lowered = text.lower()
+    for indicator in _COMPLETION_INDICATORS:
+        if indicator.isascii():
+            if re.search(rf"(?<![a-z0-9]){re.escape(indicator)}(?![a-z0-9])", lowered):
+                return True
+        elif indicator in lowered:
+            return True
+    return False
+
+
 class FileModelRouter:
     """根据文件类型自动选择最佳模型（从 agent_model_config.yaml 读取配置）。"""
 
@@ -1998,13 +2021,8 @@ class ProjectGeneratorAgent(BaseModel):
                 # 纯文本回复
                 logger.debug(f"收到纯文本回复: {pure_text[:100]}...")
 
-                # 扩展完成检测关键词
-                completion_indicators = [
-                    "完成", "success", "finished", "done", "项目生成完成",
-                    "所有文件已创建", "项目创建完毕", "生成完毕", "【完成】"
-                ]
-
-                has_completion = any(indicator in pure_text.lower() for indicator in completion_indicators)
+                # 扩展完成检测关键词（ASCII 按整词匹配，见 _has_completion_signal）
+                has_completion = _has_completion_signal(pure_text)
 
                 if has_completion:
                     logger.info("收到完成信号")
@@ -2086,8 +2104,12 @@ class ProjectGeneratorAgent(BaseModel):
             await conversation_history_manager.set_history(session_id, messages.copy())
             logger.info(f"已保存对话历史 | session_id: {session_id} | 消息数: {len(messages)}")
         
+        # success 必须同时满足「LLM 报告完成」与「服务端验证可运行」，否则验证
+        # 失败（runnable=False）的计划仍被上报为成功（AC5 结果谎报）。
+        has_final_step = any(s.get("type") == "final" for s in steps)
+        validation_runnable = validation_report.get("runnable", True)
         result = {
-            "success": len([s for s in steps if s.get("type") == "final"]) > 0,
+            "success": has_final_step and validation_runnable,
             "steps": steps,
             "output_dir": str(output_path.name),
             "total_files_created": total_tools_executed,
