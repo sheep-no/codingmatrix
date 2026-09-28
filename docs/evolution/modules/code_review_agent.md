@@ -141,3 +141,20 @@ category=ReviewCategory.ACCESSIBILITY,
 - **拆分解耦**：可复用的 AST 确定性检查可以作为独立 validator，被活跃 Specialist 审查前置调用；规则、报告组装和门禁决策应分离。
 - **平台化**：统一结果需至少包含文件、行号、类别、严重程度、问题和建议，并定义解析失败、读取失败和规则误报的可观测状态。
 - **退役方向**：当规则已迁入活跃审查链且 Skill 文档改为真实 API 后，目标文件整体退役；当前阶段保留档案以记录双轨关系和迁移风险。
+
+## 7. 状态更新（2026-09-28）
+
+按 §5 推荐路径「迁移前优先修复 B1/B2 以避免接线即失败」，本批只处理这两项最低成本、
+高确定性的接线阻塞项，未触及 P3 启发式规则（属于迁移后统一 Schema 的范畴）。
+
+- **B1 [P2] 已修**：`ReviewCategory` 补上 `ACCESSIBILITY = "accessibility"`。
+  `SKILL_PROMPTS` 与 `_check_js_skills`（:501）的无障碍分支早已实现，此前一命中缺
+  `alt` 的 `<img>` 就抛 `AttributeError`。回归 `tests/unit/test_code_review_agent_skills.py`
+  （2 例：缺 alt 命中 `ReviewCategory.ACCESSIBILITY`、有 alt 返回空）；回退源码后
+  第一例以 `AttributeError: ACCESSIBILITY` 失败。
+- **B2 [P2] 已修**：`.claude/skills/code-review/SKILL.md` 的示例由不存在的异步
+  `await agent.review_code(file_path)` 改为真实 API——同步
+  `agent.review_file(Path(...), language=...)`，并补项目级 `review_project(...)` 用法。
+- **B3/B4/B5/B6/B7 维持原判**：async 函数节点漏检、行号恒 0、正则误报面、
+  读取异常直冒、`self.issues` 未消费等属该模块迁移/退役前的启发式质量问题，
+  按 §5 结论不在零消费阶段建立逐个生产修复循环。
