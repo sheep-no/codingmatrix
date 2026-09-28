@@ -111,3 +111,13 @@ if result.success:                     # ← 恒 False（RE1 短路）
 - **ERR6 [P3] 已消解**：`fallback_model or "Qwen/Qwen3-8B"` 不存在；现在缺 `model_assignment.backend_model` 直接 `raise RuntimeError`，不再有硬编码兜底模型名。
 
 新增回归 `tests/unit/test_error_recovery_react_fix.py`（7 项：开关关闭跳过、缺 reviewer 跳过、无失败测试跳过、成功路径传 project_path 并复测、缺模型分配报错、process 异常包装、总超时生效）。
+
+## 阻塞 I/O 清理（2026-09-28）
+
+- **ERR12（新增）修复链路文件读写阻塞事件循环**：`validate_and_fix`、
+  `_smart_fix_loop`、`_evaluate_code_quality` 三处临时文件写入，以及
+  `fix_from_test_logs` 里的 `target.resolve()` / `project_path.resolve()` 路径穿越
+  校验与 `write_file_atomic` 落盘，都在协程里同步执行。修复链在生成编排中被
+  逐文件循环调用（`MAX_FIX_ATTEMPTS` 轮），阻塞会拖住整个事件循环。现临时写入、
+  路径解析与原子落盘统一改经 `asyncio.to_thread`；`project_path.resolve()` 在
+  循环外解析一次复用。清理/异常语义不变。本文件 `ASYNC230`/`ASYNC240` 告警归零。

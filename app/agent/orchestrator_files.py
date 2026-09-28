@@ -2766,8 +2766,7 @@ router = APIRouter()
             )
             if success:
                 try:
-                    with open(full_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
+                    await asyncio.to_thread(full_path.write_text, content, encoding='utf-8')
                 except OSError as e:
                     logger.error(f"文件写入失败（错误恢复后）: {file_path} - {e}")
                     validation_success = False

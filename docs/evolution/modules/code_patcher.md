@@ -216,3 +216,12 @@ def test_apply_patch_failure(self, patcher): ...
 - **CP10 [P2] 语义部分已修**：`generate_cross_file_patches` 原在 `for changed_file in changed_files` 中对**每个**成功应用都执行 `result.primary_result = patch_result`，导致多文件变更时 `primary_result` 指向最后一个文件，而 `primary_file` 声明的是 `changed_files[0]`，二者错位。现仅在 `changed_file == result.primary_file` 时写入 `primary_result`，其余直接变更文件结果收集到新增字段 `CrossFilePatchResult.changed_results`，`dependent_results` 仍专用于下游受影响文件；日志补 `changed=` 计数。
 - **残留**：整条跨文件补丁链路的入口 `_apply_patches_incremental`（orchestrator_files.py）仍无调用方（OF10 死代码），属结构性/接线决策（接线或删除），保留待决。
 - **回归**：`tests/unit/test_code_patcher.py` 新增 `test_cross_file_patcher_primary_result_tracks_primary_file`（21 项），回退源码后该用例断言 `primary_result.file_path == 'third.py'` 失败。
+
+## 10. 阻塞 I/O 清理（2026-09-28）
+
+- **CP14（新增）`apply_patch_to_file` / `apply_incremental_change` 阻塞事件循环**：
+  两个 async 入口在协程里直接 `file_path.exists()` / `file_path.resolve()` /
+  `read_text()`，并同步执行 `_atomic_write_text`（备份 + 回写）。补丁链路在生成
+  协程里逐文件调用，读写的原文件可能较大。现读、原子写与路径解析均改经
+  `asyncio.to_thread`；`_atomic_write_text` 仍是「临时文件 + fsync + os.replace」，
+  CP5 的原子性与失败不污染目标文件的语义不变。本文件 `ASYNC240` 告警归零。

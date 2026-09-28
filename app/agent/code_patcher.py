@@ -20,6 +20,7 @@ CodePatcher - 代码补丁生成器
 
 import os
 import re
+import asyncio
 import logging
 import difflib
 import tempfile
@@ -266,7 +267,7 @@ class CodePatcher:
         Returns:
             PatchResult 结果
         """
-        if not file_path.exists():
+        if not await asyncio.to_thread(file_path.exists):
             return PatchResult(
                 success=False,
                 file_path=str(file_path),
@@ -279,8 +280,8 @@ class CodePatcher:
 
         # 路径穿越校验：确保文件在安全边界内
         if output_dir is not None:
-            resolved_file = file_path.resolve()
-            resolved_dir = output_dir.resolve()
+            resolved_file = await asyncio.to_thread(file_path.resolve)
+            resolved_dir = await asyncio.to_thread(output_dir.resolve)
             try:
                 resolved_file.relative_to(resolved_dir)
             except ValueError:
@@ -294,16 +295,16 @@ class CodePatcher:
                     warnings=[]
                 )
 
-        original_content = file_path.read_text(encoding='utf-8')
+        original_content = await asyncio.to_thread(file_path.read_text, encoding='utf-8')
         result = await self.apply_patch(str(file_path), original_content, patch)
 
         if result.success:
             # 备份原文件（原子写，避免备份与写入之间中断留下半写 .bak）
             backup_path = file_path.with_suffix(file_path.suffix + '.bak')
-            _atomic_write_text(backup_path, original_content)
+            await asyncio.to_thread(_atomic_write_text, backup_path, original_content)
 
             # 原子写入 patch 后的内容：进程中断不会留下半写文件
-            _atomic_write_text(file_path, result.patched_content)
+            await asyncio.to_thread(_atomic_write_text, file_path, result.patched_content)
 
         return result
 
@@ -542,10 +543,10 @@ async def apply_incremental_change(
     """
     patcher = CodePatcher(llm_call_fn=llm_call_fn)
 
-    if not file_path.exists():
+    if not await asyncio.to_thread(file_path.exists):
         raise RuntimeError(f"incremental patch target does not exist: {file_path}")
 
-    original_content = file_path.read_text(encoding='utf-8')
+    original_content = await asyncio.to_thread(file_path.read_text, encoding='utf-8')
 
     # 生成 patch
     patch = await patcher.generate_patch_from_requirement(
