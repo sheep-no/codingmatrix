@@ -106,3 +106,15 @@
 - **OA2 [P2] 已消解（复核 2026-09-27）**：§2/§9.2 记录的「confirm/helpfulness 端点三处错位」对应的**两个端点及前端调用已在 `6542dffe`（AA5，2026-09-24）删除**——`association_endpoints.py` 现仅剩联想与 stats 两个端点，全库不再有 `record_feedback`/`record_helpfulness` 调用，原 AttributeError/TypeError 500 不复存在。副作用：`AssociationFeedbackTracker.record_choice`/`record_helpfulness`（实现正确）现**零调用**，联想反馈从不落库，stats 端点恒空。若要恢复反馈能力，仍需先确定「association_id 语义」这一跨前后端契约口径。
 - **OA6 [P3] 保留**：`AssociationItem.devil_review`（data_models.py:16）确为死字段（全库无写入，endpoint 逐项回传恒空字符串）；`devil_review_items` 已由 `devil_advocate_review` 填充并被 evaluate_mixin/前端消费。把审视结果 merge 回 item 并影响置信度属行为语义变更，保留待产品决策。
 - **OA4/OA5/OA7/OA9 [P3]**：无架构师时静默空、merge key/置信度硬编码、模型配置双轨、Layer 2 门槛不一致，均保持原状。
+
+## 11. 状态更新（2026-09-28）
+
+- **阻塞 I/O 清理（新增 OA13）**：`layer1_template.layer1_cross_domain_template`
+  在 async 循环里对每个领域 `template_path.exists()` + `open(...)` 读 JSON 模板。
+  现抽出同步 `_load_domain_template`（含缺失 debug 日志与解析失败 warning 日志），
+  在循环里经 `asyncio.to_thread` 调用，模板读取与解析整体移出事件循环；返回值语义
+  不变。回归 `tests/unit/test_agent_package_blocking_io.py`。
+- 同批把 `app/agent` 包内其余 ASYNC 阻塞调用（`scaffolding.execute_official_scaffold`、
+  `toolchain.ToolchainRunner.run`、`framework_profiles.probe_workspace_profile`
+  的 `resolve()` / `is_dir()` / 目录非空检查）改经 `asyncio.to_thread`，使
+  `ruff check app/agent --select ASYNC` 归零（这些模块暂无独立演化文档）。

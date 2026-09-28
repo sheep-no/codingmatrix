@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -101,8 +102,8 @@ async def probe_workspace_profile(
     """Run finite, allowlisted checks before a custom profile can advance."""
     if profile.scope is not ProfileScope.WORKSPACE:
         raise ValueError("profile probe requires workspace scope")
-    workspace = workspace.resolve()
-    if not workspace.is_dir():
+    workspace = await asyncio.to_thread(workspace.resolve)
+    if not await asyncio.to_thread(workspace.is_dir):
         raise ValueError("profile probe workspace must be an existing directory")
 
     commands = _commands_for_checks(profile)

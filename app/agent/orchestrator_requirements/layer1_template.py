@@ -1,11 +1,25 @@
+import asyncio
 import json
 import logging
-from typing import List, Dict
+from pathlib import Path
+from typing import List, Dict, Optional
 
 from app.agent.orchestrator_requirements.constants import DOMAIN_TEMPLATES_DIR
 from app.agent.orchestrator_requirements.data_models import AssociationItem
 
 logger = logging.getLogger(__name__)
+
+
+def _load_domain_template(template_path: Path) -> Optional[Dict]:
+    """同步加载领域模板：文件不存在返回 None，解析失败返回 None。"""
+    if not template_path.exists():
+        logger.debug(f"领域模板不存在: {template_path.stem}")
+        return None
+    try:
+        return json.loads(template_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"领域模板加载失败: {e}")
+        return None
 
 
 async def layer1_cross_domain_template(
@@ -17,15 +31,8 @@ async def layer1_cross_domain_template(
     items = []
     for domain in domains:
         template_path = DOMAIN_TEMPLATES_DIR / f"{domain}.json"
-        if not template_path.exists():
-            logger.debug(f"领域模板不存在: {domain}")
-            continue
-
-        try:
-            with open(template_path, "r", encoding="utf-8") as f:
-                template = json.load(f)
-        except Exception as e:
-            logger.warning(f"领域模板加载失败: {e}")
+        template = await asyncio.to_thread(_load_domain_template, template_path)
+        if template is None:
             continue
 
         confidence = compute_template_confidence(requirement, template)
