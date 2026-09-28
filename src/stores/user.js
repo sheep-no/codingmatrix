@@ -82,6 +82,10 @@ export const useUserStore = defineStore(
       localStorage.removeItem('codingmatrix_rsa_public_key')
       localStorage.removeItem('codingmatrix_model_overrides')
       localStorage.removeItem('codingmatrix_providers')
+
+      // 清除系统日志与过滤状态，避免下一账户在 WebSocket 建立前
+      // 看到上一账户的日志内容与筛选条件
+      localStorage.removeItem('systemLogsState')
     }
 
     /**

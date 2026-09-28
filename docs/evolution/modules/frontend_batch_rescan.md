@@ -197,3 +197,21 @@ FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及
 | FESURF-001 | 已修（前批） | `src/utils/api/index.js:86` 显式创建 `ppt: createPptClient(baseClient)`。 |
 
 第二组「核心可用性」中仍待处理的是 FESTATE-01（Agent 会话快照保存链 no-op，需架构级统一快照契约）与 FRESCAN-05（SSE 重连复用同一队列，需每订阅者独立队列）。
+
+## 7. 第 164 轮非 Agent 项回写（2026-09-28）
+
+第 164 轮复扫（`frontend_batch_rescan_164.md`）的新增项按「非 Agent 范围」逐条复核，结论回写如下；命中 Agent 子系统的条目（FRESCAN-30、31、32、36、46、47）不在本范围，已在原文件单独标注。
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| FRESCAN-28 | 已修（文档滞后） | `src/components/HistoryItem.vue` 不再使用 `v-html`，标题改为 `titleParts` 拆分后以 `{{ part.text }}` 插值渲染（`<mark>` 仅作高亮容器），接口或本地标题中的 HTML 被转义，登录态历史列表的注入面已关闭。 |
+| FRESCAN-29 | 保留 P2 | `src/views/PPTPreview.vue` 预览失败仍与空数据共用「暂无幻灯片数据」占位，未提供错误区分与重试。属 UX 改进项，未改。 |
+| FRESCAN-41 | 已失效 | 原文引用 `src/utils/request.ts`（fallback `http://localhost:8000`），该文件已确认零生产引用并删除；`src/api/apikey.js` 现经 `@/utils/api/index` 的统一客户端发起请求，不再有固定本机后端 fallback。 |
+| FRESCAN-42 | 已修（文档滞后） | `Dockerfile` 已不再切换 `USER appuser`；现保持 root 启动 `nginx` 以绑定 80 端口，API 以 `su -s /bin/sh appuser -c 'uvicorn … --port 8080'` 运行，低端口绑定与 PID/日志目录写入均成立。 |
+| FRESCAN-43 | 已失效 | `src/` 下已无 `.ts` 源文件（`find src -name '*.ts'` 计数为 0），`src/eslint.config.js` 的文件匹配范围不再遗漏实际存在的文件类型。 |
+| FRESCAN-44 | 保留 P2 | `.github/workflows/frontend-ci.yml` 的 `paths` 仍仅含 `src/**`；Dockerfile、Compose、Nginx、scripts 的产物路径变更不触发前端构建门禁。属 CI 触发范围策略项，未改。 |
+| FRESCAN-45 | 已修（文档滞后） | `src/vite.config.js` 的 `build.sourcemap` 现为 `process.env.VITE_BUILD_SOURCEMAP === 'true'`，生产构建默认不再暴露 source map。 |
+| FRESCAN-48 | 已修（本轮） | `src/stores/logs.js` 将最多 100 条系统日志与过滤状态写入固定 `systemLogsState`，`src/stores/user.js::clearUser()` 未清理，同一浏览器下一账户在 WebSocket 建立前可读到上一账户日志。现于 `clearUser()` 追加 `localStorage.removeItem('systemLogsState')`，与 FRESCAN-46/47 的注销清理同族。新增 `src/stores/user.logout.test.js` 一项；回退 `user.js` 后该用例失败。 |
+| FRESCAN-49 | 已修（文档滞后） | `src/utils/api/websocket.js` 已引入 `_manualClose` 标记：`connect()` 置 false、`disconnect()` 置 true，`onclose` 仅在 `!this._manualClose` 时调用 `attemptReconnect()`，主动断开后不再自动重连。 |
+
+`frontend_batch_rescan_164.md` 位于 `.gitignore`（160+ 轮日志，不纳入版本控制），非 Agent 结论以本表为准。
