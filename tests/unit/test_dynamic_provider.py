@@ -145,6 +145,18 @@ class TestDynamicProviderManager:
         assert len(providers) == 1
         assert providers[0].api_key == ""
 
+    def test_list_providers_models_are_isolated_copy(self):
+        manager = DynamicProviderManager()
+        provider = manager.add("Test", "http://test.com", "openai", "sk-secret-key-1234567")
+        provider.models.append(ModelInfo(id="m1", name="M1"))
+
+        listed = manager.list()[0]
+        # 列表返回的对象不得共享内部 models 列表引用
+        assert listed.models is not provider.models
+
+        listed.models.append(ModelInfo(id="injected", name="INJ"))
+        assert [m.id for m in manager.get(provider.id).models] == ["m1"]
+
     def test_delete_provider(self):
         manager = DynamicProviderManager()
         provider = manager.add("Test", "http://test.com", "openai", "sk-test-key-12345")
