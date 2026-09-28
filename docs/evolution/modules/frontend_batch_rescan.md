@@ -206,6 +206,10 @@ FRESCAN-05（SSE 重连复用同一队列导致多客户端竞争事件）涉及
 |------|------|------|
 | FRESCAN-28 | 已修（文档滞后） | `src/components/HistoryItem.vue` 不再使用 `v-html`，标题改为 `titleParts` 拆分后以 `{{ part.text }}` 插值渲染（`<mark>` 仅作高亮容器），接口或本地标题中的 HTML 被转义，登录态历史列表的注入面已关闭。 |
 | FRESCAN-29 | 保留 P2 | `src/views/PPTPreview.vue` 预览失败仍与空数据共用「暂无幻灯片数据」占位，未提供错误区分与重试。属 UX 改进项，未改。 |
+| FRESCAN-37 | 已修（文档滞后） | `src/components/TaskQueue.vue` 的 `loadTasks` 现写作 `const data = response.ok ? await response.json() : { tasks: [] }`，不再把原生 `Response` 当 JSON 读取；任务列表可正常填充。该修复随 `7fdc5d7f`（2026-09-06）落地。 |
+| FRESCAN-38 | 已失效（误判） | `src/utils/api/task.js::cancelTask` 自 `d19271cd`（2026-07-21）起即含 `if (response.status === 204) return true`，在 204 无 body 时提前返回、不调用 `response.json()`，扫描时点的判定与代码不符。 |
+| FRESCAN-39 | 已修（2026-09-27） | `ProjectGenerator.vue` 的 `loadProjectFiles`/`onSelectProjectFile`/`onDeleteFile` 已改传 `project_path` 与 `file_path`，不再触发后端 422。 |
+| FRESCAN-40 | 已修（2026-09-27） | `compareSnapshots` 已改调 `api.getSnapshotDiff(form.value.sessionId, tag1, tag2)`，补齐 `sessionId` 且不再把标签错位为 `session_id`。 |
 | FRESCAN-41 | 已失效 | 原文引用 `src/utils/request.ts`（fallback `http://localhost:8000`），该文件已确认零生产引用并删除；`src/api/apikey.js` 现经 `@/utils/api/index` 的统一客户端发起请求，不再有固定本机后端 fallback。 |
 | FRESCAN-42 | 已修（文档滞后） | `Dockerfile` 已不再切换 `USER appuser`；现保持 root 启动 `nginx` 以绑定 80 端口，API 以 `su -s /bin/sh appuser -c 'uvicorn … --port 8080'` 运行，低端口绑定与 PID/日志目录写入均成立。 |
 | FRESCAN-43 | 已失效 | `src/` 下已无 `.ts` 源文件（`find src -name '*.ts'` 计数为 0），`src/eslint.config.js` 的文件匹配范围不再遗漏实际存在的文件类型。 |
