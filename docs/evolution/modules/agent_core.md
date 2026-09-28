@@ -126,3 +126,23 @@ agent_core 是活跃核心（generate_endpoints 主消费），修复优先级�
 
 - **零单元测试**：tests/ 下无 agent_core/ProjectGeneratorAgent/CodeValidator（utils 版）引用
 - AC1 路径越权、AC4 会话持久化、AC5 结果谎报、AC7 宿主执行均无测试约束——2627 行核心生成逻辑（40 步循环、4 种工具解析格式、token 守卫）全部无用例保护
+
+## 7. 状态校准（2026-09-28）
+
+- **测试状态更正（推翻 §6 的“零单元测试”）**：tests/ 现有 8 个 `test_agent_core_*.py`
+  直接引用 `ConversationHistoryManager` / `ProjectGeneratorAgent` / `CodeValidator` /
+  `FileModelRouter` / `_resolve_project_write_path` / `ProjectValidator`，覆盖对话清理、
+  write 路径解析、pip free 缓存、安全与语法告警、模型路由等；§6 的结论已陈旧。
+- **阻塞 I/O 修复（新增 AC13）**：`CodeValidator._validate_syntax` / `_validate_imports` /
+  `_validate_security` 与 `_check_dependencies`（requirements 清单）、`_check_entrypoint`
+  在 async 方法里同步 `open()` / `read_text()`；`validate_python_file`、`validate_file`
+  用 `Path.exists()`；`ProjectGeneratorAgent` 在「继续生成」分支遍历 `rglob` 列目录、
+  工具结果校验里 `exists()` / `stat()`。项目级校验对每个 .py 文件并发调用这些方法，
+  读文件会阻塞事件循环。现新增模块级 `_read_text_async` / `_path_exists_async` /
+  `_list_relative_files`，把文本读取、存在性检查和目录遍历统一改经 `asyncio.to_thread`；
+  入口点检查把原先的 `readline()` + 二次 `read_text()` 合并为一次线程读取。本文件
+  ASYNC 告警归零。
+- **回归**：新增 `tests/unit/test_agent_core_blocking_io.py`（6 项，含线程隔离断言），
+  回退源码后 6 项全部失败。
+- **残余**：AC1/AC4/AC5/AC7/AC10 等结构性/协议级项仍保留；`_check_project_structure`
+  等处的 `Path.exists()` 未被本次门禁标记（ruff 未识别该二元表达式形式），保持原样。

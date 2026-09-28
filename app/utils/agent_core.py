@@ -57,6 +57,23 @@ def _cached_installed_packages() -> frozenset:
         return frozenset()
 
 
+async def _read_text_async(path: Path, encoding: str = "utf-8") -> str:
+    """在工作线程读取文本，避免在协程里阻塞事件循环。"""
+    return await asyncio.to_thread(path.read_text, encoding=encoding)
+
+
+async def _path_exists_async(path: Path) -> bool:
+    """在工作线程执行文件存在性检查（stat），避免阻塞事件循环。"""
+    return await asyncio.to_thread(path.exists)
+
+
+def _list_relative_files(root: Path) -> List[str]:
+    """同步列目录：返回 root 下所有文件的相对路径（根不存在时返回空）。"""
+    if not root.exists():
+        return []
+    return [str(f.relative_to(root)) for f in root.rglob('*') if f.is_file()]
+
+
 # ==================== 对话历史管理器 ====================
 
 class ConversationHistoryManager:
@@ -423,7 +440,7 @@ class CodeValidator:
         """验证单个Python文件"""
         logger.info(f"开始验证Python文件: {file_path}")
 
-        if not file_path.exists():
+        if not await _path_exists_async(file_path):
             return ValidationResult(
                 file_path=str(file_path),
                 validation_type=ValidationType.SYNTAX_CHECK,
@@ -474,8 +491,7 @@ class CodeValidator:
         logger.debug(f"验证语法: {file_path}")
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = await _read_text_async(file_path)
 
             # 基本语法检查
             try:
@@ -531,8 +547,7 @@ class CodeValidator:
         logger.debug(f"验证导入: {file_path}")
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = await _read_text_async(file_path)
 
             tree = ast.parse(content)
             issues = []
@@ -656,8 +671,7 @@ class CodeValidator:
         logger.debug(f"安全验证: {file_path}")
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = await _read_text_async(file_path)
 
             tree = ast.parse(content)
             warnings = []
@@ -1006,7 +1020,7 @@ class ProjectValidator:
             "version_mismatches": []
         }
 
-        if not requirements_file.exists():
+        if not await _path_exists_async(requirements_file):
             logger.warning("未找到requirements.txt文件")
             if callback:
                 await self._send_progress_callback(
@@ -1019,8 +1033,12 @@ class ProjectValidator:
         results["has_requirements"] = True
 
         try:
-            with open(requirements_file, 'r', encoding='utf-8') as f:
-                requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            content = await _read_text_async(requirements_file)
+            requirements = [
+                line.strip()
+                for line in content.splitlines()
+                if line.strip() and not line.startswith('#')
+            ]
 
             for req in requirements:
                 # 简单的依赖检查
@@ -1120,21 +1138,20 @@ class ProjectValidator:
 
         for file_name in entrypoint_files:
             file_path = self.project_path / file_name
-            if file_path.exists():
+            if await _path_exists_async(file_path):
                 results["entrypoint_found"] = True
                 results["entrypoint_file"] = file_name
 
                 # 检查文件是否可执行
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        first_line = f.readline()
+                    content = await _read_text_async(file_path)
+                    first_line = content.split("\n", 1)[0]
 
                     # 检查是否有shebang
                     if first_line.startswith('#!'):
                         results["executable"] = True
 
                     # 检查是否有if __name__ == "__main__"
-                    content = file_path.read_text(encoding='utf-8')
                     if 'if __name__ == "__main__"' in content:
                         results["executable"] = True
 
@@ -1316,7 +1333,7 @@ async def validate_file(file_path: str) -> Dict[str, Any]:
 
     try:
         path = Path(file_path)
-        if not path.exists():
+        if not await _path_exists_async(path):
             return {"status": "error", "message": f"文件不存在: {file_path}"}
 
         # 创建验证器（简化版）
@@ -1694,12 +1711,10 @@ class ProjectGeneratorAgent(BaseModel):
         has_history = await conversation_history_manager.has_history(session_id) if session_id else False
         
         # 获取当前目录状态（用于告诉 AI 继续时的情况）
-        current_files = []
-        if existing_output_dir and Path(existing_output_dir).exists():
-            for f in Path(existing_output_dir).rglob('*'):
-                if f.is_file():
-                    rel_path = f.relative_to(existing_output_dir)
-                    current_files.append(str(rel_path))
+        current_files = (
+            await asyncio.to_thread(_list_relative_files, Path(existing_output_dir))
+            if existing_output_dir else []
+        )
         
         if has_history:
             # 继续生成：加载历史并追加新需求
@@ -1882,7 +1897,7 @@ class ProjectGeneratorAgent(BaseModel):
                                 # 验证文件是否存在
                                 from pathlib import Path
                                 file_obj = Path(file_path)
-                                if not file_obj.exists():
+                                if not await _path_exists_async(file_obj):
                                     failed_tools.append({
                                         "tool_id": msg.tool_call_id,
                                         "error": f"文件创建后验证失败：文件不存在 {file_path}",
@@ -1891,11 +1906,12 @@ class ProjectGeneratorAgent(BaseModel):
                                     logger.error(f"文件创建验证失败：{file_path} 不存在")
                                 else:
                                     # 文件存在，发送创建成功回调
+                                    file_size = (await asyncio.to_thread(file_obj.stat)).st_size
                                     await self._progress_callback(ProgressType.FILE_CREATED, {
                                         "message": "文件创建成功",
                                         "step": current_step,
                                         "file_path": file_obj.name,
-                                        "file_size": file_obj.stat().st_size if file_obj.exists() else 0
+                                        "file_size": file_size
                                     }, callback)
                         elif status == "error":
                             failed_tools.append({
