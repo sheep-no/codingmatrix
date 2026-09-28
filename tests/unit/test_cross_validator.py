@@ -35,6 +35,31 @@ class TestCrossValidator:
             assert validator.is_critical_file("auth.py", "backend", priority=1) is False
             assert validator.is_critical_file("payment.py", "backend", priority=2) is False
 
+    def test_is_critical_file_matches_whole_words_only(self, validator):
+        # 子串假阳性：administration/accessibility/tokenizer 与 admin/access/token 无关
+        assert validator.is_critical_file("app/administration_utils.py", "service", priority=2) is False
+        assert validator.is_critical_file("app/accessibility.py", "service", priority=2) is False
+        assert validator.is_critical_file("app/tokenizer.py", "service", priority=2) is False
+        assert validator.is_critical_file("app/validated.py", "service", priority=2) is False
+
+    def test_is_critical_file_matches_path_segments_and_camel_case(self, validator):
+        assert validator.is_critical_file("app/services/auth_service.py", "service", priority=2) is True
+        assert validator.is_critical_file("src/authService.js", "frontend_component", priority=2) is True
+        assert validator.is_critical_file("app/middleware/cors.py", "service", priority=2) is True
+        assert validator.is_critical_file("app/permissions.py", "service", priority=2) is True
+
+    def test_is_critical_file_keeps_security_word_variants(self, validator):
+        assert validator.is_critical_file("app/authorization.py", "service", priority=2) is True
+        assert validator.is_critical_file("app/authentication.py", "service", priority=2) is True
+        assert validator.is_critical_file("app/encryption.py", "service", priority=2) is True
+
+    def test_is_critical_file_matches_file_type(self, validator):
+        assert validator.is_critical_file("app/main.py", "middleware", priority=2) is True
+        assert validator.is_critical_file("app/main.py", "ui_components", priority=2) is False
+        # file_type 同样按词元匹配，accessibility/administration 不算 access/admin
+        assert validator.is_critical_file("app/main.py", "accessibility", priority=2) is False
+        assert validator.is_critical_file("app/main.py", "administration", priority=2) is False
+
     def test_positional_args_satisfy_required_params(self, validator):
         # `def greet(name)` 本身会被扫描为一次调用，位置参数应满足 name
         files = {

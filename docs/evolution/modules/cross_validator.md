@@ -73,3 +73,21 @@ spec_first 生成链的**交叉验证层**：对关键文件（认证/支付/安
 - **成本主线**：CV1 + CV6 是「贵」的一侧放大项（单文件 3+ 次 LLM）；spec_cache SC1/SC3 使「省」失效——两头挤压
 - **「存在≠正确」验证主线**：cross_validator 是 spec_first 链的**跨文件语义验证层**（5 类正则），CV2/CV3 假阳性喂给 LLM 产生幻觉修复（CP1 链）；与 code_validator（CV 系列）、api_contract_checker（CV4 三套）共同构成验证栈的多套并存——§5.6 支柱 2（验证器协议统一）的核心收敛对象
 - **§5.6 支柱 2 映射**：cross_validator 的 5 类验证器 + CodeValidator 的四套 + 三套 API 契约 = 验证器协议的典型多实现区；CV1 的 critical 判定本质是「门禁触发规则」，应外置为支柱 5（阶段门禁）的配置项
+
+## 状态更新（2026-09-28）
+
+回归 `tests/unit/test_cross_validator.py` 新增 4 例（回退源码后 2 例失败）。
+
+- **CV1 [P2] 已修**：`is_critical_file` 由「整条路径/类型子串包含」改为
+  **词元匹配**——`_identifier_tokens` 按分隔符与驼峰边界拆词，
+  `_matches_critical_pattern` 只认整词、复数与少量等价构词变体。实测
+  `app/administration_utils.py`、`app/accessibility.py`、`app/tokenizer.py`
+  不再被判关键（原先分别命中 admin/access/token），而
+  `app/services/auth_service.py`、`src/authService.js`、
+  `app/middleware/cors.py`、`app/permissions.py` 仍命中；
+  `authorization.py`/`authentication.py`/`encryption.py` 通过变体表保留，
+  避免误伤真实安全文件。file_type 同样按词元匹配。
+- **CV3 [P2] 未改**：`_is_third_party` 硬编码库集合不全，修复方向涉及
+  第三方库白名单与环境探测，属设计取舍，保留。
+- **CV2/CV4/CV5/CV6 [P2/P3] 未改**：模型一致性正则精度、API 契约三套
+  并存、中文文案正则、成本上限，均需更大范围重构或产品口径，保留。
