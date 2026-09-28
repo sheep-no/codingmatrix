@@ -63,11 +63,19 @@ def batch_cosine_similarity(query: List[float], vectors: List[List[float]]) -> L
         return [0.0] * len(vectors)
     results = []
     for vec in vectors:
+        # 维度不一致（例如嵌入模型变更后遗留的旧向量）不能按公共前缀截断计算，
+        # 否则会得到虚假的相似度并触发错误的缓存命中。
+        if len(vec) != len(query):
+            logger.warning(
+                f"嵌入向量维度不一致: {len(query)} vs {len(vec)}，相似度按 0 处理"
+            )
+            results.append(0.0)
+            continue
         vec_norm = math.sqrt(sum(b * b for b in vec))
         if vec_norm == 0:
             results.append(0.0)
         else:
-            dot = sum(a * b for a, b in zip(query, vec))
+            dot = sum(a * b for a, b in zip(query, vec, strict=True))
             results.append(dot / (query_norm * vec_norm))
     return results
 

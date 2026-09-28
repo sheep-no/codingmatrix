@@ -119,3 +119,9 @@ Agent 记忆系统：三类记忆（对话/知识/反思）+ `AgentMemory` 整�
 - **MEM2**：压缩阈值与 `max_entries` 不匹配，待产品决策。
 - **MEM6（剩余部分）**：`AgentMemory` 仍无自动持久化接线（谁在何时调用
   `save_to_storage` 尚未接线），需与 DB 记忆层专项设计。
+
+## 状态更新（2026-09-28）
+
+- **MEM9（新增，P3）`cosine_similarity` 维度已校验但 zip 未声明约束**：函数已在入口
+  校验 `len(a) != len(b)` 并返回 0.0，点积处改用 `zip(..., strict=True)` 作为
+  不变量断言（维度相等已被前置保证），B905 消除。回归 `tests/unit/test_memory.py`。

@@ -92,3 +92,15 @@
 - **SC6 [P3] 已修复**：`CacheEntry` 新增 `requirement` 全文字段，`_save_entry`/`_save_index` 均持久化；`lookup` 的 Jaccard 降级改为按 `full_entry.requirement or full_entry.requirement_preview` 比较（旧条目回退预览）。长需求尾部关键词不再因 200 字符截断而漏命中。
 
 测试：`tests/unit/test_spec_cache.py` 扩展到 10 项（精确命中、miss、复杂度级别隔离/共存、dependency_graph 持久化、跨实例重启恢复、关键词表单一来源与阈值可达、技术栈三源合并归一、按全文比较命中、近同关键词集模糊命中）。
+
+## 状态更新（2026-09-28）
+
+- **SC7（新增，P2）`batch_cosine_similarity` 维度不一致时按公共前缀截断，产生虚假相似度**：
+  原实现 `sum(a * b for a, b in zip(query, vec))` 不校验向量维度。当持久化缓存里存在
+  旧维度向量（例如嵌入模型更换后遗留），`zip` 会静默按较短的公共前缀计算点积，而
+  `vec_norm` 仍按整段向量计算——`query=[1,0,0]` 与 `vec=[1,0]` 得到相似度 **1.0**，
+  可能越过 `threshold` 触发一次错误的缓存命中（复用与需求无关的历史架构）。同模块的
+  `memory.cosine_similarity` 早已显式处理该情形（维度不一致返回 0.0），此处遗漏。
+  现补维度校验：不一致时记 warning 并返回 0.0，一致时用 `zip(..., strict=True)`。
+  回归 `tests/unit/test_spec_cache.py::TestBatchCosineSimilarity`（2 项），回退源码后
+  维度用例失败；B905 在该函数消除。

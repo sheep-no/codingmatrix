@@ -1185,7 +1185,9 @@ language 字段要求：
         new_forms = cls._path_module_forms(strict_path, language)
         pairs: List[tuple] = []
         seen: Set[str] = set()
-        for old, new in zip(old_forms, new_forms):
+        # 两个列表由同一 language 生成、结构一一对应，长度必然相等；
+        # strict=True 保证后续若加入语言相关的非对称形态时立即暴露错配。
+        for old, new in zip(old_forms, new_forms, strict=True):
             if not old or not new or old == new or old in seen:
                 continue
             seen.add(old)
