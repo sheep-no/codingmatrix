@@ -65,3 +65,33 @@
 ## 5. 测试状态
 
 **结构覆盖充分、语义覆盖为零**——test_dependency_rules.py 37 用例覆盖三张表的结构完整性（dict/list 类型、引用一致性、无环），但**全部不调用消费方**：`_infer_file_type`（嵌套目录/顶层/endswith 边界）、`_auto_add_dependencies`（全连接行为/边数）、`_infer_file_type` 与 python adapter 的一致性对比均无用例。DR1/DR2/DR4/DR6 全部实测可复现但无任何用例保护。规则表是依赖图类型推断与规则兜底注入的唯一输入，其消费语义端到端无回归保护。
+
+## 6. 状态更新（2026-09-28 匹配语义修复）
+
+本批修复 DR1/DR6，回归测试 `tests/unit/test_dependency_graph_file_type.py`（6 例，
+回退 `dependency_graph.py` 后 3 例失败）。
+
+- **DR1 已修**：`DependencyGraph._infer_file_type`（dependency_graph.py）的
+  PATH_TYPE_RULES fallback 由 `path == pattern or path.startswith(pattern) or
+  path.endswith(pattern)` 改为与语言适配器（`adapters/python.py` 的
+  `infer_file_type`）一致的匹配语义：目录模式用 `f"/{pattern}" in f"/{path}"`
+  做路径段匹配。实测 `app/api/users.py`→api、`app/services/user.py`→service、
+  `app/tests/test_x.py`→test、`backend/services/user_service.py`→service，
+  此前全部落到 EXTENSION_TYPE_MAP 的 `utils` 兜底。
+- **DR6 已修**：非目录模式要求路径段边界（`normalized == pattern` 或
+  `f"/{pattern}" in f"/{normalized}"` 或 `normalized.startswith(pattern)`）；
+  仅 `.`/`_` 开头的后缀模式保留 `endswith`。`my_config.py` 不再命中
+  `("config.py", "config")`，`app/config.py` 仍正确判为 config。文件名前缀
+  模式（`test_`）与后缀模式（`_test.py`、`.env`）行为不变。
+- **更具体规则优先**：命中多个 pattern 时取最长者，`src/views/App.vue` 仍为
+  frontend_page（不被更短的 `views/` 抢先）、`src/components/App.vue` 为
+  frontend_component、`src/api/client.js` 为 frontend_api。
+
+**仍未处理**：
+
+- **DR2 保留**：`EXTENSION_TYPE_MAP` 仍无 `.py` 键，无适配器时未命中规则的
+  `.py` 文件继续兜底 `utils`。`_infer_file_type` 的注释明确这是刻意的降级语义
+  （有适配器时返回 `unknown` 触发显式失败，无适配器时避免硬失败），改动需与
+  DR5 兜底语义一起决策，保留待决。
+- **DR3/DR4/DR5/DR7/DR8 仍成立**：三份 PATH_TYPE_RULES、类型级全连接、
+  `'utils'` 兜底语义、`views/` 与 `src/views/` 歧义、消费语义测试盲区均未触及。

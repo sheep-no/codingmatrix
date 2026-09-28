@@ -258,3 +258,11 @@ return f"app/api/{'_'.join(parts)}.py"
 - **DG10 [P3] 仍在**：`_path_to_api_file` 多段路径仍平铺拼接。
 
 测试：`tests/unit/test_dependency_graph.py`（67 项）全部通过，本轮为 DG5/DG7/DG9 新增 8 项（堆排序顺序语义 4 项、上下文窗口预算 2 项、JS 别名解析 2 项）；`tests/unit/test_dependency_graph_integrity.py`（11 项：缺失项目文件上报、外部包不误报、update/remove 清理未解析表、补缺后重建边、文件名/路径段解析、歧义不猜测、1500 层长链不崩、环被打破）；`tests/unit/test_spec_first_llm_and_concurrency.py` 新增 1 项守卫 `refactor_file` 的依赖上下文接线（路径->内容字典 + 模型窗口）。
+
+## 8. 文件类型匹配语义修复（2026-09-28）
+
+`_infer_file_type` 的 PATH_TYPE_RULES fallback 改按路径段匹配（目录模式用
+`f"/{pattern}" in f"/{path}"`、文件名模式要求段边界、命中取最长 pattern），
+修复 DR1（嵌套目录全漏配）与 DR6（endswith 宽松误报），详见
+[dependency_rules.md](dependency_rules.md) §6。`tests/unit/test_dependency_graph_file_type.py`
+新增 6 项覆盖；回退源码后 3 项失败。
