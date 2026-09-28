@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -40,31 +41,45 @@ class BackendEngineer(Specialist):
 
     @staticmethod
     def _infer_file_type_from_path(file_path: str) -> str:
-        """从文件路径推断 file_type"""
-        path_lower = file_path.lower()
-        if 'model' in path_lower:
+        """从文件路径推断 file_type。
+
+        以路径段/单词为匹配单位（按非字母数字切分），并对常见复数形式做等价
+        处理，避免原先的子串匹配把无关单词判成业务类型——'capital'/'therapeutic'
+        命中 api、'apple'/'happened' 命中 app、'domain' 命中 main、'latest'
+        命中 test。
+        """
+        path_lower = file_path.lower().replace("\\", "/")
+        tokens = {token for token in re.split(r"[^a-z0-9]+", path_lower) if token}
+
+        def has(*keywords: str) -> bool:
+            for keyword in keywords:
+                if keyword in tokens or f"{keyword}s" in tokens or f"{keyword}es" in tokens:
+                    return True
+            return False
+
+        if has('model'):
             return 'model'
-        if 'api' in path_lower or 'router' in path_lower or 'handler' in path_lower or 'controller' in path_lower:
+        if has('api', 'router', 'handler', 'controller'):
             return 'api'
-        if 'service' in path_lower:
+        if has('service'):
             return 'service'
-        if 'repo' in path_lower or 'repository' in path_lower or 'dao' in path_lower:
+        if has('repo', 'repository', 'dao'):
             return 'repository'
         if path_lower.endswith('crud.py') or '/crud/' in path_lower:
             return 'repository'
-        if 'schema' in path_lower or 'dto' in path_lower:
+        if has('schema', 'dto'):
             return 'schema'
-        if 'database' in path_lower or 'db' in path_lower:
+        if has('database', 'db'):
             return 'database'
-        if 'config' in path_lower or 'settings' in path_lower:
+        if has('config', 'settings'):
             return 'config'
-        if 'middleware' in path_lower:
+        if has('middleware'):
             return 'middleware'
-        if 'test' in path_lower:
+        if has('test'):
             return 'test'
-        if 'util' in path_lower or 'helper' in path_lower:
+        if has('util', 'helper'):
             return 'utils'
-        if 'main' in path_lower or 'app' in path_lower or 'index' in path_lower:
+        if has('main', 'app', 'index'):
             return 'entry'
         return 'unknown'
 
@@ -730,12 +745,14 @@ from .utils import greet, farewell
             list_files_tool = read_only_tools.get('list_files')
             if list_files_tool:
                 try:
-                    files_result = await list_files_tool['function'](
-                        directory=project_path,
-                        max_depth=3
+                    files_result = await asyncio.to_thread(
+                        list_files_tool['fn'],
+                        project_path=project_path,
+                        directory=".",
+                        max_depth=3,
                     )
                     if files_result:
-                        project_files = files_result.get('files', [])[:20]  # 限制文件数量
+                        project_files = files_result.get('entries', [])[:20]  # 限制文件数量
                 except Exception as e:
                     logger.warning(f"获取文件列表失败: {e}")
 

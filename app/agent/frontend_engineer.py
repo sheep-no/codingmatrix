@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import re
 from typing import Dict, Optional, Any
 
 from app.agent.specialist_base import Specialist
@@ -38,17 +40,22 @@ class FrontendEngineer(Specialist):
 
     @staticmethod
     def _infer_file_type_from_path(file_path: str) -> str:
-        """从文件路径推断 file_type"""
-        path_lower = file_path.lower()
+        """从文件路径推断 file_type。
+
+        以路径段/单词为匹配单位（按非字母数字切分），避免原先的子串匹配把
+        普通单词判成页面——'preview' 命中 view、'passage' 命中 page。
+        """
+        path_lower = file_path.lower().replace("\\", "/")
+        tokens = {token for token in re.split(r"[^a-z0-9]+", path_lower) if token}
         if path_lower.endswith(('.html', '.htm')):
             return 'template'
         if path_lower.endswith(('.css', '.scss', '.sass', '.less')):
             return 'frontend_style'
-        if 'page' in path_lower or 'view' in path_lower:
+        if tokens & {'page', 'pages', 'view', 'views'}:
             return 'frontend_page'
-        if 'component' in path_lower:
+        if tokens & {'component', 'components'}:
             return 'frontend_component'
-        if 'test' in path_lower or 'spec' in path_lower:
+        if tokens & {'test', 'tests', 'spec', 'specs'}:
             return 'test'
         if path_lower.endswith(('.js', '.ts', '.jsx', '.tsx')):
             return 'frontend_component'
@@ -351,12 +358,14 @@ class FrontendEngineer(Specialist):
             list_files_tool = read_only_tools.get('list_files')
             if list_files_tool:
                 try:
-                    files_result = await list_files_tool['function'](
-                        directory=project_path,
-                        max_depth=3
+                    files_result = await asyncio.to_thread(
+                        list_files_tool['fn'],
+                        project_path=project_path,
+                        directory=".",
+                        max_depth=3,
                     )
                     if files_result:
-                        project_files = files_result.get('files', [])[:20]  # 限制文件数量
+                        project_files = files_result.get('entries', [])[:20]  # 限制文件数量
                 except Exception as e:
                     logger.warning(f"获取文件列表失败: {e}")
 
