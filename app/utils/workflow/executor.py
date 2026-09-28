@@ -325,6 +325,9 @@ class WorkflowExecutor:
         try:
             while not self._state_machine.is_workflow_complete():
                 if self._cancel_event.is_set():
+                    # 主动取消时把状态机落定为 CANCELLED，否则执行已停止
+                    # 但返回的 status 仍是 running
+                    self._state_machine.cancel_workflow("Cancelled")
                     break
 
                 if self._state_machine.check_timeout():
@@ -393,7 +396,9 @@ class WorkflowExecutor:
 
         except asyncio.CancelledError:
             logger.info(f"[{workflow_id}] 工作流被取消")
-            self._state_machine.cancel_workflow("User cancelled")
+            # cancel() 可能已把状态机落定为 CANCELLED，重复调用会因终态抛错
+            if not self._state_machine.is_workflow_complete():
+                self._state_machine.cancel_workflow("User cancelled")
             for task in self._running_tasks.values():
                 task.cancel()
         finally:

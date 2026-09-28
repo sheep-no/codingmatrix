@@ -83,3 +83,12 @@
 - **WF1 TTL 已补（2026-09-26）**：`_workflows` 已有 `_MAX_WORKFLOWS = 500` 上限并在写入时淘汰最旧项，`_session_workflows` 亦有 `_MAX_SESSION_WORKFLOWS = 200` 上限与按 `updated_at` 淘汰最旧会话。本轮补齐缺失的**按 TTL 过期**：新增 `_is_expired` / `_prune_expired`，`_workflows` 条目补记 `updated_at`（创建、置 running、完成回写三处均刷新），写入新工作流与 `_remember_session_workflow` 时惰性清理超过 24h 的条目。`keep_running=True` 使 `status == "running"` 的工作流不被清理，避免误断正在执行的任务；缺时间戳或格式非法的条目视为未过期，避免误伤。回归 `tests/unit/test_workflow_cache_ttl.py`（6 项，回退 `workflow.py` 后 5 项失败）；容量淘汰用例 `test_session_workflows_evict_oldest` 的时间戳已改为相对当前时间以适配 TTL。**仍未改**：超限淘汰是 FIFO 而非 LRU，属优化项。
 - **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。修复需把工作流/会话状态落库（`WorkflowHistory` 已存在，但 status/continue 链路尚未改走 DB），属架构级改动。
 - **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。删除涉及公共方法面，保留待确认。
+
+## 六、实证复核（2026-09-28）
+
+用真实 `WorkflowExecutor` / `WorkflowStateMachine` 跑端到端脚本复核清单中被点名的高优先级项，结论如下：
+
+- **WFE1（执行结束状态仍谎报 running）不存在**：构造 A（`sys.exit(1)` 失败）→ B（依赖 A）+ C（独立成功）的图，`execute()` 返回 `status="failed"`。`fail_node` / `complete_node` 末尾的 `_check_workflow_stuck`（state_machine.py:252/:283）在 C 完成后复查到「有失败节点且无可执行节点」，把状态落定为 FAILED，不再以 RUNNING 永久挂起。
+- **WFE2（cancel 不取消运行中节点任务）不存在**：`cancel()`（executor.py:434-443）除置位 `_cancel_event` 外，遍历 `_running_tasks` 调 `task.cancel()`。实测 30s 长跑节点在 cancel 后 0.01s 内返回。
+- **WFE2 变体（本轮修复）**：实证同时暴露 `cancel()` 后 `execute()` 返回 `status="running"`——主循环因 `_cancel_event` break 时未把状态机落定 CANCELLED。修复：break 前调 `_state_machine.cancel_workflow("Cancelled")`；`CancelledError` 分支加终态保护，避免 `cancel_workflow` 在终态重复调用时抛 `StateTransitionError`。API 层 SSE 断连场景此前已有 `executor_task.cancel()` 的 done 回调置 `cancelled` 兜底，故对外状态一直正确，本次修复的是 executor 公开返回值的一致性。
+- **既有 `test_cancellation` 属假通过（本轮修正）**：`tests/unit/test_executor.py::test_cancellation` 原把 `WEB_SEARCH` 节点的 `params` 改成 `code`，`query` 缺失令节点参数校验失败、工作流以 FAILED 收尾，断言 `in ("cancelled", "failed")` 掩盖了「未真正取消长跑节点」这一事实。现改为 monkeypatch 慢执行节点 + 严格断言 `== "cancelled"`；回退 `executor.py` 后该用例失败（`assert 'running' == 'cancelled'`），恢复后通过。
