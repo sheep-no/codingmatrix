@@ -42,4 +42,15 @@ describe('user store 注销清理', () => {
     expect(localStorage.getItem('codingmatrix_model_overrides')).toBeNull()
     expect(localStorage.getItem('codingmatrix_providers')).toBeNull()
   })
+
+  it('clearUser 清除系统日志与过滤状态（FRESCAN-48）', () => {
+    localStorage.setItem('systemLogsState', JSON.stringify({
+      systemLogs: [{ level: 'error', message: 'secret' }],
+      filterKeyword: 'secret'
+    }))
+
+    useUserStore().clearUser()
+
+    expect(localStorage.getItem('systemLogsState')).toBeNull()
+  })
 })
