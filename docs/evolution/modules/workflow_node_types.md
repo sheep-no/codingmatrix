@@ -97,7 +97,7 @@
 
 ### 仍开放（未改，需产品/架构口径）
 
-- **CON1 条件分支不参与调度**——`executor._get_executable_nodes` 仍只判 `dep in completed`，不读 `branch_path`。让分支真正生效需先定分支语义（gating 规则、被跳过节点的状态机记账、summary/回调口径），属能力实现而非局部修复，暂缓。
+- **CON1 条件分支不参与调度**——已于 2026-09-28 修复，见文末「后续修复（CON1）」。
 - **HA1 审批回调恒未注册**——`app/api/v1/workflow.py` 两处构造 `WorkflowExecutor` 仍未传 `approval_callback`（构造默认 None），HUMAN_APPROVAL 节点恒走 auto_reject。落地需新增审批端点 + 会话态审批存储 + 恢复执行，属功能开发，暂缓。
 - **CE1 无沙箱**——当前环境无 docker_runner，接入容器/进程隔离属能力建设，仅先纠正文档误导。
 - **CE4 / FP1 / FP3 / HRQ5 / HRQ6**——临时代码明文落 /tmp 无资源限额、`FileOperator()` 无 base_path、delete recursive 可删目录树、每请求新建 `httpx.AsyncClient`、`_replace_variables` 遍历全 context——均维持原判定，风险与改造成本需专项评估。
@@ -116,3 +116,12 @@
 - **EXPR1 AST 允许集合漏 `ast.Load`/`ast.BinOp`——变量引用与算术表达式被误拒**：`conditional.py::_safe_eval`、`data_transform.py::_safe_eval`、`data_transform.py::_safe_eval_reduce` 三处白名单都列出了 `ast.Name`，却漏了它的 `ctx` 子节点 `ast.Load`；`ast.walk` 会遍历到该节点，于是**任何引用变量的表达式**都被判「不允许的表达式元素: Load」。后果：`reduce` 默认表达式 `acc + item` 开箱即失败、`map` 默认 `item` 失败、`filter` 无法引用 `item`/`index`、`conditional` 内插后残留的裸变量失败（现有测试只覆盖 `{key}` 全内插为字面量的路径，故未暴露）。此外两个 `_safe_eval` 列出了 `ast.Add/Sub/Mult/Div/Mod/Pow` 却漏了容器节点 `ast.BinOp`，使算术运算符恒不可达（`_safe_eval_reduce` 恰含 `ast.BinOp`，双轨差异即漏配证据）。现三处补 `ast.Load`，两处 `_safe_eval` 补 `ast.BinOp`，并给 conditional 补齐 `ast.USub/ast.UAdd` 以与 data_transform 对齐。
 - **文档更正**：原 DT2「conditional 多 `ast.Attribute`」与现状不符——conditional 白名单从未包含 `ast.Attribute`（两者差异实为 `ast.FloorDiv/ast.USub/ast.UAdd`）。
 - 测试：`tests/unit/test_workflow_node_type_fixes.py` 新增 5 项（reduce 默认/初值、map 默认与算术、filter 引用 item/index、conditional 算术、放宽后属性/下标/调用仍被拒）；回退两个源文件后前 4 项失败。
+
+### 后续修复（CON1 条件分支真正参与调度）
+
+- **CON1 修复**：条件节点早在 `conditional.py:128` 产出 `branch_path`，但 `executor._get_executable_nodes` 只判 `dep in completed`，未读该结果，`true_branch`/`false_branch` 对调度零影响——两类分支节点只要依赖条件节点完成就都会被调度执行。现由 executor 在条件节点完成后读取 `branch_path`：
+  - `WorkflowStateMachine` 新增 `skip_node`（PENDING → SKIPPED）与 `get_skipped_nodes`，并把 `SKIPPED` 计入 `_check_workflow_completion` 的终态集合，使「跳过」不再阻塞工作流收尾；`get_execution_summary` 增加 `skipped` 计数。
+  - `WorkflowExecutor` 新增 `_select_branch_path` / `_compute_skip_nodes` / `_apply_conditional_branches`：条件完成后，把「条件声明的分支目标中本次未选中者」及其下游（任一依赖被跳过即无法执行）标记为 `SKIPPED`，并通过新增的 `on_node_skip` 回调上报；`_get_executable_nodes` 显式排除已跳过节点。
+  - `ResultAggregator` 新增 `record_skipped` / `get_skipped_results`：跳过节点计入「已结束节点」以保证 `is_complete()` 与完成度收尾，但不计入 `execution_order`、不计入成功/失败。
+  - `app/api/v1/workflow.py` 新增 `on_node_skip` 回调并推送 `node_skipped` 事件；`src/views/Workflow.vue` 处理该事件并把节点置为 `skipped`（该状态标签此前已存在）。
+- 回归：`tests/unit/test_executor.py` 新增 `test_conditional_true_branch_skips_false_branch_and_descendants`（含传递性跳过）与 `test_conditional_false_branch_skips_true_branch`；回退 `executor.py`/`state_machine.py`/`result_aggregator.py` 后两项均失败（表现为未选中分支被一起执行），恢复后通过。

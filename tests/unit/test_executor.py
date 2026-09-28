@@ -256,6 +256,93 @@ class TestExecution:
 
         assert task.result()["status"] == "cancelled"
 
+    @pytest.mark.asyncio
+    async def test_conditional_true_branch_skips_false_branch_and_descendants(self):
+        """条件为真时只执行 true_branch，false_branch 及其下游被跳过"""
+        graph = TaskGraph(
+            workflow_id="conditional_true",
+            nodes=[
+                TaskNode(
+                    id="cond", type=TaskType.CONDITIONAL,
+                    params={"expression": "1 == 1", "true_branch": ["yes"], "false_branch": ["no"]},
+                ),
+                TaskNode(id="yes", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('yes')"}, depends_on=["cond"]),
+                TaskNode(id="no", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('no')"}, depends_on=["cond"]),
+                TaskNode(id="no_child", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('no_child')"}, depends_on=["no"]),
+            ],
+        )
+        skipped_events = []
+        executor = WorkflowExecutor(graph, node_timeout=10)
+
+        result = await executor.execute(on_node_skip=skipped_events.append)
+
+        assert result["status"] == "completed"
+        assert result["summary"]["execution_order"] == ["cond", "yes"]
+        assert result["summary"]["skipped_nodes"] == 2
+        assert sorted(skipped_events) == ["no", "no_child"]
+        state = executor.get_state_machine()
+        assert state.get_node_status("no") == TaskStatus.SKIPPED
+        assert state.get_node_status("no_child") == TaskStatus.SKIPPED
+
+    @pytest.mark.asyncio
+    async def test_conditional_false_branch_skips_true_branch(self):
+        """条件为假时只执行 false_branch"""
+        graph = TaskGraph(
+            workflow_id="conditional_false",
+            nodes=[
+                TaskNode(
+                    id="cond", type=TaskType.CONDITIONAL,
+                    params={"expression": "1 == 0", "true_branch": ["yes"], "false_branch": ["no"]},
+                ),
+                TaskNode(id="yes", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('yes')"}, depends_on=["cond"]),
+                TaskNode(id="no", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('no')"}, depends_on=["cond"]),
+            ],
+        )
+        executor = WorkflowExecutor(graph, node_timeout=10)
+
+        result = await executor.execute()
+
+        assert result["status"] == "completed"
+        assert result["summary"]["execution_order"] == ["cond", "no"]
+        assert result["summary"]["skipped_nodes"] == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_node_does_not_fail_while_independent_node_running(self, monkeypatch):
+        """失败节点存在时，独立节点仍在运行则不提前把工作流判定为卡死"""
+        graph = TaskGraph(
+            workflow_id="stuck_while_running",
+            nodes=[
+                TaskNode(id="a", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('a')"}),
+                TaskNode(id="b", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('b')"}, depends_on=["a"]),
+                TaskNode(id="c", type=TaskType.CODE_EXECUTION,
+                         params={"code": "print('c')"}),
+            ],
+        )
+
+        async def fake_execute(self, node_id, context, cancel_event):
+            if node_id == "a":
+                return NodeResult.error_result(error="boom")
+            if node_id == "c":
+                await asyncio.sleep(1.0)
+            return NodeResult.success_result(data={})
+
+        monkeypatch.setattr(WorkflowExecutor, "_execute_node", fake_execute)
+        executor = WorkflowExecutor(graph, node_timeout=10)
+
+        result = await executor.execute()
+
+        assert result["status"] == "failed"
+        state = executor.get_state_machine()
+        assert state.get_node_status("c") == TaskStatus.COMPLETED
+        assert result["summary"]["completed_nodes"] == 2
+
 
 class TestCleanup:
     """测试清理机制"""

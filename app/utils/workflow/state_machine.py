@@ -149,6 +149,13 @@ class WorkflowStateMachine:
             if state.status == TaskStatus.FAILED
         ]
 
+    def get_skipped_nodes(self) -> List[str]:
+        """获取被跳过的节点 ID 列表（如条件分支未选中）"""
+        return [
+            node_id for node_id, state in self._nodes.items()
+            if state.status == TaskStatus.SKIPPED
+        ]
+
     def is_workflow_complete(self) -> bool:
         """检查工作流是否完成（成功或失败）"""
         return self._status in (
@@ -282,6 +289,37 @@ class WorkflowStateMachine:
         if self._status == WorkflowStatus.RUNNING:
             self._check_workflow_stuck()
 
+    def skip_node(self, node_id: str, reason: str = None) -> None:
+        """
+        标记节点跳过（不执行，如条件分支未选中）
+
+        Args:
+            node_id: 节点 ID
+            reason: 跳过原因
+        """
+        if node_id not in self._nodes:
+            raise StateTransitionError(f"Unknown node: {node_id}")
+
+        node_state = self._nodes[node_id]
+
+        if node_state.status != TaskStatus.PENDING:
+            raise StateTransitionError(
+                f"Cannot skip node {node_id} from status: {node_state.status}"
+            )
+
+        node_state.status = TaskStatus.SKIPPED
+        node_state.completed_at = datetime.now()
+        node_state.error = reason
+
+        self._emit_event("node_skipped", {
+            "workflow_id": self.workflow_id,
+            "node_id": node_id,
+            "reason": reason
+        })
+
+        if self._status == WorkflowStatus.RUNNING:
+            self._check_workflow_completion()
+
     def _check_workflow_stuck(self) -> None:
         """
         检查工作流是否陷入困境（无法继续执行）
@@ -297,6 +335,11 @@ class WorkflowStateMachine:
         )
 
         if not has_failed:
+            return
+
+        # 仍有节点在运行说明工作流还在推进，此时判定卡死会提前把工作流
+        # 落定为 FAILED，并让运行中的节点变成无人回收的孤儿任务
+        if self.get_running_nodes():
             return
 
         executable_nodes = [
@@ -420,7 +463,7 @@ class WorkflowStateMachine:
     def _check_workflow_completion(self) -> None:
         """检查工作流是否应该完成"""
         all_nodes_done = all(
-            state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+            state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED)
             for state in self._nodes.values()
         )
 
@@ -462,6 +505,7 @@ class WorkflowStateMachine:
             "running": len(self.get_running_nodes()),
             "completed": len(self.get_completed_nodes()),
             "failed": len(self.get_failed_nodes()),
+            "skipped": len(self.get_skipped_nodes()),
             "created_at": self._created_at.isoformat() if self._created_at else None,
             "started_at": self._started_at.isoformat() if self._started_at else None,
             "completed_at": self._completed_at.isoformat() if self._completed_at else None,

@@ -36,7 +36,7 @@ def _patch_runtime(monkeypatch, workflow_id):
         def __init__(self, **kwargs):
             pass
 
-        async def execute(self, on_node_start, on_node_complete):
+        async def execute(self, on_node_start, on_node_complete, on_node_skip=None):
             on_node_start("n1")
             on_node_complete("n1", result)
             return {"status": "completed", "summary": {"completed_nodes": 1}}
