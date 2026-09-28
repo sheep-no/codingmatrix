@@ -127,3 +127,20 @@
 - **顺手移除死导入**：`helpers.py:17` `from app.db.database import get_db` 全库无引用（F401），删除。
 
 回归：新增 `tests/unit/test_ai_agent_helpers_session_cleanup.py`（2 项：`_cleanup_old_session` 端到端删除旧会话文件 + 项目目录且删除发生在工作线程、`_delete_session_files` 缺路径容错；回退 `helpers.py` 后 2 项均失败）。修后 `ruff --select F,B,ASYNC` 对 `helpers.py` 全绿。
+
+## 十一、修复状态（2026-09-28）
+
+- **端点内路径解析阻塞事件循环已修**：`orchestrate_endpoints.py` 里 `/modify` 的
+  绝对/相对项目目录解析（`is_absolute` 分支、`Path(".").resolve()`、候选目录
+  `exists()`/`is_dir()`）以及 `/snapshots`、`/rollback`、`/snapshot/diff` 三处重复的
+  快照候选目录 `exists()` 检查，都在 async 端点里同步执行。现抽出同步辅助
+  `_resolve_project_dir`（返回 `(path, error)`，error ∈ {None, "missing", "not_dir"}）
+  与 `_locate_snapshot_project_dir`（两候选均不存在返回 None），由端点经
+  `asyncio.to_thread` 调用；`/orchestrate` 返回体的 `output_dir` 解析同样移出事件循环。
+  错误码与错误文案（404「项目不存在」/ 400「不是有效的项目文件夹」/ 404「项目目录不存在」）
+  保持不变，三处重复块合并为一处。
+- **同批**：`app/tasks/ppt_tasks.py:49` 的 `output_dir.mkdir(...)` 改经
+  `asyncio.to_thread`。修后 `ruff check app/api/v1/ai_agent app/tasks --select ASYNC`
+  与 `app/agent` 一同归零。
+- **回归**：新增 `tests/unit/test_ai_agent_endpoint_blocking_io.py`（4 项：绝对/相对目录
+  解析、快照目录候选优先级、`/modify` 端点路径解析线程隔离），回退源码后 4 项全部失败。

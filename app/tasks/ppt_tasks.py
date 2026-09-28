@@ -46,7 +46,7 @@ async def _generate_ppt(
 
     request = PPTGenerationRequest.model_validate(request_data)
     output_dir = Path(PPT_OUTPUT_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
     extension = {
         OutputFormat.PPTX: "pptx",
         OutputFormat.HTML: "html",
