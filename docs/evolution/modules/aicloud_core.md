@@ -101,3 +101,19 @@
 
 - **DP3 [P3] 已修复（列表引用隔离）**：`dynamic_provider.py` 的 `DynamicProviderManager.list()` 用 `DynamicProvider(...)` 新建列表元素对象，但 `models=p.models` 仍共享内部 `models` 列表引用——外部对返回对象的 `models` 做 `append` 等变更会直接改写管理器内部状态（实测：返回项与内部项 `models` 为同一对象，外部 append 后内部模型列表被污染）。现改为 `models=list(p.models)`，返回浅拷贝，内部状态不再受外部修改影响。新增回归 `tests/unit/test_dynamic_provider.py::TestDynamicProviderManager::test_list_providers_models_are_isolated_copy`，回退 `dynamic_provider.py` 后失败。
 - **ADT4 [P3] 保留（判定为审计策略 + 零消费）**：`audit_logger.py:257-262` 的 `cleanup_old_audit_logs` 删除条件含 `status == "success"`，失败/其他状态日志不被清理。该行注释显式声明「只清理成功的操作日志」，属「失败日志长期保留以便追查」的审计策略；且函数在全库零调用方（app/tests/src 均无引用），改动无运行影响。保留原行为，不擅自变更语义。
+
+## 八、P3 剩余项逐条判定（2026-09-28）
+
+- **PAPI2 [P2] 修复补全（本轮）**：原 §五 记载 PAPI2「已在库函数层补纵深防御」，实际只覆盖了 `fetch_models_openai`；PAPI2 原文同时点名的 `test_connection` 端点（`app/api/v1/providers.py`）仍会直接向 `provider.base_url` 拼出的 `{base_url}/chat/completions` 或 `{base_url}/messages` 发请求，无出站校验。现于 `test_connection` 构造 URL 后、`httpx.AsyncClient` 之前调用 `check_outbound_url(url)`，命中非公网地址时返回 `TestResponse(success=False, message=...)` 且不发起请求。新增 `tests/unit/test_providers_endpoint_ssrf.py`（1 项，直接以真实 router + 覆盖 `verify_token` 驱动端点；回退 `providers.py` 后 httpx 被调用、用例失败）。`sync_models` 的 OpenAI 分支经 `fetch_models_openai` 已受保护，Anthropic 分支不发起网络请求。
+- **PR2 [P3] 保留（设计取舍）**：`provider_router.py` 的 `MODEL_PROVIDER_MAP = _load_provider_map()` 确为模块级读盘副作用，但已提供 `reload_provider_map()` 显式重载入口，`_load_provider_map` 以 `logger.warning` + `setdefault` 兜底；生产环境 `app/main.py` 在缺失 `data/agent_model_config.yaml` 时抛 `RuntimeError` 拒绝启动，静默降级仅存在于开发态。另更正原文路径描述：消费的配置是 `data/agent_model_config.yaml`（`_CONFIG_PATH`），并非 `.json`。
+- **DP1 [P3] 保留（架构级）**：`DynamicProviderManager` 仍为进程内存单例，用户添加的供应商在重启/多 worker 下丢失或分裂。修复需引入持久化表与跨进程读取，属部署形态决策，与 WF5/CS1/TM3 同族，留待专项。
+- **DP4 [P3] 更正为设计取舍（非缺陷）**：Anthropic 官方不提供公开的模型列表 API，`fetch_models_anthropic` 返回硬编码的已知 Claude 模型集合且**不发起任何网络请求**，是当前唯一可行方案；原「假拉取」判定不成立。`last_sync` 被更新与「已同步 N 个模型」文案带来的语义模糊属产品口径，非代码缺陷。
+- **DP5 [P3] 保留（纵深防御）**：`DynamicProviderManager.add()` 库层无 `base_url` 格式校验，但唯一生产调用方 `providers.py::add_provider` 已做 `check_outbound_url` + protocol 白名单校验，库层缺口属「被其他调用方误用」的理论面，与 PAPI2 同源。
+- **PR3 [P3] 保留（良性）**：`ProviderRouter.get_instance()` 的首访赋值路径无 `await`，单进程事件循环下原子；`set_registry` 显式替换单例属 API 契约，非隐藏竞态。
+- **PR4 [P3] 保留（容错设计）**：`route()` 动态供应商分支的 `except Exception: pass` 使查询失败回落到静态映射，是有意的降级路径。
+- **PR5 [P3] 保留（架构级）**：`PROVIDER_FALLBACK` 与 `agent/dynamic_model_router` 的降级链双源，收敛需统一 fallback 契约，属 Agent 边界附近的架构项。
+- **PRV1 [P3] 保留（设计取舍）**：`ProviderRegistry.register()` 跳过缺 key/base_url 的配置；调用方 `app/core/config.py::get_provider_registry()` 只注册已配置凭据的供应商属预期，实际可用集可通过 `get_available_providers()` / `is_provider_available()` 观察。
+- **PAPI4 [P3] 保留（纵深防御）**：API 层 `add_provider` 已按 `len(api_key) < 10` 拒绝，库层无强校验，与 PAPI2 家族同源。
+- **PERM1 [P3] 保留（零消费公开导出）**：`require_aicloud_permission` 全库无消费方，属 FastAPI `Depends` 预留导出，沿用 §五 结论。
+- **ADT3 [P3] 保留（设计取舍）**：`log_operation` 每次独立 `commit` 保证审计记录可立即查询，调用点为低频文件读写审计，批量化会牺牲即时可查语义。
+- **HC4 [P3] 保留（架构级）**：aicloud `http_client` 的 `Semaphore` 体系与 `llm_caller` 的 global+model 信号量体系并存，两套并发防线互不知晓，属架构收敛项。

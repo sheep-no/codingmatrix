@@ -239,7 +239,13 @@ async def test_connection(request: Request, pid: str, token: dict = Depends(veri
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             }
-        
+
+        # 纵深防御：与 add/sync 路径一致，向用户可控 base_url 发请求前再做一次
+        # 出站校验，避免该端点或库函数被其他调用方误用时打到内网或元数据地址。
+        url_error = check_outbound_url(url)
+        if url_error:
+            return TestResponse(success=False, message=url_error)
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             
