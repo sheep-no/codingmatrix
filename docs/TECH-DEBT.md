@@ -210,14 +210,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 另更正一条过时结论：`docs/evolution/modules/aicloud_execution.md` 的 SB1（`SandboxFileOperator` 符号链接逃逸）判断不成立——`FileOperator._validate_path` 已用 `.resolve()` 解析符号链接并校验落点是否在 `base_path` 内，实际安全校验走基类，`get_absolute_path` 的 `normpath` 仅用于展示/拼接。
 
-### aicloud 模块剩余 P3 收敛（2026-09-28）
+### aicloud 模块 P3 收敛与 PAPI2 补全（2026-09-28）
 
 | 优先级 | 问题 | 实际位置 | 状态 |
 |---|---|---|---|
 | P3 | `DynamicProviderManager.list()` 返回对象与内部共享同一 `models` 列表引用，外部 append 可污染管理器内部状态 | `app/utils/aicloud/dynamic_provider.py` | 已解决；改为 `models=list(p.models)` 浅拷贝，新增 `test_dynamic_provider.py` 1 项，回退后失败 |
 | P3 | 磁盘过期缓存清理触发条件 `len(_embedding_memory_cache) % 100 == 0` 不可达：内存缓存封顶 512 后长度恒定，`512 % 100 != 0` 恒成立 | `app/utils/AiCodeUtil.py` | 已解决；改为模块级 `_disk_cache_cleanup_counter`（每次新写入递增，满 100 清理），新增 `test_aicode_util.py` 1 项，回退后失败 |
+| P2 | `test_connection` 端点未做 SSRF 出站校验（PAPI2 原判定点名 sync 与 test 两点，此前只补了 `fetch_models_openai`） | `app/api/v1/providers.py` | 已解决；构造 URL 后调用 `check_outbound_url`，命中非公网地址直接返回失败且不发请求，新增 `tests/unit/test_providers_endpoint_ssrf.py` 1 项，回退后 httpx 被调用、用例失败 |
 
 `ADT4`（`audit_logger.py` 的 `cleanup_old_audit_logs` 仅清 `status=="success"`）判定保留：行内注释显式声明「只清理成功的操作日志」属失败日志长期保留的审计策略，且该函数全库零调用方，改动无运行影响；`AIU8`（磁盘缓存无大小上限）保留，容量硬上限属部署策略。相关结论已同步至 `docs/evolution/modules/aicloud_core.md` §七 与 `docs/evolution/modules/aicode_util.md` §六。
+
+`aicloud_core.md` 剩余 P3 项（PR2/DP1/DP4/DP5/PR3/PR4/PR5/PRV1/PAPI4/PERM1/ADT3/HC4）本轮逐条核实后判定保留，理由见该文档 §八：DP4 更正为设计取舍（Anthropic 无公开模型列表 API，`fetch_models_anthropic` 不发网络请求），PR2 更正配置路径为 `.yaml` 且生产缺失即拒启动，其余为架构级（DP1/PR5/HC4）或设计取舍/零消费公开导出。
 
 ### 本轮逐文件验证（2026-09-27）
 
