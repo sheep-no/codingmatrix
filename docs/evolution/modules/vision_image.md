@@ -24,6 +24,7 @@
 - VS5/VS7/VS8：当前已使用共享默认模型常量、响应结构校验与统一 `call_llm` 路径，原条目描述已过时。
 - VS4/VS9：当前优先解析结构化 JSON，并保留中英关键词兜底；该状态仅确认原实现已改变，关键词兜底仍有语义局限。
 - VS1：`vision_api.py` 从上传内容或 data URI 创建临时文件；`Aicode.get_or_parse_file` 先调用 `verify_file_access`。原文关于 API 直接接收任意本地路径的推断不成立；工具函数自身仍读取调用方传入的路径。
+- IG1：`image_generation.py` 的 URL 下载已由同步 `httpx.get(follow_redirects=True)` 改为 `async _download_image_bytes`——复用 `get_http_client()` 异步客户端、逐跳 `check_outbound_url(..., fail_closed_on_dns_error=True)` 校验，并限制重定向上限与下载字节数，事件循环阻塞与 SSRF 面均已消除。原文描述已不成立。
 - 回归测试覆盖省略模型参数、显式 `None` 与显式模型失败三个入口；回退源码时省略参数用例失败，恢复后视觉相关定向测试 24 项通过。
 
 ### P2（4 项）
