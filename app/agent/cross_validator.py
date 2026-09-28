@@ -27,6 +27,39 @@ from app.agent.refinement_loop import RefinementLoop, RefinementResult
 logger = logging.getLogger(__name__)
 
 
+# 关键模式匹配：按「词元」而非子串比对，避免 administration 命中 admin、
+# accessibility 命中 access、tokenizer 命中 token 之类的假阳性把普通文件送进
+# 成本为单模型 3 倍以上的双模型交叉验证。保留少数真正等价的构词变体，
+# 让 authorization/authentication 这类文件仍然按安全关键文件处理。
+_CRITICAL_PATTERN_VARIANTS = {
+    "auth": ("authorization", "authentication", "authorize", "authenticate"),
+    "encrypt": ("encryption", "encrypted"),
+    "validation": ("validate", "validator"),
+    "sanitizer": ("sanitize",),
+    "crypto": ("cryptography",),
+    "security": ("secure",),
+}
+
+
+def _identifier_tokens(value: str) -> Set[str]:
+    """把路径/类型拆成小写词元，按分隔符和驼峰边界切分。"""
+    tokens: Set[str] = set()
+    for raw in re.split(r"[^A-Za-z0-9]+", value or ""):
+        if not raw:
+            continue
+        parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+", raw)
+        for part in parts or [raw]:
+            tokens.add(part.lower())
+    return tokens
+
+
+def _matches_critical_pattern(tokens: Set[str], pattern: str) -> bool:
+    pattern = pattern.lower()
+    forms = {pattern, f"{pattern}s", f"{pattern}es"}
+    forms.update(_CRITICAL_PATTERN_VARIANTS.get(pattern, ()))
+    return bool(tokens & forms)
+
+
 LLM_FIX_ISSUE_PRIORITY = {
     "import_error": 0,
     "missing_module": 1,
@@ -223,11 +256,9 @@ class CrossValidator:
         # priority<=2 且命中关键模式才触发交叉验证
         # priority>2 的文件走单模型 + refinement，不做双模型对抗
         if priority <= 2:
-            path_lower = file_path.lower()
-            type_lower = file_type.lower()
-
+            tokens = _identifier_tokens(file_path) | _identifier_tokens(file_type)
             for pattern in self.critical_patterns:
-                if pattern in path_lower or pattern in type_lower:
+                if _matches_critical_pattern(tokens, pattern):
                     return True
 
         return False
