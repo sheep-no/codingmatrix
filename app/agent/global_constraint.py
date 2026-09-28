@@ -249,6 +249,14 @@ class GlobalConstraintParser:
         """
         applicable = []
 
+        # 全量注入（file_path/file_type 为 "all"）表示调用方要求所有约束。
+        # 此时不能再按 applies_to/_file_matches_category 过滤，否则
+        # compatibility(applies_to=["frontend"])、security(["backend","api"])
+        # 这类限定作用域的约束会被静默丢弃——spec_first 只走
+        # generate_prompt_fragment("all", "all")，安全约束因此从未进入 prompt。
+        if file_path == "all" or file_type == "all":
+            return list(self.constraints)
+
         for constraint in self.constraints:
             if "all" in constraint.applies_to:
                 applicable.append(constraint)
