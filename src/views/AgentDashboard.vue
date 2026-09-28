@@ -565,7 +565,10 @@ onMounted(() => {
   window.addEventListener('keydown', handlePageKeydown)
   apiKeyStore.loadFromStorage()
   providerStore.loadFromStorage()
-  providerStore.listProviders().catch(() => {})
+  providerStore.listProviders().catch((error) => {
+    console.error('加载供应商列表失败:', error)
+    ElMessage.error('加载供应商列表失败')
+  })
   session.loadSessionHistory()
   backend.loadSettings()
   session.startAutoSave(
@@ -591,7 +594,7 @@ onMounted(() => {
       recoveryAttempts: generation.recoveryAttempts
     })
   )
-  backend.loadBackendSettings().catch(() => {})
+  backend.loadBackendSettings()
   backend.loadAvailableSkills()
 })
 onBeforeUnmount(() => {
