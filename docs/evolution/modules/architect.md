@@ -172,3 +172,11 @@ dep_file = "README.md"
 - AR3 已实测（str.get AttributeError 确认）。
 - AR8 为 DG3 已实测闭环引用（代码级）。
 - AR2/AR4/AR6/AR9/AR10/AR12/AR14/AR16 为代码级结论。
+
+## 6. 状态更新（2026-09-28）
+
+- **AR17（新增，P3）`_import_remap_pairs` 的 zip 未声明长度约束**：`old_forms` 与
+  `new_forms` 由同一 `language` 经 `_path_module_forms` 生成、结构一一对应，
+  长度必然相等。原 `zip` 静默容忍长度不一致，若后续为某个语言引入非对称形态
+  （只在一侧插入额外候选）会造成候选错位且无任何提示。改为 `zip(..., strict=True)`，
+  行为不变、错配立即可见。回归 `tests/unit/test_architect_canonicalize.py`。

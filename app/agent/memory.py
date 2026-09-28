@@ -30,7 +30,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     if len(a) != len(b):
         logger.warning(f"嵌入向量维度不一致: {len(a)} vs {len(b)}，返回 0.0")
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0 or norm_b == 0:

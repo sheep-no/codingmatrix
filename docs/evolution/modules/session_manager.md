@@ -189,3 +189,12 @@ from app.db.database import async_session
 - **SM16 [P3] 异步方法内阻塞文件 I/O 移出事件循环（已修）**：`resume_session` 的 `open/json.load`（:211）、`detect_incremental_changes` 的逐文件 `open/read`（:505）、`_save_session` 的 `open/json.dump/replace`（:593）均为 async 方法内同步磁盘 I/O，阻塞事件循环。现抽 `_read_session_json`/`_read_text_file`/`_write_session_json` 三个同步辅助方法，分别以 `await asyncio.to_thread(...)` 在工作线程执行，保持原子写入与异常语义不变。
 
 回归：`tests/unit/test_session_manager.py` 由 6 项扩到 11 项，新增磁盘恢复（内存未命中、独立实例模拟重启）、与三处 I/O 的工作线程线程 id 断言（`builtins.open` 探针）；回退 `session_manager.py` 后新增 5 项全部失败。
+
+## 8. 状态更新（2026-09-28）
+
+- **SM17（新增，P3）`replay_session` 的滑动窗口 zip 改用 `itertools.pairwise`**：
+  `app/agent/adapters/session_adapter.py:38` 原以 `zip(sequences, sequences[1:])`
+  生成相邻对判断序号缺口，两侧长度天然相差 1，属于有意的错位配对而非缺陷。
+  改用语义等价的 `itertools.pairwise(sequences)`，消除 B905（无声明长度约束的 zip）
+  告警，同时避免后来者误加 `strict=True` 反而破坏缺口检测。回归
+  `tests/integration/test_state_recovery.py`、`tests/unit/test_unified_state_service.py`。

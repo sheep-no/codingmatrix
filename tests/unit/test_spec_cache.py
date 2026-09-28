@@ -172,3 +172,21 @@ class TestTechStackAndKeywords:
 
         assert hit is not None
         assert hit.requirement == requirement
+
+
+class TestBatchCosineSimilarity:
+    def test_same_dimension_matches(self):
+        from app.agent.spec_cache import batch_cosine_similarity
+
+        assert batch_cosine_similarity(
+            [1.0, 0.0, 0.0], [[1.0, 0.0, 0.0]]
+        ) == pytest.approx([1.0])
+
+    def test_dimension_mismatch_is_zero_not_truncated(self):
+        from app.agent.spec_cache import batch_cosine_similarity
+
+        # 旧实现按公共前缀 zip：query=[1,0,0] 与 vec=[1,0] 会得到虚假的 1.0。
+        assert batch_cosine_similarity([1.0, 0.0, 0.0], [[1.0, 0.0]]) == pytest.approx([0.0])
+        assert batch_cosine_similarity(
+            [1.0, 1.0, 0.0], [[1.0, 1.0, 0.0], [1.0]]
+        ) == pytest.approx([1.0, 0.0])

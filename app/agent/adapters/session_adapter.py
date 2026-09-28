@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Any, Dict, Iterable, List
 
 from app.agent.state import MessageEnvelope, State
@@ -34,8 +35,7 @@ def replay_session(state: State, after_sequence: int = 0) -> Dict[str, Any]:
     expected = after_sequence + 1
     sequences = [message["sequence"] for message in messages]
     has_gap = bool(sequences and sequences[0] > expected) or any(
-        current != previous + 1
-        for previous, current in zip(sequences, sequences[1:])
+        current != previous + 1 for previous, current in pairwise(sequences)
     )
     return {
         "messages": messages,
