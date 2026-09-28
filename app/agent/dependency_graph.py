@@ -1339,10 +1339,32 @@ class DependencyGraph:
             if inferred and inferred not in ("unknown", ""):
                 return inferred
 
-        # 使用硬编码规则作为 fallback
+        # 使用硬编码规则作为 fallback。匹配语义与语言适配器（python.py 的
+        # infer_file_type）对齐：目录模式按路径段匹配以覆盖嵌套目录，文件名
+        # 模式要求段边界——原先的 startswith/endswith 会使 app/api/users.py
+        # 之类的嵌套路径漏配全部规则，又让 my_config.py 误命中 config.py。
+        # 命中多个规则时取最长 pattern，保证 src/views/ 这类更具体的规则不被
+        # views/ 抢先。
+        normalized = path.replace("\\", "/")
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        best_type: Optional[str] = None
+        best_length = 0
         for pattern, file_type in self.PATH_TYPE_RULES:
-            if path == pattern or path.startswith(pattern) or path.endswith(pattern):
-                return file_type
+            if pattern.endswith("/"):
+                matched = f"/{pattern}" in f"/{normalized}" or normalized.startswith(pattern)
+            else:
+                matched = (
+                    normalized == pattern
+                    or f"/{pattern}" in f"/{normalized}"
+                    or normalized.startswith(pattern)
+                    or (pattern.startswith((".", "_")) and normalized.endswith(pattern))
+                )
+            if matched and len(pattern) > best_length:
+                best_length = len(pattern)
+                best_type = file_type
+        if best_type is not None:
+            return best_type
 
         # 特殊处理包入口文件
         if self.language_adapter and self.language_adapter.package_init_filename:
