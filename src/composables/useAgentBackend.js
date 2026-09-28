@@ -268,6 +268,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       return true
     } catch (error) {
       console.error('加载后端设置失败:', error)
+      ElMessage.error('加载后端设置失败')
       return false
     } finally {
       isLoadingSettings.value = false

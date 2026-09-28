@@ -57,9 +57,16 @@
 
 `UserManagement.vue`、`VirtualGirl.vue`、`ServiceManager.vue` 和 `agent/modals/UploadModal.vue` 的弹窗根节点缺少 `role="dialog"`、`aria-modal`、标题关联、Escape 处理和关闭后的焦点回归。仓库中的共享 `ui/Modal.vue` 已具备部分语义，形成实现分裂。
 
+> **状态校准（2026-09-28）**：`UserManagement.vue`、`VirtualGirl.vue`、`ServiceManager.vue` 已删除；`agent/modals/UploadModal.vue` 现有实现已含 `role="dialog"`、`aria-modal="true"`、`aria-labelledby`、Escape 关闭、Tab 焦点陷阱与关闭后焦点回归（`:4,:35-67`），本项在 Agent 范围内不再成立。
+
 #### FRESCAN-36 [P2] 设置和 Agent 初始化失败静默显示为空配置
 
 `APIKeyManager.vue:288-292`、`DynamicProviderManager.vue:150-153` 和 `AgentDashboard.vue:355-378` 对初始化接口使用空 catch。请求失败、超时或认证失败会显示空列表或默认配置，没有错误状态和重试入口。
+
+> **部分已修（2026-09-28）**：`APIKeyManager.vue`、`DynamicProviderManager.vue` 两个文件已删除，仅 `AgentDashboard.vue` 的缺陷仍成立（实码位置 `onMounted` `:568`/`:594`）：
+> - `providerStore.listProviders()` 的 `.catch(() => {})` 改为记录错误并 `ElMessage.error('加载供应商列表失败')`；
+> - `useAgentBackend.loadBackendSettings` 的失败分支补 `ElMessage.error('加载后端设置失败')` 后再 `return false`，`AgentDashboard` 侧的冗余空 catch 移除。
+> 新增 `src/views/AgentDashboard.initErrors.test.js`（2 项，回退源码后 2 项均失败）。前端 56 files/261 passed，`npm run build` 通过。
 
 ### API 契约批次
 
