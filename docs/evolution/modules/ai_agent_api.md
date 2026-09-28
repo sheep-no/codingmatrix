@@ -144,3 +144,23 @@
   与 `app/agent` 一同归零。
 - **回归**：新增 `tests/unit/test_ai_agent_endpoint_blocking_io.py`（4 项：绝对/相对目录
   解析、快照目录候选优先级、`/modify` 端点路径解析线程隔离），回退源码后 4 项全部失败。
+
+## 十二、修复状态（2026-09-28 第二批）
+
+- **`/modify` SSE 心跳任务泄漏已修**：`orchestrate_endpoints.py` 的 `modify_project`
+  在 `event_generator` 里起了一个每 5 秒向队列写心跳的后台任务，但
+  `heartbeat_task.cancel()` 写在读取循环之后。客户端断开时 ASGI 服务取消该生成器，
+  取消点位于循环内，循环后的 `cancel()` 被跳过；而该路径的 `cancel_event` 从不置位，
+  心跳任务会永久存活并向无人消费的队列持续写入（任务 + 内存泄漏）。现抽出模块级
+  `_iter_queue_events(queue, gen_task, heartbeat_task, timeout)`，把取消放进
+  `finally`，`/modify` 改用 `async for` 消费；`[DONE]`、超时后 `gen_task.done()`
+  的退出语义不变。
+- **`complete_project` 写入无时区 `completed_at` 已修**：该端点在
+  `session.completed_at = datetime.now()` 写入 naive 本地时间，而列类型为
+  `DateTime(timezone=True)`、其余写入方（`helpers.py`）均用 `datetime.now(timezone.utc)`。
+  SQLite 下掩盖，Postgres(asyncpg) 下写入 timestamptz 会因 naive 值报错。现改为
+  `datetime.now(timezone.utc)`。
+- **回归**：`tests/unit/test_stream_cancel_reconnect.py` 新增 2 项（生成器被
+  `aclose()` 关闭、正常读到 `[DONE]` 时心跳任务均被取消）；
+  `tests/unit/test_project_lifecycle_api.py` 新增 1 项（`completed_at.tzinfo` 非空）。
+  回退 `orchestrate_endpoints.py` 后 3 项全部失败。

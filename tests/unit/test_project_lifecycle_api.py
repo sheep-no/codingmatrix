@@ -94,3 +94,29 @@ async def test_delete_endpoint_rejects_active_generation(db, tmp_path, monkeypat
         assert project_dir.exists()
     finally:
         orchestrate_endpoints._active_tasks.pop("2_busy", None)
+
+
+@pytest.mark.asyncio
+async def test_complete_project_sets_timezone_aware_completed_at(db, tmp_path, monkeypatch):
+    """completed_at 是 timezone-aware 列，必须写入带时区的时间。"""
+    from app.api.v1.ai_agent import orchestrate_endpoints
+
+    monkeypatch.setattr(orchestrate_endpoints, "cleanup_session_files", lambda *_a, **_k: True)
+    session = ProjectSession(
+        session_id="2_complete",
+        user_id="2",
+        requirement="hello",
+        output_dir="2/complete",
+        status="running",
+        lifecycle_status="active",
+    )
+    db.add(session)
+    await db.flush()
+
+    result = await orchestrate_endpoints.complete_project(
+        "2_complete", token={"sub": "2"}, db=db
+    )
+
+    assert result["status"] == "completed"
+    assert session.completed_at is not None
+    assert session.completed_at.tzinfo is not None
