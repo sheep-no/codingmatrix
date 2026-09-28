@@ -316,12 +316,13 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     }
   }
 
-  const copySettingsToClipboard = () => {
+  const copySettingsToClipboard = async () => {
     try {
-      navigator.clipboard.writeText(JSON.stringify(settings.value, null, 2))
+      await navigator.clipboard.writeText(JSON.stringify(settings.value, null, 2))
       ElMessage.success('配置已复制到剪贴板')
     } catch (error) {
-      ElMessage.error('复制失败')
+      console.error('复制设置失败:', error)
+      ElMessage.error('复制失败，请检查浏览器剪贴板权限')
     }
   }
 
