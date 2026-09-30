@@ -222,6 +222,15 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 `aicloud_core.md` 剩余 P3 项（PR2/DP1/DP4/DP5/PR3/PR4/PR5/PRV1/PAPI4/PERM1/ADT3/HC4）本轮逐条核实后判定保留，理由见该文档 §八：DP4 更正为设计取舍（Anthropic 无公开模型列表 API，`fetch_models_anthropic` 不发网络请求），PR2 更正配置路径为 `.yaml` 且生产缺失即拒启动，其余为架构级（DP1/PR5/HC4）或设计取舍/零消费公开导出。
 
+### workflow 条件分支与卡死判定修复（2026-09-28）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | CON1 条件分支不参与调度：`branch_path` 只是结果字段，`true_branch`/`false_branch` 对后续执行路径零影响，两类分支只要依赖条件节点完成就都会执行 | `app/utils/workflow/executor.py`、`state_machine.py`、`result_aggregator.py`、`app/api/v1/workflow.py`、`src/views/Workflow.vue` | 已解决；条件完成后按 `branch_path` 跳过未选中分支及下游（传递性：任一依赖被跳过即无法执行），新增 `skip_node`/`get_skipped_nodes`/`record_skipped` 与 `node_skipped` 事件，PR #408 |
+| P2 | STM4 变体：`_check_workflow_stuck` 只统计 PENDING 可执行节点，未考虑 RUNNING 节点。`A(失败) → B(依赖 A)` + `C(独立)` 场景下，`fail_node(A)` 触发检查时 C 在运行 → 可执行节点为空 → 工作流被提前落定 `FAILED`，C 成为无人回收的孤儿任务 | `app/utils/workflow/state_machine.py` | 已解决；存在 RUNNING 节点时不再判定卡死，PR #408 |
+
+回归 `tests/unit/test_executor.py` 新增 3 项（真/假分支跳过、传递性跳过、失败节点不提前卡死），回退源码后精确失败。`HA1`（审批回调恒未注册，HUMAN_APPROVAL 恒 auto_reject）经复核维持保留：`human_approval.py:140-150` 无回调时按安全策略自动拒绝、不挂起，落地真实审批需新增审批端点 + 会话态审批存储 + 恢复执行，属功能开发。`RSA2`/`RSA5`/`TDC3`/`TDC7`/`STM2` 维持原「零消费公开 API / 死代码」判定，均有回归测试保护。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
