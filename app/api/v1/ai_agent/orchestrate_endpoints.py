@@ -321,6 +321,35 @@ async def _client_disconnected(http_request: Request | None) -> bool:
         return True
 
 
+async def _iter_queue_events(
+    queue: asyncio.Queue,
+    gen_task: asyncio.Task,
+    heartbeat_task: asyncio.Task,
+    *,
+    timeout: float = 60.0,
+) -> AsyncIterator[str]:
+    """Forward queued SSE frames until [DONE] or the generation task ends.
+
+    Cancelling the heartbeat in a ``finally`` matters: when the client
+    disconnects the ASGI server cancels this generator, so cleanup code placed
+    after the loop would be skipped and the heartbeat task would keep
+    publishing into a queue nobody reads.
+    """
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                if gen_task.done():
+                    break
+                continue
+            if item == "[DONE]":
+                break
+            yield item
+    finally:
+        heartbeat_task.cancel()
+
+
 async def _mark_disconnected_if_stale(active_task: dict) -> bool:
     """Return True when no live SSE subscriber remains."""
     gen_task = active_task.get("gen_task")
@@ -812,18 +841,8 @@ async def modify_project(
             heartbeat_task = asyncio.create_task(heartbeat_sender())
 
             # SSE 流输出
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=60.0)
-                    if item == "[DONE]":
-                        break
-                    yield item
-                except asyncio.TimeoutError:
-                    if gen_task.done():
-                        break
-                    continue
-
-            heartbeat_task.cancel()
+            async for item in _iter_queue_events(queue, gen_task, heartbeat_task):
+                yield item
             logger.info(f"[SSE] modify event_generator 结束 | session={session_id}")
 
         except Exception as e:
@@ -1726,7 +1745,7 @@ async def complete_project(
     
     # 更新状态
     session.status = "completed"
-    session.completed_at = datetime.now()
+    session.completed_at = datetime.now(timezone.utc)
     await db.commit()
     
     logger.info(f"用户完成项目 | user={user_id} session={session_id}")

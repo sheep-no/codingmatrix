@@ -64,6 +64,56 @@ def test_broadcast_unsubscribe_updates_liveness():
 
 
 @pytest.mark.asyncio
+async def test_iter_queue_events_cancels_heartbeat_when_generator_closed():
+    """客户端断开（生成器被关闭）时心跳任务必须被取消，否则持续泄漏。"""
+
+    async def heartbeat():
+        await asyncio.Event().wait()
+
+    async def generation():
+        await asyncio.Event().wait()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    gen_task = asyncio.create_task(generation())
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put("data: one\n\n")
+
+    stream = endpoints._iter_queue_events(queue, gen_task, heartbeat_task)
+    assert await stream.__anext__() == "data: one\n\n"
+    await stream.aclose()
+
+    await asyncio.gather(heartbeat_task, return_exceptions=True)
+    assert heartbeat_task.cancelled()
+    gen_task.cancel()
+    await asyncio.gather(gen_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_iter_queue_events_stops_on_done_and_cancels_heartbeat():
+    async def heartbeat():
+        await asyncio.Event().wait()
+
+    async def generation():
+        await asyncio.Event().wait()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    gen_task = asyncio.create_task(generation())
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put("data: one\n\n")
+    await queue.put("[DONE]")
+
+    events = [
+        item
+        async for item in endpoints._iter_queue_events(queue, gen_task, heartbeat_task)
+    ]
+    assert events == ["data: one\n\n"]
+    await asyncio.gather(heartbeat_task, return_exceptions=True)
+    assert heartbeat_task.cancelled()
+    gen_task.cancel()
+    await asyncio.gather(gen_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_pending_stream_allows_cancel_before_db(monkeypatch):
     monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
     monkeypatch.setattr(endpoints, "_cancel_events", {"sess": asyncio.Event()})
