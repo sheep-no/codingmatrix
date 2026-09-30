@@ -5,7 +5,8 @@
 文件路径到类型的映射（PATH_TYPE_RULES）。
 """
 
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 # 文件类型到依赖类型的映射
 DEPENDENCY_RULES: Dict[str, List[str]] = {
@@ -232,3 +233,97 @@ EXTENSION_TYPE_MAP = {
     '.sass': 'frontend_style',
     '.styl': 'frontend_style',
 }
+
+# 常见无扩展名项目文件。这些名称与 npm/pypi 包名无法区分，
+# 但它们是真实的项目文件，不能在清理 file_plan 时被当成包名丢弃。
+_EXTENSIONLESS_PROJECT_FILES = frozenset({
+    "dockerfile",
+    "makefile",
+    "gnumakefile",
+    "justfile",
+    "procfile",
+    "pipfile",
+    "gemfile",
+    "rakefile",
+    "vagrantfile",
+    "jenkinsfile",
+    "cmakelists",
+    "license",
+    "licence",
+    "notice",
+    "readme",
+    "changelog",
+    "contributing",
+    "authors",
+    "codeowners",
+})
+
+# 无扩展名项目文件里的文档类清单，推断为 docs；其余按 config 处理。
+_DOCUMENTATION_PROJECT_NAMES = frozenset({
+    "readme",
+    "license",
+    "licence",
+    "notice",
+    "changelog",
+    "contributing",
+    "authors",
+    "codeowners",
+})
+
+
+def _normalize_extensionless_name(name: str) -> str:
+    """归一化无扩展名文件名，使 `Dockerfile.dev` 也能命中已知规则。"""
+    lowered = str(name or "").strip().lower()
+    if lowered.startswith("dockerfile"):
+        return "dockerfile"
+    return lowered
+
+
+def infer_file_type_fallback(path: str, fallback: str = "utils", package_init_filename: Optional[str] = None) -> str:
+    """无语言适配器参与时的通用文件类型推断。
+
+    顺序与 DependencyGraph._infer_file_type 的历史 fallback 保持一致：
+    路径规则（最长 pattern 优先）→ 包入口文件 → 扩展名映射 → 点文件 /
+    无扩展名项目文件 → fallback。供依赖图与共享上下文（FileArtifact）
+    复用，避免两处推断规则漂移。
+    """
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    best_type: Optional[str] = None
+    best_length = 0
+    for pattern, file_type in PATH_TYPE_RULES:
+        if pattern.endswith("/"):
+            matched = f"/{pattern}" in f"/{normalized}" or normalized.startswith(pattern)
+        else:
+            matched = (
+                normalized == pattern
+                or f"/{pattern}" in f"/{normalized}"
+                or normalized.startswith(pattern)
+                or (pattern.startswith((".", "_")) and normalized.endswith(pattern))
+            )
+        if matched and len(pattern) > best_length:
+            best_length = len(pattern)
+            best_type = file_type
+    if best_type is not None:
+        return best_type
+
+    # 特殊处理包入口文件
+    if package_init_filename and path.endswith(package_init_filename):
+        return "config"
+
+    # 根据扩展名推断
+    ext = Path(path).suffix.lower()
+    if ext in EXTENSION_TYPE_MAP:
+        return EXTENSION_TYPE_MAP[ext]
+    name = Path(path).name
+    # 点号开头的占位/配置文件（.gitkeep 等）没有可识别扩展名，但属于合法
+    # 项目元文件，不能判为 unknown 并中断生成。
+    if name.startswith(".") and name not in {".", ".."}:
+        return "config"
+    # 常见无扩展名项目文件（LICENSE / Jenkinsfile / Procfile 等）同样没有
+    # 扩展名条目，但已在 _EXTENSIONLESS_PROJECT_FILES 中声明为合法规划文件。
+    normalized_name = _normalize_extensionless_name(name)
+    if normalized_name in _EXTENSIONLESS_PROJECT_FILES:
+        return "docs" if normalized_name in _DOCUMENTATION_PROJECT_NAMES else "config"
+    return fallback

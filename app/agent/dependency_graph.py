@@ -23,46 +23,16 @@ from collections import defaultdict
 
 from app.agent.signature_extractor import extract_signatures, get_context_budget
 from app.agent.shadow_scanner import scan_shadow_dependencies, SKIP_DIRS
-from app.agent.dependency_rules import DEPENDENCY_RULES, PATH_TYPE_RULES, EXTENSION_TYPE_MAP
+from app.agent.dependency_rules import (
+    DEPENDENCY_RULES,
+    PATH_TYPE_RULES,
+    _EXTENSIONLESS_PROJECT_FILES,
+    _normalize_extensionless_name,
+    infer_file_type_fallback,
+)
 from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
-
-# 常见无扩展名项目文件。这些名称与 npm/pypi 包名无法区分，
-# 但它们是真实的项目文件，不能在清理 file_plan 时被当成包名丢弃。
-_EXTENSIONLESS_PROJECT_FILES = frozenset({
-    "dockerfile",
-    "makefile",
-    "gnumakefile",
-    "justfile",
-    "procfile",
-    "pipfile",
-    "gemfile",
-    "rakefile",
-    "vagrantfile",
-    "jenkinsfile",
-    "cmakelists",
-    "license",
-    "licence",
-    "notice",
-    "readme",
-    "changelog",
-    "contributing",
-    "authors",
-    "codeowners",
-})
-
-# 无扩展名项目文件里的文档类清单，推断为 docs；其余按 config 处理。
-_DOCUMENTATION_PROJECT_NAMES = frozenset({
-    "readme",
-    "license",
-    "licence",
-    "notice",
-    "changelog",
-    "contributing",
-    "authors",
-    "codeowners",
-})
 
 # 认定为「项目文件」的源码扩展名。未解析的依赖引用只有看起来像项目文件时
 # 才会被完整性地检查（get_missing_files），外部包名（fastapi/react）不受影响。
@@ -73,14 +43,6 @@ _PROJECT_FILE_SUFFIXES = frozenset({
     ".css", ".html", ".json", ".yaml", ".yml", ".toml",
     ".sh", ".sql", ".md",
 })
-
-
-def _normalize_extensionless_name(name: str) -> str:
-    """归一化无扩展名文件名，使 `Dockerfile.dev` 也能命中已知规则。"""
-    lowered = str(name or "").strip().lower()
-    if lowered.startswith("dockerfile"):
-        return "dockerfile"
-    return lowered
 
 
 # 非源码类型：这些类型一定是项目文件，与第三方包同名也不能按外部库丢弃。
@@ -1339,55 +1301,22 @@ class DependencyGraph:
             if inferred and inferred not in ("unknown", ""):
                 return inferred
 
-        # 使用硬编码规则作为 fallback。匹配语义与语言适配器（python.py 的
-        # infer_file_type）对齐：目录模式按路径段匹配以覆盖嵌套目录，文件名
-        # 模式要求段边界——原先的 startswith/endswith 会使 app/api/users.py
-        # 之类的嵌套路径漏配全部规则，又让 my_config.py 误命中 config.py。
-        # 命中多个规则时取最长 pattern，保证 src/views/ 这类更具体的规则不被
-        # views/ 抢先。
-        normalized = path.replace("\\", "/")
-        while normalized.startswith("./"):
-            normalized = normalized[2:]
-        best_type: Optional[str] = None
-        best_length = 0
-        for pattern, file_type in self.PATH_TYPE_RULES:
-            if pattern.endswith("/"):
-                matched = f"/{pattern}" in f"/{normalized}" or normalized.startswith(pattern)
-            else:
-                matched = (
-                    normalized == pattern
-                    or f"/{pattern}" in f"/{normalized}"
-                    or normalized.startswith(pattern)
-                    or (pattern.startswith((".", "_")) and normalized.endswith(pattern))
-                )
-            if matched and len(pattern) > best_length:
-                best_length = len(pattern)
-                best_type = file_type
-        if best_type is not None:
-            return best_type
-
-        # 特殊处理包入口文件
-        if self.language_adapter and self.language_adapter.package_init_filename:
-            init_file_name = self.language_adapter.package_init_filename
-            if path.endswith(init_file_name):
-                return 'config'
-
-        # 根据扩展名推断
-        ext = Path(path).suffix.lower()
-        if ext in EXTENSION_TYPE_MAP:
-            return EXTENSION_TYPE_MAP[ext]
-        name = Path(path).name
-        # 点号开头的占位/配置文件（.gitkeep 等）没有可识别扩展名，但属于合法
-        # 项目元文件，不能判为 unknown 并中断生成。
-        if name.startswith(".") and name not in {".", ".."}:
-            return "config"
-        # 常见无扩展名项目文件（LICENSE / Jenkinsfile / Procfile 等）同样没有
-        # 扩展名条目，但已在 _EXTENSIONLESS_PROJECT_FILES 中声明为合法规划文件。
-        normalized = _normalize_extensionless_name(name)
-        if normalized in _EXTENSIONLESS_PROJECT_FILES:
-            return "docs" if normalized in _DOCUMENTATION_PROJECT_NAMES else "config"
+        # 硬编码规则 fallback 已抽到 dependency_rules.infer_file_type_fallback
+        # （共享上下文的 FileArtifact 推断复用同一实现，避免两处规则漂移）。
+        # 匹配语义与语言适配器（python.py 的 infer_file_type）对齐：目录模式
+        # 按路径段匹配以覆盖嵌套目录，文件名模式要求段边界——原先的
+        # startswith/endswith 会使 app/api/users.py 之类的嵌套路径漏配全部
+        # 规则，又让 my_config.py 误命中 config.py。命中多个规则时取最长
+        # pattern，保证 src/views/ 这类更具体的规则不被 views/ 抢先。
+        package_init_filename = (
+            self.language_adapter.package_init_filename if self.language_adapter else None
+        )
         # 有语言适配器时保留 unknown，让“类型无法确定”继续显式失败
-        return 'unknown' if self.language_adapter else 'utils'
+        return infer_file_type_fallback(
+            path,
+            fallback="unknown" if self.language_adapter else "utils",
+            package_init_filename=package_init_filename,
+        )
 
     def _path_to_api_file(self, api_path: str) -> str:
         """将 API 路径转换为文件路径"""
