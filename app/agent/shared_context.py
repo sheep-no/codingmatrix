@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime
 
+from app.agent.dependency_rules import infer_file_type_fallback
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +66,6 @@ class GenerationPhase:
     status: str  # 'pending', 'in_progress', 'completed', 'failed'
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
-    files_generated: int = 0
     files_total: int = 0
     errors: List[str] = field(default_factory=list)
 
@@ -226,7 +227,9 @@ class SharedContext:
             self.files[file_path] = FileArtifact(
                 path=file_path,
                 content=content,
-                file_type="unknown",
+                # 未注册文件按路径规则推断类型，避免主路径上所有 FileArtifact
+                # 恒为 "unknown"；无法识别时显式保留 unknown 语义。
+                file_type=infer_file_type_fallback(file_path, fallback="unknown"),
                 generated_by=model_name,
                 generation_order=self.file_generation_order,
                 content_hash=content_hash,
@@ -419,6 +422,7 @@ class SharedContext:
             "specs": {k: {"type": v.spec_type, "content": v.content, "model": v.generated_by} for k, v in self.specs.items()},
             "files": {k: {
                 "path": v.path,
+                "content": v.content,
                 "file_type": v.file_type,
                 "model": v.generated_by,
                 "order": v.generation_order,
@@ -442,7 +446,6 @@ class SharedContext:
                 "status": phase.status,
                 "started_at": phase.started_at,
                 "completed_at": phase.completed_at,
-                "files_generated": phase.files_generated,
                 "files_total": phase.files_total,
                 "errors": phase.errors
             } for name, phase in self.phases.items()},

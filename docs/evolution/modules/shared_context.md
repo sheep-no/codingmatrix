@@ -83,3 +83,33 @@ readiness / 验证证据绑定）。本轮新增 `tests/unit/test_shared_context
 **仍成立**：SC1（依赖管理死链）、SC2（`file_type` 恒 unknown）、
 SC4（`files_generated` 恒 0）、SC6（`to_export_dict` 不含 content）、
 SC7（五方法零消费）、SC8（多链消费面分裂）。
+
+## 7. 修复状态（2026-09-28 SC2/SC4/SC6 批次）
+
+回归测试 `tests/unit/test_shared_context_integrity.py`（16 项，新增 10 项；
+回退 `shared_context.py` 后 8 项失败）。
+
+- **SC2 已修**：`save_file_content` 未注册路径的 `FileArtifact.file_type`
+  改为按路径推断——把 `DependencyGraph._infer_file_type` 的硬编码 fallback
+  （PATH_TYPE_RULES 最长匹配 → 包入口 → EXTENSION_TYPE_MAP → 点文件/无扩展名
+  项目文件）抽为 `dependency_rules.infer_file_type_fallback(path, fallback,
+  package_init_filename)`，依赖图与共享上下文复用同一实现，规则不再双轨漂移。
+  依赖图侧语义逐分支不变（adapter 优先、有 adapter 时最终回落 unknown、
+  无 adapter 回落 utils、package_init 检查保持在扩展名映射之前）；
+  共享上下文场景无法识别时仍显式 `unknown`。已注册文件保留显式类型
+  （`register_file` 传入的 `planned_node.file_type`），不受影响。
+- **SC6 已修**：`to_export_dict` 的 files 条目补 `"content"`，与 docstring
+  「导出完整的上下文字典（用于保存或调试）」契约一致；`context_full`
+  （spec_first_generate:1198）保存时可还原文件内容。与显式声明
+  「不包含源码」的 `get_artifact_manifest` 互补。
+- **SC4 已修（删除失真字段）**：`GenerationPhase.files_generated` 恒 0
+  且无消费方（阶段与文件的归属信息无从恢复），直接删除该字段及
+  `to_export_dict` phases 输出；`get_summary` 的全局 `files_generated`
+  计数（按 content 非空统计，真实有效）保留。
+- **SC1 修正**：正文「register_file 生产零调用方」已过时——现有
+  `traditional_generate.py:239` 与 `spec_first_generate.py:551` 两处调用
+  （后者传 dependencies），依赖写入链路已部分接线；但本模块拓扑排序与
+  dependency_graph 的边界决策（删除或统一）仍保留待决。
+
+**仍未处理**：SC1（边界决策）、SC7（五方法零消费，接线或删除待决）、
+SC8（多链消费面分裂，架构级）。
