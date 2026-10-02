@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Protocol
+from typing import Any, Callable, Dict, Iterable, List, Protocol
 
 from .models import RetrievalChunk, RetrievalRequest, RetrievalResult
 

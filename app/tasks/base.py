@@ -6,12 +6,10 @@ Provides reusable task functionality with progress tracking and error handling.
 import asyncio
 import logging
 from celery import Task
-from celery.exceptions import SoftTimeLimitExceeded, Reject
-from typing import Optional, Callable, Any
+from typing import Optional, Any
 import json
 import os
 
-from app.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 

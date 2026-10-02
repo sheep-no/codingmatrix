@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import inspect
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Union
+from typing import Awaitable, Callable, Dict, Mapping, Optional, Union
 
 from .models import State, StateDelta
 from .reducer import StateReducer

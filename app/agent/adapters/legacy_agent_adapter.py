@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from app.agent.state import MessageEnvelope, StateDelta
 

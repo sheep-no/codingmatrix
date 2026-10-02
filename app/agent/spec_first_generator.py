@@ -12,7 +12,6 @@ SpecFirstGenerator - 规范先行生成器
 """
 
 import json
-import re
 import asyncio
 import logging
 from typing import Optional, Dict, Any, Callable

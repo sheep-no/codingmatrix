@@ -6,7 +6,7 @@ AI 审查器
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 from pydantic import ValidationError
 

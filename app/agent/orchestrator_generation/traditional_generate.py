@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional, Callable
 
 from app.utils.AiCodeUtil import get_embedding
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
-from app.agent.complexity import ProjectComplexity
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced

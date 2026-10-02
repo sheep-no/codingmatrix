@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
-from app.agent.state import MessageEnvelope, State
+from app.agent.state import State
 
 
 def state_to_session_summary(state: State) -> Dict[str, Any]:

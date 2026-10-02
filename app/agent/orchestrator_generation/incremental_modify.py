@@ -14,11 +14,10 @@ import json
 import logging
 import re
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Any
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
-from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.topology_scheduler import HeartbeatTracker
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 
@@ -536,8 +535,6 @@ class IncrementalModifyMixin:
     ) -> Dict[str, Any]:
         """增量模式的动态拓扑调度生成 — 支持并行生成无依赖文件"""
 
-        from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
-        from app.agent.spec_first_generator import SpecFirstGenerator
 
         files_generated = 0
         files_failed = 0
@@ -743,7 +740,6 @@ class IncrementalModifyMixin:
         language_adapter=None
     ):
         """P6: 增量更新依赖图 — 根据生成的文件内容更新依赖关系"""
-        import re
 
         for file_path, content in generated_contents.items():
             if not content:

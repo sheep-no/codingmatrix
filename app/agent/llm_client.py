@@ -15,7 +15,7 @@ import time
 import asyncio
 import json
 import logging
-from typing import Optional, Dict, Any, Callable, Awaitable, AsyncIterator, Union
+from typing import Optional, Dict, Any, Callable, Awaitable
 
 import httpx
 from app.utils import call_llm

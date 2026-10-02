@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 import redis
 
