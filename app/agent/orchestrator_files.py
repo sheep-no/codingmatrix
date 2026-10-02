@@ -14,7 +14,6 @@ from pathlib import Path
 from app.utils import call_llm
 from app.agent.specialists import Specialist
 from app.agent.code_patcher import apply_incremental_change
-from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL

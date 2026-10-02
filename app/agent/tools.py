@@ -6,7 +6,6 @@ Specialist 内置工具实现
 """
 
 import re
-import json
 import glob
 import shlex
 import logging
@@ -817,7 +816,6 @@ def _tool_search_files(
         {matches: [{file, line_number, content}], total, pattern}
     """
     import subprocess
-    import os
 
     if not pattern or not pattern.strip():
         return {"success": False, "error": "搜索模式不能为空"}

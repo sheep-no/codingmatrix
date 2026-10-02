@@ -9,7 +9,7 @@ from typing import Any, Mapping, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .capabilities import Capability, CapabilitySet
+from .capabilities import CapabilitySet
 
 
 class HttpContract(BaseModel):

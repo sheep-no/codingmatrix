@@ -23,11 +23,9 @@ AI Agent - 多模型 Agent 架构
 v5.14 重构：拆分为独立模块，此文件保留 MultiModelAgent + 向后兼容 re-export。
 """
 
-import json
 import logging
 from typing import Optional, Dict, Any, List, Callable
 
-from app.utils import call_llm
 from app.utils.file_operator import FileOperator
 
 # 向后兼容：从子模块 re-export 所有公开符号

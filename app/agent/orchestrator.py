@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional, Callable, List, Dict, AsyncIterator
+from typing import Optional, Callable, List, Dict
 from pathlib import Path
 
 from app.core.paths import PROJECTS_BASE_DIR

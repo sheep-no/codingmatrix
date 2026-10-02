@@ -6,7 +6,7 @@ execute_analysis 使用 ReActEngine（simple 模式），不再维护独立的 R
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict
 
 from app.utils import call_llm
 from app.utils.file_operator import FileOperator

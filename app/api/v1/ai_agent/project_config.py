@@ -1,4 +1,4 @@
-from app.core.paths import PROJECTS_BASE_DIR
+from app.core.paths import PROJECTS_BASE_DIR  # noqa: F401  (re-exported; scheduler/lifecycle_endpoints/orchestrate_endpoints consume it)
 
 ALLOWED_PACKAGES = [
     "fastapi", "pydantic", "httpx", "sqlalchemy",

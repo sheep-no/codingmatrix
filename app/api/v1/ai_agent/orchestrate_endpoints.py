@@ -2,7 +2,6 @@ import logging
 import json
 import asyncio
 import time
-import re
 import shutil
 from collections import deque
 from datetime import datetime, timezone
@@ -11,12 +10,11 @@ from typing import AsyncIterator, Dict, Any, List, FrozenSet, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete as sql_delete, and_, select
 
 from app.utils.security import verify_token
-from app.db.database import get_db, async_session
+from app.db.database import get_db
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
@@ -27,8 +25,7 @@ from app.agent.orchestration import (
     execute_core_generation,
     select_engine,
 )
-from app.agent.multi_model_agent import MultiModelAgent
-from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+from app.agent.models import DEFAULT_FAST_MODEL
 
 
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
@@ -207,10 +204,6 @@ def _generation_result_error(result: Dict[str, Any]) -> str | None:
     return "生成流程未达到成功终态"
 
 
-from app.agent.impact_analyzer import ImpactAnalyzer
-from app.agent.project_profiler import ProjectProfiler
-from app.agent.test_selector import TestSelector
-from app.agent.failure_clusterer import FailureClusterer
 from app.api.v1.AiProjectCode import create_agent_session, log_tool_execution, update_model_stats
 
 from .schemas import (
@@ -222,8 +215,7 @@ from .schemas import (
 )
 from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
-    _approval_queues, _create_project_session, _update_project_session_status,
-    verify_admin_token, get_user_recent_session, verify_session_ownership,
+    _approval_queues, _create_project_session, verify_admin_token, get_user_recent_session, verify_session_ownership,
     detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
     _detect_and_clean_zombie_sessions, cleanup_session_files,
 )
@@ -1099,7 +1091,6 @@ async def orchestrate_project_stream(
     if not prompt_safe:
         raise HTTPException(status_code=400, detail=prompt_msg)
 
-    from app.utils.system_config import system_config_manager
     
     user_role = token.get("role", "user")
     
@@ -1979,7 +1970,7 @@ async def rollback_to_snapshot(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.agent.snapshot_manager import SnapshotManager, RollbackResult
+    from app.agent.snapshot_manager import SnapshotManager
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
     snapshot_mgr = SnapshotManager(git_ops)
@@ -2320,7 +2311,7 @@ async def get_token_usage_stats(
     try:
         from sqlalchemy import func, select
         from app.models.chat_history import ChatHistory
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
         # 总 token 使用量
         total_result = await db.execute(

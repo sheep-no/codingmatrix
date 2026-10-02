@@ -1,8 +1,7 @@
 import logging
 import time
-from typing import Dict, Any, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.utils.security import verify_token
 

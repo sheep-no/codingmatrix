@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from app.utils import call_llm
 from app.agent.complexity import ComplexityAnalysis
 from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_architect_prompt
@@ -1446,7 +1445,6 @@ language 字段要求：
             )
 
             # 去重合并
-            from pathlib import Path as _P
 
             added = 0
             for f in batch_files:

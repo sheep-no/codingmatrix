@@ -8,7 +8,7 @@ import logging
 from typing import Optional, List, Dict
 from enum import Enum
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from app.utils.model_defaults import get_default_model
 
 logger = logging.getLogger(__name__)

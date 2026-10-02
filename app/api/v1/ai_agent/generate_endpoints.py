@@ -33,7 +33,7 @@ from .helpers import (
     materialize_imported_project,
 )
 from .project_config import (
-    PROJECTS_BASE_DIR, PROJECT_MIME_TYPES,
+    PROJECT_MIME_TYPES,
     MAX_SAVED_PROJECTS_PER_USER,
 )
 

@@ -431,7 +431,6 @@ def validate_syntax_for_extension(file_path: str, content: str) -> tuple:
     Returns:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
-    import re
     ext = Path(file_path).suffix.lower()
 
     # JSON 文件：验证 JSON 格式
