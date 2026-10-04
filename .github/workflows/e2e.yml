@@ -89,7 +89,9 @@ jobs:
 
       - name: Start backend server
         run: |
-          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          # E2E 用例在同一分钟窗口内密集登录 /api/v1/login，会耗尽 5次/60秒
+          # 配额并误伤 encrypted-login 用例；CI 环境放宽该端点阈值。
+          RATE_LIMIT_LOGIN_LIMIT=1000 uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           echo "BACKEND_PID=$!" >> $GITHUB_ENV
           # 应用启动时会执行数据库迁移并生成 RSA 密钥，无需单独初始化
           for i in $(seq 1 30); do

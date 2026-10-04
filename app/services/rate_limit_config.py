@@ -3,7 +3,8 @@
 
 提供动态限流配置管理，支持多级限流策略
 """
-from typing import Dict, List, Optional, Tuple
+import os
+from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 import threading
 import logging
@@ -40,6 +41,14 @@ class RateLimitConfig:
         }
         self._enabled = True
         self._lock = threading.RLock()
+
+        # E2E/CI 环境用例密集登录会耗尽 5次/60秒 配额（误伤后续用例），
+        # 允许通过环境变量放宽单个端点阈值；生产默认不受影响。
+        login_limit_override = os.getenv("RATE_LIMIT_LOGIN_LIMIT")
+        if login_limit_override and login_limit_override.isdigit():
+            self._endpoint_rules["/api/v1/login"] = RateLimitRule(
+                limit=int(login_limit_override), window=60
+            )
 
     @property
     def global_limit(self) -> Tuple[int, int]:
