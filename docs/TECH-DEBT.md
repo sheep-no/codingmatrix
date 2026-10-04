@@ -222,6 +222,12 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 `aicloud_core.md` 剩余 P3 项（PR2/DP1/DP4/DP5/PR3/PR4/PR5/PRV1/PAPI4/PERM1/ADT3/HC4）本轮逐条核实后判定保留，理由见该文档 §八：DP4 更正为设计取舍（Anthropic 无公开模型列表 API，`fetch_models_anthropic` 不发网络请求），PR2 更正配置路径为 `.yaml` 且生产缺失即拒启动，其余为架构级（DP1/PR5/HC4）或设计取舍/零消费公开导出。
 
+### PROJECTS_BASE_DIR 绝对化与双轨消除（2026-09-28）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P3 | `PROJECTS_BASE_DIR = "./projects"` 相对路径依赖 CWD：api/scheduler/celery 多进程入口工作目录可能各不相同，CWD 漂移时生成物目录不可预测（AIC1/GRD3 关联） | `app/core/paths.py`、`app/api/v1/AiProjectCode.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；`core.paths` 改为基于 `__file__` 的绝对路径，`AiProjectCode.py` 与 `project_config.py` 的双轨定义消除（统一 import core.paths），`resolve_stream_output_dir` 前缀归一化兼容历史 `./projects/` 前缀与绝对 BASE 前缀。回归 `tests/unit/test_output_dir_resolution.py::TestProjectsBaseDirAbsolutePath`（5 项），回退后「绝对性」「双轨消除」两项精确失败；关联面 `test_evaluation_runner`/`test_import_project_files`/`test_flutter_project_delivery`/`test_project_lifecycle_api`/`test_ai_project_code_*` 全绿（`test_evaluation_runner` 补显式 patch `app.agent.orchestrator.PROJECTS_BASE_DIR`，原靠双模块同值巧合生效） |
+
 ### 死代码删除：sentry.py 与 startup_alert.py（2026-09-28）
 
 | 优先级 | 问题 | 实际位置 | 状态 |

@@ -171,10 +171,13 @@ def resolve_stream_output_dir(
             if session_id
             else f"{user_id}_{resolved_name}"
         )
-        # 确保是相对于 PROJECTS_BASE_DIR 的路径
+        # 归一化为相对于 PROJECTS_BASE_DIR 的路径：兼容历史请求中的
+        # "./projects/" 前缀与 BASE 为绝对路径后的自身前缀
         output_dir = project_path
-        if output_dir.startswith(PROJECTS_BASE_DIR + "/"):
-            output_dir = output_dir[len(PROJECTS_BASE_DIR) + 1:]
+        for prefix in ("./projects/", f"{PROJECTS_BASE_DIR}/"):
+            if output_dir.startswith(prefix):
+                output_dir = output_dir[len(prefix):]
+                break
         return output_dir, resolved_name, resolved_session
 
     if session_id:

@@ -206,6 +206,9 @@ def test_repair_maps_response_directory_to_actual_orchestrator_target(tmp_path, 
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("app.api.v1.ai_agent.project_config.PROJECTS_BASE_DIR", "./projects")
+    # OrchestratorAgent 直接绑定 app.core.paths 的常量（PROJECTS_BASE_DIR 已绝对化），
+    # 这里显式 patch Agent 侧命名空间以维持 chdir + 相对路径的映射语义
+    monkeypatch.setattr("app.agent.orchestrator.PROJECTS_BASE_DIR", "./projects")
     target = tmp_path / "projects" / "1" / "canonical"
     target.mkdir(parents=True)
 
