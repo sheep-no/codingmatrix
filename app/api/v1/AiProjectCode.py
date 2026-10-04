@@ -21,6 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.background import BackgroundTask
 
 from app.schema.codeRequest import GenerateRequest, GenerateResponse, AgentConfig
+from app.core.paths import PROJECTS_BASE_DIR
 from app.models.saved_project import SavedProject
 from app.models.agent_memory import AgentSession, ToolExecutionLog, ModelUsageStats
 from app.db.database import get_db
@@ -236,7 +237,8 @@ async def log_generation_result(
     except Exception as e:
         logger.error(f"记录生成结果失败: {e}")
 
-PROJECTS_BASE_DIR = "./projects"
+# PROJECTS_BASE_DIR 统一取自 app.core.paths（基于 __file__ 的绝对路径），
+# 消除与 core 层的双轨定义
 USER_UPLOADS_DIR = os.path.join(PROJECTS_BASE_DIR, "user_uploads")
 
 ALLOWED_PACKAGES = [

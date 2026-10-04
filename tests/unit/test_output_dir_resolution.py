@@ -217,3 +217,64 @@ class TestResolveStreamPriorityOrder:
         )
         assert project_name == "existing"
         assert output_dir == "1/existing"
+
+
+class TestProjectsBaseDirAbsolutePath:
+    """PROJECTS_BASE_DIR 基于 __file__ 的绝对路径（消除 CWD 漂移）"""
+
+    def test_core_paths_is_absolute(self):
+        """core.paths 定义为绝对路径，进程 CWD 变化时目录语义恒定"""
+        from pathlib import Path
+
+        from app.core.paths import PROJECTS_BASE_DIR
+
+        assert Path(PROJECTS_BASE_DIR).is_absolute()
+        assert PROJECTS_BASE_DIR.endswith("/projects")
+
+    def test_user_uploads_derived_from_core_paths(self):
+        """AiProjectCode 复用 core.paths 常量，双轨定义已消除"""
+        import os
+
+        from app.api.v1 import AiProjectCode
+        from app.core.paths import PROJECTS_BASE_DIR
+
+        assert AiProjectCode.PROJECTS_BASE_DIR is PROJECTS_BASE_DIR
+        assert AiProjectCode.USER_UPLOADS_DIR == os.path.join(
+            PROJECTS_BASE_DIR, "user_uploads"
+        )
+
+    def test_stream_output_dir_strips_absolute_base_prefix(self):
+        """project_path 带绝对 BASE 前缀时归一化为相对路径"""
+        from app.core.paths import PROJECTS_BASE_DIR
+
+        output_dir, project_name, session_id = resolve_stream_output_dir(
+            project_path=f"{PROJECTS_BASE_DIR}/1/myproj",
+            session_id=None,
+            project_name=None,
+            user_id="1",
+            timestamp="20260204_120000",
+        )
+        assert output_dir == "1/myproj"
+        assert project_name == "myproj"
+
+    def test_stream_output_dir_strips_legacy_relative_prefix(self):
+        """历史请求中的 ./projects/ 前缀仍被剥离"""
+        output_dir, project_name, session_id = resolve_stream_output_dir(
+            project_path="./projects/1/myproj",
+            session_id=None,
+            project_name=None,
+            user_id="1",
+            timestamp="20260204_120000",
+        )
+        assert output_dir == "1/myproj"
+
+    def test_stream_output_dir_keeps_plain_relative_path(self):
+        """普通相对路径原样保留"""
+        output_dir, project_name, session_id = resolve_stream_output_dir(
+            project_path="1/myproj",
+            session_id=None,
+            project_name=None,
+            user_id="1",
+            timestamp="20260204_120000",
+        )
+        assert output_dir == "1/myproj"

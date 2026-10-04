@@ -114,8 +114,11 @@
     两态分离；仅当底层统计真正抛错时才置位，消费方据此可显式感知故障。
   - `orchestrate_endpoints` 两处硬编码 `"./projects"` 改为引用 `app.core.paths.PROJECTS_BASE_DIR`
     单一常量。
-  - 仍未处理：`PROJECTS_BASE_DIR` 本身仍是相对路径（`"./projects"`），CWD 漂移问题
-    需把该常量改为基于 `__file__` 的绝对路径，属跨模块改造，留待专项。
+  - `PROJECTS_BASE_DIR` 相对路径的 CWD 漂移问题**已修（2026-09-28）**：
+    `app/core/paths.py` 改为基于 `__file__` 的绝对路径，`AiProjectCode.py`
+    与 `project_config.py` 的双轨定义同步消除；`resolve_stream_output_dir`
+    前缀归一化兼容历史 `./projects/` 前缀与绝对 BASE 前缀。回归
+    `tests/unit/test_output_dir_resolution.py::TestProjectsBaseDirAbsolutePath`。
 - **GRD6 [P3] 已修**：删除 guardrails 侧零消费的 `SessionIdValidator`/`validate_session_id`
   与 `GuardrailContext.session_id_validator` 字段，单一来源为 schemas.py；回归测试
   `tests/unit/test_guardrails.py::TestSessionIdValidationDeduplication`（3 例，回退源码后 2 例失败）。
