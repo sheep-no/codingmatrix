@@ -58,3 +58,13 @@
 
 - **SNT1 / STA1 零业务消费**——错误追踪与启动告警机制仍未接入 main.py，属「接入或删除」的产品/运维决策，删除需确认，暂缓。
 - **SNT3 `_before_send` 过滤面窄、SNT4 `capture_message_async` 伪异步、STA4 每告警新建 httpx.AsyncClient**——维持原判定；SNT4 改 `to_thread` 会影响 sentry scope 上下文传播，需评估后再动。
+
+## 六、终态：死代码删除（2026-09-28）
+
+按「死模块清理」授权执行（与 2026-09-23 批次删除 `ppxRequest.py`/`nginx_ai.py`/`resume_manager.py`/`hot_reload.py` 同模式）：
+
+- **SNT1/STA1 终态为删除**：全库复核确认零生产消费（`init_sentry`/`capture_*`/`set_user`/`StartupFailureAlert`/`record_startup_*`/`WebhookAlertHandler` 均无调用方，`set_user` 的命中均为 `set_user_limit`/`set_user_id` 无关同名）；`configs/requirements.txt` 本就无 `sentry-sdk` 依赖，`sentry.py` 的 `import sentry_sdk` 为函数内延迟导入，一旦真实接入反而会因缺依赖失败——进一步印证从未接入。唯一消费者是模块自身测试 `tests/unit/test_startup_alert_and_sentry.py`。
+- **删除范围**：`app/utils/sentry.py`、`app/utils/startup_alert.py`、`tests/unit/test_startup_alert_and_sentry.py`（备份于 `/tmp/opencode/cleanup_alerting_20260928/`）。
+- **随删除消解的缺陷项**：SNT2（静默 return）、SNT3（过滤面窄）、SNT4（伪异步）、SNT5（无锁 init）、STA2（列表无裁剪）、STA4（新建 AsyncClient）、STA5（单例无锁）——全部依附于被删除的模块实现。
+- **验证**：`from app.main import app` 正常；全库（app/tests/src/scripts/migrations）无残留 import 引用；`app/utils/__init__.py` 无 re-export。
+- 若未来需要错误追踪/启动告警能力，应基于当时的技术选型重新实现并真实接线（main.py 启动钩子 + 全局异常处理），重新接入时注意本档记录的 SNT2/SNT5/STA2 等教训。

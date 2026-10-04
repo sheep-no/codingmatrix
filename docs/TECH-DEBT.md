@@ -222,6 +222,12 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 `aicloud_core.md` 剩余 P3 项（PR2/DP1/DP4/DP5/PR3/PR4/PR5/PRV1/PAPI4/PERM1/ADT3/HC4）本轮逐条核实后判定保留，理由见该文档 §八：DP4 更正为设计取舍（Anthropic 无公开模型列表 API，`fetch_models_anthropic` 不发网络请求），PR2 更正配置路径为 `.yaml` 且生产缺失即拒启动，其余为架构级（DP1/PR5/HC4）或设计取舍/零消费公开导出。
 
+### 死代码删除：sentry.py 与 startup_alert.py（2026-09-28）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | SNT1/STA1：Sentry 错误追踪与启动失败告警两模块完备封装但全库零业务消费，从未接入 main.py | `app/utils/sentry.py`、`app/utils/startup_alert.py` | 已解决（删除）；全库符号级复核零消费（`set_user` 命中均为 `set_user_limit`/`set_user_id` 无关同名），requirements 无 `sentry-sdk` 且 sentry.py 为延迟 import——真实接入会因缺依赖失败，印证从未接线。连同唯一消费者 `tests/unit/test_startup_alert_and_sentry.py` 一并删除（备份 `/tmp/opencode/cleanup_alerting_20260928/`），SNT2-SNT5/STA2-STA5 随模块消解。`from app.main import app` 正常，全库无残留引用 |
+
 ### workflow 条件分支与卡死判定修复（2026-09-28）
 
 | 优先级 | 问题 | 实际位置 | 状态 |
