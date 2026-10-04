@@ -157,4 +157,13 @@ DECLARED_CAPABILITIES: tuple[DeclaredCapability, ...] = (
         status="experimental",
         rationale="用户偏好学习器整模块无生产引用，仅单测覆盖。",
     ),
+    DeclaredCapability(
+        name="CodeReviewAgent",
+        module="app/utils/review/code_review_agent.py",
+        status="experimental",
+        rationale=(
+            "Skill 分支代码审查代理无生产实例化点，仅单测覆盖；"
+            ".claude/skills/code-review 文档引用其契约，属人工/外部流程调用面。"
+        ),
+    ),
 )
