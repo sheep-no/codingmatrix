@@ -220,10 +220,10 @@ def _assert_acyclic(artifacts: Tuple[ArtifactSpec, ...]) -> None:
 
 
 __all__ = [
-    "HttpContract",
     "ArtifactSpec",
     "ChangePlanIR",
     "GenerationStrategy",
+    "HttpContract",
     "ModelCapabilityProfile",
     "ProjectModel",
     "StrategyDecision",

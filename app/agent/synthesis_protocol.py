@@ -114,9 +114,9 @@ def _safe_relative_path(path: str) -> bool:
 
 
 __all__ = [
+    "ComparableSynthesisInput",
     "ModelOperation",
     "ModelOperationKind",
     "ModelResponseProtocol",
-    "ComparableSynthesisInput",
     "select_response_protocol",
 ]

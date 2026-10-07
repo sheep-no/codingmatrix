@@ -549,7 +549,7 @@ class DependencyGraph:
         self.deduplicate()
 
         # 4. 输出依赖图详情（调试用）
-        logger.info(f"=== 依赖图构建详情 ===")
+        logger.info("=== 依赖图构建详情 ===")
         logger.info(f"文件节点 ({len(self.nodes)}):")
         for path, node in sorted(self.nodes.items()):
             logger.info(f"  {path} (type={node.file_type}, priority={node.priority})")
@@ -557,11 +557,11 @@ class DependencyGraph:
         for path, deps in sorted(self.adjacency.items()):
             if deps:
                 logger.info(f"  {path} -> {sorted(deps)}")
-        logger.info(f"被依赖关系:")
+        logger.info("被依赖关系:")
         for path, dependents in sorted(self.reverse_adjacency.items()):
             if dependents:
                 logger.info(f"  {path} <- {sorted(dependents)}")
-        logger.info(f"========================")
+        logger.info("========================")
 
     def deduplicate(self):
         """基于图结构消除功能重复文件
@@ -1729,7 +1729,7 @@ class DependencyGraph:
         if not patterns and self.nodes:
             # 提取路径中的文件名或模块名进行反向匹配
             possible_names = set()
-            for node_path in self.nodes.keys():
+            for node_path in self.nodes:
                 possible_names.add(Path(node_path).stem)
                 possible_names.add(Path(node_path).name)
 
@@ -1760,7 +1760,7 @@ class DependencyGraph:
                 parts = module.replace('/', '.').split('.')
 
                 # 使用路径段匹配（避免子串误杀）
-                for node_path in self.nodes.keys():
+                for node_path in self.nodes:
                     if any(_path_segments_contain(node_path, p) for p in parts):
                         if node_path != file_path:
                             deps.append(node_path)
@@ -1944,9 +1944,7 @@ class DependencyGraph:
         elif '__init__' in Path(file_path).name:
             return 5
 
-        if 'database' in file_path.lower() or 'config' in file_path.lower():
-            return 1
-        elif 'core' in file_path.lower():
+        if 'database' in file_path.lower() or 'config' in file_path.lower() or 'core' in file_path.lower():
             return 1
         elif 'model' in file_path.lower():
             return 2

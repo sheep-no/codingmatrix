@@ -952,7 +952,7 @@ class SpecFirstGenerateMixin:
         self._report_progress("files_generated", total_files + 4, total_files + 5, callback=callback)
 
         # ============ 完整性验证（新增） ============
-        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
 
         # 1. IntegrityValidator - 完整性验证
         from app.agent.integrity_validator import IntegrityValidator
@@ -1020,7 +1020,7 @@ class SpecFirstGenerateMixin:
             fix_model = self.model_assignment.reviewer_model
 
             # 更新生成文件字典
-            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
 
             try:
                 fixed_files, cross_issues = await cross_validator.validate_and_fix(
@@ -1047,7 +1047,7 @@ class SpecFirstGenerateMixin:
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
 
         from app.agent.symbol_table import finalize_generated_project
-        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         self.warnings.extend(
             finalize_generated_project(self.output_dir, architecture, generated_files_dict, ctx)
         )
@@ -1055,7 +1055,7 @@ class SpecFirstGenerateMixin:
         # 4. 项目级沙箱验证（新增）
         from app.agent.utils import validate_in_sandbox
         # 使用最新的文件字典（包含所有修复）
-        final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         sandbox_ok, sandbox_errors = validate_in_sandbox(
             project_dir=str(self.output_dir),
             files=final_files_dict,
@@ -1071,7 +1071,7 @@ class SpecFirstGenerateMixin:
             if fixed_files:
                 logger.info(f"沙箱验证自动修复: {len(fixed_files)} 个文件")
                 # 重新验证
-                final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+                final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
                 sandbox_ok, sandbox_errors = validate_in_sandbox(
                     project_dir=str(self.output_dir),
                     files=final_files_dict,
@@ -1146,7 +1146,7 @@ class SpecFirstGenerateMixin:
         architecture_inspector = ArchitectureInspector()
         architecture_inspector.set_context(
             architecture=architecture,
-            generated_files={f: ctx.get_file_content(f) for f in ctx.files.keys()},
+            generated_files={f: ctx.get_file_content(f) for f in ctx.files},
             constraints=global_constraints if global_constraints else [],
             decisions=decision_extractor.get_all_choices() if decision_extractor else {}
         )
@@ -1163,7 +1163,7 @@ class SpecFirstGenerateMixin:
             self.warnings.append(f"架构检查发现问题: {len(architecture_check.violations)} 个违规")
 
         completeness = await self._validate_project_completeness(
-            file_plan, {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+            file_plan, {f: ctx.get_file_content(f) for f in ctx.files}
         )
         _require_project_complete(completeness)
 
@@ -1625,7 +1625,7 @@ class SpecFirstGenerateMixin:
                 + "; ".join(errors_list)
             )
 
-        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
 
         # ============ 清理不符合项目语言的文件 ============
         if language_adapter:
@@ -1714,7 +1714,7 @@ class SpecFirstGenerateMixin:
             files_generated -= 1
 
         # ============ 完整性验证（新增） ============
-        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
 
         # 1. IntegrityValidator - 完整性验证
         from app.agent.integrity_validator import IntegrityValidator
@@ -1776,14 +1776,14 @@ class SpecFirstGenerateMixin:
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
 
         from app.agent.symbol_table import finalize_generated_project
-        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         warnings_list.extend(
             finalize_generated_project(self.output_dir, architecture, generated_files_dict, ctx)
         )
 
         # 4. 项目级沙箱验证
         from app.agent.utils import validate_in_sandbox
-        final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         sandbox_ok, sandbox_errors = validate_in_sandbox(
             project_dir=str(self.output_dir),
             files=final_files_dict,
@@ -1799,7 +1799,7 @@ class SpecFirstGenerateMixin:
             if fixed_files:
                 logger.info(f"沙箱验证自动修复: {len(fixed_files)} 个文件")
                 # 重新验证
-                final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+                final_files_dict = {f: ctx.get_file_content(f) for f in ctx.files}
                 sandbox_ok, sandbox_errors = validate_in_sandbox(
                     project_dir=str(self.output_dir),
                     files=final_files_dict,
@@ -1820,7 +1820,7 @@ class SpecFirstGenerateMixin:
         # ============ 项目完整性验证（补充缺失文件） ============
         if 'file_plan' not in locals():
             file_plan = architecture.get("file_plan", [])
-        final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         completeness = await self._validate_project_completeness(file_plan, final_generated_dict)
         _require_project_complete(completeness)
         logger.info(
@@ -2167,7 +2167,7 @@ class SpecFirstGenerateMixin:
                             for i in range(start, end):
                                 prefix = ">>>" if i == err['line'] - 1 else "   "
                                 context_lines.append(f"{prefix} {i+1}: {lines[i]}")
-                            detail += f"\n  上下文:\n" + "\n".join(context_lines)
+                            detail += "\n  上下文:\n" + "\n".join(context_lines)
                         error_details.append(detail)
 
                     error_text = "\n\n".join(error_details)
@@ -2402,9 +2402,7 @@ class SpecFirstGenerateMixin:
                 disk = Path(output_dir) / relative
                 # 空的 __init__.py 是合法的包标记、空的 .gitkeep 是合法的
                 # 目录占位，都不算缺失
-                if not disk.exists():
-                    missing_files.add(planned)
-                elif disk.stat().st_size == 0 and not (
+                if not disk.exists() or disk.stat().st_size == 0 and not (
                     is_package_entry_file(planned) or is_metadata_file(planned)
                 ):
                     missing_files.add(planned)

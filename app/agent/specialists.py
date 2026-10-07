@@ -5,11 +5,11 @@ from app.agent.backend_engineer import BackendEngineer
 from app.agent.code_reviewer import CodeReviewer
 
 __all__ = [
-    "Specialist",
+    "MAX_CONCURRENT_LLM_CALLS",
     "Architect",
-    "FrontendEngineer",
     "BackendEngineer",
     "CodeReviewer",
+    "FrontendEngineer",
+    "Specialist",
     "logger",
-    "MAX_CONCURRENT_LLM_CALLS",
 ]

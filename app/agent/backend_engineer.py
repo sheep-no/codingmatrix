@@ -95,26 +95,26 @@ class BackendEngineer(Specialist):
         framework = file_spec.get("framework")
 
         if framework:
-            lines.append(f"【框架约束 - 必须遵守】")
+            lines.append("【框架约束 - 必须遵守】")
             lines.append(f"- 本项目统一使用 {framework} 框架")
             lines.append(f"- 所有后端文件必须使用 {framework} 的 API 和导入方式")
-            lines.append(f"- 禁止混用其他框架（如 Flask、Django、Tornado 等）")
+            lines.append("- 禁止混用其他框架（如 Flask、Django、Tornado 等）")
             lines.append(f"- requirements.txt / go.mod 等依赖文件必须包含 {framework} 的依赖")
             lines.append("")
 
         if storage:
             storage_type = storage.get("type", "unknown")
-            lines.append(f"【存储约束 - 必须遵守】")
+            lines.append("【存储约束 - 必须遵守】")
             lines.append(f"- 存储方式: {storage_type}")
             if storage.get("filename"):
                 lines.append(f"- 存储文件: {storage['filename']}")
             if storage_type == "localStorage":
-                lines.append(f"- 注意：localStorage 是浏览器 API，后端文件禁止使用，请使用文件存储或数据库替代")
+                lines.append("- 注意：localStorage 是浏览器 API，后端文件禁止使用，请使用文件存储或数据库替代")
             lines.append("")
 
         if terminology:
-            lines.append(f"【术语约束 - 必须遵守】")
-            lines.append(f"- 项目统一使用以下术语（字段名、变量名、API 路径必须遵循）:")
+            lines.append("【术语约束 - 必须遵守】")
+            lines.append("- 项目统一使用以下术语（字段名、变量名、API 路径必须遵循）:")
             for en_term, actual_term in terminology.items():
                 lines.append(f"  - {en_term} -> {actual_term}")
             lines.append("")

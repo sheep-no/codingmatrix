@@ -714,14 +714,7 @@ class CrossValidator:
                 name = match.group(1)
                 if match.start() > 0 and stripped[match.start() - 1] == '.':
                     continue
-                if name[0].isupper():
-                    usages.append(SymbolUsage(
-                        name=name,
-                        file_path=file_path,
-                        line_number=i,
-                        context=stripped[:100]
-                    ))
-                elif not self._is_builtin_symbol(name):
+                if name[0].isupper() or not self._is_builtin_symbol(name):
                     usages.append(SymbolUsage(
                         name=name,
                         file_path=file_path,

@@ -34,7 +34,6 @@ MCP_CALL_TIMEOUT = 60
 
 class MCPError(Exception):
     """MCP 调用错误"""
-    pass
 
 
 class MCPServerConnection:
@@ -332,7 +331,6 @@ class MCPServerConnection:
                     self._process.kill()
                 except Exception as kill_err:
                     logger.debug(f"MCP 进程 kill 失败：{kill_err}")
-                    pass
             self._process = None
 
         if self._http_client:

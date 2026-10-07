@@ -362,4 +362,4 @@ def probe_profile(profile: DiscoveredProfile, *, checks: Tuple[str, ...]) -> Pro
     return ProfileProbeResult(profile=profile, passed=passed, checks=checks, failures=failures)
 
 
-__all__ = ["CapabilityGap", "DiscoveredProfile", "ProfileProbeResult", "ProfileProbeStep", "ProfileCache", "discover_profile", "discover_or_load_profile", "profile_context", "probe_profile", "build_probe_plan"]
+__all__ = ["CapabilityGap", "DiscoveredProfile", "ProfileCache", "ProfileProbeResult", "ProfileProbeStep", "build_probe_plan", "discover_or_load_profile", "discover_profile", "probe_profile", "profile_context"]

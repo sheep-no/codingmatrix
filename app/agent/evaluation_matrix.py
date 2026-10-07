@@ -339,4 +339,4 @@ def _summarize_strategy(strategy: str, records: list[EvaluationRecord]) -> Strat
     )
 
 
-__all__ = ["ApplicationDomain", "EvaluationCase", "EvaluationRecord", "EvaluationSummary", "LayerSummary", "StrategySummary", "EvaluationReport", "EvaluationRegistry", "FIXED_CRUD_CASES", "FIXED_EVALUATION_MATRIX", "summarize", "summarize_layer", "build_report"]
+__all__ = ["FIXED_CRUD_CASES", "FIXED_EVALUATION_MATRIX", "ApplicationDomain", "EvaluationCase", "EvaluationRecord", "EvaluationRegistry", "EvaluationReport", "EvaluationSummary", "LayerSummary", "StrategySummary", "build_report", "summarize", "summarize_layer"]

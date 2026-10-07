@@ -327,9 +327,7 @@ class CodePatcher:
                 lines_added += 1
             elif line.startswith('-') and not line.startswith('---'):
                 lines_deleted += 1
-            elif line.startswith('--- a/'):
-                files_affected.add(line[6:])
-            elif line.startswith('+++ b/'):
+            elif line.startswith('--- a/') or line.startswith('+++ b/'):
                 files_affected.add(line[6:])
 
         return {

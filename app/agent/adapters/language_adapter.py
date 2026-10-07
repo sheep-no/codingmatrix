@@ -103,7 +103,6 @@ class LanguageAdapter(ABC):
         Returns:
             导入信息列表
         """
-        pass
 
     @abstractmethod
     def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
@@ -117,7 +116,6 @@ class LanguageAdapter(ABC):
         Returns:
             可能的文件路径列表（因为某些语言有多种解析方式）
         """
-        pass
 
     @abstractmethod
     def infer_file_type(self, file_path: str) -> str:
@@ -130,7 +128,6 @@ class LanguageAdapter(ABC):
         Returns:
             文件类型字符串 (e.g., "model", "api", "config", "test", "database")
         """
-        pass
 
     @abstractmethod
     def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
@@ -143,7 +140,6 @@ class LanguageAdapter(ABC):
         Returns:
             符号名 -> 定义信息的映射
         """
-        pass
 
     def extract_signatures(self, content: str, file_path: str = "") -> Optional[str]:
         """提取依赖上下文所需的签名；专用适配器可接入语言工具链。"""
@@ -210,7 +206,6 @@ class LanguageAdapter(ABC):
         Returns:
             入口文件路径 (e.g., "app/models/__init__.py")
         """
-        pass
 
     @abstractmethod
     def is_project_module(self, module_name: str) -> bool:
@@ -223,7 +218,6 @@ class LanguageAdapter(ABC):
         Returns:
             是否是项目内模块
         """
-        pass
 
     @abstractmethod
     def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
@@ -237,7 +231,6 @@ class LanguageAdapter(ABC):
         Returns:
             缺失的文件路径列表
         """
-        pass
 
     def is_known_external_module(self, module_name: str) -> bool:
         """True when the name is a known stdlib or third-party package path."""
@@ -364,7 +357,7 @@ class LanguageAdapterRegistry:
         """
         ext_count: Dict[str, int] = {}
 
-        for file_path in files.keys():
+        for file_path in files:
             ext = Path(file_path).suffix
             if ext in cls._extension_map:
                 language = cls._extension_map[ext]

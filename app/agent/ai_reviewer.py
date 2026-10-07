@@ -26,7 +26,7 @@ class AIReviewer:
     def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: Optional[str] = None):
         self.model = ModelRegistry.get(model_key)
         self.api_key_token = api_key_token
-        pass  # JSON parsing uses unified json_parser module
+        # JSON parsing uses unified json_parser module
 
     async def review_code(self, code: str, context: str = "") -> ReviewResult:
         """

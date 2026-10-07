@@ -143,7 +143,6 @@ class AgentExecutor:
                 tools.update(mcp_manager.get_all_tools())
         except Exception as e:
             logger.debug(f"加载 MCP 工具失败：{e}")
-            pass
 
         engine = ReActEngine(
             tools=tools,

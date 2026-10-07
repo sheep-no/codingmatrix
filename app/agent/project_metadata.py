@@ -227,7 +227,7 @@ class ProjectMetadataManager:
         generated_files: Dict[str, str]
     ) -> List[str]:
         features = []
-        for filepath in generated_files.keys():
+        for filepath in generated_files:
             filename = Path(filepath).stem
             if filename in ["app", "main", "index", "config", "utils", "models"]:
                 continue

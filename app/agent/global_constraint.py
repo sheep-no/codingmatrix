@@ -258,11 +258,7 @@ class GlobalConstraintParser:
             return list(self.constraints)
 
         for constraint in self.constraints:
-            if "all" in constraint.applies_to:
-                applicable.append(constraint)
-            elif file_type in constraint.applies_to:
-                applicable.append(constraint)
-            elif self._file_matches_category(file_path, constraint.category):
+            if "all" in constraint.applies_to or file_type in constraint.applies_to or self._file_matches_category(file_path, constraint.category):
                 applicable.append(constraint)
 
         return applicable

@@ -647,9 +647,7 @@ language 字段要求：
             if key not in architecture:
                 continue
             parsed = self._parse_jsonish(architecture[key])
-            if isinstance(parsed, dict):
-                architecture[key] = parsed
-            elif isinstance(parsed, list) and key == "interfaces":
+            if isinstance(parsed, dict) or (isinstance(parsed, list) and key == "interfaces"):
                 architecture[key] = parsed
         architecture["interfaces"] = self._canonicalize_interfaces(architecture.get("interfaces"))
         for key in ("file_plan", "dependencies", "tech_stack"):

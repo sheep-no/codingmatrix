@@ -83,9 +83,9 @@ def default_database_profile_registry() -> DatabaseProfileRegistry:
 DEFAULT_DATABASE_PROFILES = default_database_profile_registry()
 
 __all__ = [
+    "DEFAULT_DATABASE_PROFILES",
     "DatabaseContract",
     "DatabaseProfileRegistry",
     "DatabaseProfileStatus",
-    "DEFAULT_DATABASE_PROFILES",
     "default_database_profile_registry",
 ]

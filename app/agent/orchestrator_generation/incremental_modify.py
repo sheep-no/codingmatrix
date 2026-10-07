@@ -362,7 +362,7 @@ class IncrementalModifyMixin:
             # 顺序来自 set 迭代（受 PYTHONHASHSEED 影响），渲染前排序才能保证
             # 摘要文本稳定（IM8）。
             order = [f for layer in layers for f in sorted(layer)]
-            lines.append(f"\n## 生成顺序")
+            lines.append("\n## 生成顺序")
             for i, f in enumerate(order, 1):
                 lines.append(f"{i}. {f}")
         except Exception:

@@ -283,6 +283,10 @@ def _read_toml_object(path: Path) -> Mapping[str, object]:
 
 
 __all__ = [
-    "CommandSpec", "DEFAULT_ALLOWED_EXECUTABLES", "ToolchainAction",
-    "ToolchainProbePlan", "ToolchainRunner", "detect_toolchain",
+    "DEFAULT_ALLOWED_EXECUTABLES",
+    "CommandSpec",
+    "ToolchainAction",
+    "ToolchainProbePlan",
+    "ToolchainRunner",
+    "detect_toolchain",
 ]
