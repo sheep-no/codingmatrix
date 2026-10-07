@@ -1462,10 +1462,9 @@ language 字段要求：
                 break
 
         architecture["file_plan"] = existing_plan
-        architecture = self._ensure_file_plan_completeness(
+        return self._ensure_file_plan_completeness(
             architecture, target_language, complexity=complexity
         )
-        return architecture
 
     async def _generate_batch_files(
         self,

@@ -285,12 +285,11 @@ def load_guard_contracts() -> Optional[Dict]:
 
 
 def get_agent_knowledge_base() -> Dict[str, Any]:
-    knowledge = {
+    return {
         "dependency_graph": load_dependency_graph(),
         "guard_contracts": load_guard_contracts(),
         "cognitive_skills": get_skills_manager().get_all_skills_context(),
     }
-    return knowledge
 
 
 async def _safe_update_progress(update_progress, **kwargs) -> bool:
@@ -841,8 +840,7 @@ async def analyze_files_to_regenerate(
         if json_match:
             files_to_regenerate = json.loads(json_match.group())
             # 验证文件路径
-            valid_files = [f for f in files_to_regenerate if f in generated_files]
-            return valid_files
+            return [f for f in files_to_regenerate if f in generated_files]
     except Exception as e:
         logger.warning(f"文件分析失败: {e}")
     

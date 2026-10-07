@@ -104,8 +104,7 @@ class SessionState:
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典"""
-        d = {k: v for k, v in asdict(self).items() if not k.startswith('_')}
-        return d
+        return {k: v for k, v in asdict(self).items() if not k.startswith('_')}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SessionState':

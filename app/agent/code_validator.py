@@ -565,7 +565,7 @@ class CodeValidator:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            _stdout, stderr = await proc.communicate()
             # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非语法错误，
             # 不能据此判为无效代码。
             if proc.returncode < 0:

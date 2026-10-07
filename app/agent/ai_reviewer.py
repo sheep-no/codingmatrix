@@ -194,7 +194,7 @@ class AIReviewer:
                 result = result.model_copy(update={
                     "approved": False,
                     "risk_level": "high",
-                    "issues": result.issues + ["计划中包含降级步骤，需人工审查"],
+                    "issues": [*result.issues, "计划中包含降级步骤，需人工审查"],
                 })
             return result
         except ValidationError as e:

@@ -986,7 +986,7 @@ async def orchestrate_project(
             execution_time=execution_time
         )
 
-        for role, model in result.get("models_used", {}).items():
+        for _role, model in result.get("models_used", {}).items():
             await update_model_stats(
                 db, int(user_id),
                 model, model,
@@ -1239,7 +1239,7 @@ async def orchestrate_project_stream(
         
         if not is_resume:
             # 优先级：前端传来的 project_path > session_id 推导 > 全新生成
-            output_dir, project_name, session_id = resolve_stream_output_dir(
+            output_dir, _project_name, session_id = resolve_stream_output_dir(
                 request.project_path,
                 request.session_id,
                 request.project_name,

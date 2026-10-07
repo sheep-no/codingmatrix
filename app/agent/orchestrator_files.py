@@ -1713,7 +1713,7 @@ def _git_stash_push(work_dir: str, files: List[str], message: str = "agent-backu
         return True
     try:
         result = subprocess.run(
-            ['git', 'stash', 'push', '-m', message, '--'] + files,
+            ['git', 'stash', 'push', '-m', message, '--', *files],
             cwd=work_dir, capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:

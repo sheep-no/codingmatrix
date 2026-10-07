@@ -103,8 +103,7 @@ class ErrorRecoveryLoop:
         if config and "fallback_chains" in config:
             chain = config["fallback_chains"].get(chain_name, [])
             if chain:
-                resolved = [resolve_model_key(m) for m in chain]
-                return resolved
+                return [resolve_model_key(m) for m in chain]
         return []
 
     def _get_user_fallback_preference(self) -> Optional[Dict]:
@@ -169,7 +168,7 @@ class ErrorRecoveryLoop:
     ) -> Dict:
         """智能修正循环：带模型降级策略、错误分类和 A/B 测试策略"""
         # 确定修复模型链：主模型 + 配置文件中的降级链
-        models_to_try = [backend_model] + self.MODEL_FALLBACK_CHAIN
+        models_to_try = [backend_model, *self.MODEL_FALLBACK_CHAIN]
         # 去重并保持顺序
         seen = set()
         unique_models = []

@@ -202,7 +202,7 @@ class CloudLearningHub:
         results = []
 
         # 1. 先从本地缓存查找
-        for pattern_hash, cloud_pattern in self._local_patterns.items():
+        for _pattern_hash, cloud_pattern in self._local_patterns.items():
             pattern = FixPattern(**cloud_pattern.pattern)
 
             # 错误类型匹配

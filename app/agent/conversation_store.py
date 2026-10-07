@@ -351,9 +351,7 @@ class ConversationStore:
             )
 
             # 用摘要替换旧消息
-            compressed = [
-                {"role": "system", "content": f"[历史对话摘要]\n{summary}", "timestamp": int(time.time())}
-            ] + recent_messages
+            compressed = [{"role": "system", "content": f"[历史对话摘要]\n{summary}", "timestamp": int(time.time())}, *recent_messages]
 
             # 更新存储（先清数据库旧数据，再写新数据）
             await self.clear_history(session_id, user_id)

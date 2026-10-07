@@ -612,7 +612,7 @@ class IsolatedTestRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             if proc.returncode != 0:
                 err = stderr.decode('utf-8', errors='replace')[:500]
                 logger.warning(f"pip install 失败: {err}")

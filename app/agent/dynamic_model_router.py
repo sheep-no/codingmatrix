@@ -308,7 +308,7 @@ class ModelPerformanceTracker:
         rows = cursor.fetchall()
         result = []
         for row in rows:
-            name, rate, latency, calls, cf = row
+            name, _rate, _latency, _calls, cf = row
             if cf < 5:
                 result.append(name)
         return result
@@ -709,7 +709,7 @@ class DynamicModelRouter:
         ]
         all_models = [m for _, m in task_types]
         selected = {}
-        for task_type, static_model in task_types:
+        for task_type, _static_model in task_types:
             chosen = learning_router.select_model(task_type, all_models)
             selected[task_type] = chosen
         result = ModelAssignment(
@@ -922,12 +922,11 @@ async def get_best_model_with_health_awareness(
         system_load_score = system_load_monitor.get_model_load_score(model_name)
 
         # 综合评分 = 模型健康 * 权重 + (1 - 系统负载) * 权重
-        comprehensive_score = (
+        return (
             model_health_score * config.model_load_weight +
             (1.0 - system_load_score) * config.system_load_weight
         )
 
-        return comprehensive_score
 
     best_model = max(healthy_models, key=calculate_comprehensive_score)
     logger.info(f"健康感知路由 [{task_type}]: {best_model}")

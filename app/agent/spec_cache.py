@@ -288,8 +288,7 @@ class SpecCache:
         """归一化需求文本"""
         text = requirement.lower()
         text = re.sub(r'\s+', ' ', text).strip()
-        text = re.sub(r'[^\w\s\u4e00-\u9fff]', '', text)
-        return text
+        return re.sub(r'[^\w\s\u4e00-\u9fff]', '', text)
 
     def extract_keywords(self, requirement: str) -> List[str]:
         """提取需求关键词"""

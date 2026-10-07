@@ -723,7 +723,7 @@ class ProjectProfiler:
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            profile = ProjectProfile(
+            return ProjectProfile(
                 architecture=ArchitectureInfo(**data.get('architecture', {})),
                 risk_areas=RiskAreas(**data.get('risk_areas', {})),
                 test_patterns=TestPatterns(**data.get('test_patterns', {})),
@@ -731,7 +731,6 @@ class ProjectProfiler:
                 cache_key=cache_key,
                 language=data.get('language', 'python'),
             )
-            return profile
         except Exception as e:
             logger.warning(f"加载缓存失败：{e}")
             return None
