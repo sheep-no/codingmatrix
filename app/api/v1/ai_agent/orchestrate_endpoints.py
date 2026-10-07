@@ -636,7 +636,7 @@ async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, use
         }
     except Exception as e:
         logger.error(f"分析失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}") from e
 
 
 @router.post("/modify")
@@ -1863,7 +1863,7 @@ async def search_sessions(
         
     except Exception as e:
         logger.error(f"搜索会话失败: {e}")
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}") from e
 
 
 @router.get("/sessions")
@@ -2115,7 +2115,7 @@ async def evaluate_project(
 
     except Exception as e:
         logger.error(f"评价失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"评价失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"评价失败: {str(e)}") from e
 
 
 # ========================================

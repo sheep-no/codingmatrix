@@ -270,10 +270,10 @@ def generate_ppt(self, task_id: str, user_id: int, request_data: dict[str, Any],
         return asyncio.run(run())
     except SoftTimeLimitExceeded:
         logger.error("PPT task timed out | task_id=%s", task_id)
-        raise RuntimeError("PPT 任务执行超时")
+        raise RuntimeError("PPT 任务执行超时") from None
     except Exception as exc:
         logger.exception("PPT task failed | task_id=%s", task_id)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 __all__ = ["generate_ppt"]

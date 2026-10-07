@@ -212,7 +212,7 @@ class MCPServerConnection:
                 await self._process.stdin.drain()
         except (BrokenPipeError, OSError) as e:
             self._pending.pop(req_id, None)
-            raise MCPError(f"MCP Server {self.name} 连接已断开: {e}")
+            raise MCPError(f"MCP Server {self.name} 连接已断开: {e}") from e
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)

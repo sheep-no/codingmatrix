@@ -608,7 +608,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
         raise
     except Exception as e:
         logger.error(f"验证会话所有权失败 | session_id={session_id} | error={e}")
-        raise HTTPException(status_code=500, detail="验证会话失败")
+        raise HTTPException(status_code=500, detail="验证会话失败") from e
 
 
 # ==================== 意图检测 ====================
