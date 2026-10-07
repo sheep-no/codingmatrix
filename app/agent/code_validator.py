@@ -638,7 +638,7 @@ class CodeValidator:
                 defined_symbols[module_name] = _module_level_exports(tree)
             except Exception as e:
                 logger.debug(f"AST 解析失败 {f}（语法错误跳过）：{e}")
-                pass  # 语法错误的文件跳过
+                # 语法错误的文件跳过
 
         # 2. 检查 main.py 中的导入是否匹配实际模块和符号
         main_file = self.project_path / 'main.py'

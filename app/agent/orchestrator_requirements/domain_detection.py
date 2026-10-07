@@ -27,9 +27,7 @@ def _detect_domains(requirement: str) -> List[str]:
 
     domains = []
     for domain, score in scored:
-        if score >= 2:
-            domains.append(domain)
-        elif score >= 1 and len(domains) < 2:
+        if score >= 2 or score >= 1 and len(domains) < 2:
             domains.append(domain)
 
     return domains[:3]

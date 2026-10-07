@@ -105,7 +105,6 @@ def _evict_idle_model_semaphores(keep: str) -> None:
 
 class LLMClientError(Exception):
     """LLM 调用不可恢复错误"""
-    pass
 
 
 class LLMClient:

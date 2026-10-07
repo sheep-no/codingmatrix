@@ -73,17 +73,17 @@ class FrontendEngineer(Specialist):
 
         if storage:
             storage_type = storage.get("type", "unknown")
-            lines.append(f"【存储约束 - 必须遵守】")
+            lines.append("【存储约束 - 必须遵守】")
             lines.append(f"- 存储方式: {storage_type}")
             if storage_type == "localStorage":
-                lines.append(f"- 前端使用 localStorage 存储数据")
+                lines.append("- 前端使用 localStorage 存储数据")
             elif storage_type in ("json_file", "sqlite", "postgresql", "redis"):
                 lines.append(f"- 注意：{storage_type} 是后端存储方式，前端文件禁止直接使用，请通过 API 调用后端")
             lines.append("")
 
         if terminology:
-            lines.append(f"【术语约束 - 必须遵守】")
-            lines.append(f"- 项目统一使用以下术语（字段名、变量名必须遵循）:")
+            lines.append("【术语约束 - 必须遵守】")
+            lines.append("- 项目统一使用以下术语（字段名、变量名必须遵循）:")
             for en_term, actual_term in terminology.items():
                 lines.append(f"  - {en_term} -> {actual_term}")
             lines.append("")

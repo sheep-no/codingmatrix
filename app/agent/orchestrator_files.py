@@ -920,9 +920,9 @@ def _repair_python_test_database_fixtures(
         fixture_decorators = []
         for decorator in node.decorator_list:
             target = decorator.func if isinstance(decorator, ast.Call) else decorator
-            if isinstance(target, ast.Attribute) and target.attr == "fixture":
-                fixture_decorators.append(decorator)
-            elif isinstance(target, ast.Name) and target.id == "fixture":
+            if (isinstance(target, ast.Attribute) and target.attr == "fixture") or (
+                isinstance(target, ast.Name) and target.id == "fixture"
+            ):
                 fixture_decorators.append(decorator)
         if not fixture_decorators:
             continue

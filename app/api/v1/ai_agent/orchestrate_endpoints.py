@@ -829,7 +829,7 @@ async def modify_project(
                 while not cancel_event.is_set():
                     await asyncio.sleep(5)
                     try:
-                        await queue.put(f": heartbeat\n\n")
+                        await queue.put(": heartbeat\n\n")
                     except Exception:
                         break
 
@@ -1234,7 +1234,7 @@ async def orchestrate_project_stream(
                     request.requirement = original_requirement
             else:
                 # 没有找到可恢复的会话，创建新会话
-                logger.info(f"没有找到可恢复的会话，创建新会话")
+                logger.info("没有找到可恢复的会话，创建新会话")
                 is_resume = False
         
         if not is_resume:

@@ -13,19 +13,19 @@ from app.agent.test_selector import TestSelector
 from app.agent.failure_clusterer import FailureClusterer, FailureCluster
 
 __all__ = [
-    # 原有模块
-    'OrchestratorAgent',
-    'MultiModelAgent',
-    'ReActAgent',
-    'SessionManager',
-    'SpecCache',
+    'ChangeSummary',
+    'FailureCluster',
+    'FailureClusterer',
     'FeedbackLearner',
     # 新增模块
     'ImpactAnalyzer',
-    'ChangeSummary',
-    'ProjectProfiler',
+    'MultiModelAgent',
+    # 原有模块
+    'OrchestratorAgent',
     'ProjectProfile',
+    'ProjectProfiler',
+    'ReActAgent',
+    'SessionManager',
+    'SpecCache',
     'TestSelector',
-    'FailureClusterer',
-    'FailureCluster',
 ]

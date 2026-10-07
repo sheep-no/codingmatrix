@@ -223,7 +223,7 @@ class SpecFirstGenerator:
             # 解析 JSON
             openapi_spec = self._extract_json(content)
             if not openapi_spec:
-                logger.warning(f"OpenAPI 规范解析失败")
+                logger.warning("OpenAPI 规范解析失败")
                 return False
             
             # 如果返回 list，递归提取第一个 dict 元素（处理 [[...]] 嵌套）
@@ -231,11 +231,11 @@ class SpecFirstGenerator:
                 while isinstance(openapi_spec, list) and len(openapi_spec) > 0:
                     if isinstance(openapi_spec[0], dict):
                         openapi_spec = openapi_spec[0]
-                        logger.info(f"OpenAPI 规范从 list 中提取第一个元素")
+                        logger.info("OpenAPI 规范从 list 中提取第一个元素")
                         break
                     elif isinstance(openapi_spec[0], list):
                         openapi_spec = openapi_spec[0]
-                        logger.info(f"OpenAPI 规范从嵌套 list 中提取")
+                        logger.info("OpenAPI 规范从嵌套 list 中提取")
                     elif isinstance(openapi_spec[0], str):
                         # 策略 1: 直接 json.loads
                         try:
@@ -243,7 +243,7 @@ class SpecFirstGenerator:
                             parsed = json.loads(openapi_spec[0])
                             if isinstance(parsed, dict):
                                 openapi_spec = parsed
-                                logger.info(f"OpenAPI 规范从字符串直接解析")
+                                logger.info("OpenAPI 规范从字符串直接解析")
                                 break
                         except (ValueError, TypeError):
                             pass
@@ -252,21 +252,21 @@ class SpecFirstGenerator:
                         extracted = self._extract_json(str_content)
                         if isinstance(extracted, dict) and "openapi" in extracted:
                             openapi_spec = extracted
-                            logger.info(f"OpenAPI 规范从字符串嵌入内容中提取")
+                            logger.info("OpenAPI 规范从字符串嵌入内容中提取")
                             break
                         # 策略 3: 遍历 list 中所有元素查找 dict
                         found = False
                         for item in openapi_spec:
                             if isinstance(item, dict) and "openapi" in item:
                                 openapi_spec = item
-                                logger.info(f"OpenAPI 规范从 list 中其他元素提取")
+                                logger.info("OpenAPI 规范从 list 中其他元素提取")
                                 found = True
                                 break
                             elif isinstance(item, str):
                                 inner = self._extract_json(item)
                                 if isinstance(inner, dict) and "openapi" in inner:
                                     openapi_spec = inner
-                                    logger.info(f"OpenAPI 规范从 list 中字符串元素嵌入内容提取")
+                                    logger.info("OpenAPI 规范从 list 中字符串元素嵌入内容提取")
                                     found = True
                                     break
                         if found:
@@ -277,7 +277,7 @@ class SpecFirstGenerator:
                         logger.warning(f"OpenAPI 规范解析失败: list 首元素类型={type(openapi_spec[0]).__name__}")
                         return False
                 else:
-                    logger.warning(f"OpenAPI 规范解析失败: 空 list")
+                    logger.warning("OpenAPI 规范解析失败: 空 list")
                     return False
             
             if not isinstance(openapi_spec, dict):
@@ -368,7 +368,7 @@ OpenAPI 规范：
         openapi_spec = self.context.get_spec("openapi")
         # 防御：确保 openapi_spec 是 dict 类型
         if isinstance(openapi_spec, str):
-            logger.warning(f"openapi_spec 为字符串类型，尝试重新解析")
+            logger.warning("openapi_spec 为字符串类型，尝试重新解析")
             openapi_spec = self._extract_json(openapi_spec) or {}
         if not isinstance(openapi_spec, dict):
             openapi_spec = {}

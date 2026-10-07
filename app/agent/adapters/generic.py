@@ -232,21 +232,15 @@ class GenericLanguageAdapter(LanguageAdapter):
 
         # 从 file_plan 中推断扩展名
         file_extensions = set()
-        for plan_path in self._file_plan_data.keys():
+        for plan_path in self._file_plan_data:
             if '.' in plan_path:
                 ext = '.' + plan_path.rsplit('.', 1)[1]
                 file_extensions.add(ext)
 
         # 检查 file_plan 中是否有匹配的文件
-        for plan_path in self._file_plan_data.keys():
+        for plan_path in self._file_plan_data:
             # 精确匹配
-            if plan_path == module:
-                candidates.append(plan_path)
-            # 模块路径转文件路径（带扩展名）
-            elif plan_path == f"{module}" or plan_path.endswith(f"/{module}"):
-                candidates.append(plan_path)
-            # 模块名匹配（不带路径前缀）
-            elif Path(plan_path).stem == module:
+            if plan_path == module or plan_path == f"{module}" or plan_path.endswith(f"/{module}") or Path(plan_path).stem == module:
                 candidates.append(plan_path)
 
         # 通用路径转换（使用从 file_plan 推断的扩展名）
@@ -389,7 +383,7 @@ class GenericLanguageAdapter(LanguageAdapter):
             return False
 
         # 检查 file_plan 中是否有匹配的文件
-        for plan_path in self._file_plan_data.keys():
+        for plan_path in self._file_plan_data:
             if plan_path == module_name:
                 return True
             # 模块路径转文件路径匹配

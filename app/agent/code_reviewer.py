@@ -131,7 +131,7 @@ class CodeReviewer(Specialist):
         try:
             import importlib.metadata as metadata
             installed_versions = {}
-            for pkg_name in self.VERSION_RULES.keys():
+            for pkg_name in self.VERSION_RULES:
                 try:
                     version = metadata.version(pkg_name)
                     installed_versions[pkg_name] = version
@@ -142,7 +142,7 @@ class CodeReviewer(Specialist):
             try:
                 import pkg_resources
                 installed_versions = {}
-                for pkg_name in self.VERSION_RULES.keys():
+                for pkg_name in self.VERSION_RULES:
                     try:
                         version = pkg_resources.get_distribution(pkg_name).version
                         installed_versions[pkg_name] = version

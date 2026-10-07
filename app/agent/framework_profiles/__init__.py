@@ -274,9 +274,18 @@ def default_profile_registry() -> ProfileRegistry:
 DEFAULT_PROFILES = default_profile_registry()
 
 __all__ = [
-    "DEFAULT_CONFORMANCE_CHECKS", "DEFAULT_PROFILES", "FrameworkProfile",
-    "PROFILE_SCHEMA_VERSION", "ProfileRegistry", "ProfileScope", "ProfileStatus",
-    "ValidationStage", "WorkspaceProfileDocument", "WorkspaceProfileProbeResult",
-    "default_profile_registry", "load_workspace_profile", "probe_workspace_profile",
+    "DEFAULT_CONFORMANCE_CHECKS",
+    "DEFAULT_PROFILES",
+    "PROFILE_SCHEMA_VERSION",
+    "FrameworkProfile",
+    "ProfileRegistry",
+    "ProfileScope",
+    "ProfileStatus",
+    "ValidationStage",
+    "WorkspaceProfileDocument",
+    "WorkspaceProfileProbeResult",
+    "default_profile_registry",
+    "load_workspace_profile",
+    "probe_workspace_profile",
     "promote_workspace_profile",
 ]

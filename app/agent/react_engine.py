@@ -322,7 +322,7 @@ class ReActEngine:
             result = self.json_parser.safe_parse_json(response)
             if not isinstance(result, dict):
                 # JSON 解析失败或返回非 dict，继续执行而非终止
-                logger.warning(f"反思阶段 JSON 解析失败，继续执行")
+                logger.warning("反思阶段 JSON 解析失败，继续执行")
                 result = {"continue": True, "task_complete": False, "reflection": response}
         except Exception as e:
             logger.error(f"反思阶段失败: {e}")

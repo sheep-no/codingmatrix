@@ -132,18 +132,18 @@ class StackRepairStrategyRegistry:
 
 
 __all__ = [
+    "RepairContext",
     "RepairFunction",
     "RepairPredicate",
-    "RepairContext",
-    "repair_contract_digest",
-    "fastapi_crud_repair_applies",
-    "spring_crud_repair_applies",
-    "flask_crud_repair_applies",
-    "express_crud_repair_applies",
-    "nestjs_crud_repair_applies",
-    "go_crud_repair_applies",
-    "pygame_snake_repair_applies",
     "StackRepairCandidate",
     "StackRepairStrategy",
     "StackRepairStrategyRegistry",
+    "express_crud_repair_applies",
+    "fastapi_crud_repair_applies",
+    "flask_crud_repair_applies",
+    "go_crud_repair_applies",
+    "nestjs_crud_repair_applies",
+    "pygame_snake_repair_applies",
+    "repair_contract_digest",
+    "spring_crud_repair_applies",
 ]
