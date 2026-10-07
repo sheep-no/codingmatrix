@@ -72,7 +72,7 @@ def generate_code(self, task_id: str, prompt: str, language: str, user_id: int, 
         return asyncio.run(_execute())
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("代码生成超时")
+        raise Exception("代码生成超时") from None
 
 
 @celery_app.task(
@@ -205,7 +205,7 @@ def modify_with_test(
         return asyncio.run(_execute())
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("修改+测试任务超时")
+        raise Exception("修改+测试任务超时") from None
     except Exception as e:
         logger.error(f"Task {task_id} failed: {e}")
         raise

@@ -676,7 +676,7 @@ class ReActEngine:
                         pass
                     raise asyncio.TimeoutError(
                         f"心跳超时: {self.heartbeat_timeout}s 内无 LLM 调用活动"
-                    )
+                    ) from None
                 # else: 继续等待
 
         # 任务已完成（可能被取消或异常）

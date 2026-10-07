@@ -332,7 +332,7 @@ language 字段要求：
             logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
             if not architecture:
-                raise ValueError("architect architecture JSON extraction failed")
+                raise ValueError("architect architecture JSON extraction failed") from None
 
         if not isinstance(architecture, dict):
             raise ValueError(

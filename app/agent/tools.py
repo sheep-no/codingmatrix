@@ -63,7 +63,7 @@ def _safe_join(project_root: str, target: str) -> Path:
     try:
         candidate.relative_to(root)
     except ValueError:
-        raise PermissionError(f"路径越界：'{target}' 不在项目根目录 '{project_root}' 下")
+        raise PermissionError(f"路径越界：'{target}' 不在项目根目录 '{project_root}' 下") from None
     return candidate
 
 

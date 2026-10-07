@@ -248,7 +248,7 @@ class LLMClient:
             logger.error(f"LLM 流式调用超时 ({self._model_config.get('timeout', 300)}s): {self.model_name}")
             raise LLMClientError(
                 f"LLM 流式调用超时 ({self._model_config.get('timeout', 300)}s): {self.model_name}"
-            )
+            ) from None
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -482,7 +482,7 @@ class LLMClient:
                 self.model_name, success=False, latency_ms=latency_ms, error="timeout"
             )
             logger.error(f"LLM 调用超时 ({call_timeout}s): {self.model_name}")
-            raise LLMClientError(f"LLM 调用超时 ({call_timeout}s): {self.model_name}")
+            raise LLMClientError(f"LLM 调用超时 ({call_timeout}s): {self.model_name}") from None
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
