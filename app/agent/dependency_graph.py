@@ -1053,9 +1053,8 @@ class DependencyGraph:
                 from_node, to_node = edge_to_remove
                 self.adjacency[from_node].discard(to_node)
                 self.reverse_adjacency[to_node].discard(from_node)
-                if from_node in self.nodes:
-                    if to_node in self.nodes[from_node].dependencies:
-                        self.nodes[from_node].dependencies.remove(to_node)
+                if from_node in self.nodes and to_node in self.nodes[from_node].dependencies:
+                    self.nodes[from_node].dependencies.remove(to_node)
                 logger.info(f"打破循环依赖: {from_node} -> {to_node} (目标入度={max_in_degree})")
 
     def get_generation_layers(self) -> List[List[str]]:
@@ -1761,9 +1760,8 @@ class DependencyGraph:
 
                 # 使用路径段匹配（避免子串误杀）
                 for node_path in self.nodes:
-                    if any(_path_segments_contain(node_path, p) for p in parts):
-                        if node_path != file_path:
-                            deps.append(node_path)
+                    if any(_path_segments_contain(node_path, p) for p in parts) and node_path != file_path:
+                        deps.append(node_path)
 
         return list(set(deps))
 

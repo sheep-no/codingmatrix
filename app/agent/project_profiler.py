@@ -448,15 +448,13 @@ class ProjectProfiler:
                     if self._is_python_pure_export(content):
                         rel_path = os.path.relpath(path, root)
                         export_modules.append(rel_path)
-                elif self.language == "javascript":
-                    if self._is_js_pure_export(content):
-                        rel_path = os.path.relpath(path, root)
-                        export_modules.append(rel_path)
-                elif self.language == "rust":
+                elif self.language == "javascript" and self._is_js_pure_export(content):
+                    rel_path = os.path.relpath(path, root)
+                    export_modules.append(rel_path)
+                elif self.language == "rust" and re.search(r"^\s*(?:pub\s+)?mod\s+\w+", content, re.M):
                     # Rust mod.rs：通常包含 mod xxx; 声明
-                    if re.search(r"^\s*(?:pub\s+)?mod\s+\w+", content, re.M):
-                        rel_path = os.path.relpath(path, root)
-                        export_modules.append(rel_path)
+                    rel_path = os.path.relpath(path, root)
+                    export_modules.append(rel_path)
             except Exception as e:
                 logger.debug(f"聚合导出检测失败 {path}: {e}")
                 continue

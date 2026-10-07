@@ -95,13 +95,12 @@ class ConsistencyChecker:
                 content = py_file.read_text(encoding='utf-8')
                 tree = ast.parse(content)
                 for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
                         # 只记录导出函数（不以 _ 开头）
-                        if not node.name.startswith('_'):
-                            func_key = f"{py_file.relative_to(directory)}::{node.name}"
-                            args = [arg.arg for arg in node.args.args]
-                            sig = f"{node.name}({', '.join(args)})"
-                            signatures[func_key] = sig
+                        func_key = f"{py_file.relative_to(directory)}::{node.name}"
+                        args = [arg.arg for arg in node.args.args]
+                        sig = f"{node.name}({', '.join(args)})"
+                        signatures[func_key] = sig
             except SyntaxError:
                 continue
             except Exception as e:

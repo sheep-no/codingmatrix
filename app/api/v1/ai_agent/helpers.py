@@ -533,9 +533,8 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
         session = result.scalar_one_or_none()
         if session:
             # 会话结束时清理文件（仅失败/取消时清理，成功完成时保留文件以支持 resume）
-            if status in ("failed", "cancelled"):
-                if session.output_dir:
-                    cleanup_session_files(session.output_dir)
+            if status in ("failed", "cancelled") and session.output_dir:
+                cleanup_session_files(session.output_dir)
             
             session.status = status
             session.files_generated = files_generated

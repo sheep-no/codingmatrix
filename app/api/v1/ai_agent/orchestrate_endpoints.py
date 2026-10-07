@@ -559,10 +559,11 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
         del _approval_queues[session_id]
     if session_id in _decision_queues:
         del _decision_queues[session_id]
-    if session_id in _cancel_events:
-        if expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event:
-            del _cancel_events[session_id]
-            _pending_stream_owners.pop(session_id, None)
+    if session_id in _cancel_events and (
+        expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event
+    ):
+        del _cancel_events[session_id]
+        _pending_stream_owners.pop(session_id, None)
 
 
 async def _cleanup_all_queues():

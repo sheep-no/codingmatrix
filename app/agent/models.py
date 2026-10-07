@@ -352,9 +352,10 @@ class ModelRouter:
         if any(k in content_lower for k in ["ocr", "识别文字", "图片转文字", "图片中的文字", "从图片", "提取文字"]):
             return TaskType.OCR
 
-        if any(k in content_lower for k in ["图片", "图像", "截图", "看图", "看这张"]):
-            if any(k in content_lower for k in ["分析", "理解", "描述", "识别"]):
-                return TaskType.VISUAL_UNDERSTANDING
+        if any(k in content_lower for k in ["图片", "图像", "截图", "看图", "看这张"]) and any(
+            k in content_lower for k in ["分析", "理解", "描述", "识别"]
+        ):
+            return TaskType.VISUAL_UNDERSTANDING
 
         if any(k in content_lower for k in ["审查", "review", "检查", "优化", "代码审查"]):
             return TaskType.CODE_REVIEW

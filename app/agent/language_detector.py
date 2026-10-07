@@ -447,11 +447,13 @@ class LanguageDetector:
 
         # 检测前端语言
         for keyword in cls.FRONTEND_KEYWORDS:
-            if cls._keyword_hit(requirement_lower, keyword):
+            if cls._keyword_hit(requirement_lower, keyword) and (
                 # 根据关键词推断前端语言
-                if keyword in ["react", "vue", "angular", "svelte", "next", "nuxt"] or keyword in ["html", "css", "dom", "browser", "原生 javascript", "vanilla javascript"]:
-                    frontend_lang = "javascript"
-                    break
+                keyword in ["react", "vue", "angular", "svelte", "next", "nuxt"]
+                or keyword in ["html", "css", "dom", "browser", "原生 javascript", "vanilla javascript"]
+            ):
+                frontend_lang = "javascript"
+                break
 
         # 检测后端语言
         for keyword in cls.BACKEND_KEYWORDS:

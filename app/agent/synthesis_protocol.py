@@ -103,9 +103,10 @@ class ModelOperation(BaseModel):
         elif self.operation is ModelOperationKind.PATCH:
             if not self.target_path or self.patch is None or self.content is not None:
                 raise ValueError("patch requires target_path and patch")
-        elif self.operation is ModelOperationKind.REPAIR_EXPLANATION:
-            if self.content is not None or self.patch is not None or not self.explanation:
-                raise ValueError("repair_explanation requires explanation only")
+        elif self.operation is ModelOperationKind.REPAIR_EXPLANATION and (
+            self.content is not None or self.patch is not None or not self.explanation
+        ):
+            raise ValueError("repair_explanation requires explanation only")
         return self
 
 

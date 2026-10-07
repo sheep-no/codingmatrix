@@ -319,9 +319,8 @@ def _python_module(path: str) -> str:
 def _api_modules(architecture: Dict[str, Any]) -> Iterable[str]:
     for item in _file_plan(architecture):
         path = str(item.get("path") or "")
-        if item.get("file_type") in {"api", "router", "routes", "controller"} or "/controllers/" in f"/{path}":
-            if path.endswith(".py"):
-                yield path
+        if (item.get("file_type") in {"api", "router", "routes", "controller"} or "/controllers/" in f"/{path}") and path.endswith(".py"):
+            yield path
 
 
 def _python_entry(file_path: str, architecture: Dict[str, Any]) -> str:
@@ -441,9 +440,8 @@ def scaffold_test(language: str, file_path: str, architecture: Dict[str, Any]) -
     if (language or "python").lower() != "python":
         return None
     routes = _frozen_routes(architecture, file_path)
-    if not routes and architecture.get("used_compact_eight_file_plan"):
-        if Path(file_path).name.lower() == "test_app.py":
-            routes = list(TICKET_TEST_ROUTES)
+    if not routes and architecture.get("used_compact_eight_file_plan") and Path(file_path).name.lower() == "test_app.py":
+        routes = list(TICKET_TEST_ROUTES)
     if not routes or not _looks_like_ticket_routes(routes):
         return None
     return _python_ticket_tests()
