@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useApiKeyStore } from '@/stores/apikey'
 import { getPhaseLabel } from '@/constants/agentPhases'
 import { createStreamUpdateBatcher } from '@/utils/streamUpdateBatcher'
+import { createSseParser } from '@/utils/sseParser'
 
 const AGENT_ROLE_ALIAS = {
   'architecture': 'architect',
@@ -468,38 +469,27 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
   const processSseResponse = async (response) => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
-    let buffer = ''
     let terminalEvent = null
+    // 标准 SSE 分帧（多行 data、CRLF、注释心跳、[DONE] 尾帧）在 sseParser 内处理
+    const parser = createSseParser({
+      onEvent: ({ data }) => {
+        try {
+          const parsed = JSON.parse(data)
+          if (['done', 'error', 'cancelled'].includes(parsed.type)) terminalEvent = parsed.type
+          handleSseMessage(parsed)
+        } catch (e) {
+          console.error('Failed to parse SSE:', e)
+        }
+      }
+    })
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
         break
       }
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(trimmed.slice(6))
-            if (['done', 'error', 'cancelled'].includes(data.type)) terminalEvent = data.type
-            handleSseMessage(data)
-          } catch (e) {
-            console.error('Failed to parse SSE:', e)
-          }
-        }
-      }
+      parser.push(decoder.decode(value, { stream: true }))
     }
-    if (buffer.trim().startsWith('data: ')) {
-      try {
-        const data = JSON.parse(buffer.trim().slice(6))
-        if (['done', 'error', 'cancelled'].includes(data.type)) terminalEvent = data.type
-        handleSseMessage(data)
-      } catch (e) {
-        // ignore trailing incomplete data
-      }
-    }
+    parser.flush()
     thinkingBatcher.flush()
     markThinkingStreamEnded(workspace.thinkingMessages)
     return terminalEvent
