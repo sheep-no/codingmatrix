@@ -437,6 +437,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 合并顺序：先合基础设施/CI 修复，再逐个合并功能 PR；每合一个，master 前进一次，后续 PR 的 merge ref 会自动包含它，不需要本地 rebase。
   - 判定 CI 是否通过要看目标 commit 的 check-runs（`GET /commits/{sha}/check-runs`），而不是只看 workflow runs 列表；`pull_request` 事件的 run 其 `head_sha` 是 PR 分支头，而实际被测的是 merge ref。
   - `git checkout master` 会带着工作树中跨分支的未提交改动一起切换；若目标分支也改了同一文件，git 会原子拒绝而不是覆盖，不要为此 stash/丢弃这些改动。
+  - stash 对比/回退验证中 `git checkout master` 会把 HEAD 留在 master，后续 commit 会落进 master 而非功能分支（2026-10-07 实际发生：6d9b2ba9 提交进 master 后需 `git checkout <分支> && git merge --ff-only <提交> && git branch -f master origin/master` 修复）。对比结束必须显式 `git checkout <原分支>`，且 commit/push 前用 `git branch --show-current` 确认所在分支；`git push ... | tail` 会掩盖真实 push 结果，需看完整输出。
   - 该 token 偶发提前失效：同一临时凭据文件刚用成功、随后 `GET /commits/{sha}/check-runs` 却返回 401 `Bad credentials` 时，重新执行 `git credential fill` 覆盖同一文件即可恢复，不必更换调用方式。
 
 ### 静态缺陷门禁（ruff pyflakes 子集）
