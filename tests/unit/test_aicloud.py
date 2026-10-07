@@ -32,7 +32,6 @@ from app.utils.aicloud.sandbox import (
 )
 from app.utils.aicloud.content_analyzer import (
     check_malicious_pattern,
-    check_dangerous_extensions,
     MALICIOUS_PATTERNS,
     DANGEROUS_FILE_EXTENSIONS,
 )
@@ -385,28 +384,6 @@ class TestContentAnalyzer:
         """正常用途不应被误报为恶意模式（CA6）。"""
         has_malicious, found = check_malicious_pattern(content)
         assert not has_malicious, content
-
-    def test_check_dangerous_extensions_exe(self):
-        """测试检测危险扩展名 .exe"""
-        assert check_dangerous_extensions("malware.exe") is not None
-
-    def test_check_dangerous_extensions_msi(self):
-        """测试检测危险扩展名 .msi"""
-        assert check_dangerous_extensions("installer.msi") is not None
-
-    def test_check_dangerous_extensions_ps1(self):
-        """测试检测危险扩展名 .ps1"""
-        assert check_dangerous_extensions("script.ps1") is not None
-
-    def test_check_safe_extension(self):
-        """测试安全扩展名"""
-        assert check_dangerous_extensions("readme.txt") is None
-        assert check_dangerous_extensions("code.py") is None
-        assert check_dangerous_extensions("data.json") is None
-        assert check_dangerous_extensions("App.vue") is None
-        assert check_dangerous_extensions("component.tsx") is None
-        assert check_dangerous_extensions("styles.scss") is None
-        assert check_dangerous_extensions("build.sh") is None
 
     def test_malicious_patterns_not_empty(self):
         """测试恶意模式列表非空"""

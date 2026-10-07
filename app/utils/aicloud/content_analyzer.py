@@ -45,27 +45,6 @@ DANGEROUS_FILE_EXTENSIONS = [
     ".appimage",
 ]
 
-SAFE_FILE_EXTENSIONS = [
-    # 代码文件
-    ".txt", ".md", ".json", ".yaml", ".yml", ".toml",
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".vue",
-    ".html", ".css", ".scss", ".sass", ".less",
-    ".java", ".c", ".cpp", ".h", ".hpp",
-    ".go", ".rs", ".rb", ".php",
-    ".sql",
-    ".xml", ".csv", ".log",
-    # 前端构建文件
-    ".sh", ".bash",
-    # 配置文件
-    ".conf", ".config", ".ini",
-    # 图片资源
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
-    # 字体
-    ".woff", ".woff2", ".ttf", ".eot", ".otf",
-    # 其他
-    ".txt", ".pdf",
-]
-
 COMPILED_MALICIOUS_PATTERNS = [
     re.compile(pattern, re.IGNORECASE | re.MULTILINE)
     for pattern in MALICIOUS_PATTERNS
@@ -120,29 +99,6 @@ def check_malicious_pattern(content: str) -> Tuple[bool, List[str]]:
             found.append(pattern.pattern)
 
     return len(found) > 0, found
-
-
-def check_dangerous_extensions(filename: str) -> Optional[str]:
-    """
-    检查危险文件扩展名
-
-    Args:
-        filename: 文件名
-
-    Returns:
-        警告信息或 None
-    """
-    filename_lower = filename.lower()
-
-    for ext in SAFE_FILE_EXTENSIONS:
-        if filename_lower.endswith(ext):
-            return None
-
-    for ext in DANGEROUS_FILE_EXTENSIONS:
-        if filename_lower.endswith(ext):
-            return f"Dangerous file extension: {ext}"
-
-    return f"Potentially unsafe file extension: {os.path.splitext(filename)[1]}"
 
 
 def filter_file_content(content: str) -> str:

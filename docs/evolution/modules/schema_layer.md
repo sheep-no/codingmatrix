@@ -188,7 +188,7 @@ proc = await asyncio.create_subprocess_shell(restart_cmd, cwd=cwd, ...)
 - **SD3 [P3] 已修（本轮）**：`file_schema.py` 删除 `FileDownloadResponse`/`FileCreate`/`FileResponse`/`validate_page`/`validate_page_size` 五符号与未使用的 `validator` 导入，文件 69→25 行。`rg` 确认这五个符号在 `app/` 与 `tests/`（非 archive）内零消费。
 - **SD6 [P3] 已修（本轮）**：`girl_request.py` 删除死符号 `HistoryQuery`（`rg "HistoryQuery" app/` 仅定义处命中）。
 - **SD1 [P2] 判定为「业务层已兜住」**：schema 层 `manageUser` 密码 `min_length=6` 宽于认证面 `min_length=8`，但管理面端点的创建/重置密码路径均调用 `app/utils/security.py:24 validate_password_strength`（≥8 位 + 大小写 + 数字 + 特殊字符 + 常见弱密码库）。原文「管理员可创建被登录端点锁死的弱密码账号」结论被高估；schema 层统一 Field 属契约收敛项，未改。
-- **SD4 [P3] 待确认**：`app/schema/ppxRequest.py` 整文件零生产消费，删除文件需用户确认后执行。
+- **SD4 已闭环（2026-09-23 批次）**：`app/schema/ppxRequest.py` 已随 4 个零生产引用死模块一并删除（`2eb520be`），本条为删除前的存档记录，状态同步更正。
 - **SD5 [P3] 未改**：`RETRYING` 幻影状态与三枚举并存属契约收敛设计项，需产品口径确认收敛方向后处理。
 - **SD7 [P3] 已修（2026-09-22）**：`StartGuard.restart_cmd` 加输入端格式约束——先 `strip`，拒绝空串/纯空白/以 `#` 开头的注释，再拒绝命令链与替换语法元字符 `;|&`、反引号、`$`、`>`、`<`、换行、`\`（`FORBIDDEN_SHELL_CHARS`），字段限 `1..512` 长度。保留 `systemctl restart nginx` / `docker restart ctr` / `pm2 restart app` / `supervisorctl restart web` 等单条命令。这是在 schema 输入端收敛 PG1/SD7 的持久化 RCE 面；执行侧仍为 `create_subprocess_shell`（未改 shell 语义，避免影响自动学习模板），与 V2U1 提权链解耦后可独立生效。`tests/unit/test_v2_api_hardening.py` 新增 15 项（10 条元字符变体 + 3 条空/注释 + 4 条正常命令 + 去空白 + 端点 422 且 handler 未被调用），回退 `guardian.py` 后 15 项全失败。
 - 回归：新增 `tests/unit/test_schema_pydantic_v2.py`（5 项）；回退四个 schema 源文件后 3 项失败（遗留 v1 API + 死符号仍在）。

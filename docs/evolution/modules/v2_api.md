@@ -111,7 +111,7 @@
 
 未处理：
 
-- **V2N1 nginx_ai.py 未接入死文件**：仍未挂载（除 `tests/archive/legacy` 外全库零引用）。建议删除，待确认后执行。
+- **V2N1 已闭环（2026-09-23 批次）**：`nginx_ai.py` 已随 4 个零生产引用死模块一并删除（`2eb520be`），本条为删除前的存档记录，状态同步更正。
 - **V2M1/V2M2 仍存续**：model_admin 声明废弃仍挂载（双轨）、`/models/default` 改运行时全局。均属设计收敛/配置结构决策，需架构口径。
 - **V2M3 复核细化（2026-09-22）**：`PUT /agent-config/fallback-chain` 接收并校验 `chain_name`（`default`/`error_recovery`/`code_generation`），但写入时固定落到单键 `config["fallback_chain"] = request.models`，三个链名共用一处存储、互相覆盖，`chain_name` 仅在日志与返回文案里出现。与之对应，读侧存在双轨：`app/agent/dynamic_model_router.py::_load_fallback_chain` 优先读 `fallback_chain`（单键）、回退 `fallback_chains[chain_name]`（字典）；`app/agent/error_recovery.py::_load_fallback_chain("error_recovery")` **只读** `fallback_chains` 字典。因此经管理端更新的降级链对 error_recovery 恒不可见（当前 `data/agent_model_config.yaml` 也只有单键 `fallback_chain`）。写入 `fallback_chains` 会让此前休眠的 Agent 降级链开始生效，属行为级变更，需架构口径确认目标结构后再改。
 - **V2A1 仍存续**：`/sandbox-config` 改 `os.environ` 非持久、多 worker 不同步，属设计债。
