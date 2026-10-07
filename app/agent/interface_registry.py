@@ -155,7 +155,7 @@ def _merge_entries(entries: Tuple[InterfaceEntry, ...]) -> Tuple[InterfaceEntry,
     """
     merged: dict[str, Tuple[str, list]] = {}
     for entry in entries:
-        owner, symbols = merged.setdefault(entry.module, (entry.owner, []))
+        _owner, symbols = merged.setdefault(entry.module, (entry.owner, []))
         seen = {_symbol_key(symbol) for symbol in symbols}
         for symbol in entry.symbols:
             key = _symbol_key(symbol)

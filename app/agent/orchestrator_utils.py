@@ -218,11 +218,10 @@ class UtilsMixin:
             return True
 
         try:
-            approved = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 self.approval_callback(key),
                 timeout=timeout
             )
-            return approved
         except asyncio.TimeoutError:
             logger.warning(f"审批超时（{timeout}s）: {key}，自动跳过")
             self.warnings.append(f"审批超时，自动跳过: {key}")

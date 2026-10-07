@@ -1028,7 +1028,7 @@ def _run_git(project_path: str, args: list, timeout: int = 30) -> Dict:
     import subprocess
     try:
         result = subprocess.run(
-            ["git"] + args,
+            ["git", *args],
             capture_output=True, text=True,
             timeout=timeout, cwd=project_path
         )
@@ -1077,7 +1077,7 @@ def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = Fals
     if file_path:
         args.extend(["--", file_path])
 
-    result = _run_git(project_path, args + ["--stat"])
+    result = _run_git(project_path, [*args, "--stat"])
     if not result["success"]:
         return result
 
@@ -1095,7 +1095,7 @@ def _tool_git_commit(project_path: str, message: str, files: list = None) -> Dic
         return {"success": False, "error": "提交信息不能为空"}
 
     if files:
-        add_result = _run_git(project_path, ["add"] + files)
+        add_result = _run_git(project_path, ["add", *files])
     else:
         add_result = _run_git(project_path, ["add", "-A"])
 
@@ -1186,7 +1186,7 @@ async def _tool_http_request(project_path: str, method: str, url: str,
         except _socket.gaierror as e:
             return {"success": False, "error": f"DNS 解析失败: {e}"}
 
-        for family, _, _, _, sockaddr in addr_infos:
+        for _family, _, _, _, sockaddr in addr_infos:
             ip_str = sockaddr[0]
             # IPv4-mapped IPv6 (::ffff:127.0.0.1) 需要剥离
             if ip_str.startswith("::ffff:"):

@@ -60,8 +60,7 @@ def parse_llm_response(response: str) -> List[AssociationItem]:
     parsed = extract_first_json_object(response)
     if parsed is None:
         logger.warning("LLM 联想输出非 JSON, 尝试文本提取")
-        items = _extract_text_items(response)
-        return items
+        return _extract_text_items(response)
 
     for item in parsed.get("functional_requirements", []):
         items.append(AssociationItem(

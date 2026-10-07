@@ -113,7 +113,7 @@ def merge_dual_model_results(
                 content_map[key] = (item, models)
 
     merged = []
-    for key, (item, models) in content_map.items():
+    for item, models in content_map.values():
         both_agree = DUAL_MODEL_A in models and DUAL_MODEL_B in models
         if both_agree:
             item.confidence = min(item.confidence + 0.1, 0.95)

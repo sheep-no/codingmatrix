@@ -217,11 +217,11 @@ class LLMClient:
                 # 嵌套上下文保证在等待内层额度时被取消也会释放外层额度（LC5）。
                 async with self._model_semaphore:
                     async with self._semaphore:
-                        full_content, full_reasoning, response = await self._consume_stream(
+                        full_content, _full_reasoning, response = await self._consume_stream(
                             prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
                         )
             else:
-                full_content, full_reasoning, response = await self._consume_stream(
+                full_content, _full_reasoning, response = await self._consume_stream(
                     prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
                 )
             latency_ms = (time.time() - start_time) * 1000

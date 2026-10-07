@@ -297,8 +297,7 @@ class _JsonParser:
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
         text = self._fix_single_quotes(text)
         text = self._fix_unescaped_newlines(text)
-        text = re.sub(r',\s*([\]}])', r'\1', text)
-        return text
+        return re.sub(r',\s*([\]}])', r'\1', text)
 
     @staticmethod
     def _remove_line_comments(text: str) -> str:

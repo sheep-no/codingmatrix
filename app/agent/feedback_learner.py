@@ -215,7 +215,7 @@ class FeedbackLearner:
 
         if query_embedding is not None:
             scored_patterns = []
-            for pattern_key, pattern in self._fix_patterns.items():
+            for _pattern_key, pattern in self._fix_patterns.items():
                 if pattern.error_embedding is not None and pattern.success_rate > 0.3 and not pattern.is_anti_pattern():
                     similarity = self._cosine_similarity(query_embedding, pattern.error_embedding)
                     if similarity > 0.7:
@@ -243,7 +243,7 @@ class FeedbackLearner:
     def get_common_errors(self, file_type: str) -> List[Dict[str, Any]]:
         """获取指定文件类型的常见错误"""
         common = []
-        for pattern_key, pattern in self._fix_patterns.items():
+        for _pattern_key, pattern in self._fix_patterns.items():
             if file_type in pattern.file_types or file_type == "unknown":
                 common.append({
                     "error_type": pattern.error_type,

@@ -522,7 +522,7 @@ class IntegrityValidator:
         lines = [f'// Package {parent.replace("/", ".")}\n']
 
         # 扫描同目录下的其他 .ts/.js 文件
-        for file_path, content in generated_files.items():
+        for file_path, _content in generated_files.items():
             if file_path == index_path:
                 continue
             file_parent = str(Path(file_path).parent)

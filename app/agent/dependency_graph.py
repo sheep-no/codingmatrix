@@ -596,7 +596,7 @@ class DependencyGraph:
 
         removed = []
 
-        for (filename, file_type), paths in name_type_to_paths.items():
+        for paths in name_type_to_paths.values():
             if len(paths) <= 1:
                 continue
 
@@ -863,7 +863,7 @@ class DependencyGraph:
             schemas = openapi.get("components", {}).get("schemas", {})
 
             # 为每个 API 路径添加 API 文件
-            for path_str, methods in paths.items():
+            for path_str, _methods in paths.items():
                 api_path = self._path_to_api_file(path_str)
                 if api_path:
                     self.add_file(api_path, file_type="api", priority=4)
@@ -1010,7 +1010,7 @@ class DependencyGraph:
             stack = [(start, iter(self.adjacency.get(start, set())))]
 
             while stack:
-                node, neighbors = stack[-1]
+                _node, neighbors = stack[-1]
                 pushed = False
                 for neighbor in neighbors:
                     if neighbor not in self.nodes:
@@ -1025,7 +1025,7 @@ class DependencyGraph:
                         break
                     if neighbor in rec_stack:
                         cycle_start = position[neighbor]
-                        cycles.append(path[cycle_start:] + [neighbor])
+                        cycles.append([*path[cycle_start:], neighbor])
                 if pushed:
                     continue
                 stack.pop()
@@ -1807,7 +1807,7 @@ class DependencyGraph:
         """
         issues = []
 
-        for path, node in self.nodes.items():
+        for path, _node in self.nodes.items():
             # 检查所有依赖是否都在图中
             for dep in self.adjacency.get(path, set()):
                 if dep not in self.nodes:

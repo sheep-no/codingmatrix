@@ -363,7 +363,7 @@ class UserPreferenceLearner:
                     self.profile.code_style.paradigm = "object_oriented"
 
             elif change_type == "technology":
-                for key, value in details.items():
+                for key, _value in details.items():
                     if key.startswith("added_"):
                         framework = key.replace("added_", "")
                         category = self._infer_framework_category(framework)

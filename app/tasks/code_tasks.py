@@ -402,7 +402,7 @@ async def _run_tests(test_files: List[str]) -> Dict:
         }
     except Exception as e:
         logger.error(f"IsolatedTestRunner 执行失败，回退到直接调用: {e}")
-        cmd = ["pytest", "-v", "--tb=short", "--maxfail=3"] + test_files
+        cmd = ["pytest", "-v", "--tb=short", "--maxfail=3", *test_files]
         try:
             proc_result = await asyncio.to_thread(
                 subprocess.run,

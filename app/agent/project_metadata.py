@@ -247,5 +247,4 @@ class ProjectMetadataManager:
 
         from app.agent.template_extractor import TemplateExtractor
         extractor = TemplateExtractor()
-        result = await extractor.extract_template(domain, domain_projects)
-        return result
+        return await extractor.extract_template(domain, domain_projects)

@@ -393,7 +393,7 @@ class CrossValidator:
         # refinement on the configured judge model so the gateway receives a
         # model name that the provider can resolve.
         refinement_model = judge_model if "+" in winner_model else winner_model
-        result = await refinement_loop.refine(
+        return await refinement_loop.refine(
             file_path=file_path,
             file_type=file_type,
             description=description,
@@ -403,7 +403,6 @@ class CrossValidator:
             callback=callback
         )
 
-        return result
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """从文本中提取 JSON"""
@@ -1406,7 +1405,7 @@ class CrossValidator:
                 (r'axios\.\w+\s*\(\s*[`"\']([^`"\']+)[`"\']', 'axios'),
             ]
 
-            for pattern, source in patterns:
+            for pattern, _source in patterns:
                 for match in re.finditer(pattern, content):
                     endpoint = match.group(1)
                     if '${' in endpoint:
@@ -1469,7 +1468,7 @@ class CrossValidator:
         return None
 
     def _validate_model_consistency(self, files: Dict[str, str]) -> List[Dict[str, str]]:
-        """验证数据模型一致性
+        r"""验证数据模型一致性
 
         只比较模型调用顶层的关键字实参。此前用非贪婪 `([\s\S]*?)\)` 提取实参，
         会在第一个右括号处截断，字段值里的嵌套调用（`Item(id=parse(raw=1))`）

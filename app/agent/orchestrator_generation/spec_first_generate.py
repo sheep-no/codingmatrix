@@ -2050,7 +2050,7 @@ class SpecFirstGenerateMixin:
                 continue
 
             content = clean_code_block(content)
-            is_valid, new_reason = is_valid_code_content(file_path, content)
+            is_valid, _new_reason = is_valid_code_content(file_path, content)
             if is_valid:
                 if file_expected_language and self._quick_llm_check:
                     lang_ok, _ = await validate_language_with_llm(

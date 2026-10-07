@@ -117,7 +117,7 @@ class ValidationReport(BaseModel):
             context_hash=_hash_payload(scope, file_path, message),
         )
         return self.create(
-            self.findings + (finding,),
+            (*self.findings, finding),
             self.repair_evidence,
             source=self.source,
         )

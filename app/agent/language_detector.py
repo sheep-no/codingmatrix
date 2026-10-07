@@ -286,7 +286,7 @@ class LanguageDetector:
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
             if cls._keyword_hit(requirement_lower, framework):
                 evidence.append(f"框架推断: '{framework}' → {lang}")
-                result = LanguageDetectionResult(
+                return LanguageDetectionResult(
                     language=lang,
                     confidence=0.95,
                     evidence=evidence,
@@ -295,7 +295,6 @@ class LanguageDetector:
                     backend_language=backend_lang or lang,
                     all_languages=all_detected_langs if all_detected_langs else [lang],
                 )
-                return result
 
         # 策略 2: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
         # 收集所有 (keyword, language) 对

@@ -172,7 +172,7 @@ class ConversationMemory(BaseMemory):
         )
 
         # 保留摘要和最新条目
-        self._entries = [summary_entry] + recent_entries
+        self._entries = [summary_entry, *recent_entries]
         self._is_compressed = True
         logger.info(f"对话记忆已压缩: {len(summarized)} 条 -> 1 条摘要")
 
@@ -528,12 +528,11 @@ class AgentMemory:
 
     async def search_async(self, query: str, limit: int = 5) -> Dict[str, List]:
         """统一的语义搜索入口，搜索所有记忆类型"""
-        results = {
+        return {
             "conversation": await self.conversation.search_async(query, limit),
             "knowledge": await self.knowledge.search_async(query, limit),
             "reflection": await self.reflection.search_async(query, limit)
         }
-        return results
 
     def clear_session(self) -> None:
         """清除会话记忆（保留知识）"""

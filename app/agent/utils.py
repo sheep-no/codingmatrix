@@ -839,7 +839,7 @@ os.environ["SANDBOX_TMP_DIR"] = {repr(tmp_dir)}
 
         try:
             proc = subprocess.run(
-                bwrap_cmd + ['python3', '-c', script_with_env],
+                [*bwrap_cmd, 'python3', '-c', script_with_env],
                 capture_output=True,
                 text=True,
                 timeout=60

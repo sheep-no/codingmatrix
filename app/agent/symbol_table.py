@@ -588,8 +588,7 @@ def _canonical_path(path: str) -> str:
     if not text.startswith("/"):
         text = "/" + text
     text = re.sub(r"\{[^}]+\}", "{}", text)
-    text = re.sub(r"/+$", "", text) or "/"
-    return text
+    return re.sub(r"/+$", "", text) or "/"
 
 
 def _looks_like_test(path: str) -> bool:

@@ -85,7 +85,7 @@ class MCPServerConnection:
                 return False
             command = full_command
 
-        cmd = [command] + args
+        cmd = [command, *args]
         logger.info(f"[MCP:{self.name}] 启动: {' '.join(cmd)}")
 
         merged_env = {**os.environ}
@@ -162,7 +162,7 @@ class MCPServerConnection:
             logger.debug(f"[MCP:{self.name}] 读取循环异常: {e}")
         finally:
             # 清理所有未完成的 pending futures
-            for req_id, future in list(self._pending.items()):
+            for _req_id, future in list(self._pending.items()):
                 if not future.done():
                     future.set_exception(MCPError(f"MCP Server {self.name} 连接已断开"))
             self._pending.clear()

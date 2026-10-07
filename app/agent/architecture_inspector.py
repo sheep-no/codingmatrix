@@ -413,7 +413,7 @@ class ArchitectureInspector:
         if not naming_rules:
             return violations
 
-        for file_path, content in self.generated_files.items():
+        for file_path, _content in self.generated_files.items():
             file_naming_violation = self._check_file_naming(file_path, naming_rules)
             if file_naming_violation:
                 violations.append(ArchitectureViolation(
@@ -641,8 +641,7 @@ class ArchitectureInspector:
             severity_weights.get(v.severity, 0.1) for v in violations
         )
 
-        score = max(0.0, 1.0 - total_penalty)
-        return score
+        return max(0.0, 1.0 - total_penalty)
 
     def _generate_fix_suggestions(
         self,
