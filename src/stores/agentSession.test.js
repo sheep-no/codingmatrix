@@ -69,4 +69,24 @@ describe('agent session store', () => {
     expect(store.currentAgent).toBeNull()
     expect(store.modelContextRevision).toBe(2)
   })
+
+  it('filters underscore-prefixed store references out of persistence', () => {
+    const store = useAgentSessionStore()
+    const sessionId = store.createNewSession({ prompt: 'filter' })
+    const context = { _generation: {}, _workspace: {}, _files: {} }
+
+    // 切换前保存传整份快照（含 store 引用），持久化层须剥离下划线前缀键
+    store.saveSessionState({
+      _generation: { huge: 'store instance' },
+      logs: [{ message: 'kept' }],
+      generatedFiles: [{ path: 'a.py' }]
+    })
+
+    const persisted = JSON.parse(localStorage.getItem('agent_project_sessions'))
+    const saved = persisted.find((s) => s.id === sessionId)
+    expect(saved.logs).toEqual([{ message: 'kept' }])
+    expect(saved._generation).toBeUndefined()
+    expect(saved.filesCount).toBe(1)
+    expect(context).toBeDefined()
+  })
 })

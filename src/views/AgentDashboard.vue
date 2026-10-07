@@ -370,34 +370,37 @@ const clearAllState = () => {
 }
 
 // ========== Session ==========
+// 当前内存态的完整会话快照：下划线前缀是各 store 实例引用，
+// createNewSession/switchSession 用它回写内存态；持久化侧会过滤掉这些键
+const buildSessionSnapshot = () => ({
+  _generation: generation,
+  _workspace: workspace,
+  _files: files,
+  workflowStages: generation.workflowStages,
+  pendingDecisions: workspace.pendingDecisions,
+  decisionHistory: workspace.decisionHistory,
+  generatedFiles: files.generatedFiles,
+  thinkingMessages: workspace.thinkingMessages,
+  executionDetails: workspace.executionDetails,
+  logs: workspace.logs,
+  currentPhase: generation.currentPhase,
+  currentStep: generation.currentStep,
+  totalSteps: generation.totalSteps,
+  startTime: generation.startTime,
+  modelAssignments: generation.modelAssignments,
+  modelConfigVersion: generation.modelConfigVersion,
+  modelContextRevision: generation.modelContextRevision,
+  currentModel: generation.currentModel,
+  currentAgent: generation.currentAgent,
+  fallbackHistory: generation.fallbackHistory,
+  recoveryAttempts: generation.recoveryAttempts
+})
 const doCreateNewSession = () => {
   if (generation.isGenerating) {
     ElMessage.warning('项目生成期间无法新建会话')
     return false
   }
-  return session.createNewSession({
-    _generation: generation,
-    _workspace: workspace,
-    _files: files,
-    workflowStages: generation.workflowStages,
-    pendingDecisions: workspace.pendingDecisions,
-    decisionHistory: workspace.decisionHistory,
-    generatedFiles: files.generatedFiles,
-    thinkingMessages: workspace.thinkingMessages,
-    executionDetails: workspace.executionDetails,
-    logs: workspace.logs,
-    currentPhase: generation.currentPhase,
-    currentStep: generation.currentStep,
-    totalSteps: generation.totalSteps,
-    startTime: generation.startTime,
-    modelAssignments: generation.modelAssignments,
-    modelConfigVersion: generation.modelConfigVersion,
-    modelContextRevision: generation.modelContextRevision,
-    currentModel: generation.currentModel,
-    currentAgent: generation.currentAgent,
-    fallbackHistory: generation.fallbackHistory,
-    recoveryAttempts: generation.recoveryAttempts
-  })
+  return session.createNewSession(buildSessionSnapshot())
 }
 let sessionSwitchRequest = 0
 const doSwitchSession = async (id) => {
@@ -406,29 +409,11 @@ const doSwitchSession = async (id) => {
     return false
   }
   const requestId = ++sessionSwitchRequest
-  const switched = session.switchSession(id, {
-    _generation: generation,
-    _workspace: workspace,
-    _files: files,
-    workflowStages: generation.workflowStages,
-    pendingDecisions: workspace.pendingDecisions,
-    decisionHistory: workspace.decisionHistory,
-    generatedFiles: files.generatedFiles,
-    thinkingMessages: workspace.thinkingMessages,
-    executionDetails: workspace.executionDetails,
-    logs: workspace.logs,
-    currentPhase: generation.currentPhase,
-    currentStep: generation.currentStep,
-    totalSteps: generation.totalSteps,
-    startTime: generation.startTime,
-    modelAssignments: generation.modelAssignments,
-    modelConfigVersion: generation.modelConfigVersion,
-    modelContextRevision: generation.modelContextRevision,
-    currentModel: generation.currentModel,
-    currentAgent: generation.currentAgent,
-    fallbackHistory: generation.fallbackHistory,
-    recoveryAttempts: generation.recoveryAttempts
-  })
+  // 切走前把旧会话的当前内存态落盘，避免丢掉最后一次 watch 未捕获的变更
+  if (session.currentSessionId) {
+    session.saveSessionState(buildSessionSnapshot())
+  }
+  const switched = session.switchSession(id, buildSessionSnapshot())
   if (!switched) return false
   taskFeedback.reset(normalizeTaskFeedback('agent', {}, {
     isGenerating: generation.isGenerating,
@@ -538,26 +523,7 @@ const rollback = (tag) => backend.rollbackToSnapshot(tag, session.currentSession
 // ========== Auto-save ==========
 watch([() => files.generatedFiles?.length, () => session.currentSessionId, () => generation.workflowStages?.length], () => {
   if (session.currentSessionId) {
-    session.saveSessionState({
-      workflowStages: generation.workflowStages,
-      pendingDecisions: workspace.pendingDecisions,
-      decisionHistory: workspace.decisionHistory,
-      generatedFiles: files.generatedFiles,
-      thinkingMessages: workspace.thinkingMessages,
-      executionDetails: workspace.executionDetails,
-      logs: workspace.logs,
-      currentPhase: generation.currentPhase,
-      currentStep: generation.currentStep,
-      totalSteps: generation.totalSteps,
-      startTime: generation.startTime,
-      modelAssignments: generation.modelAssignments,
-      modelConfigVersion: generation.modelConfigVersion,
-      modelContextRevision: generation.modelContextRevision,
-      currentModel: generation.currentModel,
-      currentAgent: generation.currentAgent,
-      fallbackHistory: generation.fallbackHistory,
-      recoveryAttempts: generation.recoveryAttempts
-    })
+    session.saveSessionState(buildSessionSnapshot())
   }
 }, { deep: true })
 
@@ -573,26 +539,7 @@ onMounted(() => {
   backend.loadSettings()
   session.startAutoSave(
     () => (files.generatedFiles?.length || 0) > 0 || workspace.logs.length > 0,
-    () => session.saveSessionState({
-      workflowStages: generation.workflowStages,
-      pendingDecisions: workspace.pendingDecisions,
-      decisionHistory: workspace.decisionHistory,
-      generatedFiles: files.generatedFiles,
-      thinkingMessages: workspace.thinkingMessages,
-      executionDetails: workspace.executionDetails,
-      logs: workspace.logs,
-      currentPhase: generation.currentPhase,
-      currentStep: generation.currentStep,
-      totalSteps: generation.totalSteps,
-      startTime: generation.startTime,
-      modelAssignments: generation.modelAssignments,
-      modelConfigVersion: generation.modelConfigVersion,
-      modelContextRevision: generation.modelContextRevision,
-      currentModel: generation.currentModel,
-      currentAgent: generation.currentAgent,
-      fallbackHistory: generation.fallbackHistory,
-      recoveryAttempts: generation.recoveryAttempts
-    })
+    () => session.saveSessionState(buildSessionSnapshot())
   )
   backend.loadBackendSettings()
   backend.loadAvailableSkills()

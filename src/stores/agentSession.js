@@ -88,7 +88,7 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
       pendingDecisions.value = []
       decisionHistory.value = []
       currentPhase.value = ''
-      currentStep.value = ''
+      currentStep.value = 0
       totalSteps.value = 0
       startTime.value = null
       modelAssignments.value = {}
@@ -149,8 +149,13 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
   function saveSessionState(snapshot = {}) {
     const session = sessionHistory.value.find(item => item.id === currentSessionId.value)
     if (!session) return false
+    // 与 createNewSession 一致：下划线前缀是 store 实例引用（_generation 等），
+    // 供 switchSession 回写内存态，不能进入 localStorage 持久化
+    const persistedSnapshot = Object.fromEntries(
+      Object.entries(snapshot).filter(([key]) => !key.startsWith('_'))
+    )
     Object.assign(session, {
-      ...snapshot,
+      ...persistedSnapshot,
       prompt: projectPrompt.value,
       timestamp: Date.now(),
       filesCount: snapshot.generatedFiles?.length || 0
