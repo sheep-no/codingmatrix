@@ -290,14 +290,16 @@ class ArchitectureInspector:
             source_pattern = rule_config.get("source")
             allowed_targets = rule_config.get("allowed_targets", [])
 
-            if source_pattern and source_pattern in file_path:
+            if (
+                source_pattern
+                and source_pattern in file_path
                 # allowed_targets 是白名单：import 目标须落在其中之一，全部
                 # 都不匹配才算违规。原实现要求「每个 allowed 都出现在同一
                 # import 里」，多目标规则必然误报。
-                if allowed_targets and not any(
-                    allowed in import_path for allowed in allowed_targets
-                ):
-                    return rule_name
+                and allowed_targets
+                and not any(allowed in import_path for allowed in allowed_targets)
+            ):
+                return rule_name
 
         return None
 
@@ -365,9 +367,8 @@ class ArchitectureInspector:
         if api_style == "REST":
             if self._has_graphql_schema(content):
                 return "包含 GraphQL 语法"
-        elif api_style == "GraphQL":
-            if self._has_rest_endpoints(content):
-                return "包含 REST 路由定义"
+        elif api_style == "GraphQL" and self._has_rest_endpoints(content):
+            return "包含 REST 路由定义"
         return None
 
     @staticmethod
@@ -542,8 +543,9 @@ class ArchitectureInspector:
 
         for file_path, content in self.generated_files.items():
             layer = self._file_layer(file_path)
-            if backend_framework and layer == "backend":
-                if self._check_framework_inconsistency(content, backend_framework):
+            if backend_framework and layer == "backend" and self._check_framework_inconsistency(
+                content, backend_framework
+            ):
                     violations.append(ArchitectureViolation(
                         file_path=file_path,
                         violation_type="tech_stack",
@@ -552,8 +554,9 @@ class ArchitectureInspector:
                         suggestion=f"使用 {backend_framework} 框架语法"
                     ))
 
-            if frontend_framework and layer == "frontend":
-                if self._check_framework_inconsistency(content, frontend_framework):
+            if frontend_framework and layer == "frontend" and self._check_framework_inconsistency(
+                content, frontend_framework
+            ):
                     violations.append(ArchitectureViolation(
                         file_path=file_path,
                         violation_type="tech_stack",

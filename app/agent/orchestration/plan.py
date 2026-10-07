@@ -89,9 +89,8 @@ class GenerationPlan(BaseModel):
             raise ValueError("generation plan file paths must be unique")
         if len(set(self.requested_paths)) != len(self.requested_paths):
             raise ValueError("requested_paths must be unique")
-        if self.policy is PlanPolicy.STRICT:
-            if set(planned_paths) != set(self.requested_paths):
-                raise ValueError("strict plan files must equal requested_paths")
+        if self.policy is PlanPolicy.STRICT and set(planned_paths) != set(self.requested_paths):
+            raise ValueError("strict plan files must equal requested_paths")
         for item in self.files:
             missing = set(item.dependencies) - set(planned_paths)
             if missing:

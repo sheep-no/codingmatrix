@@ -509,11 +509,16 @@ class SessionManager:
                 current_hash = self._compute_hash(content)
 
                 fs = state.file_statuses.get(file_path)
-                if fs and fs.status == "completed" and fs.content_hash and fs.content_hash == current_hash:
+                if (
+                    fs
+                    and fs.status == "completed"
+                    and fs.content_hash
+                    and fs.content_hash == current_hash
                     # 文件已成功生成且未修改且需求未变，可复用
-                    if not requirement_changed:
-                        unchanged.append(file_path)
-                        continue
+                    and not requirement_changed
+                ):
+                    unchanged.append(file_path)
+                    continue
 
                 # 文件已修改或需求变化，检查语义变更幅度
                 if (file_embeddings and file_path in file_embeddings and

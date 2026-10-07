@@ -887,13 +887,11 @@ class IncrementalModifyMixin:
                 )
 
         # 需求只提到框架且未要求新增端点时，已有的框架引入即视为满足
-        if "fastapi" in reason_lower:
-            if "from fastapi" in content_lower or "fastapi" in content_lower:
-                return True
+        if "fastapi" in reason_lower and ("from fastapi" in content_lower or "fastapi" in content_lower):
+            return True
 
-        if "flask" in reason_lower:
-            if "from flask" in content_lower or "flask" in content_lower:
-                return True
+        if "flask" in reason_lower and ("from flask" in content_lower or "flask" in content_lower):
+            return True
 
         return False
 

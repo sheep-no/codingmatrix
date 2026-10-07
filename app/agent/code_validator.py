@@ -39,9 +39,13 @@ def _imports_symbol_from_module(source: str, module: str, symbol: str) -> bool:
     except SyntaxError:
         return False
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and not node.level and node.module == module:
-            if any(alias.name == symbol for alias in node.names):
-                return True
+        if (
+            isinstance(node, ast.ImportFrom)
+            and not node.level
+            and node.module == module
+            and any(alias.name == symbol for alias in node.names)
+        ):
+            return True
     return False
 
 
@@ -540,8 +544,9 @@ class CodeValidator:
                 errors.append("FastAPI 兼容性: Middleware 已从 fastapi 移至 fastapi.middleware.cors")
 
             # SQLAlchemy 2.0: DeclarativeBase vs Base + BaseModel MRO 冲突
-            if 'class' in source and 'Base' in source and 'BaseModel' in source:
-                if re.search(r'class\s+\w+\(.*Base.*BaseModel.*\)', source):
+            if 'class' in source and 'Base' in source and 'BaseModel' in source and re.search(
+                r'class\s+\w+\(.*Base.*BaseModel.*\)', source
+            ):
                     errors.append("SQLAlchemy 兼容性: 不能同时继承 Base 和 BaseModel (MRO 冲突)")
 
             # APIRouter.exception_handler 不存在（app.exception_handler 是合法写法）

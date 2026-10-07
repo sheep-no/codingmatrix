@@ -293,9 +293,12 @@ class RefinementLoop:
         # 如果是模型相关文件，检查是否引用了正确的字段
         if file_type in ("model", "entity", "dto"):
             types_spec = self.context.get_spec("types")
-            if types_spec and types_spec.get("code"):
+            if (
+                types_spec
+                and types_spec.get("code")
                 # AST 判定，注释/字符串里的 "BaseModel" 字样不算
-                if not self._uses_pydantic_model(content):
+                and not self._uses_pydantic_model(content)
+            ):
                     issues.append(ValidationIssue(
                         type="spec_mismatch",
                         severity="warning",

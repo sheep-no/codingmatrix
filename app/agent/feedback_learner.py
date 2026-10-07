@@ -225,9 +225,13 @@ class FeedbackLearner:
             relevant = [p for _, p in scored_patterns[:10]]
         else:
             for pattern in self._fix_patterns.values():
-                if pattern.frequency > 1 and pattern.success_rate > 0.5 and not pattern.is_anti_pattern():
-                    if file_type in pattern.file_types or file_type == "unknown":
-                        relevant.append(pattern)
+                if (
+                    pattern.frequency > 1
+                    and pattern.success_rate > 0.5
+                    and not pattern.is_anti_pattern()
+                    and (file_type in pattern.file_types or file_type == "unknown")
+                ):
+                    relevant.append(pattern)
             relevant.sort(key=lambda x: x.frequency, reverse=True)
 
         return relevant

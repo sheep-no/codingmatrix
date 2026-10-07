@@ -551,7 +551,6 @@ class IntegrityValidator:
             return []
         symbols = []
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                if not node.name.startswith('_'):
-                    symbols.append(node.name)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not node.name.startswith("_"):
+                symbols.append(node.name)
         return symbols
