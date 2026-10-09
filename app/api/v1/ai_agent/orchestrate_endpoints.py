@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete as sql_delete, and_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.utils.security import verify_token
 from app.db.database import get_db
@@ -1262,7 +1263,13 @@ async def orchestrate_project_stream(
                 existing_session.status = "running"
                 existing_session.requirement = request.requirement
                 existing_session.error_message = None
-                await db.commit()
+                try:
+                    await db.commit()
+                except IntegrityError as exc:
+                    # 跨 worker 竞争：另一会话刚被置为 running，占用了每用户
+                    # 唯一 running 名额（部分唯一索引兜底）
+                    await db.rollback()
+                    raise HTTPException(status_code=409, detail="该用户已有运行中的生成任务，请稍后再试") from exc
                 logger.info(f"增量模式：更新已有会话 {session_id}")
             else:
                 await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
@@ -1279,6 +1286,8 @@ async def orchestrate_project_stream(
                     await db.commit()
                 else:
                     await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+            except HTTPException:
+                raise
             except Exception:
                 await db.rollback()
                 await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
