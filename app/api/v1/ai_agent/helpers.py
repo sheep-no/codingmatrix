@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, AsyncGenerator, List
 from fastapi import HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete as sql_delete, and_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from app.utils.security import verify_token
 from app.db.models import ProjectSession
@@ -502,7 +502,14 @@ async def _create_project_session(db: AsyncSession, user_id: int, session_id: st
         status="running"
     )
     db.add(session)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # 每用户仅一行 running 的部分唯一索引兜底：跨 worker 并发创建时
+        # 另一 worker 已抢先插入，回滚后转 409（进程内锁防不住这个窗口）
+        await db.rollback()
+        logger.warning(f"并发创建冲突：用户 {user_id} 已有 running 会话（session={session_id}）")
+        raise HTTPException(status_code=409, detail="该用户已有运行中的生成任务，请稍后再试") from exc
     return session
 
 

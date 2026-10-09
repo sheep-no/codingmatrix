@@ -1,6 +1,6 @@
 """工作流历史记录数据库模型"""
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint, text
 from app.models.base import Base
 
 
@@ -30,6 +30,16 @@ class ProjectSession(Base):
     __table_args__ = (
         Index('ix_user_status', 'user_id', 'status'),  # 加速并发检查
         UniqueConstraint('user_id', 'session_id', name='uq_user_session'),  # 防止同名项目
+        # 每用户仅一行 running：进程内锁只防同 worker TOCTOU，跨 worker 的
+        # 并发创建/复用由数据库层兜底（条件与运行时 status == "running"
+        # 检查对齐；completed/failed/cancelled 历史行不受限）
+        Index(
+            'uq_one_running_per_user',
+            'user_id',
+            unique=True,
+            sqlite_where=text("status = 'running'"),
+            postgresql_where=text("status = 'running'"),
+        ),
     )
 
     def to_dict(self):
