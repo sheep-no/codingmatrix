@@ -102,6 +102,8 @@ UI 子组件
 
 ### FESTATE-01 [P1] Agent 会话自动保存链落入 no-op 包装器
 
+> **已修（2026-10-07，PR #422）**：no-op 链本身已由 `3918eb89`/`6a336e28` 修复为真实实现（薄包装转发 store、保存/自动保存/切换恢复均为完整实现）。本轮收口两个残留缺口——`doSwitchSession` 切走前未落盘旧会话（watch 未捕获的最后一次变更丢失），现切换前先 `saveSessionState`；`saveSessionState` 缺下划线前缀键过滤（`_generation` 等 store 引用会写进 localStorage，有循环引用风险），现与 `createNewSession` 对齐剥离。顺手修 `deleteSession` 恢复默认态 `currentStep` 写成 `''`。Dashboard 4 处 20 字段快照抽为 `buildSessionSnapshot()`。新增 `AgentDashboard.switchSession.test.js` 3 项与 store 过滤断言 1 项。
+
 - **定位**：`src/composables/useAgentSession.js:17-25`、`src/views/AgentDashboard.vue:334-383`。
 - **调用链**：Dashboard `watch`/`onMounted` -> `session.saveSessionState(...)`、`session.startAutoSave(...)`；包装器分别执行空函数；`switchSession` 只恢复 `prompt`（`useAgentSession.js:14-16`、`agentSession.js:91-99`）。
 - **功能**：Dashboard 试图保存 workflow stages、文件、日志、thinking、决策、模型分配和恢复次数。
@@ -131,6 +133,8 @@ UI 子组件
 - **建议**：使用 `storeToRefs(logsStore)` 后监听 refs，或直接监听解包后的 store 属性，并补充深度监听测试。
 
 ### FESTATE-04 [P2] SSE 解析器对合法帧格式和尾帧处理过于严格
+
+> **已修（2026-10-07，PR #423）**：新增 `src/utils/sseParser.js` 标准 SSE 分帧器（空行分帧 `\n\n`/`\r\n\r\n`/`\r\r`、多行 `data` 拼接、`data:` 无空格、`event`/`id` 字段、`:` 注释心跳、UTF-8 BOM、跨 chunk 帧边界重组、`flush()` 处理无尾空行末帧），`processSseResponse` 改为 `push`/`flush` 消费。`[DONE]` 哨兵以 data 值透传由调用方判定终止（后端 `[DONE]` 为内部哨兵不外发，解析器兼容其他网关形态）。新增 `sseParser.test.js` 12 项。
 
 - **定位**：`src/composables/useAgentStreaming.js:284-315`。
 - **调用链**：`streamGenerate:434` -> `processSseResponse` -> 按换行拆分 -> 仅处理 `trimmed.startsWith('data: ')` 的行。

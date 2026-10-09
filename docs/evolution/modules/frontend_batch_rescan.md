@@ -73,9 +73,13 @@
 
 #### FRESCAN-10 [P2] 多 worker 会话创建锁无法提供全局互斥
 
+> **已修（2026-10-07，PR #424）**：`ProjectSession` 新增部分唯一索引 `uq_one_running_per_user`（条件 `status = 'running'`，与运行时检查对齐，SQLite/PostgreSQL 双方言），跨 worker 并发窗口由数据库兜底；`_create_project_session` 与增量复用链的 UPDATE 撞索引统一转 409，resume 分支宽泛 `except Exception` 补 `HTTPException` 透传。测试 `test_project_session_running_lock.py` 5 项（回退后 2 项失败）。
+
 `orchestrate_endpoints.py:130,532-546` 的 `_user_creation_locks` 是进程内字典，数据库查询只有 running 状态检查；多 worker/多实例部署可能同时创建同一用户的多个 running 会话。
 
 #### FRESCAN-11 [P2] Agent 生成函数没有内部并发幂等保护
+
+> **已失效（2026-10-07 复核）**：当前实码 `streamGenerate` 入口在首个 `await` 之前的同步段置位 `generation.isGenerating`（setter 同步写 Pinia ref），JS 单线程下任何并发调用（按钮、键盘、程序）都串行进入守卫检查，第二次调用必被 409 式警告拒绝。全部调用路径（`@generate`、`regenerateProject`）均收敛到该守卫，扫描时点的行号与判定已与实码不符。
 
 `useAgentStreaming.js:411-435` 每次调用都会新建请求并写入同一 files/workspace/generation 状态；按钮禁用只能降低重复点击，键盘或程序调用仍可形成多个并发消费者。
 
