@@ -29,12 +29,6 @@ router = APIRouter(prefix="/vision", tags=["视觉模型"])
 
 # ==================== Request/Response Models ====================
 
-class AnalyzeImageRequest(BaseModel):
-    """图片分析请求"""
-    prompt: str = Field(default="请详细描述这张图片的内容", description="分析提示词")
-    image_url: Optional[str] = Field(default=None, description="图片 URL（可选，与 file 二选一）")
-    model: Optional[str] = Field(default=None, description="指定视觉模型")
-
 
 class AnalyzeImageResponse(BaseModel):
     """图片分析响应"""
@@ -49,10 +43,6 @@ class OCRResponse(BaseModel):
     text: str
     model_used: str
 
-
-class CodeFromImageRequest(BaseModel):
-    """UI 截图转代码请求"""
-    requirement: str = Field(default="", description="额外需求描述")
 
 
 class CodeFromImageResponse(BaseModel):

@@ -18,9 +18,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from sqlalchemy.exc import SQLAlchemyError
 
-from starlette.background import BackgroundTask
-
-from app.schema.codeRequest import GenerateRequest, GenerateResponse, AgentConfig
+from app.schema.codeRequest import GenerateRequest, AgentConfig
 from app.core.paths import PROJECTS_BASE_DIR
 from app.models.saved_project import SavedProject
 from app.models.agent_memory import AgentSession, ToolExecutionLog, ModelUsageStats
@@ -28,9 +26,9 @@ from app.db.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, and_
 from app.utils.security import verify_token
-from app.utils.agent_core import ProjectGeneratorAgent, ProjectFileManager
+from app.utils.agent_core import ProjectGeneratorAgent
 from app.utils.task_manager import task_manager
-from app.schema.task_schema import TaskResponse, TaskStatusEnum
+from app.schema.task_schema import TaskResponse
 
 router = APIRouter(prefix="/agent", tags=["项目生成 Agent"])
 logger = logging.getLogger(__name__)

@@ -72,8 +72,6 @@ async def switch_default_model(
     current_user: dict = Depends(require_superadmin)
 ):
     """切换运行时默认模型（仅超级管理员）"""
-    from app.api.v1.model_manager import get_current_default_model_id, _runtime_default_model as _orig
-
     model = get_model(request.model_id)
     if not model:
         raise HTTPException(

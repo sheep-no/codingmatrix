@@ -23,7 +23,7 @@ from app.db.database import get_db
 from app.models.file import File
 from app.models.task import Task
 from app.utils.security import verify_token
-from app.schema.file_schema import FileUploadResponse, FileListResponse
+from app.schema.file_schema import FileUploadResponse
 from app.core.config import settings
 from app.core.file_validator import validate_file_path
 
@@ -174,12 +174,6 @@ ALLOWED_EXTENSIONS = {
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
 }
 
-
-def calculate_file_hash(content: bytes) -> str:
-    """计算文件 SHA256 哈希（保留给旧调用方）。"""
-    sha256 = hashlib.sha256()
-    sha256.update(content)
-    return sha256.hexdigest()
 
 
 def validate_file_upload(file: UploadFile) -> None:

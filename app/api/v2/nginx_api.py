@@ -30,7 +30,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from app.api.v2.guardian_router import require_admin, require_superadmin
 from app.utils.cache import get_cache
 from app.schema.nginxConf import (
-    NginxConf, NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
+    NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
     NginxDeployRequest, NginxDeployResponse
 )
 from app.agent.models import DEFAULT_CODE_MODEL

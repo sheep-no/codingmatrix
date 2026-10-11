@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
 
-from app.agent.mcp_client import MCPClientManager, MCP_CONFIG_PATH
+from app.agent.mcp_client import MCP_CONFIG_PATH
 from app.utils.security import require_superadmin
 
 logger = logging.getLogger(__name__)

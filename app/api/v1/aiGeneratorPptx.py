@@ -441,29 +441,6 @@ class PPTGenerationResponse(BaseModel):
 # PPT_TEMPLATES 和 PPTStyle 从 app.utils.pptx.ppt_style 导入（见文件顶部）
 
 
-def add_decorative_header(slide, prs, title_text, style: PPTStyle):
-    """添加装饰性页眉"""
-    # 顶部装饰条
-    header_height = Inches(0.15)
-    header_shape = slide.shapes.add_shape(
-        1,  # 矩形
-        Inches(0), Inches(0),
-        prs.slide_width, header_height
-    )
-    header_shape.fill.solid()
-    header_shape.fill.fore_color.rgb = style.PRIMARY_COLOR
-    header_shape.line.fill.background()
-
-    # 标题区域背景
-    title_bg = slide.shapes.add_shape(
-        1,
-        Inches(0), Inches(0.15),
-        prs.slide_width, Inches(1.2)
-    )
-    title_bg.fill.solid()
-    title_bg.fill.fore_color.rgb = style.PRIMARY_LIGHT
-    title_bg.line.fill.background()
-
 
 def add_page_number(slide, prs, page_num, total_pages, style: PPTStyle):
     """添加页码"""
@@ -493,50 +470,6 @@ def add_page_number(slide, prs, page_num, total_pages, style: PPTStyle):
     _apply_paragraph_font(p, style.FONT_MAIN)
 
 
-def add_bullet_with_icon(slide, left, top, width, text, level, style: PPTStyle, icon=None):
-    """添加带图标的bullet"""
-    # bullet 符号
-    if level == 0:
-        bullet_char = "●"
-        bullet_color = style.PRIMARY_COLOR
-        font_size = Pt(16)
-    else:
-        bullet_char = "○"
-        bullet_color = style.PRIMARY_LIGHT
-        font_size = Pt(14)
-
-    txbox = slide.shapes.add_textbox(left, top, Inches(0.3), Inches(0.3))
-    tf = txbox.text_frame
-    p = tf.paragraphs[0]
-    p.text = bullet_char
-    p.font.name = style.FONT_MAIN
-    p.font.size = font_size
-    p.font.color.rgb = bullet_color
-
-    # 文本内容
-    textbox = slide.shapes.add_textbox(
-        left + Inches(0.3), top,
-        width - Inches(0.3), Inches(0.5)
-    )
-    tf = textbox.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
-    p.text = text
-    p.font.name = style.FONT_MAIN
-    p.font.size = font_size
-    p.font.color.rgb = style.TEXT_DARK
-    p.space_after = Pt(6)
-
-
-def style_title_shape(title_shape, text, style: PPTStyle, font_size=Pt(36)):
-    """样式化标题形状"""
-    title_shape.text = text
-    for para in title_shape.text_frame.paragraphs:
-        para.font.name = style.FONT_MAIN
-        para.font.size = font_size
-        para.font.bold = True
-        para.font.color.rgb = style.TEXT_WHITE
-        para.alignment = PP_ALIGN.LEFT
 
 
 def add_slide_background(slide, prs, style: PPTStyle, light=True):
@@ -556,20 +489,6 @@ def add_slide_background(slide, prs, style: PPTStyle, light=True):
     spTree.remove(sp)
     spTree.insert(2, sp)
 
-
-def add_decorative_corner(slide, prs, style: PPTStyle):
-    """添加角落装饰"""
-    # 右下角装饰圆
-    corner = slide.shapes.add_shape(
-        9,  # 椭圆
-        prs.slide_width - Inches(2),
-        prs.slide_height - Inches(1.5),
-        Inches(2), Inches(1.5)
-    )
-    corner.fill.solid()
-    corner.fill.fore_color.rgb = style.ACCENT_LIGHT
-    corner.fill.fore_color.brightness = 0.3
-    corner.line.fill.background()
 
 
 def _fit_editorial_text(text, width, height, size):

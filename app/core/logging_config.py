@@ -3,7 +3,6 @@ import logging.config
 import sys
 import re
 from pathlib import Path
-from pythonjsonlogger import jsonlogger
 from app.core.config import settings
 
 LOG_DIR = Path("logs")
