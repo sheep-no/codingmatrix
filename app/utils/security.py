@@ -3,7 +3,6 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.exceptions import WebSocketException
 from pydantic import ValidationError
 from starlette import status
 import bcrypt

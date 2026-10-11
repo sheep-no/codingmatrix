@@ -228,6 +228,13 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 |---|---|---|---|
 | P3 | `PROJECTS_BASE_DIR = "./projects"` 相对路径依赖 CWD：api/scheduler/celery 多进程入口工作目录可能各不相同，CWD 漂移时生成物目录不可预测（AIC1/GRD3 关联） | `app/core/paths.py`、`app/api/v1/AiProjectCode.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；`core.paths` 改为基于 `__file__` 的绝对路径，`AiProjectCode.py` 与 `project_config.py` 的双轨定义消除（统一 import core.paths），`resolve_stream_output_dir` 前缀归一化兼容历史 `./projects/` 前缀与绝对 BASE 前缀。回归 `tests/unit/test_output_dir_resolution.py::TestProjectsBaseDirAbsolutePath`（5 项），回退后「绝对性」「双轨消除」两项精确失败；关联面 `test_evaluation_runner`/`test_import_project_files`/`test_flutter_project_delivery`/`test_project_lifecycle_api`/`test_ai_project_code_*` 全绿（`test_evaluation_runner` 补显式 patch `app.agent.orchestrator.PROJECTS_BASE_DIR`，原靠双模块同值巧合生效） |
 
+### vulture 反向死代码清理：死 import 与死函数（2026-09-28）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P3 | 死 import 15 处（vulture 90% 置信，逐符号全库引用核实，零 re-export 风险） | `AiProjectCode.py`（BackgroundTask/GenerateResponse/ProjectFileManager/TaskStatusEnum）、`workflow.py`（WorkflowStatusResponse/WorkflowStreamEvent）、`file_upload.py`（FileListResponse）、`mcp_admin.py`（MCPClientManager）、`model_admin.py`（get_current_default_model_id/_orig 函数内死 import 整行）、`nginx_api.py`（NginxConf）、`logging_config.py`（jsonlogger，dictConfig 动态路径独立加载）、`main.py`（State）、`visual_analyzer.py`（render_slide_preview）、`visual_modifier.py`（parse_modify_intent/modify_ppt）、`security.py`（WebSocketException） | 已解决（删除）；复扫 90% 置信 unused import 归零；`from app.main import app` 冒烟通过，关联 7 测试文件 193 passed |
+| P3 | 死函数/死 schema 7 处（vulture 60% 置信 + AST 装饰器过滤后人工核实，全库零引用零测试） | `vision_api.py`（AnalyzeImageRequest/CodeFromImageRequest 死 schema）、`file_upload.py`（calculate_file_hash）、`aiGeneratorPptx.py`（add_decorative_header/add_bullet_with_icon/style_title_shape/add_decorative_corner 4 个死装饰函数） | 已解决（删除）；vision/pptx/upload 关联 6 测试文件 35 passed。保留项：`validate_file_content`（测试保护）、`deprecated`/`get_version_router`/`create_versioned_app_setup`（`__init__.py` 版本化公开 API）、`Config` 内嵌类（Pydantic 配置机制，vulture 假阳性）、graceful_shutdown 扩展点、AiProjectCode 废弃面（AIC7 归档判定）、workflow 零消费公开 API 家族（既有固化判定） |
+
 ### 死代码删除：content_analyzer 危险扩展名检查（CA7，2026-09-28）
 
 | 优先级 | 问题 | 实际位置 | 状态 |

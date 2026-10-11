@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 from app.agent.models import DEFAULT_VISUAL_MODEL
-from app.utils.pptx.slide_renderer import SlideRenderer, render_slide_preview, get_slide_metadata
+from app.utils.pptx.slide_renderer import SlideRenderer, get_slide_metadata
 
 logger = logging.getLogger(__name__)
 
