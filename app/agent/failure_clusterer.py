@@ -3,11 +3,11 @@
 
 对批量测试失败进行分组，识别共同的错误类型和位置，减少修复次数。
 """
-import re
 import logging
-from dataclasses import dataclass, field
-from typing import List, Dict
+import re
 from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List
 
 from app.utils.performance_metrics import metrics_collector
 

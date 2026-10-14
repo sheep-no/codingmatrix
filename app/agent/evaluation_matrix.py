@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from statistics import mean, quantiles
-from collections import Counter
 from typing import Callable, Iterable, Tuple
 
 from .code_synthesis_contracts import HttpContract

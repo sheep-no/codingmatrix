@@ -1,13 +1,17 @@
-import re
-import json
 import asyncio
+import json
 import logging
+import re
 import subprocess as sp
-from typing import Optional, Dict, List
 from pathlib import Path
+from typing import Dict, List, Optional
 
-from app.agent.project_profiler import ProjectProfiler, ProjectProfile, detect_project_language
 from app.agent.dependency_rules import EXTENSION_TYPE_MAP
+from app.agent.project_profiler import (
+    ProjectProfile,
+    ProjectProfiler,
+    detect_project_language,
+)
 
 logger = logging.getLogger(__name__)
 

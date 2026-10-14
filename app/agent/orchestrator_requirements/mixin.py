@@ -1,25 +1,26 @@
-import time
 import asyncio
 import logging
-from typing import Dict, Any, List
-
-from app.agent.tracing import traced
+import time
+from typing import Any, Dict, List
 
 from app.agent.orchestrator_requirements.constants import (
-    SKIP_COMPLEXITY_LEVELS,
-    TIME_BUDGET_SECONDS,
     CONFIDENCE_DEFAULT_SHOW,
     CONFIDENCE_DISPLAY_THRESHOLD,
+    SKIP_COMPLEXITY_LEVELS,
+    TIME_BUDGET_SECONDS,
 )
 from app.agent.orchestrator_requirements.data_models import (
     AssociationItem,
     AssociationResult,
 )
+from app.agent.orchestrator_requirements.devil_advocate import devil_advocate_review
 from app.agent.orchestrator_requirements.domain_detection import _detect_domains
-from app.agent.orchestrator_requirements.layer1_template import layer1_cross_domain_template
+from app.agent.orchestrator_requirements.layer1_template import (
+    layer1_cross_domain_template,
+)
 from app.agent.orchestrator_requirements.layer2_semantic import layer2_semantic_match
 from app.agent.orchestrator_requirements.layer3_dual_model import layer3_dual_model_deep
-from app.agent.orchestrator_requirements.devil_advocate import devil_advocate_review
+from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 

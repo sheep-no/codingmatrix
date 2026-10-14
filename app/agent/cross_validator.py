@@ -13,16 +13,16 @@ CrossValidator - 交叉验证器
 
 import ast
 import json
-import re
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Set, Iterator
-from pathlib import Path
+import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
-from app.utils import call_llm
 from app.agent.json_parser import safe_parse_json
-from app.agent.shared_context import SharedContext
 from app.agent.refinement_loop import RefinementLoop, RefinementResult
+from app.agent.shared_context import SharedContext
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -1050,8 +1050,7 @@ class CrossValidator:
             else:
                 # 处理类型注解
                 name = param.split(':')[0].strip()
-                if name.startswith('*'):
-                    name = name[1:]
+                name = name.removeprefix('*')
                 params[name] = None
 
         return params

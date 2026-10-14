@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 
-
 def migrate_state_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Return the canonical State dictionary without mutating the input."""
     data = dict(payload)

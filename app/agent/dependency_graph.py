@@ -12,25 +12,25 @@ DependencyGraph - 依赖图驱动生成
 - 配置文件 -> 无依赖（最早生成）
 """
 
-import logging
-import re
 import heapq
 import itertools
-from typing import Optional, Dict, Any, List, Set
-from pathlib import Path
-from dataclasses import dataclass, field
+import logging
+import re
 from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
-from app.agent.signature_extractor import extract_signatures, get_context_budget
-from app.agent.shadow_scanner import scan_shadow_dependencies, SKIP_DIRS
 from app.agent.dependency_rules import (
+    _EXTENSIONLESS_PROJECT_FILES,
     DEPENDENCY_RULES,
     PATH_TYPE_RULES,
-    _EXTENSIONLESS_PROJECT_FILES,
     _normalize_extensionless_name,
     infer_file_type_fallback,
 )
 from app.agent.generation_plan import GenerationPlan
+from app.agent.shadow_scanner import SKIP_DIRS, scan_shadow_dependencies
+from app.agent.signature_extractor import extract_signatures, get_context_budget
 
 logger = logging.getLogger(__name__)
 
@@ -362,8 +362,7 @@ class DependencyGraph:
             
             # 规范化路径
             path = path.replace('\\', '/').replace('//', '/')
-            if path.startswith('./'):
-                path = path[2:]
+            path = path.removeprefix('./')
             
             # 去重
             if path in seen_paths:

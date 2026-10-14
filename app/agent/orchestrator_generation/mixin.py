@@ -1,26 +1,31 @@
-import time
 import logging
-from typing import Optional, Dict, Any, List
+import time
+from typing import Any, Dict, List, Optional
 
-from app.agent.complexity import ComplexityAnalyzer
-from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer, CodeReviewer
-from app.agent.error_recovery import ErrorRecoveryLoop
-from app.agent.code_validator import CodeValidator
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher
+from app.agent.code_validator import CodeValidator
+from app.agent.complexity import ComplexityAnalyzer
 from app.agent.dynamic_model_router import LayeredModelRouter
-from app.agent.tracing import traced
+from app.agent.error_recovery import ErrorRecoveryLoop
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.specialists import (
+    Architect,
+    BackendEngineer,
+    CodeReviewer,
+    FrontendEngineer,
+)
+from app.agent.tracing import traced
 
 from .coverage_checker import check_requirement_coverage
-from .feature_extractor import extract_and_save_feature_list
 from .error_recovery import ErrorRecoveryMixin
-from .traditional_generate import TraditionalGenerateMixin
-from .spec_first_generate import SpecFirstGenerateMixin
+from .evaluate_mixin import EvaluationMixin
+from .feature_extractor import extract_and_save_feature_list
 from .incremental_generate import IncrementalGenerateMixin
 from .incremental_modify import IncrementalModifyMixin
-from .evaluate_mixin import EvaluationMixin
+from .spec_first_generate import SpecFirstGenerateMixin
+from .traditional_generate import TraditionalGenerateMixin
 
 logger = logging.getLogger(__name__)
 

@@ -25,8 +25,8 @@ async def requirement_association(
             skip_reason="用户主动跳过联想环节"
         )
 
-    from app.agent.orchestrator_requirements import RequirementAssociationMixin
     from app.agent.complexity import ComplexityAnalyzer
+    from app.agent.orchestrator_requirements import RequirementAssociationMixin
 
     complexity_level = request.complexity_level
     if not complexity_level:

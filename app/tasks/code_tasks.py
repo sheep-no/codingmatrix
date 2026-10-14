@@ -6,15 +6,16 @@ Celery tasks for AI code generation and execution.
 import asyncio
 import logging
 import subprocess
-import yaml
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Dict, List
+
+import yaml
 from celery.exceptions import SoftTimeLimitExceeded
 
 from app.celery_app import celery_app
-from app.tasks.base import BaseTask
 from app.core.config import settings
+from app.tasks.base import BaseTask
 
 logger = logging.getLogger(__name__)
 

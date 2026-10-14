@@ -5,11 +5,11 @@ Specialist 内置工具实现
 从 specialist_base.py 拆分而来，职责单一：只包含工具实现和注册表。
 """
 
-import re
-import glob
-import shlex
-import logging
 import contextvars
+import glob
+import logging
+import re
+import shlex
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -692,8 +692,8 @@ _ALLOWED_COMMAND_PREFIXES = [
 
 def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout: int = 60) -> Dict:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
-    import subprocess
     import os
+    import subprocess
 
     try:
         if not isinstance(command, str) or not command.strip():
@@ -909,7 +909,11 @@ def _tool_search_files(
 def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
     """写入文件内容（创建或覆盖）"""
     try:
-        from app.agent.utils import is_metadata_file, is_package_entry_file, is_placeholder_content
+        from app.agent.utils import (
+            is_metadata_file,
+            is_package_entry_file,
+            is_placeholder_content,
+        )
 
         # 空内容校验：拒绝空文件写入；空 __init__.py 是合法的包标记，
         # 空 .gitkeep 是合法的目录占位
@@ -970,7 +974,12 @@ def _validate_file_syntax(file_path: str, content: str) -> str:
     import ast
     import re
 
-    from app.agent.js_syntax import check_js_source, check_ts_source, has_python_only_syntax, vue_script_source
+    from app.agent.js_syntax import (
+        check_js_source,
+        check_ts_source,
+        has_python_only_syntax,
+        vue_script_source,
+    )
     from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
     ext = Path(file_path).suffix.lower()
@@ -1162,8 +1171,9 @@ async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> Dic
 async def _tool_http_request(project_path: str, method: str, url: str,
                               headers: dict = None, body: dict = None) -> Dict:
     """发送 HTTP 请求（带 SSRF 防护）"""
-    from urllib.parse import urlparse
     import ipaddress
+    from urllib.parse import urlparse
+
     import httpx as _httpx
 
     try:
@@ -1189,8 +1199,7 @@ async def _tool_http_request(project_path: str, method: str, url: str,
         for _family, _, _, _, sockaddr in addr_infos:
             ip_str = sockaddr[0]
             # IPv4-mapped IPv6 (::ffff:127.0.0.1) 需要剥离
-            if ip_str.startswith("::ffff:"):
-                ip_str = ip_str[7:]
+            ip_str = ip_str.removeprefix("::ffff:")
             try:
                 ip = ipaddress.ip_address(ip_str)
             except ValueError:
@@ -1246,7 +1255,7 @@ def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
                 os.remove(fp)
                 deleted.append(fp)
             except Exception as e:
-                errors.append(f"{fp}: {str(e)}")
+                errors.append(f"{fp}: {e!s}")
 
         return {"success": True, "deleted": len(deleted), "files": deleted, "errors": errors}
     except Exception as e:

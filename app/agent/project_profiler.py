@@ -9,17 +9,17 @@ v5.15.0 重构：支持多语言分析
 - 各语言独立的扩展名、聚合文件、测试约定、import 语法
 - 向后兼容：未传 language 时按 Python 处理
 """
-import re
-import json
-import os
-import time
-import hashlib
-import logging
 import functools
+import hashlib
+import json
+import logging
+import os
+import re
+import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Optional, Set
-from collections import defaultdict
+from typing import Dict, List, Optional, Set
 
 from app.utils.performance_metrics import metrics_collector
 

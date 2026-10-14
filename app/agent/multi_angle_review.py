@@ -11,13 +11,13 @@
 - 标准：+ 单一魔鬼代言人
 - 严格：+ 多视角审查（3 个角色）
 """
+import asyncio
 import json
 import logging
-import asyncio
 import re
-from pathlib import Path
 from enum import Enum
-from typing import List, Dict
+from pathlib import Path
+from typing import Dict, List
 
 from app.agent.orchestrator_requirements.constants import DEVILS_ADVOCATE_MODEL
 from app.agent.orchestrator_requirements.data_models import AssociationItem

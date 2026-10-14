@@ -1,13 +1,13 @@
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
-from app.agent.test_runner import IsolatedTestRunner
+from app.agent.failure_clusterer import FailureCluster, FailureClusterer
 from app.agent.impact_analyzer import ImpactAnalyzer
-from app.agent.project_profiler import ProjectProfile
-from app.agent.test_selector import TestSelector
-from app.agent.failure_clusterer import FailureClusterer, FailureCluster
-from app.utils.performance_metrics import metrics_collector
 from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.project_profiler import ProjectProfile
+from app.agent.test_runner import IsolatedTestRunner
+from app.agent.test_selector import TestSelector
+from app.utils.performance_metrics import metrics_collector
 
 logger = logging.getLogger(__name__)
 

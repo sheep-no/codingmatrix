@@ -6,15 +6,15 @@ v4.7.0 增强：
 - 查找时自动排除反模式条目
 - BM25 文本相似度：用于跨项目知识迁移（替代向量嵌入）
 """
-import json
-import time
 import hashlib
-import math
+import json
 import logging
+import math
 import threading
-from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from app.agent.error_classifier import ErrorClassification
 

@@ -7,14 +7,14 @@
 
 import json
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
-from app.utils import call_llm
+from app.agent.file_contract import TaskStep, _degrade_step
 from app.agent.json_parser import safe_parse_json
 from app.agent.models import ModelRegistry
-from app.agent.file_contract import TaskStep, _degrade_step
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class TaskPlanner:
                 return [_degrade_step(task, f"schema 错误: {err_msg}")]
         except Exception as e:
             logger.error(f"任务分解失败: {e}")
-            return [_degrade_step(task, f"异常: {str(e)}")]
+            return [_degrade_step(task, f"异常: {e!s}")]
 
     async def _explore_project(
         self,

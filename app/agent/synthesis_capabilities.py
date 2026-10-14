@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict
 
 from .code_synthesis_contracts import ProjectModel
 from .languages import get_language_adapter, get_language_capabilities
-from .scaffolding import ScaffoldRequest, official_scaffold_request, supports_official_scaffold
+from .scaffolding import (
+    ScaffoldRequest,
+    official_scaffold_request,
+    supports_official_scaffold,
+)
 
 
 class SynthesisCapabilitySnapshot(BaseModel):

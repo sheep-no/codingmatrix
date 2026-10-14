@@ -15,11 +15,11 @@ import logging
 import re
 import time
 from pathlib import PurePosixPath
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
-from app.agent.topology_scheduler import HeartbeatTracker
 from app.agent.generation_plan import GenerationPlan, add_profile_components
+from app.agent.topology_scheduler import HeartbeatTracker
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ class IncrementalModifyMixin:
 
         # ========== Step 1: 加载依赖图 ==========
         dep_graph_path = self.output_dir / ".dep_graph.json"
-        from app.agent.language_detector import LanguageDetector
         from app.agent.adapters.language_adapter import LanguageAdapterRegistry
+        from app.agent.language_detector import LanguageDetector
 
         lang_result = LanguageDetector.detect(requirement)
         detected_language = lang_result.language
@@ -461,7 +461,10 @@ class IncrementalModifyMixin:
         dep_graph: DependencyGraph,
     ) -> List[Dict]:
         """Collapse duplicate paths, then add providers missing imported exports."""
-        from app.agent.change_plan import collapse_change_items, expand_change_plan_for_missing_exports
+        from app.agent.change_plan import (
+            collapse_change_items,
+            expand_change_plan_for_missing_exports,
+        )
 
         known = [str(path) for path in getattr(dep_graph, "nodes", {}) or ()]
         collapsed = collapse_change_items(change_plan, known_paths=known)
@@ -671,7 +674,7 @@ class IncrementalModifyMixin:
         semaphore = get_global_llm_semaphore()
         cost_tracker = getattr(self, 'cost_tracker', None)
 
-        from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer
+        from app.agent.specialists import Architect, BackendEngineer, FrontendEngineer
         self.architect = Architect(
             "架构师", _require_model("architect_model"),
             task_type="generate", api_key_token=self.api_key_token,
@@ -946,6 +949,7 @@ class IncrementalModifyMixin:
         persist: bool = True,
     ) -> Optional[str]:
         """使用指定模型生成单个文件"""
+        from app.agent.spec_first_generator import SpecFirstGenerator
         from app.agent.utils import (
             extract_engineer_content,
             is_metadata_file,
@@ -953,7 +957,6 @@ class IncrementalModifyMixin:
             is_valid_code_content,
             write_file_atomic,
         )
-        from app.agent.spec_first_generator import SpecFirstGenerator
 
         action = file_info.get("action", "add")
         description = file_info.get("description", f"生成 {file_path}")

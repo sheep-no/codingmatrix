@@ -18,15 +18,15 @@ CodePatcher - 代码补丁生成器
 4. 验证 patch 应用结果
 """
 
+import asyncio
+import difflib
+import logging
 import os
 import re
-import asyncio
-import logging
-import difflib
 import tempfile
-from typing import Dict, List, Optional
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ class CodePatcher:
             result.success = True
 
         except Exception as e:
-            result.errors.append(f"应用 patch 异常: {str(e)}")
+            result.errors.append(f"应用 patch 异常: {e!s}")
             logger.error(f"应用 patch 异常: {e}", exc_info=True)
 
         return result

@@ -26,13 +26,13 @@ OpenTelemetry (Jaeger) 追踪模块
       ...
 """
 
-import os
-import functools
 import asyncio
+import functools
 import logging
 import math
+import os
 from contextvars import ContextVar
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,9 @@ def _make_batch_processor(exporter):
 if _otel_enabled:
     try:
         from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.sampling import ProbabilitySampler
-        from opentelemetry.sdk.resources import Resource
 
         resource = Resource.create({"service.name": _service_name})
         _tracer_provider = TracerProvider(
@@ -121,7 +121,9 @@ if _otel_enabled:
             )
             logger.info(f"OTel Jaeger exporter configured: {_jaeger_endpoint}")
         elif _otel_exporter == "otlp":
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
             _tracer_provider.add_span_processor(
                 _make_batch_processor(OTLPSpanExporter(
                     endpoint=_otlp_endpoint,

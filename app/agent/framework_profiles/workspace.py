@@ -14,7 +14,6 @@ from app.agent.toolchain import CommandSpec, ToolchainAction, ToolchainRunner
 
 from .types import FrameworkProfile, ProfileScope, ProfileStatus
 
-
 PROFILE_SCHEMA_VERSION = 1
 DEFAULT_CONFORMANCE_CHECKS = ("syntax", "install", "startup", "crud", "persistence")
 

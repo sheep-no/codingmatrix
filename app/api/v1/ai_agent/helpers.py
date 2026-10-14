@@ -1,31 +1,32 @@
+import asyncio
+import json
 import logging
 import os
-import shutil
-import json
-import asyncio
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncGenerator, List
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import HTTPException, Depends
+from fastapi import Depends, HTTPException
+from sqlalchemy import and_, select
+from sqlalchemy import delete as sql_delete
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete as sql_delete, and_
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from app.utils.security import verify_token
-from app.db.models import ProjectSession
-from app.utils.guard_contracts import get_guard_contracts
-from app.utils.agent_skills import get_skills_manager
-from app.schema.codeRequest import GenerateRequest, AgentConfig
 from app.agent.models import DEFAULT_FAST_MODEL
+from app.db.models import ProjectSession
+from app.schema.codeRequest import AgentConfig, GenerateRequest
+from app.utils.agent_skills import get_skills_manager
+from app.utils.guard_contracts import get_guard_contracts
+from app.utils.security import verify_token
 
 from .project_config import (
-    PROJECTS_BASE_DIR,
     ALLOWED_PACKAGES,
-    PROJECT_MIME_TYPES,
-    SKIP_DIRS,
     MAX_TEXT_FILE_SIZE,
+    PROJECT_MIME_TYPES,
+    PROJECTS_BASE_DIR,
+    SKIP_DIRS,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,10 +225,10 @@ def _collect_files_sync(project_dir: Path) -> List[dict]:
                     'modified': datetime.fromtimestamp(stat.st_mtime).isoformat()
                 })
             except (ValueError, TypeError, RuntimeError, OSError) as e:
-                logger.debug(f"读取文件失败 | 文件：{file_path} | 错误：{str(e)}")
+                logger.debug(f"读取文件失败 | 文件：{file_path} | 错误：{e!s}")
                 continue
     except Exception as e:
-        logger.error(f"扫描目录失败 | 目录：{project_dir} | 错误：{str(e)}")
+        logger.error(f"扫描目录失败 | 目录：{project_dir} | 错误：{e!s}")
     return entries
 
 
@@ -314,7 +315,7 @@ def _create_zip_archive_safe(source_dir: Path, zip_path: Path):
         logger.info(f"压缩完成 | 文件夹: {source_dir.name} -> {zip_path.name}")
         return True
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"压缩失败 | 文件夹: {source_dir} | 错误: {str(e)}")
+        logger.error(f"压缩失败 | 文件夹: {source_dir} | 错误: {e!s}")
         return False
 
 
@@ -324,7 +325,7 @@ def _cleanup_temp_dir(temp_dir: str, project_name: str):
             shutil.rmtree(temp_dir, ignore_errors=True)
             logger.debug(f"清理完成 | 项目: {project_name} | 临时目录: {temp_dir}")
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.warning(f"清理失败 | 临时目录: {temp_dir} | 错误: {str(e)}")
+        logger.warning(f"清理失败 | 临时目录: {temp_dir} | 错误: {e!s}")
 
 
 async def get_session_manager():
@@ -569,7 +570,7 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
         else:
             logger.warning(f"会话不存在：session_id={session_id}")
     except SQLAlchemyError as e:
-        logger.error(f"更新会话状态异常 | session_id={session_id} | error={str(e)}", exc_info=True)
+        logger.error(f"更新会话状态异常 | session_id={session_id} | error={e!s}", exc_info=True)
 
 
 def verify_admin_token(token: dict = Depends(verify_token)) -> dict:

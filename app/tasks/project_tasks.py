@@ -5,6 +5,7 @@ Celery tasks for AI project code generation.
 """
 import asyncio
 import logging
+
 from celery.exceptions import SoftTimeLimitExceeded
 
 from app.celery_app import celery_app

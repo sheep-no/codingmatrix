@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from app.agent.orchestrator_requirements.constants import DOMAIN_TEMPLATES_DIR
 from app.agent.orchestrator_requirements.data_models import AssociationItem

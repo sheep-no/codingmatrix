@@ -8,12 +8,11 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.agent.shared_context import SharedContext
 from app.agent.project_snapshot import is_runtime_artifact
+from app.agent.shared_context import SharedContext
 from app.agent.utils import is_metadata_file, is_package_entry_file, write_file_atomic
 
 from .plan import GenerationPlan, normalize_plan_path
-
 
 ARTIFACT_COMMIT_FAILED = "artifact_commit_failed"
 ARTIFACT_CONSISTENCY_FAILED = "artifact_consistency_failed"

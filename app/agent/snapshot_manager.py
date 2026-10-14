@@ -8,12 +8,12 @@ v4.8.0 新增：
 """
 
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
-from app.agent.git_operations import GitOperations, SnapshotInfo, MAINLINE_BRANCHES
-from dataclasses import dataclass, field
+from app.agent.git_operations import MAINLINE_BRANCHES, GitOperations, SnapshotInfo
 
 logger = logging.getLogger(__name__)
 

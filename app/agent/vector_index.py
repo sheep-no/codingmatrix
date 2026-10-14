@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
-import numpy as np
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
+
+import numpy as np
 
 try:
     import faiss

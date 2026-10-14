@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-
 ContractRule = Callable[[str, str], Iterable[str]]
 
 

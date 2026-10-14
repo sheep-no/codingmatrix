@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Tuple
 
-from app.agent.toolchain import CommandSpec, ToolchainAction, ToolchainProbePlan, ToolchainRunner
-from app.agent.validation_report import ValidationCategory, ValidationFinding, ValidationReport
+from app.agent.toolchain import (
+    CommandSpec,
+    ToolchainAction,
+    ToolchainProbePlan,
+    ToolchainRunner,
+)
+from app.agent.validation_report import (
+    ValidationCategory,
+    ValidationFinding,
+    ValidationReport,
+)
 
 
 @dataclass(frozen=True)

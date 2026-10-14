@@ -1,13 +1,13 @@
-import time
 import asyncio
 import logging
-from typing import Dict, Any, Optional, Callable
+import time
+from typing import Any, Callable, Dict, Optional
 
-from app.utils.AiCodeUtil import get_embedding
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
+from app.utils.AiCodeUtil import get_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +230,8 @@ class TraditionalGenerateMixin:
         if dep_graph.generation_plan is not None:
             project_context["generation_plan"] = dep_graph.generation_plan.model_dump(mode="json")
 
-        from app.agent.shared_context import SharedContext
         from app.agent.orchestration.artifact_committer import ArtifactCommitter
+        from app.agent.shared_context import SharedContext
         self.shared_context = SharedContext(requirement, self.output_dir)
         planned_files = dep_graph.generation_plan.files if dep_graph.generation_plan else ()
         for planned_file in planned_files:

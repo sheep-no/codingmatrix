@@ -17,14 +17,18 @@ from app.agent.workflow_ir import (
     WorkflowNodeKind,
 )
 
+from .adapters import GenerationRequest
 from .artifact_committer import (
+    ArtifactCommitter,
     ArtifactConsistencyResult,
     ArtifactDiagnostic,
-    ArtifactCommitter,
     check_artifact_success_gate,
 )
-from .adapters import GenerationRequest
-from .generation_scheduler import GenerationScheduleResult, GenerationScheduleStatus, GenerationScheduler
+from .generation_scheduler import (
+    GenerationScheduler,
+    GenerationScheduleResult,
+    GenerationScheduleStatus,
+)
 from .models import (
     OrchestrationCommand,
     OrchestrationResult,
@@ -34,7 +38,6 @@ from .models import (
 )
 from .state_machine import advance_state, terminate_state
 from .store import OrchestrationStore
-
 
 logger = logging.getLogger(__name__)
 
