@@ -519,3 +519,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 第 164 轮及更早文档中 Agent 范围内的开放项已全部消费：FESTATE-01（PR #422 会话快照收口）、FESTATE-04（PR #423 标准 SSE 分帧器 sseParser.js）、FRESCAN-10（PR #424 每用户一行 running 的部分唯一索引 + 409）、FRESCAN-11（复核失效：streamGenerate 守卫在首个 await 前同步置位，单线程下完备）。
   - 复核结论已回写文档（条目下方加状态引用块），后续复扫先读条目旁的状态标注，避免重复评估已修/已失效项。
   - 复核「仍开放」判定必须对照当前实码行号（文档行号漂移常见，如 FRESCAN-11 引用的 411-435 行已漂移至 588-615 且逻辑已变）。
+
+### knip 裸跑对本仓库 Vue 前端不可靠（勿直接采信）
+- Date: 2026-10-14
+- Context: Agent 在前端死代码扫描中运行 `npx knip`（无配置），报 160 个 unused files，逐条复核后全部推翻
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - knip 裸跑不解析 .vue SFC 的 `<script>` import 边，导致所有仅被 .vue 引用的 js 文件被级联误报为 unused；反例：`src/utils/theme.js` 被 App.vue（入口链必经）直接 import 仍报 unused，`src/utils/sseParser.js`（FESTATE-04 修复产物）亦被误报
+  - grep 到引用与 knip 报 unused 同时出现时，以 grep 实际引用链为准；如需前端死代码分析，必须先配置 knip.json（入口 + vue 插件）再采信输出
+  - `tests/unit/test_websocket_url.js` 是 P0-6 修复的 Node --test 自包含单测（复制被测纯函数、零 import 属设计），勿按死文件清理
+  - `src/dist/` 为构建产物目录，扫描工具应忽略
