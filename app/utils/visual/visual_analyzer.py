@@ -44,32 +44,7 @@ class ImagePosition(Enum):
     INLINE = "inline"       # 行内嵌入
 
 
-class FontStyle(Enum):
-    """字体样式枚举"""
-    HARMONYOS_SANS = "HarmonyOS Sans SC"      # 鸿蒙字体（默认）
-    Microsoft_YaHei = "微软雅黑"
-    SIMHEI = "黑体"
-    SIMKAI = "楷体"
-    SIMLI = "隶书"
-    FANGZHENG = "方正舒体"
-    YOUYUAN = "幼圆"
-    Arial = "Arial"
-    Times_New_Roman = "Times New Roman"
-    Georgia = "Georgia"
 
-
-class FontWeight(Enum):
-    """字重枚举"""
-    NORMAL = "normal"
-    MEDIUM = "medium"
-    BOLD = "bold"
-
-
-class TextAlignment(Enum):
-    """文字对齐枚举"""
-    LEFT = "left"
-    CENTER = "center"
-    RIGHT = "right"
 
 
 @dataclass

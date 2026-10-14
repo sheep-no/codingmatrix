@@ -111,37 +111,3 @@ async def call_with_retry(
         last_error.raise_for_status()
     raise RuntimeError("API request failed without an exception or response")
 
-
-class RateLimitedClient:
-    """带并发限制的 HTTP 客户端封装"""
-    
-    def __init__(self, max_concurrent: int = 20):
-        self.semaphore = asyncio.Semaphore(max_concurrent)
-        self._client: Optional[httpx.AsyncClient] = None
-        self._lock = asyncio.Lock()
-    
-    async def get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            async with self._lock:
-                if self._client is None or self._client.is_closed:
-                    self._client = httpx.AsyncClient(
-                        timeout=Timeout(60.0, connect=10.0),
-                        limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
-                    )
-        return self._client
-    
-    async def request(self, method: str, url: str, **kwargs):
-        async with self.semaphore:
-            client = await self.get_client()
-            return await client.request(method, url, **kwargs)
-    
-    async def post(self, url: str, **kwargs):
-        return await self.request("POST", url, **kwargs)
-    
-    async def get(self, url: str, **kwargs):
-        return await self.request("GET", url, **kwargs)
-    
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
