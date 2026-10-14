@@ -11,11 +11,11 @@ GlobalConstraintParser - 全局约束解析器
 4. 在文件生成时自动注入
 """
 
-import re
 import logging
-from typing import Dict, Any, List, Optional
+import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

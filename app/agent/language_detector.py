@@ -9,10 +9,11 @@ LanguageDetector - 从需求文本自动推断目标编程语言
 5. LLM 辅助检测（当检测结果可能存在冲突时，使用 LLM 进行上下文感知的语言检测）
 """
 
-import re
 import logging
-from typing import Optional, Dict, List, Tuple
+import re
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 from app.agent.requirement_signals import first_positive_span, is_span_negated
 
 logger = logging.getLogger(__name__)

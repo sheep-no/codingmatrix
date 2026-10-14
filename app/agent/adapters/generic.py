@@ -10,12 +10,14 @@ GenericLanguageAdapter - 通用语言适配器
 """
 
 import re
-from typing import Dict, List
 from pathlib import Path
+from typing import Dict, List
 
 from .language_adapter import (
-    LanguageAdapter, LanguageAdapterRegistry,
-    ImportInfo, SymbolDefinition
+    ImportInfo,
+    LanguageAdapter,
+    LanguageAdapterRegistry,
+    SymbolDefinition,
 )
 
 

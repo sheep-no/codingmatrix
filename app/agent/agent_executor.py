@@ -8,13 +8,17 @@ execute_analysis 使用 ReActEngine（simple 模式），不再维护独立的 R
 import logging
 from typing import Dict
 
+from app.agent.models import DEFAULT_FAST_MODEL
+from app.agent.tools import (
+    _tool_list_files,
+    _tool_read_file,
+    _tool_read_imports,
+    _tool_read_symbols,
+    _tool_run_command,
+    _tool_summarize_file,
+)
 from app.utils import call_llm
 from app.utils.file_operator import FileOperator
-from app.agent.tools import (
-    _tool_read_file, _tool_list_files, _tool_read_symbols,
-    _tool_read_imports, _tool_summarize_file, _tool_run_command,
-)
-from app.agent.models import DEFAULT_FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -161,4 +165,4 @@ class AgentExecutor:
             return {"success": True, "analysis": analysis, "tool_calls": tool_call_count}
         except Exception as e:
             logger.error(f"分析任务失败: {e}")
-            return {"success": False, "error": f"分析失败: {str(e)}", "tool_calls": 0}
+            return {"success": False, "error": f"分析失败: {e!s}", "tool_calls": 0}

@@ -1,35 +1,35 @@
 import asyncio
 import logging
-from typing import Optional, Callable, List, Dict
 from pathlib import Path
-
-from app.core.paths import PROJECTS_BASE_DIR
-
-
-from app.agent.complexity import ComplexityAnalysis, ComplexityAnalyzer
-from app.agent.code_validator import CodeValidator
-from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer, CodeReviewer
-from app.agent.error_recovery import ErrorRecoveryLoop
+from typing import Callable, Dict, List, Optional
 
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher
+from app.agent.code_validator import CodeValidator
+from app.agent.complexity import ComplexityAnalysis, ComplexityAnalyzer
 from app.agent.dependency_graph import DependencyGraph
-from app.agent.session_manager import SessionManager
-from app.agent.spec_cache import SpecCache
+from app.agent.dynamic_model_router import LayeredModelRouter, ModelAssignment
+from app.agent.error_recovery import ErrorRecoveryLoop
 from app.agent.feedback_learner import FeedbackLearner
 from app.agent.memory import ConversationMemory, KnowledgeMemory
-
-from app.agent.dynamic_model_router import LayeredModelRouter, ModelAssignment
-
-
-from app.agent.orchestrator_progress import (
-    ProgressMixin, CostTracker,
-)
-from app.agent.orchestrator_generation import GenerationMixin
 from app.agent.orchestrator_files import FilesMixin
+from app.agent.orchestrator_generation import GenerationMixin
+from app.agent.orchestrator_progress import (
+    CostTracker,
+    ProgressMixin,
+)
+from app.agent.orchestrator_requirements import RequirementAssociationMixin
 from app.agent.orchestrator_testing import TestingMixin
 from app.agent.orchestrator_utils import UtilsMixin
-from app.agent.orchestrator_requirements import RequirementAssociationMixin
+from app.agent.session_manager import SessionManager
+from app.agent.spec_cache import SpecCache
+from app.agent.specialists import (
+    Architect,
+    BackendEngineer,
+    CodeReviewer,
+    FrontendEngineer,
+)
+from app.core.paths import PROJECTS_BASE_DIR
 
 logger = logging.getLogger(__name__)
 

@@ -1,37 +1,49 @@
-import time
 import asyncio
 import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, Callable
-from collections import defaultdict
 import os
+import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
-from app.agent.spec_first_generator import SpecFirstGenerator
-from app.agent.refinement_loop import RefinementLoop
+from app.agent.adapters import LanguageAdapterRegistry
+from app.agent.architecture_inspector import ArchitectureInspector
+from app.agent.critical_decision import (
+    CriticalDecisionExtractor,
+    should_skip_user_decision,
+)
+from app.agent.cross_validator import CrossValidator
+from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
+from app.agent.dependency_graph_validator import DependencyGraphValidator
+from app.agent.dynamic_model_router import get_context_length
+from app.agent.generation_plan import GenerationPlan, add_profile_components
+from app.agent.global_constraint import GlobalConstraintParser
+from app.agent.js_syntax import (
+    check_js_source as _shared_check_js_source,
+)
+from app.agent.js_syntax import (
+    check_ts_source as _shared_check_ts_source,
+)
 from app.agent.js_syntax import (
     vue_script_source,
-    check_js_source as _shared_check_js_source,
-    check_ts_source as _shared_check_ts_source,
 )
 from app.agent.markup_syntax import (
     css_structure_errors,
     html_structure_errors,
     strip_css_noise,
 )
-from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
-from app.agent.cross_validator import CrossValidator
-from app.agent.shared_context import SharedContext
-from app.agent.topology_scheduler import TopologyScheduler
-from app.agent.critical_decision import CriticalDecisionExtractor, should_skip_user_decision
-from app.agent.global_constraint import GlobalConstraintParser
-from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
-from app.agent.adapters import LanguageAdapterRegistry
-from app.agent.dynamic_model_router import get_context_length
-from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files, reusable_existing_file_content
-from app.agent.dependency_graph_validator import DependencyGraphValidator
-from app.agent.generation_plan import GenerationPlan, add_profile_components
+from app.agent.refinement_loop import RefinementLoop
+from app.agent.shared_context import SharedContext
+from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.toolchain import detect_toolchain
+from app.agent.topology_scheduler import TopologyScheduler
+from app.agent.utils import (
+    cleanup_temp_files,
+    extract_engineer_content,
+    reusable_existing_file_content,
+    write_file_atomic,
+)
 from app.agent.validation_coordinator import ValidationCoordinator
 
 logger = logging.getLogger(__name__)
@@ -1653,8 +1665,7 @@ class SpecFirstGenerateMixin:
                 # 从上下文中移除
                 if file_path in ctx.files:
                     del ctx.files[file_path]
-                if file_path in generated_files_dict:
-                    del generated_files_dict[file_path]
+                generated_files_dict.pop(file_path, None)
                 # 依赖图同步移除，否则后续完整性检查会把已删文件当缺失文件
                 dep_graph.remove_node(file_path)
                 files_generated -= 1
@@ -1707,8 +1718,7 @@ class SpecFirstGenerateMixin:
                 logger.info(f"删除重复文件: {duplicated} (保留 {kept})")
             if duplicated in ctx.files:
                 del ctx.files[duplicated]
-            if duplicated in generated_files_dict:
-                del generated_files_dict[duplicated]
+            generated_files_dict.pop(duplicated, None)
             # 依赖图同步移除，避免已删文件被后续完整性检查当成缺失文件
             dep_graph.remove_node(duplicated)
             files_generated -= 1
@@ -2016,7 +2026,12 @@ class SpecFirstGenerateMixin:
         Returns:
             Generated content. Raises if retries fail.
         """
-        from app.agent.utils import is_valid_code_content, clean_code_block, validate_language_with_llm, get_expected_language_for_file
+        from app.agent.utils import (
+            clean_code_block,
+            get_expected_language_for_file,
+            is_valid_code_content,
+            validate_language_with_llm,
+        )
 
         target_language = project_context.get("architecture", {}).get("language", "")
         file_expected_language = get_expected_language_for_file(file_path, target_language)
@@ -2086,6 +2101,7 @@ class SpecFirstGenerateMixin:
             修复的文件路径列表
         """
         import re
+
         from app.utils.aicloud.llm_caller import call_llm
 
         fixed_files = []
@@ -2636,7 +2652,10 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
                 )
 
                 # 提取内容
-                from app.agent.utils import extract_engineer_content, get_expected_language_for_file
+                from app.agent.utils import (
+                    extract_engineer_content,
+                    get_expected_language_for_file,
+                )
                 content = await extract_engineer_content(
                     content, engineer, self.output_dir, new_path,
                     expected_language=get_expected_language_for_file(

@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.ai_agent.helpers import verify_session_ownership
-from app.api.v1.ai_agent.schemas import AgentModelContextResponse, AgentModelContextUpdate
+from app.api.v1.ai_agent.schemas import (
+    AgentModelContextResponse,
+    AgentModelContextUpdate,
+)
 from app.db.database import get_db
 from app.services.agent_state_adapter import ensure_project_session
 from app.services.model_context_service import (
@@ -13,7 +16,6 @@ from app.services.model_context_service import (
 from app.services.state_migration_service import resolve_compatibility_mapping
 from app.services.unified_state_service import StateConflictError
 from app.utils.security import verify_token
-
 
 router = APIRouter()
 

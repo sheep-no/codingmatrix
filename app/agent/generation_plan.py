@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .dependency_manifest import DependencyManifest
 from .interface_registry import InterfaceRegistry
 
-
 # 计划内文件可解析出的模块名（a/b.py -> a.b；a/__init__.py -> a）
 _PACKAGE_ENTRY_FILES = {
     "__init__.py", "index.js", "index.jsx", "index.ts", "index.tsx", "mod.rs", "lib.rs",

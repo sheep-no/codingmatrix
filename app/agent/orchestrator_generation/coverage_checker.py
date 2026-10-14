@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def check_requirement_coverage(

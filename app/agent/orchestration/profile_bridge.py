@@ -9,7 +9,6 @@ from ..framework_profiles import FrameworkProfile, ValidationStage
 from ..toolchain import CommandSpec, ToolchainAction, ToolchainProbePlan
 from ..validation_coordinator import ValidationCoordinator, ValidationPlan
 
-
 _STAGE_ACTIONS = {
     ValidationStage.INSTALL: ToolchainAction.INSTALL,
     ValidationStage.LINT: ToolchainAction.LINT,

@@ -1,9 +1,9 @@
-import re
 import logging
+import re
 from typing import List
 
-from app.agent.orchestrator_requirements.data_models import AssociationItem
 from app.agent.json_parser import extract_first_json_object
+from app.agent.orchestrator_requirements.data_models import AssociationItem
 
 logger = logging.getLogger(__name__)
 

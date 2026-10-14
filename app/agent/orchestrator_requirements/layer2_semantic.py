@@ -1,12 +1,12 @@
 import asyncio
-import re
 import logging
-from typing import List, Dict
+import re
+from typing import Dict, List
 
 from app.agent.orchestrator_requirements.constants import (
     MIN_HISTORY_PROJECTS,
-    MIN_VECTOR_RESULTS,
     MIN_HISTORY_WITH_FEATURES,
+    MIN_VECTOR_RESULTS,
 )
 from app.agent.orchestrator_requirements.data_models import AssociationItem
 
@@ -29,7 +29,9 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
                     feature_source = project_meta.get("feature_source")
                     if not feature_list:
                         try:
-                            from app.agent.project_metadata import ProjectMetadataManager
+                            from app.agent.project_metadata import (
+                                ProjectMetadataManager,
+                            )
                             pm = ProjectMetadataManager()
                             projects = pm.get_all_projects()
                             matching = [

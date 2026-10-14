@@ -5,10 +5,11 @@
 """
 
 import logging
-from typing import Optional, List, Dict
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from dataclasses import dataclass
+from typing import Dict, List, Optional
+
 from app.utils.model_defaults import get_default_model
 
 logger = logging.getLogger(__name__)

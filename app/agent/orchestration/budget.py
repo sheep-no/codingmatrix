@@ -7,6 +7,7 @@ from typing import Dict, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 class ExecutionBudgetExhausted(TimeoutError):
     """Raised when a budget scope has no wall-clock time remaining."""
 

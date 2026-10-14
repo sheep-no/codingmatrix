@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
-
 LEGACY_ENGINE = "legacy"
 CORE_ENGINE = "core"
 LEGACY_ENGINE_VERSION = "legacy-v1"

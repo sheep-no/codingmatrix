@@ -9,21 +9,20 @@ SessionManager - 会话管理器
 5. 人机协作暂停/恢复
 """
 
-import json
+import asyncio
 import hashlib
+import json
 import logging
 import time
-import asyncio
-from uuid import uuid4
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-
-from app.utils.math_utils import cosine_similarity
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from app.agent.tracing import traced
+from app.utils.math_utils import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +135,9 @@ class SessionManager:
         if not self._db_session_factory:
             return
         try:
-            from app.db.models import ProjectSession
             from sqlalchemy import select
+
+            from app.db.models import ProjectSession
             async with self._db_session_factory() as db:
                 result = await db.execute(
                     select(ProjectSession).where(ProjectSession.session_id == session_id)
@@ -367,8 +367,9 @@ class SessionManager:
 
             # 联动清理：同步更新 DB 中的会话状态
             try:
-                from app.db.models import ProjectSession
                 from sqlalchemy import select
+
+                from app.db.models import ProjectSession
 
                 # 优先使用注入的 factory，未注入时才回落到全局 async_session
                 session_factory = self._db_session_factory

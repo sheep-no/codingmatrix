@@ -1,12 +1,12 @@
-import time
 import json
-import re
 import logging
-from typing import Dict, Any
+import re
+import time
+from typing import Any, Dict
 
 from app.agent.complexity import ComplexityAnalyzer
-from app.agent.specialists import Architect, CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
+from app.agent.specialists import Architect, CodeReviewer
 from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)

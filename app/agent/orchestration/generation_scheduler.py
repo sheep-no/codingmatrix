@@ -6,10 +6,23 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable, Dict, Literal, Mapping, Optional, Set, Tuple
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Literal,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..contract_index import ContractEntry, ContractIndex
+from ..synthesis_protocol import ModelOperation, ModelOperationKind
+from ..workflow_ir import TechnologyProfile
 from .artifact_committer import (
     ArtifactCommitter,
     ArtifactCompletionEvent,
@@ -17,9 +30,6 @@ from .artifact_committer import (
 )
 from .budget import ExecutionBudget
 from .plan import GenerationPlan, PlannedFile
-from ..contract_index import ContractEntry, ContractIndex
-from ..synthesis_protocol import ModelOperation, ModelOperationKind
-from ..workflow_ir import TechnologyProfile
 
 
 class GenerationNodeStatus(str, Enum):

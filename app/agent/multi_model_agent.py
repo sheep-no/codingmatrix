@@ -24,21 +24,29 @@ v5.14 重构：拆分为独立模块，此文件保留 MultiModelAgent + 向后�
 """
 
 import logging
-from typing import Optional, Dict, Any, List, Callable
+from typing import Any, Callable, Dict, List, Optional
 
-from app.utils.file_operator import FileOperator
+from app.agent.agent_executor import ANALYSIS_TOOLS, AgentExecutor  # noqa: F401
+from app.agent.ai_reviewer import AIReviewer  # noqa: F401
+from app.agent.file_contract import (  # noqa: F401
+    FileContract,
+    ReviewResult,
+    TaskStep,
+    _degrade_step,
+)
 
 # 向后兼容：从子模块 re-export 所有公开符号
 from app.agent.models import (  # noqa: F401
-    TaskType, AgentRole, ModelCapability, ModelInfo, ModelRegistry, ModelRouter,
     COMPLEXITY_LEVELS,
+    AgentRole,
+    ModelCapability,
+    ModelInfo,
+    ModelRegistry,
+    ModelRouter,
+    TaskType,
 )
-from app.agent.file_contract import (  # noqa: F401
-    FileContract, ReviewResult, TaskStep, _degrade_step,
-)
-from app.agent.ai_reviewer import AIReviewer  # noqa: F401
 from app.agent.task_planner import TaskPlanner  # noqa: F401
-from app.agent.agent_executor import AgentExecutor, ANALYSIS_TOOLS  # noqa: F401
+from app.utils.file_operator import FileOperator
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +172,7 @@ class MultiModelAgent:
             except Exception as e:
                 logger.error(f"分析任务失败: {e}")
                 await emit("analysis_failed", {"error": str(e)})
-                return {"success": False, "error": f"分析失败: {str(e)}"}
+                return {"success": False, "error": f"分析失败: {e!s}"}
 
         async def call_with_semaphore(coro_factory, *args, **kwargs):
             sem = self._get_semaphore()

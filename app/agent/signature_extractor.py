@@ -5,9 +5,9 @@
 支持 8 种语言 + 冷门语言通用兜底。
 """
 
-import re
-import logging
 import ast
+import logging
+import re
 from pathlib import Path
 from typing import Optional
 

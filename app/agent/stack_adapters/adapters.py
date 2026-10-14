@@ -14,7 +14,6 @@ from app.agent.profile_discovery import discover_profile
 
 from .base import BaseStackAdapter, UnsupportedStackError
 
-
 _IGNORED_DIRECTORIES = frozenset({
     ".git", ".idea", ".monkeycode", ".venv", "build", "dist",
     "node_modules", "target", "venv",

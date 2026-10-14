@@ -10,12 +10,15 @@ JavaScriptLanguageAdapter - JavaScript/TypeScript 语言适配器
 
 import os
 import re
-from typing import Dict, List
 from pathlib import Path
+from typing import Dict, List
 
 from .language_adapter import (
-    LanguageAdapter, LanguageAdapterRegistry,
-    ImportInfo, SymbolDefinition, iter_logical_lines
+    ImportInfo,
+    LanguageAdapter,
+    LanguageAdapterRegistry,
+    SymbolDefinition,
+    iter_logical_lines,
 )
 
 

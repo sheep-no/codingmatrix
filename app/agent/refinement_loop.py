@@ -14,19 +14,19 @@ RefinementLoop - 迭代修复循环
 说明：只有 error 级别的问题会驱动修复循环；warning 只作为诊断信息返回。
 """
 
-import json
-import re
 import ast
 import asyncio
+import json
 import logging
-from typing import Optional, Dict, List, Callable
-from pathlib import Path
+import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
 
-from app.utils import call_llm
-from app.agent.shared_context import SharedContext
 from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
+from app.agent.shared_context import SharedContext
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,9 @@ TopologyScheduler - 动态拓扑调度器
 import asyncio
 import logging
 import time
-from typing import Dict, Any, Callable, List, Optional, Set, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 

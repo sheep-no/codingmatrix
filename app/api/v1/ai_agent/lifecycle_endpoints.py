@@ -2,18 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
 from app.db.database import get_db
 from app.db.models import ProjectSession
 from app.services.state_migration_service import (
-    archive_project,
     LocalProjectStorageAdapter,
+    archive_project,
     permanently_delete_project,
     restore_project,
     set_project_pinned,
 )
-from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
 from app.utils.security import verify_token
-
 
 router = APIRouter(prefix="/projects", tags=["AI Agent Projects"])
 

@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 from app.agent.orchestrator_requirements.constants import (
     DUAL_MODEL_A,
@@ -8,10 +8,10 @@ from app.agent.orchestrator_requirements.constants import (
 )
 from app.agent.orchestrator_requirements.data_models import AssociationItem
 from app.agent.orchestrator_requirements.llm_prompts import (
-    llm_system_prompt,
     build_llm_prompt,
-    summarize_items,
+    llm_system_prompt,
     parse_llm_response,
+    summarize_items,
 )
 
 logger = logging.getLogger(__name__)

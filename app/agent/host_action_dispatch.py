@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-
 StateActionDispatcher = Callable[[str, Any], int]
 
 _dispatcher: Optional[StateActionDispatcher] = None

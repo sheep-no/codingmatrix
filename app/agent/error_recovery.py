@@ -2,25 +2,24 @@
 错误恢复循环 - 智能自我修正（验证-修复-重试 + 模型降级）
 """
 
-import re
-import json
-import time
 import asyncio
+import json
 import logging
-from typing import Optional, Dict, List, Callable, Tuple, Any
+import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
-from app.agent.specialists import CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
-from app.agent.test_runner import TestRunner
-from app.agent.error_classifier import error_classifier, ErrorClassification
-from app.agent.strategy_evaluator import strategy_evaluator, StrategyEvaluationResult
-from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.error_classifier import ErrorClassification, error_classifier
 from app.agent.repair_router import RepairBudget, RepairRouter
-
+from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.specialists import CodeReviewer
+from app.agent.strategy_evaluator import StrategyEvaluationResult, strategy_evaluator
+from app.agent.test_runner import TestRunner
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +81,10 @@ class ErrorRecoveryLoop:
         2. 配置文件中的降级链
         无用户/管理员配置时返回空链，不换弱模型。
         """
-        from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
+        from app.agent.dynamic_model_router import (
+            load_agent_model_config,
+            resolve_model_key,
+        )
 
         # 1. 检查用户降级链偏好
         user_preference = self._get_user_fallback_preference()
@@ -476,7 +478,10 @@ class ErrorRecoveryLoop:
     def _select_fix_model_by_error_type(self, error_type: str, models_to_try: List[str], attempt: int) -> str:
         """根据错误类型选择最佳修复模型"""
         # 从配置文件加载错误类型到模型的映射
-        from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
+        from app.agent.dynamic_model_router import (
+            load_agent_model_config,
+            resolve_model_key,
+        )
         config = load_agent_model_config()
 
         ERROR_MODEL_MAPPING = {}
@@ -692,7 +697,10 @@ class ErrorRecoveryLoop:
                             logger.warning(f"路径穿越检测: {fp} 超出项目范围，跳过")
                             continue
                         if target.exists():
-                            from app.agent.utils import is_valid_code_content, write_file_atomic
+                            from app.agent.utils import (
+                                is_valid_code_content,
+                                write_file_atomic,
+                            )
                             is_valid, reason = is_valid_code_content(fp, content)
                             if not is_valid:
                                 logger.warning(f"测试修复内容无效，跳过 {fp}: {reason}")

@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
-import time
-import ast
-import re
-import hashlib
 from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
 
-from .generation_scheduler import FileGenerationContext, GeneratedContent, TestGenerationContract
-from .models import OrchestrationState
-from .plan import GenerationPlan, build_file_plan, normalize_plan_path
-from .ports import GenerationAgentPort, LegacyAgentGenerationPort
-from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
+from app.agent.change_plan import (
+    ChangePlan,
+    collapse_change_items,
+    expand_change_plan_for_missing_exports,
+)
 from app.agent.contract_index import ContractIndex
-from app.agent.change_plan import ChangePlan, collapse_change_items, expand_change_plan_for_missing_exports
-from app.agent.project_snapshot import ProjectSnapshot
 from app.agent.declarative_contracts import ContractDeclaration, validate_candidate
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
+from app.agent.generation_plan import add_profile_components
 from app.agent.languages import get_language_adapter
+from app.agent.project_snapshot import ProjectSnapshot
 from app.agent.stack_adapters.contract_validation import contracts_from_openapi
 from app.agent.stack_adapters.repair_strategies import (
     RepairContext,
@@ -28,6 +29,15 @@ from app.agent.stack_adapters.repair_strategies import (
     repair_contract_digest,
 )
 from app.agent.workflow_ir import TechnologyProfile
+
+from .generation_scheduler import (
+    FileGenerationContext,
+    GeneratedContent,
+    TestGenerationContract,
+)
+from .models import OrchestrationState
+from .plan import GenerationPlan, build_file_plan, normalize_plan_path
+from .ports import GenerationAgentPort, LegacyAgentGenerationPort
 
 
 @dataclass(frozen=True)

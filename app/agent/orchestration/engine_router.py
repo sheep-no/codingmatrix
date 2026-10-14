@@ -7,7 +7,6 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from .routing import CORE_ENGINE, engine_metadata, select_engine
 
-
 Handler = Callable[[], Any | Awaitable[Any]]
 
 

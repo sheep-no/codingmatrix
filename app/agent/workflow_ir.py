@@ -9,6 +9,7 @@ from typing import Any, Literal, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 class WorkflowNodeKind(str, Enum):
     PLAN = "plan"
     GENERATE = "generate"

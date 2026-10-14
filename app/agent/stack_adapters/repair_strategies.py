@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 import hashlib
 import json
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import Any
-
 
 RepairFunction = Callable[[str], str | None]
 RepairPredicate = Callable[["RepairContext"], bool]

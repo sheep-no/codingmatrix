@@ -2,19 +2,18 @@
 代码验证器 - 语法、依赖、运行时、跨文件一致性验证（带缓存优化）
 """
 
-import re
-import sys
 import ast
-import time
 import asyncio
 import importlib.util
 import logging
+import re
+import sys
+import time
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from pathlib import Path
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
-
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +387,7 @@ class CodeValidator:
         except SyntaxError as e:
             return False, [f"语法错误 第{e.lineno}行: {e.msg}"]
         except Exception as e:
-            return False, [f"验证失败: {str(e)}"]
+            return False, [f"验证失败: {e!s}"]
 
     async def validate_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
         """验证导入语句"""
@@ -452,7 +451,7 @@ class CodeValidator:
 
             return len(errors) == 0, errors
         except Exception as e:
-            return False, [f"导入验证失败: {str(e)}"]
+            return False, [f"导入验证失败: {e!s}"]
 
     async def validate_runtime_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
         """运行时导入验证：静态解析导入，不执行被校验代码。
@@ -476,7 +475,7 @@ class CodeValidator:
         try:
             source = await _read_text_async(file_path)
         except Exception as e:
-            return False, [f"运行时验证异常: {str(e)}"]
+            return False, [f"运行时验证异常: {e!s}"]
 
         # 检查 passlib 错误导入模式（文本规则，与执行无关）
         if 'import passlib.hash.bcrypt' in source:
@@ -555,7 +554,7 @@ class CodeValidator:
                 errors.append("FastAPI 兼容性: APIRouter 没有 exception_handler 属性，应改用 router.add_exception_handler 或 app 级别注册")
 
         except Exception as e:
-            errors.append(f"API 兼容性检查异常: {str(e)}")
+            errors.append(f"API 兼容性检查异常: {e!s}")
 
         return len(errors) == 0, errors
 
@@ -583,7 +582,7 @@ class CodeValidator:
         except FileNotFoundError:
             return True, []  # node 未安装，跳过
         except Exception as e:
-            return False, [f"JS 验证异常: {str(e)}"]
+            return False, [f"JS 验证异常: {e!s}"]
 
     async def validate_html_structure(self, file_path: Path) -> Tuple[bool, List[str]]:
         """验证 HTML 基本结构"""
@@ -596,7 +595,7 @@ class CodeValidator:
             errors = html_structure_errors(content)
             return len(errors) == 0, errors
         except Exception as e:
-            return False, [f"HTML 验证异常: {str(e)}"]
+            return False, [f"HTML 验证异常: {e!s}"]
 
     async def validate_css_syntax(self, file_path: Path) -> Tuple[bool, List[str]]:
         """验证 CSS 基本语法"""
@@ -609,7 +608,7 @@ class CodeValidator:
             errors = css_structure_errors(content)
             return len(errors) == 0, errors
         except Exception as e:
-            return False, [f"CSS 验证异常: {str(e)}"]
+            return False, [f"CSS 验证异常: {e!s}"]
 
     async def validate_cross_file_consistency(self) -> Tuple[bool, List[str]]:
         """跨文件一致性检查：验证导入、导出、路由定义是否匹配。
@@ -924,7 +923,7 @@ class CodeValidator:
 
             for result in file_results:
                 if isinstance(result, Exception):
-                    results["import_errors"].append(f"验证异常: {str(result)}")
+                    results["import_errors"].append(f"验证异常: {result!s}")
                     results["is_valid"] = False
                 else:
                     syntax_errs, import_errs, runtime_errs, api_errs = result
@@ -957,7 +956,7 @@ class CodeValidator:
 
             for result in frontend_results:
                 if isinstance(result, Exception):
-                    results["frontend_errors"].append(f"前端验证异常: {str(result)}")
+                    results["frontend_errors"].append(f"前端验证异常: {result!s}")
                     results["is_valid"] = False
                 else:
                     results["frontend_errors"].extend(result)

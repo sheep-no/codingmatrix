@@ -1,24 +1,22 @@
-import logging
-import json
 import asyncio
-import time
+import json
+import logging
 import shutil
+import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, Dict, Any, List, FrozenSet, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, FrozenSet, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete as sql_delete, and_, select
+from sqlalchemy import and_, select
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.utils.security import verify_token
-from app.db.database import get_db
-from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
-from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
+from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.orchestration import (
     IncrementalAdapter,
     SpecFirstAdapter,
@@ -26,8 +24,14 @@ from app.agent.orchestration import (
     execute_core_generation,
     select_engine,
 )
-from app.agent.models import DEFAULT_FAST_MODEL
-
+from app.agent.workflow_registry import (
+    build_legacy_workflow,
+    get_legacy_result,
+    run_workflow,
+)
+from app.db.database import get_db
+from app.db.models import ProjectSession
+from app.utils.security import verify_token
 
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
 # 修复 v5.x → v6.x：test/validation/cost/perf/warning/file_rejected/step_detail
@@ -208,24 +212,43 @@ def _generation_result_error(result: Dict[str, Any]) -> str | None:
     return "生成流程未达到成功终态"
 
 
-from app.api.v1.AiProjectCode import create_agent_session, log_tool_execution, update_model_stats
-
-from .schemas import (
-    OrchestratorRequest, OrchestratorResponse,
-    ModifyRequest, ComplexityAnalysisRequest, ComplexityAnalysisResponse,
-    EvaluateRequest, EvaluateResponse,
-    TokenUsageStatsResponse,
-    SearchSessionsRequest, SearchSessionsResponse, SessionMatch,
-)
-from .helpers import (
-    get_session_manager, get_spec_cache, get_feedback_learner,
-    _approval_queues, _create_project_session, verify_admin_token, get_user_recent_session, verify_session_ownership,
-    detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
-    _detect_and_clean_zombie_sessions, cleanup_session_files,
-)
 from app.agent.conversation_store import get_conversation_store
-from app.utils.guardrails import check_disk_space, check_rate_limit
+from app.api.v1.AiProjectCode import (
+    create_agent_session,
+    log_tool_execution,
+    update_model_stats,
+)
 from app.core.paths import PROJECTS_BASE_DIR
+from app.utils.guardrails import check_disk_space, check_rate_limit
+
+from .helpers import (
+    _approval_queues,
+    _create_project_session,
+    _detect_and_clean_zombie_sessions,
+    analyze_files_to_regenerate,
+    cleanup_session_files,
+    detect_resume_intent,
+    get_feedback_learner,
+    get_session_manager,
+    get_spec_cache,
+    get_user_recent_session,
+    resolve_resume_session,
+    verify_admin_token,
+    verify_session_ownership,
+)
+from .schemas import (
+    ComplexityAnalysisRequest,
+    ComplexityAnalysisResponse,
+    EvaluateRequest,
+    EvaluateResponse,
+    ModifyRequest,
+    OrchestratorRequest,
+    OrchestratorResponse,
+    SearchSessionsRequest,
+    SearchSessionsResponse,
+    SessionMatch,
+    TokenUsageStatsResponse,
+)
 from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
@@ -453,10 +476,10 @@ async def _watch_stream_disconnect(
 
 def _skill_context_for_user(user_id: str, requirement: str = "") -> str:
     """Build a bounded, namespaced Skill context for the Web Agent."""
+    from app.agent.skill_catalog import discovery_terms
     from app.api.v1.agent_host import get_latest_session_skills
     from app.services.custom_skill_manager import get_skill_manager
     from app.services.skill_registry import get_registry
-    from app.agent.skill_catalog import discovery_terms
 
     sections = []
 
@@ -558,8 +581,7 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
     """
     if session_id in _approval_queues:
         del _approval_queues[session_id]
-    if session_id in _decision_queues:
-        del _decision_queues[session_id]
+    _decision_queues.pop(session_id, None)
     if session_id in _cancel_events and (
         expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event
     ):
@@ -638,7 +660,7 @@ async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, use
         }
     except Exception as e:
         logger.error(f"分析失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"分析失败: {e!s}") from e
 
 
 @router.post("/modify")
@@ -879,7 +901,10 @@ async def orchestrate_project(
         db, int(user_id), "orchestrator", request.requirement
     )
     session_id = session.id if session else None
-    from app.utils.aicloud.llm_caller import begin_llm_call_metrics, finish_llm_call_metrics
+    from app.utils.aicloud.llm_caller import (
+        begin_llm_call_metrics,
+        finish_llm_call_metrics,
+    )
 
     metrics_token = begin_llm_call_metrics()
     metrics_active = True
@@ -1873,7 +1898,7 @@ async def search_sessions(
         
     except Exception as e:
         logger.error(f"搜索会话失败: {e}")
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"搜索失败: {e!s}") from e
 
 
 @router.get("/sessions")
@@ -1983,8 +2008,8 @@ async def rollback_to_snapshot(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.agent.snapshot_manager import SnapshotManager
     from app.agent.git_operations import GitOperations
+    from app.agent.snapshot_manager import SnapshotManager
     git_ops = GitOperations()
     snapshot_mgr = SnapshotManager(git_ops)
 
@@ -2125,7 +2150,7 @@ async def evaluate_project(
 
     except Exception as e:
         logger.error(f"评价失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"评价失败: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"评价失败: {e!s}") from e
 
 
 # ========================================
@@ -2322,9 +2347,11 @@ async def get_token_usage_stats(
     user_id_int = int(user_id)
     
     try:
-        from sqlalchemy import func, select
-        from app.models.chat_history import ChatHistory
         from datetime import datetime
+
+        from sqlalchemy import func, select
+
+        from app.models.chat_history import ChatHistory
         
         # 总 token 使用量
         total_result = await db.execute(

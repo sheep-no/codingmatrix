@@ -22,13 +22,13 @@ from app.agent.orchestration.artifact_committer import (
 )
 from app.agent.orchestration.plan import GenerationPlan, normalize_plan_path
 from app.agent.stack_adapters import StackAdapter
+from app.agent.synthesis_protocol import ModelOperation, ModelOperationKind
 from app.agent.toolchain import ToolchainAction
 from app.agent.validation_coordinator import (
     ValidationCoordinator,
     ValidationPlan,
 )
 from app.agent.validation_report import ValidationCategory, ValidationFinding
-from app.agent.synthesis_protocol import ModelOperation, ModelOperationKind
 
 
 class ValidationLevel(str, Enum):

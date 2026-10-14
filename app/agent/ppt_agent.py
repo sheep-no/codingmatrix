@@ -7,19 +7,19 @@ PPT Agent - 自然语言到 PPT 大纲
 - 支持重试、校验、格式化回退
 """
 
+import asyncio
 import json
 import logging
-import asyncio
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from app.utils import call_llm
 from app.agent.architect_json_parser import ArchitectJsonParser
+from app.utils import call_llm
 from app.utils.pptx.commercial_content import (
     NARRATIVE_ROLES,
-    build_expanded_commercial_page_blueprint,
     build_commercial_page_blueprint,
+    build_expanded_commercial_page_blueprint,
 )
 
 logger = logging.getLogger(__name__)
