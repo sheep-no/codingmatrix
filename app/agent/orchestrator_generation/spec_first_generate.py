@@ -3,9 +3,9 @@ import logging
 import os
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.architecture_inspector import ArchitectureInspector

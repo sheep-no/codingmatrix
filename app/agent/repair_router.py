@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ class RepairBudget:
 class RepairRouter:
     """将分类器输出映射为稳定、可审计的修复路径。"""
 
-    _AUTO_CATEGORIES = {
+    _AUTO_CATEGORIES: ClassVar[dict] = {
         "syntax": "code_repair",
         "import": "dependency_repair",
         "dependency": "dependency_repair",

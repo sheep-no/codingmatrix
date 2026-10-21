@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from enum import Enum
 from typing import Any
-from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 

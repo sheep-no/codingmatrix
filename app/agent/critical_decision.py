@@ -14,7 +14,7 @@ CriticalDecisionExtractor - 关键决策提取器
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class CriticalDecisionExtractor:
     - 前端框架：Vue vs React vs Svelte
     """
 
-    DECISION_TEMPLATES: dict[str, dict] = {
+    DECISION_TEMPLATES: ClassVar[dict[str, dict]] = {
         "auth_strategy": {
             "question": "认证模块策略选择",
             "context": "系统需要用户认证功能。JWT 方式无状态适合分布式，Session 方式状态化适合单机，OAuth 适合第三方集成。",

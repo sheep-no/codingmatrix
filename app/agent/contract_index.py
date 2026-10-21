@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any
 from collections.abc import Iterable, Mapping
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

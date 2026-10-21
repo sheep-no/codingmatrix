@@ -13,9 +13,10 @@ import builtins
 import re
 import symtable
 import sysconfig
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from collections.abc import Mapping
+from typing import ClassVar
 
 from .language_adapter import (
     ImportInfo,
@@ -30,11 +31,11 @@ class PythonLanguageAdapter(LanguageAdapter):
     """Python 语言适配器"""
 
     language = "python"
-    extensions = [".py", ".pyw", ".pyi"]
+    extensions: ClassVar[list] = [".py", ".pyw", ".pyi"]
     package_init_filename = "__init__.py"
 
     # Python 标准库常见模块
-    PYTHON_BUILTINS = {
+    PYTHON_BUILTINS: ClassVar[set] = {
         'os', 'sys', 'pathlib', 'typing', 're', 'json', 'logging', 'datetime',
         'collections', 'functools', 'itertools', 'abc', 'dataclasses', 'enum',
         'io', 'copy', 'hashlib', 'hmac', 'secrets', 'uuid', 'time', 'random',
@@ -53,7 +54,7 @@ class PythonLanguageAdapter(LanguageAdapter):
     }
 
     # 常见第三方库
-    COMMON_THIRD_PARTY = {
+    COMMON_THIRD_PARTY: ClassVar[set] = {
         'fastapi', 'flask', 'django', 'requests', 'httpx', 'aiohttp',
         'sqlalchemy', 'pydantic', 'numpy', 'pandas', 'torch', 'tensorflow',
         'scipy', 'matplotlib', 'seaborn', 'plotly', 'sklearn', 'cv2',
@@ -69,7 +70,7 @@ class PythonLanguageAdapter(LanguageAdapter):
     }
 
     # 文件路径到类型的映射规则
-    PATH_TYPE_RULES = [
+    PATH_TYPE_RULES: ClassVar[list] = [
         # 配置
         ("requirements.txt", "config"),
         (".env", "env"),

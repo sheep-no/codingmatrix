@@ -19,6 +19,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from app.utils.performance_metrics import metrics_collector
 
@@ -220,7 +221,7 @@ class ProjectProfiler:
     })
 
     # 分层架构的目录名模式（跨语言通用）
-    LAYER_PATTERNS = {
+    LAYER_PATTERNS: ClassVar[dict] = {
         'api': ('api', 'router', 'controller', 'view', 'endpoint', 'route', 'handler'),
         'service': ('service', 'business', 'logic', 'usecase', 'bll'),
         'repository': ('repository', 'repo', 'dao', 'storage', 'data', 'persistence'),
@@ -228,7 +229,7 @@ class ProjectProfiler:
     }
 
     # 测试框架 → 默认命名约定
-    TEST_FRAMEWORK_NAMING = {
+    TEST_FRAMEWORK_NAMING: ClassVar[dict] = {
         "python": "test_*.py",
         "javascript": "*.test.js",
         "go": "*_test.go",
@@ -236,7 +237,7 @@ class ProjectProfiler:
         "java": "*Test.java",
     }
 
-    TEST_FRAMEWORK_NAMES = {
+    TEST_FRAMEWORK_NAMES: ClassVar[dict] = {
         "python": "pytest",
         "javascript": "jest/vitest",
         "go": "go test",

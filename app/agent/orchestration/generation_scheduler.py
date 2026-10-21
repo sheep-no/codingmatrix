@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal
-from collections.abc import Awaitable, Callable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 

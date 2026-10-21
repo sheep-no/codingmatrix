@@ -14,8 +14,8 @@ SpecFirstGenerator - 规范先行生成器
 import asyncio
 import json
 import logging
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 from app.agent.shared_context import SharedContext
 from app.utils import call_llm

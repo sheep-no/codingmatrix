@@ -15,7 +15,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class GlobalConstraintParser:
     - 性能："响应时间不超过 200ms"
     """
 
-    GLOBAL_KEYWORDS = [
+    GLOBAL_KEYWORDS: ClassVar[list] = [
         "必须", "务必", "一定", "强制", "统一", "全局",
         "所有", "全部", "任何", "每个", "各个",
         "禁止", "不得", "不许", "严禁",
@@ -65,7 +65,7 @@ class GlobalConstraintParser:
         "必须用", "必须使用", "必须采用"
     ]
 
-    CONSTRAINT_PATTERNS: dict[str, dict] = {
+    CONSTRAINT_PATTERNS: ClassVar[dict[str, dict]] = {
         "tech_stack": {
             "patterns": [
                 r"必须\s*用\s*([\w\-\.]+)",

@@ -15,7 +15,7 @@ import ast
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ class ArchitectureInspector:
     - 代码风格是否一致
     """
 
-    VIOLATION_TYPES = {
+    VIOLATION_TYPES: ClassVar[dict] = {
         "layer_boundary": "分层边界违规",
         "dependency_direction": "依赖方向违规",
         "interface_style": "接口风格违规",

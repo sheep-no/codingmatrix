@@ -4,9 +4,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-from collections.abc import Callable
 
 # P2 清理：删除死常量 MAX_CONCURRENT_LLM_CALLS
 # 之前这里有一行：MAX_CONCURRENT_LLM_CALLS = int(os.environ.get("CM_MAX_CONCURRENT_LLM_CALLS", "4"))

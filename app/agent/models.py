@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 from app.utils.model_defaults import get_default_model
 
@@ -81,7 +82,7 @@ COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
 class ModelRegistry:
     """模型注册表 - 管理所有可用模型"""
 
-    MODELS: dict[str, ModelInfo] = {
+    MODELS: ClassVar[dict[str, ModelInfo]] = {
         # DeepSeek 系列
         "deepseek-r1-qwen3-8b": ModelInfo(
             key="deepseek-r1-qwen3-8b",
@@ -211,7 +212,7 @@ class ModelRegistry:
 class ModelRouter:
     """模型路由器 - 根据任务类型选择最佳模型（支持动态路由）"""
 
-    TASK_MODEL_MAP = {
+    TASK_MODEL_MAP: ClassVar[dict] = {
         TaskType.GENERAL: ["qwen3-8b", "deepseek-r1-qwen3-8b"],
         TaskType.CODE_GENERATION: ["qwen3.5-4b", "qwen2.5-7b"],
         TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],

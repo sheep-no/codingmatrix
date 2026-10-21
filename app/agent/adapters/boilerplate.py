@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable
 
 README_NAMES = {"readme.md", "readme"}
 MANIFEST_NAMES = {

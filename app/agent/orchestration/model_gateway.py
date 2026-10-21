@@ -6,10 +6,10 @@ import asyncio
 import inspect
 import json
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from enum import Enum
 from typing import Any
-from collections.abc import AsyncIterator, Awaitable, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

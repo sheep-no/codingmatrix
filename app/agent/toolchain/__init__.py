@@ -4,9 +4,9 @@ import asyncio
 import json
 import os
 import signal
+from collections.abc import Iterable, Mapping
 from enum import Enum
 from pathlib import Path
-from collections.abc import Iterable, Mapping
 
 import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator

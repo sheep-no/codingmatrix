@@ -11,6 +11,7 @@ JavaScriptLanguageAdapter - JavaScript/TypeScript 语言适配器
 import os
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from .language_adapter import (
     ImportInfo,
@@ -25,11 +26,11 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
     """JavaScript/TypeScript 语言适配器"""
 
     language = "javascript"
-    extensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]
+    extensions: ClassVar[list] = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]
     package_init_filename = "index.js"
 
     # Node.js 内置模块
-    NODE_BUILTINS = {
+    NODE_BUILTINS: ClassVar[set] = {
         'fs', 'path', 'os', 'crypto', 'http', 'https', 'net', 'tls',
         'child_process', 'cluster', 'worker_threads', 'events', 'stream',
         'buffer', 'url', 'querystring', 'zlib', 'readline', 'util',
@@ -39,7 +40,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
     }
 
     # 常见前端框架/库
-    COMMON_THIRD_PARTY = {
+    COMMON_THIRD_PARTY: ClassVar[set] = {
         'react', 'react-dom', 'react-router', 'react-router-dom',
         'vue', 'vue-router', 'vuex', 'pinia', 'nuxt',
         'angular', '@angular/core', '@angular/common', '@angular/router',
@@ -59,7 +60,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
     }
 
     # 文件路径到类型的映射规则
-    PATH_TYPE_RULES = [
+    PATH_TYPE_RULES: ClassVar[list] = [
         # 配置
         ("package.json", "config"),
         ("tsconfig.json", "config"),

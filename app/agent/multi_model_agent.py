@@ -24,8 +24,8 @@ v5.14 重构：拆分为独立模块，此文件保留 MultiModelAgent + 向后�
 """
 
 import logging
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 from app.agent.agent_executor import ANALYSIS_TOOLS, AgentExecutor  # noqa: F401
 from app.agent.ai_reviewer import AIReviewer  # noqa: F401

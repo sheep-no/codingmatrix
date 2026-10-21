@@ -6,9 +6,9 @@ import asyncio
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from collections.abc import Mapping
 
 from app.agent.shared_context import SharedContext
 

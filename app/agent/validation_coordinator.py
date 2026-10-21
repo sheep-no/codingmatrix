@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Mapping
+from typing import ClassVar
 
 from app.agent.toolchain import (
     CommandSpec,
@@ -45,7 +46,7 @@ class ValidationResult:
 class ValidationCoordinator:
     """Build validation commands while preserving explicit capability steps."""
 
-    _STATIC_COMMANDS = {
+    _STATIC_COMMANDS: ClassVar[dict] = {
         "syntax": CommandSpec(action=ToolchainAction.TEST, command=("python3", "-m", "compileall", "-q", ".")),
     }
 

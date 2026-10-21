@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable, Mapping
 
 from .evaluation_matrix import (
     FIXED_EVALUATION_MATRIX,

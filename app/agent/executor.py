@@ -13,9 +13,9 @@ import asyncio
 import inspect
 import logging
 import time
-from dataclasses import dataclass
-from typing import Any
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, ClassVar
 
 from app.agent.tools import (
     _tool_delete_files_by_pattern as _impl_delete_files_by_pattern,
@@ -128,7 +128,7 @@ class ToolRegistry:
     """工具注册表"""
 
     _instance = None
-    _tools: dict[str, dict[str, Any]] = {}
+    _tools: ClassVar[dict[str, dict[str, Any]]] = {}
 
     @classmethod
     def get_instance(cls) -> "ToolRegistry":

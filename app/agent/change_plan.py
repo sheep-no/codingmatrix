@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable, Mapping
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 

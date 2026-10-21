@@ -8,8 +8,8 @@ layer importing the Web layer.
 
 from __future__ import annotations
 
-from typing import Any, Optional
 from collections.abc import Callable
+from typing import Any, Optional
 
 StateActionDispatcher = Callable[[str, Any], int]
 

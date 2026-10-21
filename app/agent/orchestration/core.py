@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from collections.abc import Mapping
 
 from app.agent.shared_context import SharedContext
 from app.agent.workflow_ir import (

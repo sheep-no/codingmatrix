@@ -15,10 +15,10 @@ TopologyScheduler - 动态拓扑调度器
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
-from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 

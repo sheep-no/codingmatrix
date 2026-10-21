@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +103,9 @@ class StrategyLearner:
     EXPLORATION_RATE = 0.2
 
     # 可选的动作空间
-    MODEL_SELECTION_STRATEGIES = ["best_performance", "balanced", "fast", "high_quality"]
-    PROMPT_TEMPLATES = ["standard", "detailed", "minimal", "preventive"]
-    TEMPERATURES = [0.3, 0.5, 0.7, 0.9]
+    MODEL_SELECTION_STRATEGIES: ClassVar[list] = ["best_performance", "balanced", "fast", "high_quality"]
+    PROMPT_TEMPLATES: ClassVar[list] = ["standard", "detailed", "minimal", "preventive"]
+    TEMPERATURES: ClassVar[list] = [0.3, 0.5, 0.7, 0.9]
 
     def __init__(self, data_dir: Path | None = None):
         self.data_dir = data_dir or STRATEGY_DATA_DIR

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import PurePosixPath
 from textwrap import dedent
 from typing import Any, Literal
-from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

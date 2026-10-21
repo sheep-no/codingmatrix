@@ -15,10 +15,10 @@ import ast
 import json
 import logging
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from collections.abc import Iterator
+from typing import Any, ClassVar
 
 from app.agent.json_parser import safe_parse_json
 from app.agent.refinement_loop import RefinementLoop, RefinementResult
@@ -173,7 +173,7 @@ class CrossValidator:
     """
 
     # 默认关键文件模式（硬编码兜底）
-    DEFAULT_CRITICAL_PATTERNS = [
+    DEFAULT_CRITICAL_PATTERNS: ClassVar[list] = [
         "auth", "permission", "middleware", "guard",
         "payment", "order", "billing", "subscription",
         "crypto", "encrypt", "token", "jwt", "oauth",

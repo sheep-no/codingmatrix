@@ -9,9 +9,10 @@ LanguageAdapter - 语言适配层
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Mapping
+from typing import ClassVar
 
 _EXTERNAL_SOURCE_SUFFIXES = {
     ".py", ".pyw", ".pyi",
@@ -82,7 +83,7 @@ class LanguageAdapter(ABC):
     language: str = "unknown"
 
     # 支持的文件扩展名
-    extensions: list[str] = []
+    extensions: ClassVar[list[str]] = []
 
     # 包入口文件名 (Python: __init__.py, JS: index.js)
     package_init_filename: str = "__init__.py"
@@ -286,8 +287,8 @@ class LanguageAdapterRegistry:
     4. Fallback 到 GenericLanguageAdapter
     """
 
-    _adapters: dict[str, LanguageAdapter] = {}
-    _extension_map: dict[str, str] = {}  # extension -> language
+    _adapters: ClassVar[dict[str, LanguageAdapter]] = {}
+    _extension_map: ClassVar[dict[str, str]] = {}  # extension -> language
 
     @classmethod
     def register(cls, adapter: LanguageAdapter):

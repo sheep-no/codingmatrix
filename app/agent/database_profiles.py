@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from collections.abc import Iterable
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 

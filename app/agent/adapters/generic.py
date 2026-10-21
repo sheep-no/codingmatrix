@@ -11,6 +11,7 @@ GenericLanguageAdapter - 通用语言适配器
 
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from .language_adapter import (
     ImportInfo,
@@ -31,11 +32,11 @@ class GenericLanguageAdapter(LanguageAdapter):
     """
 
     language = "generic"
-    extensions = []  # 通用适配器没有固定扩展名
+    extensions: ClassVar[list] = []  # 通用适配器没有固定扩展名
     package_init_filename = ""  # 通用适配器不假设包入口文件
 
     # 常见文件类型映射（跨语言通用）
-    COMMON_FILE_PATTERNS = {
+    COMMON_FILE_PATTERNS: ClassVar[dict] = {
         # 配置文件
         "Makefile": "config",
         "CMakeLists.txt": "config",
@@ -63,7 +64,7 @@ class GenericLanguageAdapter(LanguageAdapter):
     }
 
     # 目录名 → 文件类型（跨语言通用）
-    COMMON_DIR_PATTERNS = {
+    COMMON_DIR_PATTERNS: ClassVar[dict] = {
         "src": "source",
         "lib": "library",
         "test": "test",
@@ -85,7 +86,7 @@ class GenericLanguageAdapter(LanguageAdapter):
     }
 
     # file_plan 数据缓存（由 build_from_file_plan 设置）
-    _file_plan_data: dict[str, dict] = {}
+    _file_plan_data: ClassVar[dict[str, dict]] = {}
 
     def set_file_plan_data(self, file_plan: list[dict]):
         """

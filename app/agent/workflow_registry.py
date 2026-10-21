@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from collections.abc import Awaitable, Callable, Iterable
 
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.host_action_dispatch import dispatch_state_actions
