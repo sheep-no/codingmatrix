@@ -591,7 +591,6 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
 
 async def _cleanup_all_queues():
     """清理所有队列（用于异常恢复）"""
-    global _approval_queues, _decision_queues, _cancel_events
     _approval_queues.clear()
     _decision_queues.clear()
     _cancel_events.clear()
@@ -659,7 +658,7 @@ async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, use
             }
         }
     except Exception as e:
-        logger.error(f"分析失败: {e}", exc_info=True)
+        logger.exception(f"分析失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {e!s}") from e
 
 
@@ -840,7 +839,7 @@ async def modify_project(
                         execution_time=execution_time
                     )
                 except Exception as e:
-                    logger.error(f"[SSE] 增量修改失败: {e}", exc_info=True)
+                    logger.exception(f"[SSE] 增量修改失败: {e}")
                     await sm.complete_session(session_id, errors=[str(e)])
                     await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
@@ -865,7 +864,7 @@ async def modify_project(
             logger.info(f"[SSE] modify event_generator 结束 | session={session_id}")
 
         except Exception as e:
-            logger.error(f"[SSE] modify event_generator 异常: {e}", exc_info=True)
+            logger.exception(f"[SSE] modify event_generator 异常: {e}")
             yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -1036,7 +1035,7 @@ async def orchestrate_project(
         raise
     except Exception as e:
         close_generation_metrics()
-        logger.error(f"Orchestrator 生成失败: {e}", exc_info=True)
+        logger.exception(f"Orchestrator 生成失败: {e}")
         raise _generation_http_exception(e) from e
 
 
@@ -1543,7 +1542,7 @@ async def orchestrate_project_stream(
                     await sm.cancel_session(session_id)
                     raise
                 except Exception as e:
-                    logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
+                    logger.exception(f"[SSE] Orchestrator 流式生成失败: {e}")
                     await sm.complete_session(session_id, errors=[str(e)])
                     channel.publish(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
@@ -2149,7 +2148,7 @@ async def evaluate_project(
         return EvaluateResponse(**result)
 
     except Exception as e:
-        logger.error(f"评价失败: {e}", exc_info=True)
+        logger.exception(f"评价失败: {e}")
         raise HTTPException(status_code=500, detail=f"评价失败: {e!s}") from e
 
 

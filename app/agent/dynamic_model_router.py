@@ -108,7 +108,6 @@ def _build_model_id_to_key() -> Dict[str, str]:
 
 def get_model_id_to_key() -> Dict[str, str]:
     """获取模型ID到模型Key的映射（支持缓存刷新）"""
-    global _model_id_key_cache
     if _model_id_key_cache is None:
         _build_model_id_to_key()
     return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
@@ -116,7 +115,6 @@ def get_model_id_to_key() -> Dict[str, str]:
 
 def get_model_provider_map() -> Dict[str, Any]:
     """获取模型名到Provider的映射（支持缓存刷新）"""
-    global _provider_map_cache
     if _provider_map_cache is None:
         _build_provider_map()
     return _provider_map_cache or {}
@@ -260,43 +258,42 @@ class ModelPerformanceTracker:
         避免 async 和 sync 同时持有 sqlite 连接导致死锁或数据竞争。
         """
         now = time.time()
-        with self._cross_context_lock:
-            with self._sync_lock:
-                cursor = self._conn.execute(
-                    "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
-                    "FROM performance WHERE model_name = ? AND task_type = ?",
-                    (model, task_type),
-                )
-                row = cursor.fetchone()
-                if row:
-                    old_rate, old_latency, old_calls, old_cf = row
-                    new_calls = old_calls + 1
-                    if success:
-                        new_successes = int(old_rate * old_calls) + 1
-                        new_rate = new_successes / new_calls
-                        new_latency = (old_latency * old_calls + latency) / new_calls
-                        new_cf = 0
-                    else:
-                        new_rate = (old_rate * old_calls) / new_calls
-                        new_latency = (old_latency * old_calls + latency) / new_calls
-                        new_cf = old_cf + 1
-                    self._conn.execute(
-                        "UPDATE performance SET success_rate=?, avg_latency=?, "
-                        "total_calls=?, consecutive_failures=?, last_updated=? "
-                        "WHERE model_name=? AND task_type=?",
-                        (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
-                    )
+        with self._cross_context_lock, self._sync_lock:
+            cursor = self._conn.execute(
+                "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+                "FROM performance WHERE model_name = ? AND task_type = ?",
+                (model, task_type),
+            )
+            row = cursor.fetchone()
+            if row:
+                old_rate, old_latency, old_calls, old_cf = row
+                new_calls = old_calls + 1
+                if success:
+                    new_successes = int(old_rate * old_calls) + 1
+                    new_rate = new_successes / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = 0
                 else:
-                    rate = 1.0 if success else 0.0
-                    cf = 0 if success else 1
-                    self._conn.execute(
-                        "INSERT INTO performance "
-                        "(model_name, task_type, success_rate, avg_latency, "
-                        "total_calls, consecutive_failures, last_updated) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (model, task_type, rate, latency, 1, cf, now),
-                    )
-                self._conn.commit()
+                    new_rate = (old_rate * old_calls) / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = old_cf + 1
+                self._conn.execute(
+                    "UPDATE performance SET success_rate=?, avg_latency=?, "
+                    "total_calls=?, consecutive_failures=?, last_updated=? "
+                    "WHERE model_name=? AND task_type=?",
+                    (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+                )
+            else:
+                rate = 1.0 if success else 0.0
+                cf = 0 if success else 1
+                self._conn.execute(
+                    "INSERT INTO performance "
+                    "(model_name, task_type, success_rate, avg_latency, "
+                    "total_calls, consecutive_failures, last_updated) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (model, task_type, rate, latency, 1, cf, now),
+                )
+            self._conn.commit()
 
     def get_best_model(self, task_type: str, top_k: int = 3) -> List[str]:
         cursor = self._conn.execute(

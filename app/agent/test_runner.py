@@ -265,7 +265,7 @@ class IsolatedTestRunner:
                 result = self._parse_with_output_parser(result)
 
             except Exception as e:
-                logger.error(f"测试执行异常: {e}", exc_info=True)
+                logger.exception(f"测试执行异常: {e}")
                 result.logs = f"执行异常: {e!s}"
                 result.errors = 1
 

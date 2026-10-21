@@ -490,7 +490,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         return zombie_count
         
     except Exception as e:
-        logger.error(f"僵尸会话检测失败: {e}", exc_info=True)
+        logger.exception(f"僵尸会话检测失败: {e}")
         return 0
 
 
@@ -570,7 +570,7 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
         else:
             logger.warning(f"会话不存在：session_id={session_id}")
     except SQLAlchemyError as e:
-        logger.error(f"更新会话状态异常 | session_id={session_id} | error={e!s}", exc_info=True)
+        logger.exception(f"更新会话状态异常 | session_id={session_id} | error={e!s}")
 
 
 def verify_admin_token(token: dict = Depends(verify_token)) -> dict:
