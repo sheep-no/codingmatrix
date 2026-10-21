@@ -105,7 +105,7 @@ class AIReviewer:
         self,
         operation: str,
         file_path: str,
-        content: str = None
+        content: str | None = None
     ) -> ReviewResult:
         """
         审查文件操作

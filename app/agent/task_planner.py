@@ -34,7 +34,7 @@ class TaskPlanner:
     async def decompose(
         self,
         task: str,
-        context: dict[str, Any] = None,
+        context: dict[str, Any] | None = None,
         dependency_hints: str | None = None,
         project_path: str | None = None,
         tools: dict[str, dict] | None = None,

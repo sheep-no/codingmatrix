@@ -113,7 +113,7 @@ class AgentExecutor:
         project_path: str,
         model_name: str = DEFAULT_FAST_MODEL,
         max_rounds: int = 10,
-        api_key_token: str = None,
+        api_key_token: str | None = None,
     ) -> dict:
         """执行分析任务（ReAct 工具调用循环）
 

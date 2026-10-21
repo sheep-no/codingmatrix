@@ -139,7 +139,7 @@ class Specialist:
         system_prompt: str = "",
         tools: dict[str, dict] | None = None,
         project_path: str = "",
-        max_rounds: int = None,
+        max_rounds: int | None = None,
         react_mode: str | None = None,
         callback: Any | None = None,
         heartbeat_tracker=None,

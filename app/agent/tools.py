@@ -387,8 +387,8 @@ def _tool_summarize_file(project_path: str, file_path: str) -> dict:
 # ==================== 写入/验证工具 ====================
 
 
-def _tool_partial_update(project_path: str, path: str, target: str = None,
-                         replacement: str = None, function_name: str = None) -> dict:
+def _tool_partial_update(project_path: str, path: str, target: str | None = None,
+                         replacement: str | None = None, function_name: str | None = None) -> dict:
     """精准替换文件中的函数或代码块"""
     try:
         full_path = _safe_join(project_path, path)
@@ -451,7 +451,7 @@ def _tool_partial_update(project_path: str, path: str, target: str = None,
 
 
 def _tool_insert_content(project_path: str, path: str, content: str,
-                         line: int = None, anchor: str = None) -> dict:
+                         line: int | None = None, anchor: str | None = None) -> dict:
     """在文件指定位置插入内容（按行号或锚点文本）"""
     try:
         full_path = _safe_join(project_path, path)
@@ -689,7 +689,7 @@ _ALLOWED_COMMAND_PREFIXES = [
 ]
 
 
-def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout: int = 60) -> dict:
+def _tool_run_command(project_path: str, command: str, cwd: str | None = None, timeout: int = 60) -> dict:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import os
     import subprocess
@@ -1077,7 +1077,7 @@ def _tool_git_status(project_path: str) -> dict:
     return {"success": True, "branch": branch, "files": files, "total": len(files)}
 
 
-def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = False) -> dict:
+def _tool_git_diff(project_path: str, file_path: str | None = None, staged: bool = False) -> dict:
     """查看 Git 文件差异"""
     args = ["diff"]
     if staged:
@@ -1097,7 +1097,7 @@ def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = Fals
     return {"success": True, "stat": stat, "diff": detail[:10000]}
 
 
-def _tool_git_commit(project_path: str, message: str, files: list = None) -> dict:
+def _tool_git_commit(project_path: str, message: str, files: list | None = None) -> dict:
     """提交 Git 修改"""
     if not message:
         return {"success": False, "error": "提交信息不能为空"}
@@ -1121,7 +1121,7 @@ def _tool_git_commit(project_path: str, message: str, files: list = None) -> dic
     return {"success": True, "message": message, "commit_info": log_result.get("stdout", "")}
 
 
-def _tool_git_log(project_path: str, count: int = 10, file_path: str = None) -> dict:
+def _tool_git_log(project_path: str, count: int = 10, file_path: str | None = None) -> dict:
     """查看 Git 提交历史"""
     args = ["log", f"-{count}", "--format=%H|%h|%an|%ai|%s"]
     if file_path:
@@ -1168,7 +1168,7 @@ async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> dic
 
 
 async def _tool_http_request(project_path: str, method: str, url: str,
-                              headers: dict = None, body: dict = None) -> dict:
+                              headers: dict | None = None, body: dict | None = None) -> dict:
     """发送 HTTP 请求（带 SSRF 防护）"""
     import ipaddress
     from urllib.parse import urlparse

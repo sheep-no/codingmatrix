@@ -88,8 +88,8 @@ def modify_with_test(
     task_id: str,
     user_id: int,
     requirement: str,
-    target_files: list[str] = None,
-    max_retry_loops: int = None,
+    target_files: list[str] | None = None,
+    max_retry_loops: int | None = None,
     **kwargs
 ):
     """

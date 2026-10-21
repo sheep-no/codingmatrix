@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.agent.complexity import ComplexityAnalysis
@@ -144,7 +144,7 @@ class Architect(Specialist):
         return base_text
 
     @traced("architect.design", attributes={"component": "specialist", "role": "architect"})
-    async def design_architecture(self, requirement: str, complexity: ComplexityAnalysis, feedback: str = "", callback: callable = None) -> dict:
+    async def design_architecture(self, requirement: str, complexity: ComplexityAnalysis, feedback: str = "", callback: Callable | None = None) -> dict:
         """设计项目架构
 
         Args:

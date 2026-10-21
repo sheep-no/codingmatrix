@@ -76,7 +76,7 @@ class ConversationStore:
         """生成 Redis key"""
         return f"{REDIS_KEY_PREFIX}{session_id}"
 
-    def get_history(self, session_id: str, user_id: str = None) -> list[dict[str, str]]:
+    def get_history(self, session_id: str, user_id: str | None = None) -> list[dict[str, str]]:
         """
         获取会话历史（优先 Redis，miss 从数据库加载）
 
@@ -103,7 +103,7 @@ class ConversationStore:
 
         return []
 
-    async def get_history_async(self, session_id: str, user_id: str = None) -> list[dict[str, str]]:
+    async def get_history_async(self, session_id: str, user_id: str | None = None) -> list[dict[str, str]]:
         """
         异步获取会话历史（优先 Redis，miss 从数据库加载）
         """
@@ -253,7 +253,7 @@ class ConversationStore:
             logger.error(f"Failed to save to DB: {e}")
             return False
 
-    async def clear_history(self, session_id: str, user_id: str = None):
+    async def clear_history(self, session_id: str, user_id: str | None = None):
         """清空会话历史（先清数据库，再清 Redis）"""
         # 1. 清数据库
         if user_id:

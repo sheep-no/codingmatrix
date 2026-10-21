@@ -114,7 +114,7 @@ class ReActAgent:
     async def process(
         self,
         task: str,
-        context: dict[str, Any] = None
+        context: dict[str, Any] | None = None
     ) -> ReActResult:
         """
         处理任务 - 委托给 ReActEngine(full 模式)

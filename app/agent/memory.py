@@ -374,7 +374,7 @@ class ReflectionMemory(BaseMemory):
 
         logger.debug(f"反思记忆添加: {entry.content[:50]}...")
 
-    def add_reflection(self, content: str, metadata: dict = None) -> None:
+    def add_reflection(self, content: str, metadata: dict | None = None) -> None:
         entry = MemoryEntry(
             type="reflection",
             content=content,
@@ -451,7 +451,7 @@ class AgentMemory:
             self._session_id = f"session_{time.time_ns()}"
         return self._session_id
 
-    def add_user_message(self, content: str, metadata: dict = None) -> None:
+    def add_user_message(self, content: str, metadata: dict | None = None) -> None:
         entry = MemoryEntry(
             id=f"user_{int(time.time() * 1000)}",
             type="user",
@@ -460,7 +460,7 @@ class AgentMemory:
         )
         self.conversation.add(entry)
 
-    def add_assistant_message(self, content: str, metadata: dict = None) -> None:
+    def add_assistant_message(self, content: str, metadata: dict | None = None) -> None:
         entry = MemoryEntry(
             id=f"asst_{int(time.time() * 1000)}",
             type="assistant",
@@ -478,7 +478,7 @@ class AgentMemory:
         )
         self.conversation.add(entry)
 
-    def add_knowledge(self, content: str, key: str = None, importance: float = 0.5) -> None:
+    def add_knowledge(self, content: str, key: str | None = None, importance: float = 0.5) -> None:
         entry = MemoryEntry(
             id=key or f"know_{int(time.time() * 1000)}",
             type="knowledge",
@@ -488,7 +488,7 @@ class AgentMemory:
         )
         self.knowledge.add(entry)
 
-    def add_reflection(self, content: str, metadata: dict = None) -> None:
+    def add_reflection(self, content: str, metadata: dict | None = None) -> None:
         self.reflection.add_reflection(content, metadata)
 
     def get_context_for_prompt(self, max_tokens: int = 4000) -> str:

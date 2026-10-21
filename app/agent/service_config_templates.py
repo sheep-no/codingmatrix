@@ -348,7 +348,7 @@ def _keyword_matches(keyword: str, text: str) -> bool:
     return keyword in text
 
 
-def generate_env_example(services: list[str], custom_vars: dict[str, str] = None) -> str:
+def generate_env_example(services: list[str], custom_vars: dict[str, str] | None = None) -> str:
     """
     生成 .env.example 文件内容
 

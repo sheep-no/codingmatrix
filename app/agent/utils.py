@@ -645,7 +645,7 @@ def register_sandbox_validator(validator: SandboxValidator):
     _VALIDATOR_INSTANCES.append(validator)
 
 
-def _decide_level(context: dict = None) -> str:
+def _decide_level(context: dict | None = None) -> str:
     """决策引擎：确定验证级别
 
     优先级：硬编码规则 > 用户配置 > 默认值
@@ -732,7 +732,7 @@ def validate_in_sandbox(
     project_dir: str,
     files: dict,
     level: str = "auto",
-    context: dict = None,
+    context: dict | None = None,
 ) -> tuple:
     """执行云端基础语法验证。
 
@@ -890,7 +890,7 @@ def validate_file_in_sandbox(file_path: str, content: str) -> tuple:
         return False, errors[0] if errors else "验证失败"
 
 
-def validate_project_in_sandbox(project_dir: str, files: dict, language: str = None) -> tuple:
+def validate_project_in_sandbox(project_dir: str, files: dict, language: str | None = None) -> tuple:
     """项目级沙箱验证（向后兼容接口）
 
     Args:
