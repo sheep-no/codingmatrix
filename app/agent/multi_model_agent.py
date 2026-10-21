@@ -70,7 +70,7 @@ class MultiModelAgent:
         enable_file_contract: bool = True,
         complexity: str = "MEDIUM",
         orchestrator_factory: Callable | None = None,
-        api_key_token: str = None,
+        api_key_token: str | None = None,
     ):
         self.router = ModelRouter()
         self.api_key_token = api_key_token

@@ -58,7 +58,7 @@ class StrategyEvaluator:
     4. 自动策略替换：当探索策略连续 N 次表现更优时替换主策略
     """
 
-    def __init__(self, strategies_file: Path = None):
+    def __init__(self, strategies_file: Path | None = None):
         self.strategies_file = Path(strategies_file) if strategies_file else DEFAULT_STRATEGIES_FILE
         self.strategies: dict[str, list[RepairStrategy]] = {}
         self.evaluation_history: list[StrategyEvaluationResult] = []
@@ -322,7 +322,7 @@ class StrategyEvaluator:
                     self._save_strategies()
                     return
 
-    def get_strategy_stats(self, error_type: str = None) -> dict:
+    def get_strategy_stats(self, error_type: str | None = None) -> dict:
         """获取策略统计信息"""
         stats = {}
 

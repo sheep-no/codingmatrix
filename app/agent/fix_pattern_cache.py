@@ -49,7 +49,7 @@ class FixPattern:
 class FixPatternCache:
     """修复模式缓存管理器（含 LRU 淘汰机制）"""
 
-    def __init__(self, cache_file: Path = None, max_size: int = 1000):
+    def __init__(self, cache_file: Path | None = None, max_size: int = 1000):
         self.cache_file = cache_file or Path("fix_patterns_cache.json")
         self.max_size = max_size  # 最大缓存条目数
         self.patterns: dict[str, FixPattern] = {}

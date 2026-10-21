@@ -573,7 +573,7 @@ def _locate_snapshot_project_dir(session_id: str) -> Path | None:
     return project_dir
 
 
-async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event = None):
+async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event | None = None):
     """清理会话相关的队列，防止内存泄漏。
     
     Args:

@@ -968,7 +968,7 @@ _DEFAULT_MAX_OUTPUT = 4096
 _RESERVE_INPUT_RATIO = 0.25  # 输入预留 25% 上下文
 
 
-def get_context_length(model_name: str, api_key_token: str = None) -> int:
+def get_context_length(model_name: str, api_key_token: str | None = None) -> int:
     """获取模型上下文窗口长度（token）
 
     优先级：
@@ -1032,7 +1032,7 @@ def get_context_length(model_name: str, api_key_token: str = None) -> int:
     return _DEFAULT_CONTEXT_LENGTH
 
 
-def get_max_output_tokens(model_name: str, reserve_for_input: int = 0, api_key_token: str = None) -> int:
+def get_max_output_tokens(model_name: str, reserve_for_input: int = 0, api_key_token: str | None = None) -> int:
     """计算模型最大输出 token 数
 
     Args:
@@ -1052,7 +1052,7 @@ def get_max_output_tokens(model_name: str, reserve_for_input: int = 0, api_key_t
     return max(1024, min(max_out, ctx))
 
 
-def get_model_config(model_name: str, task_type: str = "generate", api_key_token: str = None) -> dict[str, Any]:
+def get_model_config(model_name: str, task_type: str = "generate", api_key_token: str | None = None) -> dict[str, Any]:
     """获取模型的最佳配置参数（自动适配上下文窗口）
 
     Args:
