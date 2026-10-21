@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Tuple
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)
 class ResolvedCapabilities:
     domain: str
-    required: Tuple[str, ...]
-    available: Tuple[str, ...]
-    missing: Tuple[str, ...]
-    generation_constraints: Tuple[str, ...]
-    validation_steps: Tuple[str, ...]
-    required_components: Tuple[str, ...]
+    required: tuple[str, ...]
+    available: tuple[str, ...]
+    missing: tuple[str, ...]
+    generation_constraints: tuple[str, ...]
+    validation_steps: tuple[str, ...]
+    required_components: tuple[str, ...]
 
     @property
     def ready(self) -> bool:
         return not self.missing
 
-    def component_file_plan(self) -> Tuple[Tuple[str, str], ...]:
+    def component_file_plan(self) -> tuple[tuple[str, str], ...]:
         plans = {
             "web": (("app/handlers.py", "handler"), ("app/services.py", "service"), ("app/persistence.py", "persistence")),
             "game": (("game/rules.py", "rules"), ("game/renderer.py", "renderer"), ("game/input_loop.py", "input_loop")),

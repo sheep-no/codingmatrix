@@ -15,7 +15,7 @@ import logging
 import re
 import time
 from pathlib import PurePosixPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.generation_plan import GenerationPlan, add_profile_components
@@ -30,8 +30,8 @@ class IncrementalModifyMixin:
     async def generate_incremental(
         self,
         requirement: str,
-        callback: Optional[callable] = None
-    ) -> Dict[str, Any]:
+        callback: Callable | None = None
+    ) -> dict[str, Any]:
         """
         增量修改主流程（P3: 快速模式）
 
@@ -375,8 +375,8 @@ class IncrementalModifyMixin:
         requirement: str,
         project_summary: str,
         dep_graph: DependencyGraph,
-        callback: Optional[callable] = None
-    ) -> List[Dict]:
+        callback: Callable | None = None
+    ) -> list[dict]:
         """架构师分析需求 + 依赖图 → 输出变更计划（支持缓存）"""
 
         # P1: 架构师分析缓存
@@ -457,9 +457,9 @@ class IncrementalModifyMixin:
 
     def _finalize_change_plan(
         self,
-        change_plan: List[Dict],
+        change_plan: list[dict],
         dep_graph: DependencyGraph,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Collapse duplicate paths, then add providers missing imported exports."""
         from app.agent.change_plan import (
             collapse_change_items,
@@ -475,7 +475,7 @@ class IncrementalModifyMixin:
             known_files=known,
         )
 
-    def _get_cached_change_plan(self, cache_key: str) -> Optional[List[Dict]]:
+    def _get_cached_change_plan(self, cache_key: str) -> list[dict] | None:
         """获取缓存的变更计划"""
         try:
             cache_file = self.output_dir / ".cache" / "change_plans.json"
@@ -494,7 +494,7 @@ class IncrementalModifyMixin:
         except Exception:
             return None
 
-    def _save_cached_change_plan(self, cache_key: str, plan: List[Dict]):
+    def _save_cached_change_plan(self, cache_key: str, plan: list[dict]):
         """保存变更计划到缓存"""
         try:
             cache_dir = self.output_dir / ".cache"
@@ -530,12 +530,12 @@ class IncrementalModifyMixin:
         dep_graph: DependencyGraph,
         spec_generator,
         requirement: str,
-        project_context: Dict,
-        generated_contents: Dict[str, str],
-        file_plan: List[Dict],
+        project_context: dict,
+        generated_contents: dict[str, str],
+        file_plan: list[dict],
         callback=None,
         language_adapter=None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """增量模式的动态拓扑调度生成 — 支持并行生成无依赖文件"""
 
 
@@ -557,7 +557,7 @@ class IncrementalModifyMixin:
         # 只处理 file_plan 中的文件
         plan_paths = set(file_plan_by_path.keys())
 
-        async def generate_single_file(file_path: str, tracker=None) -> Optional[str]:
+        async def generate_single_file(file_path: str, tracker=None) -> str | None:
             """生成单个文件（P4: 根据复杂度选择模型，P8: 并发控制）"""
             nonlocal files_generated, files_failed
 
@@ -700,7 +700,7 @@ class IncrementalModifyMixin:
 
         logger.info("快速模式初始化完成（跳过复杂度分析、规范生成、交叉验证）")
 
-    def _is_simple_change(self, file_info: Dict) -> bool:
+    def _is_simple_change(self, file_info: dict) -> bool:
         """P4: 判断是否为简单变更（可用轻量模型）"""
         action = file_info.get("action", "add")
         description = file_info.get("description", "").lower()
@@ -735,7 +735,7 @@ class IncrementalModifyMixin:
     async def _update_dependency_graph_incremental(
         self,
         dep_graph: DependencyGraph,
-        generated_contents: Dict[str, str],
+        generated_contents: dict[str, str],
         language_adapter=None
     ):
         """P6: 增量更新依赖图 — 根据生成的文件内容更新依赖关系"""
@@ -760,7 +760,7 @@ class IncrementalModifyMixin:
         except Exception as e:
             logger.warning(f"依赖图拓扑排序失败: {e}")
 
-    def _extract_imports_from_content(self, content: str, file_path: str) -> List[str]:
+    def _extract_imports_from_content(self, content: str, file_path: str) -> list[str]:
         """从文件内容中提取 import，解析为项目内相对文件路径。
 
         Python 沿用历史解析逻辑；其余语言交给语言适配器，
@@ -782,7 +782,7 @@ class IncrementalModifyMixin:
                 continue
         return relative_files
 
-    def _extract_python_imports(self, content: str, file_path: str) -> List[str]:
+    def _extract_python_imports(self, content: str, file_path: str) -> list[str]:
         """从 Python 文件中提取 import 语句（历史逻辑，保持行为不变）"""
         imports = []
         lines = content.split('\n')
@@ -823,7 +823,7 @@ class IncrementalModifyMixin:
 
         return imports
 
-    def _extract_imports_via_adapter(self, content: str, file_path: str) -> List[str]:
+    def _extract_imports_via_adapter(self, content: str, file_path: str) -> list[str]:
         """借助语言适配器解析非 Python 文件的 import。"""
         from app.agent.adapters import LanguageAdapterRegistry
 
@@ -832,7 +832,7 @@ class IncrementalModifyMixin:
             return []
 
         relative_files = self._get_relative_file_paths()
-        imports: List[str] = []
+        imports: list[str] = []
         seen = set()
         for import_info in adapter.parse_imports(content, file_path):
             for candidate in adapter.resolve_import_to_file(import_info, file_path):
@@ -910,7 +910,7 @@ class IncrementalModifyMixin:
         self,
         file_path: str,
         content: str,
-        file_info: Dict,
+        file_info: dict,
         original_content: str = "",
     ) -> None:
         if not content:
@@ -930,17 +930,17 @@ class IncrementalModifyMixin:
     async def _generate_file_with_model(
         self,
         file_path: str,
-        file_info: Dict,
+        file_info: dict,
         engineer,
         model_name: str,
-        project_context: Dict,
-        generated_contents: Dict[str, str],
+        project_context: dict,
+        generated_contents: dict[str, str],
         spec_generator,
         dep_graph: DependencyGraph,
         callback=None,
         tracker=None,
         persist: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         """使用指定模型生成单个文件"""
         from app.agent.spec_first_generator import SpecFirstGenerator
         from app.agent.utils import (

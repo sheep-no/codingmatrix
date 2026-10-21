@@ -17,7 +17,8 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any
+from collections.abc import Iterator
 
 from app.agent.json_parser import safe_parse_json
 from app.agent.refinement_loop import RefinementLoop, RefinementResult
@@ -41,9 +42,9 @@ _CRITICAL_PATTERN_VARIANTS = {
 }
 
 
-def _identifier_tokens(value: str) -> Set[str]:
+def _identifier_tokens(value: str) -> set[str]:
     """把路径/类型拆成小写词元，按分隔符和驼峰边界切分。"""
-    tokens: Set[str] = set()
+    tokens: set[str] = set()
     for raw in re.split(r"[^A-Za-z0-9]+", value or ""):
         if not raw:
             continue
@@ -53,7 +54,7 @@ def _identifier_tokens(value: str) -> Set[str]:
     return tokens
 
 
-def _matches_critical_pattern(tokens: Set[str], pattern: str) -> bool:
+def _matches_critical_pattern(tokens: set[str], pattern: str) -> bool:
     pattern = pattern.lower()
     forms = {pattern, f"{pattern}s", f"{pattern}es"}
     forms.update(_CRITICAL_PATTERN_VARIANTS.get(pattern, ()))
@@ -72,14 +73,14 @@ LLM_FIX_ISSUE_PRIORITY = {
 
 
 def select_llm_fix_issues(
-    issues: List[Dict[str, str]],
+    issues: list[dict[str, str]],
     *,
     max_issues: int = 20,
     max_files: int = 6,
     max_issues_per_file: int = 8,
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """Keep only the highest-value cross-file issues for a small reviewer model."""
-    deduped: List[Dict[str, str]] = []
+    deduped: list[dict[str, str]] = []
     seen = set()
     for issue in issues:
         key = (issue.get("type"), issue.get("file"), issue.get("message"))
@@ -95,9 +96,9 @@ def select_llm_fix_issues(
             item.get("file") or "",
         ),
     )
-    selected: List[Dict[str, str]] = []
-    files_used: List[str] = []
-    per_file: Dict[str, int] = {}
+    selected: list[dict[str, str]] = []
+    files_used: list[str] = []
+    per_file: dict[str, int] = {}
     for issue in ranked:
         file_path = issue.get("file") or ""
         if file_path not in per_file and len(files_used) >= max_files:
@@ -127,7 +128,7 @@ def is_review_timeout(exc: BaseException) -> bool:
     return "timeout" in text or "超时" in text
 
 
-def _load_cross_validation_config() -> Dict[str, Any]:
+def _load_cross_validation_config() -> dict[str, Any]:
     """加载交叉验证配置"""
     try:
         config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.yaml"
@@ -147,8 +148,8 @@ class SymbolInfo:
     symbol_type: str  # function, class, variable, constant
     file_path: str
     line_number: int
-    signature: Optional[str] = None  # 函数签名
-    docstring: Optional[str] = None
+    signature: str | None = None  # 函数签名
+    docstring: str | None = None
     is_exported: bool = True  # 是否被导出
 
 
@@ -224,7 +225,7 @@ class CrossValidator:
         self,
         context: SharedContext,
         language_adapter=None,
-        api_key_token: Optional[str] = None,
+        api_key_token: str | None = None,
         review_enabled: bool = True,
     ):
         self.context = context
@@ -273,9 +274,9 @@ class CrossValidator:
         version_b: str,
         model_b: str,
         judge_model: str,
-        project_context: Optional[Dict] = None,
+        project_context: dict | None = None,
         callback=None
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """
         交叉验证并选择最佳版本
 
@@ -365,7 +366,7 @@ class CrossValidator:
         model_b: str,
         judge_model: str,
         refinement_loop: RefinementLoop,
-        project_context: Optional[Dict] = None,
+        project_context: dict | None = None,
         callback=None
     ) -> RefinementResult:
         """
@@ -404,7 +405,7 @@ class CrossValidator:
         )
 
 
-    def _extract_json(self, text: str) -> Optional[Dict]:
+    def _extract_json(self, text: str) -> dict | None:
         """从文本中提取 JSON"""
         try:
             return safe_parse_json(text)
@@ -413,9 +414,9 @@ class CrossValidator:
 
     async def validate_cross_file_consistency(
         self,
-        generated_files: Dict[str, str],
-        architecture: Dict[str, Any]
-    ) -> List[Dict[str, str]]:
+        generated_files: dict[str, str],
+        architecture: dict[str, Any]
+    ) -> list[dict[str, str]]:
         """
         跨文件一致性验证
 
@@ -464,7 +465,7 @@ class CrossValidator:
 
         return issues
 
-    def _validate_symbols(self, files: Dict[str, str]) -> List[Dict[str, str]]:
+    def _validate_symbols(self, files: dict[str, str]) -> list[dict[str, str]]:
         """
         验证符号（函数/类/变量）的一致性
 
@@ -523,7 +524,7 @@ class CrossValidator:
 
         return issues
 
-    def _extract_all_definitions(self, files: Dict[str, str]) -> Dict[str, List[SymbolInfo]]:
+    def _extract_all_definitions(self, files: dict[str, str]) -> dict[str, list[SymbolInfo]]:
         """提取所有文件中的符号定义"""
         definitions = {}
         supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
@@ -540,7 +541,7 @@ class CrossValidator:
 
         return definitions
 
-    def _extract_file_definitions(self, content: str, file_path: str = "") -> Dict[str, SymbolInfo]:
+    def _extract_file_definitions(self, content: str, file_path: str = "") -> dict[str, SymbolInfo]:
         """提取单个文件中的符号定义
 
         优先委托给 language_adapter.extract_definitions()，支持任何语言。
@@ -570,7 +571,7 @@ class CrossValidator:
         # Fallback: 通用正则（覆盖 fn/func/function/def/class/struct/interface/enum/type）
         return self._extract_definitions_generic(content, file_path)
 
-    def _extract_definitions_generic(self, content: str, file_path: str = "") -> Dict[str, SymbolInfo]:
+    def _extract_definitions_generic(self, content: str, file_path: str = "") -> dict[str, SymbolInfo]:
         """通用符号定义提取（不依赖特定语言）
 
         匹配大多数编程语言的常见定义模式：
@@ -657,7 +658,7 @@ class CrossValidator:
 
         return definitions
 
-    def _extract_all_usages(self, files: Dict[str, str]) -> List[SymbolUsage]:
+    def _extract_all_usages(self, files: dict[str, str]) -> list[SymbolUsage]:
         """提取所有文件中的符号使用
 
         按适配器扩展名过滤，与 _extract_all_definitions 保持一致。否则全栈项目里
@@ -673,7 +674,7 @@ class CrossValidator:
             usages.extend(file_usages)
         return usages
 
-    def _extract_file_usages(self, content: str, file_path: str) -> List[SymbolUsage]:
+    def _extract_file_usages(self, content: str, file_path: str) -> list[SymbolUsage]:
         """提取单个文件中的符号使用"""
         usages = []
         lines = content.split('\n')
@@ -815,7 +816,7 @@ class CrossValidator:
         }
         return name in builtins
 
-    def _external_imported_symbols(self, content: str, file_path: str) -> Set[str]:
+    def _external_imported_symbols(self, content: str, file_path: str) -> set[str]:
         """本文件从标准库/第三方导入的符号名，这些符号无法用项目文件校验。"""
         adapter = self.language_adapter
         if not adapter or not content:
@@ -825,7 +826,7 @@ class CrossValidator:
         except Exception as exc:
             logger.debug(f"parse_imports 失败，跳过外部导入判定: {exc}")
             return set()
-        symbols: Set[str] = set()
+        symbols: set[str] = set()
         for imp in imports:
             if imp.is_relative or adapter.is_project_module(imp.module):
                 continue
@@ -834,7 +835,7 @@ class CrossValidator:
                 symbols.add(imp.alias)
         return symbols
 
-    def _find_symbol_source(self, symbol_name: str, usage_file: str, files: Dict[str, str]) -> Optional[str]:
+    def _find_symbol_source(self, symbol_name: str, usage_file: str, files: dict[str, str]) -> str | None:
         """查找符号的源文件"""
         content = files.get(usage_file, '')
         if not content:
@@ -906,7 +907,7 @@ class CrossValidator:
 
         return None
 
-    def _find_module_in_files(self, module: str, files: Dict[str, str]) -> Optional[str]:
+    def _find_module_in_files(self, module: str, files: dict[str, str]) -> str | None:
         """在已生成文件中查找模块路径（通用，不依赖语言）
 
         从项目文件中推断实际使用的扩展名，逐一尝试。
@@ -939,7 +940,7 @@ class CrossValidator:
 
         return None
 
-    def _symbol_defined_in_file(self, symbol_name: str, file_path: str, files: Dict[str, str]) -> bool:
+    def _symbol_defined_in_file(self, symbol_name: str, file_path: str, files: dict[str, str]) -> bool:
         """检查符号是否在指定文件中定义"""
         content = files.get(file_path, '')
         if not content:
@@ -948,7 +949,7 @@ class CrossValidator:
         definitions = self._extract_file_definitions(content)
         return symbol_name in definitions
 
-    def _validate_function_signatures(self, files: Dict[str, str]) -> List[Dict[str, str]]:
+    def _validate_function_signatures(self, files: dict[str, str]) -> list[dict[str, str]]:
         """
         验证函数签名一致性
 
@@ -960,8 +961,8 @@ class CrossValidator:
 
         # 按文件收集函数定义：跨文件同名函数签名的定义不同，
         # 只按名字汇总会让后一个文件覆盖前一个，导致调用点用错签名而误报。
-        defs_by_file: Dict[str, Dict[str, Any]] = {}
-        name_owners: Dict[str, List[str]] = {}
+        defs_by_file: dict[str, dict[str, Any]] = {}
+        name_owners: dict[str, list[str]] = {}
         for file_path, content in files.items():
             if self.language_adapter:
                 defs = self.language_adapter.extract_definitions(content)
@@ -1033,7 +1034,7 @@ class CrossValidator:
 
         return issues
 
-    def _extract_function_params(self, signature: str) -> Dict[str, Optional[str]]:
+    def _extract_function_params(self, signature: str) -> dict[str, str | None]:
         """提取函数参数"""
         params = {}
 
@@ -1057,7 +1058,7 @@ class CrossValidator:
 
     _CALL_NAME_RE = re.compile(r'([A-Za-z_]\w*)\s*\(')
 
-    def _iter_call_sites(self, content: str, file_path: str) -> Iterator[Tuple[str, str]]:
+    def _iter_call_sites(self, content: str, file_path: str) -> Iterator[tuple[str, str]]:
         """产出真实调用点的 (函数名, 实参文本)。
 
         三处与朴素正则的区别，都是为了消除误报：
@@ -1091,10 +1092,10 @@ class CrossValidator:
                 continue
             yield match.group(1), masked[match.end():end]
 
-    def _split_top_level_args(self, call_args: str) -> List[str]:
+    def _split_top_level_args(self, call_args: str) -> list[str]:
         """按顶层逗号切分实参，忽略嵌套括号与字符串内的逗号。"""
-        args: List[str] = []
-        chunk: List[str] = []
+        args: list[str] = []
+        chunk: list[str] = []
         depth = 0
         quote = ''
         index = 0
@@ -1129,7 +1130,7 @@ class CrossValidator:
             args.append(tail)
         return [arg for arg in args if arg]
 
-    def _extract_call_params(self, call_args: str) -> Set[str]:
+    def _extract_call_params(self, call_args: str) -> set[str]:
         """提取调用参数"""
         params = set()
 
@@ -1158,7 +1159,7 @@ class CrossValidator:
             count += 1
         return count
 
-    def _validate_imports(self, files: Dict[str, str]) -> List[Dict[str, str]]:
+    def _validate_imports(self, files: dict[str, str]) -> list[dict[str, str]]:
         """验证导入语句
 
         优先使用 language_adapter，fallback 使用通用正则（不只 Python）。
@@ -1208,7 +1209,7 @@ class CrossValidator:
 
         return issues
 
-    def _extract_imports_generic(self, content: str) -> List[str]:
+    def _extract_imports_generic(self, content: str) -> list[str]:
         """通用导入提取（不依赖特定语言）
 
         匹配大多数语言的导入模式：
@@ -1247,7 +1248,7 @@ class CrossValidator:
 
         return imports
 
-    def _extract_python_imports(self, content: str) -> List[str]:
+    def _extract_python_imports(self, content: str) -> list[str]:
         """提取 Python 文件中的导入"""
         imports = []
 
@@ -1282,7 +1283,7 @@ class CrossValidator:
         top_level = module.split('.')[0]
         return top_level in third_party
 
-    def _module_exists_in_files(self, module: str, files: Dict[str, str]) -> bool:
+    def _module_exists_in_files(self, module: str, files: dict[str, str]) -> bool:
         """检查模块是否在文件中存在
 
         优先使用 language_adapter，fallback 使用通用查找（从项目文件推断扩展名）。
@@ -1302,7 +1303,7 @@ class CrossValidator:
         # 没有 __init__ 的目录在 Python 3 中是合法的命名空间包
         return self._package_dir_exists_in_files(module, files)
 
-    def _package_dir_exists_in_files(self, module: str, files: Dict[str, str]) -> bool:
+    def _package_dir_exists_in_files(self, module: str, files: dict[str, str]) -> bool:
         """模块路径是否对应一个包含已生成文件的包目录。
 
         没有 __init__.py 的目录在 Python 3 中是合法的命名空间包，
@@ -1316,9 +1317,9 @@ class CrossValidator:
 
     def _validate_api_contracts(
         self,
-        files: Dict[str, str],
-        architecture: Dict[str, Any]
-    ) -> List[Dict[str, str]]:
+        files: dict[str, str],
+        architecture: dict[str, Any]
+    ) -> list[dict[str, str]]:
         """验证 API 契约一致性"""
         issues = []
 
@@ -1350,7 +1351,7 @@ class CrossValidator:
 
         return issues
 
-    def _extract_backend_api_specs(self, files: Dict[str, str]) -> List[Dict]:
+    def _extract_backend_api_specs(self, files: dict[str, str]) -> list[dict]:
         """提取后端 API 规范"""
         apis = []
         backend_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
@@ -1385,7 +1386,7 @@ class CrossValidator:
 
         return apis
 
-    def _extract_frontend_api_calls(self, files: Dict[str, str]) -> List[Dict]:
+    def _extract_frontend_api_calls(self, files: dict[str, str]) -> list[dict]:
         """提取前端 API 调用及其响应字段访问。
 
         字段访问只统计响应体变量上的属性。此前对端点后 500 字符内所有 `.xxx`
@@ -1412,7 +1413,7 @@ class CrossValidator:
 
                     # 只在该调用附近的代码里识别响应体变量
                     surrounding = content[match.end():match.end() + 800]
-                    body_vars: Dict[str, str] = {}
+                    body_vars: dict[str, str] = {}
                     # fetch: data = await res.json() / const data = await res.json()
                     for var in re.findall(
                         r'(\w+)\s*=\s*await\s+[\w.$]+\.json\s*\(\s*\)', surrounding
@@ -1440,7 +1441,7 @@ class CrossValidator:
 
         return calls
 
-    def _find_matching_api(self, endpoint: str, apis: List[Dict]) -> Optional[Dict]:
+    def _find_matching_api(self, endpoint: str, apis: list[dict]) -> dict | None:
         """查找匹配的后端 API
 
         三级匹配，先精确后宽松，避免被顺序影响：
@@ -1466,7 +1467,7 @@ class CrossValidator:
 
         return None
 
-    def _validate_model_consistency(self, files: Dict[str, str]) -> List[Dict[str, str]]:
+    def _validate_model_consistency(self, files: dict[str, str]) -> list[dict[str, str]]:
         r"""验证数据模型一致性
 
         只比较模型调用顶层的关键字实参。此前用非贪婪 `([\s\S]*?)\)` 提取实参，
@@ -1517,7 +1518,7 @@ class CrossValidator:
         return issues
 
     @staticmethod
-    def _balanced_paren_body(content: str, open_index: int) -> Optional[str]:
+    def _balanced_paren_body(content: str, open_index: int) -> str | None:
         """返回 open_index 处 '(' 配对括号内的文本，未配对时返回 None"""
         depth = 0
         for index in range(open_index, len(content)):
@@ -1569,7 +1570,7 @@ class CrossValidator:
                         line[col] = replacement
         return ''.join(''.join(line) for line in grid)
 
-    def _extract_model_definitions(self, files: Dict[str, str]) -> Dict[str, Dict]:
+    def _extract_model_definitions(self, files: dict[str, str]) -> dict[str, dict]:
         """提取模型定义"""
         models = {}
         supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
@@ -1612,10 +1613,10 @@ class CrossValidator:
 
     async def validate_and_fix(
         self,
-        generated_files: Dict[str, str],
-        architecture: Dict[str, Any],
-        fix_model: Optional[str] = None
-    ) -> Tuple[Dict[str, str], List[Dict[str, str]]]:
+        generated_files: dict[str, str],
+        architecture: dict[str, Any],
+        fix_model: str | None = None
+    ) -> tuple[dict[str, str], list[dict[str, str]]]:
         """
         验证并修复跨文件一致性问题
 
@@ -1666,7 +1667,7 @@ class CrossValidator:
 
         return fixed_files, issues
 
-    def _find_missing_modules(self, issues: List[Dict[str, str]]) -> List[str]:
+    def _find_missing_modules(self, issues: list[dict[str, str]]) -> list[str]:
         """从问题列表中找出缺失的模块"""
         missing = set()
 
@@ -1699,11 +1700,11 @@ class CrossValidator:
 
     async def _generate_missing_modules(
         self,
-        files: Dict[str, str],
-        missing_modules: List[str],
-        architecture: Dict[str, Any],
-        model: Optional[str] = None
-    ) -> Dict[str, str]:
+        files: dict[str, str],
+        missing_modules: list[str],
+        architecture: dict[str, Any],
+        model: str | None = None
+    ) -> dict[str, str]:
         """生成缺失的模块文件"""
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         default_ext = next(iter(extensions)) if extensions else '.py'
@@ -1718,7 +1719,7 @@ class CrossValidator:
             )
         return files
 
-    def _format_referencing_files(self, files: Dict[str, str], referencing_files: List[str]) -> str:
+    def _format_referencing_files(self, files: dict[str, str], referencing_files: list[str]) -> str:
         """格式化引用文件的内容"""
         parts = []
         for file_path in referencing_files:
@@ -1730,11 +1731,11 @@ class CrossValidator:
 
     async def _fix_with_llm(
         self,
-        files: Dict[str, str],
-        issues: List[Dict[str, str]],
+        files: dict[str, str],
+        issues: list[dict[str, str]],
         model: str,
         batch_size: int = 5
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         使用 LLM 修复问题（批量修复）
 
@@ -1861,7 +1862,7 @@ class CrossValidator:
 
         return fixed_files
 
-    def _parse_batch_fix_result(self, content: str, expected_files: List[str]) -> Dict[str, str]:
+    def _parse_batch_fix_result(self, content: str, expected_files: list[str]) -> dict[str, str]:
         """解析批量修复结果"""
 
         result = {}
@@ -1891,7 +1892,7 @@ class CrossValidator:
         cleaned = re.sub(r'^修复后的完整代码\s*\n?', '', cleaned, flags=re.MULTILINE)
         return cleaned.strip()
 
-    def _accept_llm_fix(self, file_path: str, candidate: str, original: str) -> Optional[str]:
+    def _accept_llm_fix(self, file_path: str, candidate: str, original: str) -> str | None:
         """Keep original file when the LLM fix is thinking text or invalid source."""
         cleaned = self._clean_code_block(candidate or "")
         if not cleaned:

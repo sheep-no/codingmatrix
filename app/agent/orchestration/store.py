@@ -16,7 +16,7 @@ CURRENT_ORCHESTRATION_SCHEMA_VERSION = 1
 class OrchestrationStore(Protocol):
     async def save(self, state: OrchestrationState) -> None: ...
 
-    async def load_latest(self, task_id: str) -> Optional[OrchestrationState]: ...
+    async def load_latest(self, task_id: str) -> OrchestrationState | None: ...
 
 
 class OrchestrationCheckpointStore:
@@ -46,7 +46,7 @@ class OrchestrationCheckpointStore:
             os.fsync(handle.fileno())
         os.replace(temporary_name, target)
 
-    async def load_latest(self, task_id: str) -> Optional[OrchestrationState]:
+    async def load_latest(self, task_id: str) -> OrchestrationState | None:
         path = self.path_for(task_id)
         if not path.exists():
             return None

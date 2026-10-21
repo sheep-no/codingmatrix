@@ -14,7 +14,6 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.error_classifier import ErrorClassification
 
@@ -35,12 +34,12 @@ class FixPattern:
     success_rate: float
     usage_count: int
     strategy_version: int = 1
-    last_hit_time: Optional[float] = None
+    last_hit_time: float | None = None
     hit_count: int = 0
 
     failed_count: int = 0
-    last_failed_at: Optional[str] = None
-    failure_reason: Optional[str] = None
+    last_failed_at: str | None = None
+    failure_reason: str | None = None
 
     def is_anti_pattern(self, threshold: int = 3) -> bool:
         """判定是否为反模式"""
@@ -53,7 +52,7 @@ class FixPatternCache:
     def __init__(self, cache_file: Path = None, max_size: int = 1000):
         self.cache_file = cache_file or Path("fix_patterns_cache.json")
         self.max_size = max_size  # 最大缓存条目数
-        self.patterns: Dict[str, FixPattern] = {}
+        self.patterns: dict[str, FixPattern] = {}
         self._load_cache()
         self._save_lock = threading.Lock()  # 异步保存锁
 
@@ -105,7 +104,7 @@ class FixPatternCache:
         signature_data = f"{classification.error_type}:{classification.error_subtype}:{project_type}:{file_type}"
         return hashlib.md5(signature_data.encode()).hexdigest()
 
-    def find_pattern(self, classification: ErrorClassification, project_type: str, file_type: str) -> Optional[FixPattern]:
+    def find_pattern(self, classification: ErrorClassification, project_type: str, file_type: str) -> FixPattern | None:
         """查找匹配的修复模式（自动排除反模式）"""
         signature = self._generate_error_signature(classification, project_type, file_type)
         pattern = self.patterns.get(signature)
@@ -143,7 +142,7 @@ class FixPatternCache:
         self._apply_decay_and_cleanup()
         self._save_cache_async()
 
-    def update_pattern_success(self, signature: str, success: bool, failure_reason: Optional[str] = None):
+    def update_pattern_success(self, signature: str, success: bool, failure_reason: str | None = None):
         """更新修复模式的成功率（含反模式追踪）"""
         if signature in self.patterns:
             pattern = self.patterns[signature]
@@ -204,7 +203,7 @@ class FixPatternCache:
             self._save_cache()
             logger.info(f"清理 {len(patterns_to_remove)} 个缓存条目，剩余 {len(self.patterns)} 个")
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         tokens = text.lower().split()
         normalized = []
         for t in tokens:
@@ -215,14 +214,14 @@ class FixPatternCache:
 
     def _bm25_score(
         self,
-        query_tokens: List[str],
-        doc_tokens: List[str],
+        query_tokens: list[str],
+        doc_tokens: list[str],
         avg_dl: float,
         k1: float = 1.5,
         b: float = 0.75
     ) -> float:
         doc_len = len(doc_tokens)
-        tf_map: Dict[str, int] = {}
+        tf_map: dict[str, int] = {}
         for t in doc_tokens:
             tf_map[t] = tf_map.get(t, 0) + 1
         total_docs = max(len(self.patterns), 1)
@@ -237,7 +236,7 @@ class FixPatternCache:
         return score
 
     def find_similar_patterns(self, classification: ErrorClassification, project_type: str,
-                            file_type: str, similarity_threshold: float = 0.8) -> List[FixPattern]:
+                            file_type: str, similarity_threshold: float = 0.8) -> list[FixPattern]:
         query_text = f"{classification.error_type} {classification.error_subtype} {project_type} {file_type}"
         query_tokens = self._tokenize(query_text)
         if not query_tokens:
@@ -253,7 +252,7 @@ class FixPatternCache:
             return []
 
         avg_dl = sum(len(tl) for _, tl in all_token_lists) / len(all_token_lists)
-        scored: List[tuple] = []
+        scored: list[tuple] = []
         for pattern, doc_tokens in all_token_lists:
             score = self._bm25_score(query_tokens, doc_tokens, avg_dl)
             if score >= similarity_threshold:

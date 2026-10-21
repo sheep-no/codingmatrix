@@ -21,7 +21,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
@@ -47,8 +47,8 @@ class ValidationIssue:
     type: str  # 'syntax', 'import', 'spec_mismatch', 'missing_ref', 'logic'
     severity: str  # 'error', 'warning'
     message: str
-    line: Optional[int] = None
-    suggestion: Optional[str] = None
+    line: int | None = None
+    suggestion: str | None = None
 
 
 @dataclass
@@ -57,9 +57,9 @@ class RefinementResult:
     success: bool
     final_content: str
     attempts: int
-    issues_found: List[ValidationIssue]
+    issues_found: list[ValidationIssue]
     issues_fixed: int
-    remaining_issues: List[ValidationIssue]
+    remaining_issues: list[ValidationIssue]
 
 
 class RefinementLoop:
@@ -86,7 +86,7 @@ class RefinementLoop:
 - 保持原有代码结构，只修复错误部分
 - 不要添加新的功能或改变原有逻辑"""
 
-    def __init__(self, context: SharedContext, complexity: str = "medium", api_key_token: Optional[str] = None):
+    def __init__(self, context: SharedContext, complexity: str = "medium", api_key_token: str | None = None):
         self.context = context
         self.api_key_token = api_key_token
         self._pending_tasks: set = set()
@@ -106,9 +106,9 @@ class RefinementLoop:
         file_type: str,
         description: str,
         initial_content: str,
-        model_name: Optional[str] = None,
-        project_context: Optional[Dict] = None,
-        callback: Optional[Callable] = None
+        model_name: str | None = None,
+        project_context: dict | None = None,
+        callback: Callable | None = None
     ) -> RefinementResult:
         """
         执行迭代修复循环
@@ -129,9 +129,9 @@ class RefinementLoop:
         from app.agent.orchestrator import LayeredModelRouter
         model_config = LayeredModelRouter.get_model_config(target_model)
         content = initial_content
-        all_issues: List[ValidationIssue] = []
+        all_issues: list[ValidationIssue] = []
         issues_fixed = 0
-        blocking: List[ValidationIssue] = []
+        blocking: list[ValidationIssue] = []
 
         self.context.increment_fix_attempts(file_path)
 
@@ -230,9 +230,9 @@ class RefinementLoop:
 
     # ==================== 验证方法 ====================
 
-    async def _validate_code(self, file_path: str, content: str, file_type: str) -> List[ValidationIssue]:
+    async def _validate_code(self, file_path: str, content: str, file_type: str) -> list[ValidationIssue]:
         """验证代码，返回问题列表"""
-        issues: List[ValidationIssue] = []
+        issues: list[ValidationIssue] = []
 
         ext = Path(file_path).suffix.lower()
 
@@ -259,7 +259,7 @@ class RefinementLoop:
 
         return issues
 
-    def _validate_python_syntax(self, content: str, file_path: str) -> List[ValidationIssue]:
+    def _validate_python_syntax(self, content: str, file_path: str) -> list[ValidationIssue]:
         """验证 Python 语法"""
         issues = []
         try:
@@ -274,7 +274,7 @@ class RefinementLoop:
             ))
         return issues
 
-    def _validate_spec_consistency(self, content: str, file_type: str) -> List[ValidationIssue]:
+    def _validate_spec_consistency(self, content: str, file_type: str) -> list[ValidationIssue]:
         """验证代码与规范的一致性"""
         issues = []
 
@@ -309,7 +309,7 @@ class RefinementLoop:
         return issues
 
     @staticmethod
-    def _openapi_paths_missing_from_content(content: str, openapi: Dict) -> List[str]:
+    def _openapi_paths_missing_from_content(content: str, openapi: dict) -> list[str]:
         """返回 content 中未引用的 OpenAPI 路由。
 
         路径参数段（``{id}``）无法逐字比对，跳过；某条路由存在任一非参数段
@@ -352,7 +352,7 @@ class RefinementLoop:
                         return True
         return False
 
-    def _validate_js_source(self, content: str, ext: str) -> List[ValidationIssue]:
+    def _validate_js_source(self, content: str, ext: str) -> list[ValidationIssue]:
         """校验 JS/TS 家族源码，包括 .vue 的 <script> 块与 JSX/TSX。
 
         `node -c` 无法解析 JSX、类型注解和 Vue 单文件组件，整体送检会误报；
@@ -385,7 +385,7 @@ class RefinementLoop:
             suggestion="检查语法错误",
         )]
 
-    def _validate_json_syntax(self, content: str) -> List[ValidationIssue]:
+    def _validate_json_syntax(self, content: str) -> list[ValidationIssue]:
         """验证 JSON 语法"""
         issues = []
         try:
@@ -400,7 +400,7 @@ class RefinementLoop:
             ))
         return issues
 
-    def _validate_html_basic(self, content: str) -> List[ValidationIssue]:
+    def _validate_html_basic(self, content: str) -> list[ValidationIssue]:
         """HTML 基础验证（复用共享结构校验：注释和原始文本元素里的标签不算）"""
         return [
             ValidationIssue(
@@ -412,7 +412,7 @@ class RefinementLoop:
             for error in html_structure_errors(content)
         ]
 
-    def _validate_css_basic(self, content: str) -> List[ValidationIssue]:
+    def _validate_css_basic(self, content: str) -> list[ValidationIssue]:
         """CSS 基础验证（复用共享结构校验：注释和字符串里的定界符不算）"""
         return [
             ValidationIssue(
@@ -426,7 +426,7 @@ class RefinementLoop:
 
     # ==================== Prompt 构建 ====================
 
-    def _build_error_summary(self, issues: List[ValidationIssue], current_code: str = "") -> str:
+    def _build_error_summary(self, issues: list[ValidationIssue], current_code: str = "") -> str:
         """构建错误摘要（含错误行 ±10 行代码上下文）"""
         if not issues:
             return "没有发现错误"
@@ -458,7 +458,7 @@ class RefinementLoop:
         description: str,
         current_code: str,
         error_summary: str,
-        project_context: Optional[Dict],
+        project_context: dict | None,
         attempt: int
     ) -> str:
         """构建修复 prompt"""
@@ -514,7 +514,7 @@ class RefinementLoop:
         from app.agent.utils import clean_code_block
         return clean_code_block(content)
 
-    def _report_progress(self, file_path: str, attempt: int, callback: Optional[Callable]):
+    def _report_progress(self, file_path: str, attempt: int, callback: Callable | None):
         """报告进度"""
         if not callback:
             return

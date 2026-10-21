@@ -15,7 +15,7 @@ import ast
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,8 @@ class ArchitectureViolation:
 class ArchitectureCheckResult:
     """架构检查结果"""
     passed: bool
-    violations: List[ArchitectureViolation]
-    suggestions: List[str]
+    violations: list[ArchitectureViolation]
+    suggestions: list[str]
     architecture_alignment_score: float
 
 
@@ -113,17 +113,17 @@ class ArchitectureInspector:
     }
 
     def __init__(self):
-        self.architecture_design: Dict[str, Any] = {}
-        self.generated_files: Dict[str, str] = {}
-        self.global_constraints: List[Any] = []
-        self.user_decisions: Dict[str, str] = {}
+        self.architecture_design: dict[str, Any] = {}
+        self.generated_files: dict[str, str] = {}
+        self.global_constraints: list[Any] = []
+        self.user_decisions: dict[str, str] = {}
 
     def set_context(
         self,
-        architecture: Dict[str, Any],
-        generated_files: Dict[str, str],
-        constraints: Optional[List] = None,
-        decisions: Optional[Dict[str, str]] = None
+        architecture: dict[str, Any],
+        generated_files: dict[str, str],
+        constraints: list | None = None,
+        decisions: dict[str, str] | None = None
     ) -> None:
         """设置检查上下文"""
         self.architecture_design = architecture
@@ -133,7 +133,7 @@ class ArchitectureInspector:
 
     def inspect(
         self,
-        llm_checker: Optional[callable] = None
+        llm_checker: Callable | None = None
     ) -> ArchitectureCheckResult:
         """
         执行架构检查
@@ -183,7 +183,7 @@ class ArchitectureInspector:
             architecture_alignment_score=alignment_score
         )
 
-    def _check_layer_boundaries(self) -> List[ArchitectureViolation]:
+    def _check_layer_boundaries(self) -> list[ArchitectureViolation]:
         """检查分层边界"""
         violations = []
 
@@ -212,8 +212,8 @@ class ArchitectureInspector:
     def _get_assigned_layer(
         self,
         file_path: str,
-        layer_definitions: Dict
-    ) -> Optional[str]:
+        layer_definitions: dict
+    ) -> str | None:
         """获取文件所属层"""
         path_lower = file_path.lower()
 
@@ -238,7 +238,7 @@ class ArchitectureInspector:
 
         return False
 
-    def _check_dependency_direction(self) -> List[ArchitectureViolation]:
+    def _check_dependency_direction(self) -> list[ArchitectureViolation]:
         """检查依赖方向"""
         violations = []
 
@@ -261,7 +261,7 @@ class ArchitectureInspector:
 
         return violations
 
-    def _extract_imports(self, content: str) -> List[str]:
+    def _extract_imports(self, content: str) -> list[str]:
         """提取文件中的 import 语句"""
         imports = []
 
@@ -283,8 +283,8 @@ class ArchitectureInspector:
         self,
         file_path: str,
         import_path: str,
-        dependency_rules: Dict
-    ) -> Optional[str]:
+        dependency_rules: dict
+    ) -> str | None:
         """检查 import 方向是否违规"""
         for rule_name, rule_config in dependency_rules.items():
             source_pattern = rule_config.get("source")
@@ -303,7 +303,7 @@ class ArchitectureInspector:
 
         return None
 
-    def _check_interface_style(self) -> List[ArchitectureViolation]:
+    def _check_interface_style(self) -> list[ArchitectureViolation]:
         """检查接口风格。
 
         `api_style` 只在决策链显式产出时才检查（此前默认 "REST" 会在无决策
@@ -362,7 +362,7 @@ class ArchitectureInspector:
 
         return violations
 
-    def _check_api_style(self, content: str, api_style: str) -> Optional[str]:
+    def _check_api_style(self, content: str, api_style: str) -> str | None:
         """单文件反向检查：风格与声明不符时返回原因。"""
         if api_style == "REST":
             if self._has_graphql_schema(content):
@@ -406,7 +406,7 @@ class ArchitectureInspector:
                 return True
         return False
 
-    def _check_naming_conventions(self) -> List[ArchitectureViolation]:
+    def _check_naming_conventions(self) -> list[ArchitectureViolation]:
         """检查命名规范"""
         violations = []
 
@@ -430,8 +430,8 @@ class ArchitectureInspector:
     def _check_file_naming(
         self,
         file_path: str,
-        naming_rules: Dict
-    ) -> Optional[str]:
+        naming_rules: dict
+    ) -> str | None:
         """检查文件命名"""
         file_ext = file_path.split(".")[-1] if "." in file_path else ""
         expected_pattern = naming_rules.get(file_ext, naming_rules.get("default", ""))
@@ -448,7 +448,7 @@ class ArchitectureInspector:
 
         return None
 
-    def _check_global_constraints(self) -> List[ArchitectureViolation]:
+    def _check_global_constraints(self) -> list[ArchitectureViolation]:
         """检查全局约束"""
         violations = []
 
@@ -467,7 +467,7 @@ class ArchitectureInspector:
         return violations
 
     @staticmethod
-    def _constraint_applies_to_file(applies_to: List[str], file_path: str) -> bool:
+    def _constraint_applies_to_file(applies_to: list[str], file_path: str) -> bool:
         """约束的 applies_to 是层名/关键词（backend/frontend/api/all），不是文件路径。
 
         按语义把层名映射到真实文件路径：`all` 命中全部；`api` 命中 API 相关
@@ -493,7 +493,7 @@ class ArchitectureInspector:
         constraint: Any,
         content: str,
         file_path: str
-    ) -> Optional[ArchitectureViolation]:
+    ) -> ArchitectureViolation | None:
         """检查内容中的约束"""
         constraint_text = constraint.description.lower()
 
@@ -515,7 +515,7 @@ class ArchitectureInspector:
 
         return None
 
-    def _check_tech_stack_consistency(self) -> List[ArchitectureViolation]:
+    def _check_tech_stack_consistency(self) -> list[ArchitectureViolation]:
         """检查技术栈一致性"""
         violations = []
 
@@ -568,7 +568,7 @@ class ArchitectureInspector:
         return violations
 
     @staticmethod
-    def _file_layer(file_path: str) -> Optional[str]:
+    def _file_layer(file_path: str) -> str | None:
         """按目录结构判断文件归属层。
 
         只看路径的目录段（去掉文件名）且只认顶层目录，`backend_utils.py`、
@@ -605,7 +605,7 @@ class ArchitectureInspector:
     def _llm_architecture_review(
         self,
         llm_checker: callable
-    ) -> List[ArchitectureViolation]:
+    ) -> list[ArchitectureViolation]:
         """使用 LLM 进行架构审查"""
         violations = []
 
@@ -632,7 +632,7 @@ class ArchitectureInspector:
 
     def _calculate_alignment_score(
         self,
-        violations: List[ArchitectureViolation]
+        violations: list[ArchitectureViolation]
     ) -> float:
         """计算架构一致性得分"""
         if not violations:
@@ -648,8 +648,8 @@ class ArchitectureInspector:
 
     def _generate_fix_suggestions(
         self,
-        violations: List[ArchitectureViolation]
-    ) -> List[str]:
+        violations: list[ArchitectureViolation]
+    ) -> list[str]:
         """生成修复建议"""
         suggestions = []
 

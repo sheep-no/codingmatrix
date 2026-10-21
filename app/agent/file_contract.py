@@ -8,7 +8,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, StrictBool
 
@@ -24,16 +24,16 @@ class FileContract:
     """
     operation: str  # read, write, delete, create, move, copy
     file_path: str
-    expected_content: Optional[str] = None
+    expected_content: str | None = None
     max_size: int = 1024 * 1024  # 1MB
-    allowed_extensions: List[str] = field(default_factory=lambda: [
+    allowed_extensions: list[str] = field(default_factory=lambda: [
         ".py", ".js", ".ts", ".jsx", ".tsx", ".vue", ".html", ".css",
         ".md", ".json", ".yaml", ".yml", ".txt", ".sh", ".bash",
         ".toml", ".xml", ".sql", ".env", ".gitignore", ".dockerfile"
     ])
     require_backup: bool = True
-    validation_patterns: List[str] = field(default_factory=list)
-    base_path: Optional[str] = None  # 可选，限制在特定项目目录下
+    validation_patterns: list[str] = field(default_factory=list)
+    base_path: str | None = None  # 可选，限制在特定项目目录下
 
     def validate_path(self) -> bool:
         """验证路径安全性"""
@@ -118,8 +118,8 @@ class FileContract:
 class ReviewResult(BaseModel):
     """审查结果"""
     approved: StrictBool
-    issues: List[str] = Field(default_factory=list)
-    suggestions: List[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
 
 
@@ -127,11 +127,11 @@ class TaskStep(BaseModel):
     """任务步骤"""
     type: Literal["file_operation", "code_generation", "tool_call", "ai_call"]
     description: str
-    params: Dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
     degraded: bool = False  # 标记降级生成的步骤，供 review_plan 检测
 
 
-def _degrade_step(task: str, reason: str) -> Dict[str, Any]:
+def _degrade_step(task: str, reason: str) -> dict[str, Any]:
     """构造一个降级执行步骤，供 decompose 在解析失败时使用"""
     return {
         "type": "ai_call",

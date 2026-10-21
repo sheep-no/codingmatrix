@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.utils.math_utils import cosine_similarity
 
@@ -34,16 +34,16 @@ class FixPattern:
     error_pattern: str            # 错误模式（正则表达式）
     fix_description: str          # 修复描述
     fix_example: str              # 修复示例
-    file_types: List[str]         # 适用的文件类型
+    file_types: list[str]         # 适用的文件类型
     frequency: int = 1            # 出现频率
     success_rate: float = 1.0     # 成功率
     last_seen: str = ""           # 最后出现时间
 
     failed_count: int = 0         # 累计验证失败次数（反模式追踪）
-    last_failed_at: Optional[str] = None  # 最后失败时间
-    failure_reason: Optional[str] = None  # 最近一次失败原因
+    last_failed_at: str | None = None  # 最后失败时间
+    failure_reason: str | None = None  # 最近一次失败原因
 
-    error_embedding: Optional[List[float]] = None
+    error_embedding: list[float] | None = None
 
     def is_anti_pattern(self, threshold: int = 3) -> bool:
         """判定是否为反模式：失败次数超过阈值且成功率过低"""
@@ -63,20 +63,20 @@ class ErrorPattern:
 class FeedbackLearner:
     """模型反馈学习器（支持向量化匹配）"""
 
-    def __init__(self, learning_dir: Optional[Path] = None):
+    def __init__(self, learning_dir: Path | None = None):
         self.learning_dir = learning_dir or LEARNING_DIR
         self.learning_dir.mkdir(parents=True, exist_ok=True)
-        self._fix_patterns: Dict[str, FixPattern] = {}
-        self._error_patterns: Dict[str, ErrorPattern] = {}
-        self._session_records: List[Dict[str, Any]] = []
+        self._fix_patterns: dict[str, FixPattern] = {}
+        self._error_patterns: dict[str, ErrorPattern] = {}
+        self._session_records: list[dict[str, Any]] = []
 
         # 向量索引
-        self._error_vectors: Dict[str, List[float]] = {}  # pattern_key → embedding
+        self._error_vectors: dict[str, list[float]] = {}  # pattern_key → embedding
 
         self._load_patterns()
 
     @staticmethod
-    def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
         """计算余弦相似度"""
         return cosine_similarity(vec1, vec2)
 
@@ -86,10 +86,10 @@ class FeedbackLearner:
         file_type: str,
         original_content: str,
         fixed_content: str,
-        errors: Dict[str, Any],
+        errors: dict[str, Any],
         model_name: str,
         success: bool,
-        error_embeddings: Optional[Dict[str, List[float]]] = None
+        error_embeddings: dict[str, list[float]] | None = None
     ):
         """记录一次修复"""
         for error_type, error_list in errors.items():
@@ -167,8 +167,8 @@ class FeedbackLearner:
         self,
         file_path: str,
         file_type: str,
-        project_context: Dict[str, Any],
-        error_context: Optional[str] = None
+        project_context: dict[str, Any],
+        error_context: str | None = None
     ) -> str:
         """
         生成预防性 prompt（基于历史修复经验）
@@ -208,8 +208,8 @@ class FeedbackLearner:
         self,
         file_path: str,
         file_type: str,
-        query_embedding: Optional[List[float]] = None
-    ) -> List[FixPattern]:
+        query_embedding: list[float] | None = None
+    ) -> list[FixPattern]:
         """异步版本的模式查找（支持向量化）"""
         relevant = []
 
@@ -236,7 +236,7 @@ class FeedbackLearner:
 
         return relevant
 
-    def get_anti_patterns(self) -> List[FixPattern]:
+    def get_anti_patterns(self) -> list[FixPattern]:
         """返回已判定为反模式且带错误正则的修复模式（公开查询接口）。"""
         return [
             pattern
@@ -244,7 +244,7 @@ class FeedbackLearner:
             if pattern.is_anti_pattern() and pattern.error_pattern
         ]
 
-    def get_common_errors(self, file_type: str) -> List[Dict[str, Any]]:
+    def get_common_errors(self, file_type: str) -> list[dict[str, Any]]:
         """获取指定文件类型的常见错误"""
         common = []
         for pattern in self._fix_patterns.values():
@@ -261,7 +261,7 @@ class FeedbackLearner:
         common.sort(key=lambda x: x["frequency"], reverse=True)
         return common[:10]
 
-    def get_learning_stats(self) -> Dict[str, Any]:
+    def get_learning_stats(self) -> dict[str, Any]:
         """获取学习统计"""
         total_fixes = sum(p.frequency for p in self._fix_patterns.values())
         total_records = len(self._session_records)
@@ -335,7 +335,7 @@ class FeedbackLearner:
         diff_lines = fixed_lines[start:end]
         return '\n'.join(diff_lines)[:100]
 
-    async def compute_error_embeddings(self, errors: List[str]) -> Dict[str, List[float]]:
+    async def compute_error_embeddings(self, errors: list[str]) -> dict[str, list[float]]:
         """
         批量计算错误信息的 embedding
 

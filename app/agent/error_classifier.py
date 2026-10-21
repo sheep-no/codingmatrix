@@ -119,7 +119,7 @@ class ErrorClassifier:
         self,
         error_message: str,
         code_context: str = "",
-        api_key_token: Optional[str] = None,
+        api_key_token: str | None = None,
         cancel_event=None,
     ) -> ErrorClassification:
         """分类错误类型并返回修复策略"""
@@ -136,7 +136,7 @@ class ErrorClassifier:
             cancel_event=cancel_event,
         )
 
-    def _rule_based_classification(self, error_message: str) -> Optional[ErrorClassification]:
+    def _rule_based_classification(self, error_message: str) -> ErrorClassification | None:
         """基于规则的错误分类。
 
         调用方传入的是多条错误的拼接串（``"; ".join(...)``）。原实现按
@@ -181,7 +181,7 @@ class ErrorClassifier:
             confidence=0.0,
         )
 
-    def _coerce_model_result(self, data) -> Optional[ErrorClassification]:
+    def _coerce_model_result(self, data) -> ErrorClassification | None:
         """校验模型返回的字典，字段缺失/类型非法时返回 None（视为分类失败）。"""
         if not isinstance(data, dict):
             return None
@@ -210,7 +210,7 @@ class ErrorClassifier:
         self,
         error_message: str,
         code_context: str,
-        api_key_token: Optional[str] = None,
+        api_key_token: str | None = None,
         cancel_event=None,
     ) -> ErrorClassification:
         """基于模型的错误分类（使用 DEFAULT_CODE_MODEL）"""

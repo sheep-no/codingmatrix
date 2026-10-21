@@ -199,7 +199,7 @@ def parse_priority(priority: str) -> int:
     return priority_map.get(priority.lower(), 5)
 
 
-def parse_timeout(timeout: Optional[int], default: int = 300) -> int:
+def parse_timeout(timeout: int | None, default: int = 300) -> int:
     """
     Parse and validate timeout value.
 

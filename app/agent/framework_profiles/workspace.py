@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
-from typing import Iterable, Mapping, Tuple
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,7 +28,7 @@ class WorkspaceProfileDocument(BaseModel):
     digest: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_scope_and_digest(self) -> "WorkspaceProfileDocument":
+    def validate_scope_and_digest(self) -> WorkspaceProfileDocument:
         if self.schema_version != PROFILE_SCHEMA_VERSION:
             raise ValueError("unsupported workspace profile schema version")
         if self.profile.scope is not ProfileScope.WORKSPACE:
@@ -46,7 +46,7 @@ class WorkspaceProfileDocument(BaseModel):
     @classmethod
     def build(
         cls, *, workspace_id: str, owner_id: str, profile: FrameworkProfile
-    ) -> "WorkspaceProfileDocument":
+    ) -> WorkspaceProfileDocument:
         digest = _document_digest(
             PROFILE_SCHEMA_VERSION, workspace_id, owner_id, profile
         )
@@ -63,8 +63,8 @@ class WorkspaceProfileProbeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     passed: bool
-    checks: Tuple[str, ...] = ()
-    failures: Tuple[str, ...] = ()
+    checks: tuple[str, ...] = ()
+    failures: tuple[str, ...] = ()
 
 
 def load_workspace_profile(
@@ -159,7 +159,7 @@ def promote_workspace_profile(
     return profile.model_copy(update={"status": target})
 
 
-def _commands_for_checks(profile: FrameworkProfile) -> Mapping[str, Tuple[str, ...]]:
+def _commands_for_checks(profile: FrameworkProfile) -> Mapping[str, tuple[str, ...]]:
     return {
         "syntax": profile.probe_commands.get("syntax", profile.build_command),
         "install": profile.probe_commands.get("install", profile.install_command),

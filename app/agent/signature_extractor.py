@@ -160,7 +160,7 @@ _GENERIC_IMPORT = re.compile(r"^\s*(?:import |from |#include |using |use |requir
 _GENERIC_DEF = re.compile(r"^\s*(?:(?:pub\s+)?(?:async\s+)?(?:fn|func|function|def|class|struct|enum|trait|interface|type|module)\s+\w+)", re.IGNORECASE)
 
 
-def extract_signatures(file_path: str, content: str) -> Optional[str]:
+def extract_signatures(file_path: str, content: str) -> str | None:
     """从文件内容中提取函数/类签名及类字段定义，不包含函数体。
 
     提取内容包括：
@@ -286,7 +286,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
         return None
 
 
-def _extract_python_signatures(content: str) -> Optional[str]:
+def _extract_python_signatures(content: str) -> str | None:
     """使用 AST 提取完整 Python 签名，保留返回类型和类字段。"""
     try:
         tree = ast.parse(content)

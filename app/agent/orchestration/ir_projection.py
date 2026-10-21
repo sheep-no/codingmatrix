@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..code_synthesis_contracts import ChangePlanIR
 from ..strategy_router import StrategyRouter

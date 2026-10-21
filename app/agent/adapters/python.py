@@ -15,7 +15,7 @@ import symtable
 import sysconfig
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Mapping, Tuple
+from collections.abc import Mapping
 
 from .language_adapter import (
     ImportInfo,
@@ -166,7 +166,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("docs/", "docs"),
     ]
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
         """解析 Python 导入语句"""
         imports = []
 
@@ -229,7 +229,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
         return imports
 
-    def source_diagnostics(self, content: str, file_path: str = "") -> Tuple[str, ...]:
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]:
         """Report unresolved globals and eager annotations using Python semantics."""
         try:
             tree = ast.parse(content, filename=file_path)
@@ -283,7 +283,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         self,
         content: str,
         file_path: str = "",
-    ) -> Mapping[str, Tuple[str, ...]]:
+    ) -> Mapping[str, tuple[str, ...]]:
         facts = dict(super().extract_contract_facts(content, file_path))
         try:
             tree = ast.parse(content, filename=file_path)
@@ -302,7 +302,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         self,
         content: str,
         file_path: str,
-        diagnostics: Tuple[str, ...],
+        diagnostics: tuple[str, ...],
     ) -> str | None:
         repaired = content
         if any("does not export" in item for item in diagnostics):
@@ -332,8 +332,8 @@ class PythonLanguageAdapter(LanguageAdapter):
             )
         return undefined_names
 
-    def _unavailable_import_symbols(self, tree: ast.Module) -> Dict[str, Tuple[str, ...]]:
-        unavailable: Dict[str, set[str]] = {}
+    def _unavailable_import_symbols(self, tree: ast.Module) -> dict[str, tuple[str, ...]]:
+        unavailable: dict[str, set[str]] = {}
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
                 continue
@@ -355,7 +355,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         }
 
     @staticmethod
-    def _incompatible_local_constructor_calls(tree: ast.Module) -> Tuple[str, ...]:
+    def _incompatible_local_constructor_calls(tree: ast.Module) -> tuple[str, ...]:
         classes_without_constructors = {
             node.name
             for node in tree.body
@@ -452,14 +452,14 @@ class PythonLanguageAdapter(LanguageAdapter):
             and not self.is_project_module(node.module)
             and all(alias.name != "*" for alias in node.names)
         ]
-        providers: Dict[str, list[ast.ImportFrom]] = {}
+        providers: dict[str, list[ast.ImportFrom]] = {}
         for node in import_nodes:
             exports = self._static_module_exports(node.module)
             if exports is None:
                 continue
             for name in undefined & set(exports):
                 providers.setdefault(name, []).append(node)
-        additions: Dict[int, set[str]] = {}
+        additions: dict[int, set[str]] = {}
         nodes_by_id = {id(node): node for node in import_nodes}
         for name, nodes in providers.items():
             unique_modules = {node.module for node in nodes}
@@ -617,7 +617,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         lines.insert(insertion, "from __future__ import annotations\n")
         return "".join(lines)
 
-    def _parse_import_symbols(self, symbols_str: str) -> List[str]:
+    def _parse_import_symbols(self, symbols_str: str) -> list[str]:
         """解析 from xxx import 中的符号列表"""
         symbols = []
 
@@ -642,7 +642,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
         return symbols
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         """将导入路径解析为文件路径"""
         candidates = []
         module = import_info.module
@@ -728,7 +728,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
         return "unknown"
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
         """提取 Python 文件中的符号定义"""
         definitions = {}
         lines = content.split('\n')
@@ -814,7 +814,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         project_prefixes = ['app', 'src', 'lib', 'pkg', 'internal', 'core']
         return top_level in project_prefixes
 
-    def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
+    def validate_package_structure(self, package_path: str, files: dict[str, str]) -> list[str]:
         """验证 Python 包结构
 
         只对包含 Python 源码的目录要求 `__init__.py`。资源目录（static/、
@@ -837,7 +837,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
         return missing
 
-    def get_required_package_files(self, package_path: str) -> List[str]:
+    def get_required_package_files(self, package_path: str) -> list[str]:
         """获取 Python 包所需的文件"""
         return [self.get_package_init_file(package_path)]
 

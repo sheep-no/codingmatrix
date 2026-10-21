@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.json_parser import parse_tool_call
@@ -52,9 +52,9 @@ class Specialist:
     """专业角色基类"""
 
     def __init__(self, role_name: str, model_name: str, task_type: str = "generate",
-                 api_key_token: Optional[str] = None, provider_id: Optional[str] = None,
-                 semaphore: Optional[asyncio.Semaphore] = None, cost_tracker=None,
-                 complexity: str = "medium", cancel_event: Optional[asyncio.Event] = None):
+                 api_key_token: str | None = None, provider_id: str | None = None,
+                 semaphore: asyncio.Semaphore | None = None, cost_tracker=None,
+                 complexity: str = "medium", cancel_event: asyncio.Event | None = None):
         self.role_name = role_name
         self.model_name = model_name
         self.task_type = task_type
@@ -62,7 +62,7 @@ class Specialist:
         self.model_config = LayeredModelRouter.get_model_config(model_name, task_type=task_type, api_key_token=api_key_token)
         self.provider_id = provider_id
         self._cost_tracker = cost_tracker
-        self._edited_files: List[str] = []
+        self._edited_files: list[str] = []
         self._write_tools = {"partial_update", "insert_content", "regex_replace"}
         self._complexity = complexity
         self.cancel_event = cancel_event
@@ -77,7 +77,7 @@ class Specialist:
             cancel_event=cancel_event,
         )
 
-    def get_edited_files(self) -> List[str]:
+    def get_edited_files(self) -> list[str]:
         """获取本轮通过工具直接编辑过的文件列表"""
         return self._edited_files.copy()
 
@@ -106,7 +106,7 @@ class Specialist:
                 return
 
     @traced("specialist.call_llm", attributes={"component": "specialist"})
-    async def call_llm(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: Optional[int] = None) -> str:
+    async def call_llm(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: int | None = None) -> str:
         """调用 LLM（委托给 LLMClient）
 
         Args:
@@ -119,7 +119,7 @@ class Specialist:
         )
 
     @staticmethod
-    def _build_tools_description(tools: Dict[str, Dict]) -> str:
+    def _build_tools_description(tools: dict[str, dict]) -> str:
         """构建工具描述文本，注入 system prompt"""
         lines = []
         for name, info in tools.items():
@@ -128,7 +128,7 @@ class Specialist:
         return "\n".join(lines)
 
     @staticmethod
-    def _parse_tool_call(content: str) -> Optional[Dict]:
+    def _parse_tool_call(content: str) -> dict | None:
         """从 LLM 回复中解析单个工具调用（委托给 json_parser）"""
         return parse_tool_call(content)
 
@@ -137,16 +137,16 @@ class Specialist:
         self,
         prompt: str,
         system_prompt: str = "",
-        tools: Optional[Dict[str, Dict]] = None,
+        tools: dict[str, dict] | None = None,
         project_path: str = "",
         max_rounds: int = None,
-        react_mode: Optional[str] = None,
-        callback: Optional[Any] = None,
+        react_mode: str | None = None,
+        callback: Any | None = None,
         heartbeat_tracker=None,
         enable_streaming_thinking: bool = False,
-        thinking_budget: Optional[int] = None,
-        required_tool_names: Optional[set[str]] = None,
-        preverified_tool_names: Optional[set[str]] = None,
+        thinking_budget: int | None = None,
+        required_tool_names: set[str] | None = None,
+        preverified_tool_names: set[str] | None = None,
     ) -> str:
         """调用 LLM，支持 ReAct 工具调用循环
 
@@ -198,8 +198,8 @@ class Specialist:
             # 避免 1 秒 30 个 token 时产生 30 个并发 queue.put 任务
             _merge_window_ms = 50
             # 每个 thinking session 一个合并缓冲区
-            _merge_buffers: Dict[str, Dict[str, Any]] = {}
-            _merge_tasks: Dict[str, asyncio.Task] = {}
+            _merge_buffers: dict[str, dict[str, Any]] = {}
+            _merge_tasks: dict[str, asyncio.Task] = {}
 
             def _flush_buffer(key: str) -> None:
                 """推送缓冲区的累积内容并清空"""
@@ -328,7 +328,7 @@ class Specialist:
         )
 
         original_execute_tool = engine._execute_tool
-        async def tracked_execute_tool(tool_name: str, tool_params: Dict):
+        async def tracked_execute_tool(tool_name: str, tool_params: dict):
             success, result = await original_execute_tool(tool_name, tool_params)
             if tool_name in self._write_tools and success and isinstance(result, dict) and result.get("success"):
                 edited_path = tool_params.get("path", "")
@@ -343,7 +343,7 @@ class Specialist:
         return await engine.run(prompt, system_prompt)
 
     @staticmethod
-    def _emit_event(callback: Any, event_type: str, data: Dict):
+    def _emit_event(callback: Any, event_type: str, data: dict):
         """推送事件到前端"""
         try:
             event = {"type": event_type, **data}

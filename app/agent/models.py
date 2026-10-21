@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.utils.model_defaults import get_default_model
 
@@ -57,7 +56,7 @@ class ModelInfo:
     key: str
     name: str
     display_name: str
-    capabilities: List[ModelCapability]
+    capabilities: list[ModelCapability]
     max_tokens: int
     thinking_budget: int
     temperature: float
@@ -82,7 +81,7 @@ COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
 class ModelRegistry:
     """模型注册表 - 管理所有可用模型"""
 
-    MODELS: Dict[str, ModelInfo] = {
+    MODELS: dict[str, ModelInfo] = {
         # DeepSeek 系列
         "deepseek-r1-qwen3-8b": ModelInfo(
             key="deepseek-r1-qwen3-8b",
@@ -194,18 +193,18 @@ class ModelRegistry:
     }
 
     @classmethod
-    def get(cls, key: str) -> Optional[ModelInfo]:
+    def get(cls, key: str) -> ModelInfo | None:
         return cls.MODELS.get(key)
 
     @classmethod
-    def get_by_name(cls, name: str) -> Optional[ModelInfo]:
+    def get_by_name(cls, name: str) -> ModelInfo | None:
         for model in cls.MODELS.values():
             if model.name == name:
                 return model
         return None
 
     @classmethod
-    def list_all(cls) -> List[ModelInfo]:
+    def list_all(cls) -> list[ModelInfo]:
         return list(cls.MODELS.values())
 
 
@@ -327,7 +326,7 @@ class ModelRouter:
         return ModelRegistry.get(fallback_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")
 
     @classmethod
-    def route_by_content(cls, content: str, files: Optional[List[str]] = None) -> TaskType:
+    def route_by_content(cls, content: str, files: list[str] | None = None) -> TaskType:
         """
         根据内容特征自动识别任务类型
 

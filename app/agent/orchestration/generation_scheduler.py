@@ -6,17 +6,8 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    Literal,
-    Mapping,
-    Optional,
-    Set,
-    Tuple,
-)
+from typing import Any, Literal
+from collections.abc import Awaitable, Callable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,8 +57,8 @@ class GeneratedContent(BaseModel):
     content: str
     model_name: str = Field(min_length=1)
     validation_passed: bool = True
-    diagnostics: Tuple[str, ...] = ()
-    contract_refs: Tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    contract_refs: tuple[str, ...] = ()
 
 
 class TestGenerationContract(BaseModel):
@@ -111,13 +102,13 @@ class FileGenerationContext:
     planned_file: PlannedFile
     upstream_contents: Mapping[str, str]
     attempt: int
-    cancel_event: Optional[asyncio.Event]
+    cancel_event: asyncio.Event | None
     contract_index: ContractIndex
-    http_contracts: Tuple[ContractEntry, ...]
-    cross_file_contracts: Tuple[ContractEntry, ...]
+    http_contracts: tuple[ContractEntry, ...]
+    cross_file_contracts: tuple[ContractEntry, ...]
     test_generation_contract: TestGenerationContract
     technology: TechnologyProfile
-    previous_diagnostics: Tuple[str, ...] = ()
+    previous_diagnostics: tuple[str, ...] = ()
 
     @property
     def file_path(self) -> str:
@@ -130,8 +121,8 @@ class GenerationNodeResult(BaseModel):
     path: str = Field(min_length=1)
     status: GenerationNodeStatus
     attempts: int = Field(default=0, ge=0)
-    diagnostics: Tuple[ArtifactDiagnostic, ...] = ()
-    completion_event: Optional[ArtifactCompletionEvent] = None
+    diagnostics: tuple[ArtifactDiagnostic, ...] = ()
+    completion_event: ArtifactCompletionEvent | None = None
 
 
 class GenerationScheduleStats(BaseModel):
@@ -150,13 +141,13 @@ class GenerationScheduleResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: GenerationScheduleStatus
-    nodes: Dict[str, GenerationNodeResult]
-    completion_events: Tuple[ArtifactCompletionEvent, ...] = ()
+    nodes: dict[str, GenerationNodeResult]
+    completion_events: tuple[ArtifactCompletionEvent, ...] = ()
     stats: GenerationScheduleStats
-    root_causes: Tuple[ArtifactDiagnostic, ...] = ()
-    blocked_nodes: Tuple[str, ...] = ()
-    timeouts: Tuple[ArtifactDiagnostic, ...] = ()
-    truncations: Tuple[ArtifactDiagnostic, ...] = ()
+    root_causes: tuple[ArtifactDiagnostic, ...] = ()
+    blocked_nodes: tuple[str, ...] = ()
+    timeouts: tuple[ArtifactDiagnostic, ...] = ()
+    truncations: tuple[ArtifactDiagnostic, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -171,8 +162,8 @@ class _MutableNode:
     planned_file: PlannedFile
     status: GenerationNodeStatus = GenerationNodeStatus.PENDING
     attempts: int = 0
-    diagnostics: Tuple[ArtifactDiagnostic, ...] = ()
-    completion_event: Optional[ArtifactCompletionEvent] = None
+    diagnostics: tuple[ArtifactDiagnostic, ...] = ()
+    completion_event: ArtifactCompletionEvent | None = None
 
 
 class GenerationScheduler:
@@ -192,10 +183,10 @@ class GenerationScheduler:
         self.committer = committer
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
-        self.nodes: Dict[str, _MutableNode] = {}
-        self._active_tasks: Set[asyncio.Task[None]] = set()
+        self.nodes: dict[str, _MutableNode] = {}
+        self._active_tasks: set[asyncio.Task[None]] = set()
         self._max_parallelism = 0
-        self._termination_status: Optional[GenerationNodeStatus] = None
+        self._termination_status: GenerationNodeStatus | None = None
 
     @property
     def active_task_count(self) -> int:
@@ -209,8 +200,8 @@ class GenerationScheduler:
         *,
         task_id: str,
         stage_id: str,
-        cancel_event: Optional[asyncio.Event] = None,
-        contract_index: Optional[ContractIndex] = None,
+        cancel_event: asyncio.Event | None = None,
+        contract_index: ContractIndex | None = None,
         task_elapsed_seconds: float = 0.0,
     ) -> GenerationScheduleResult:
         self._initialize(plan)
@@ -299,10 +290,10 @@ class GenerationScheduler:
         *,
         task_id: str,
         stage_id: str,
-        cancel_event: Optional[asyncio.Event],
+        cancel_event: asyncio.Event | None,
         contract_index: ContractIndex,
     ) -> None:
-        reverse_dependencies: Dict[str, Set[str]] = {path: set() for path in self.nodes}
+        reverse_dependencies: dict[str, set[str]] = {path: set() for path in self.nodes}
         for item in plan.files:
             for dependency in item.dependencies:
                 reverse_dependencies[dependency].add(item.path)
@@ -381,14 +372,14 @@ class GenerationScheduler:
         *,
         task_id: str,
         stage_id: str,
-        cancel_event: Optional[asyncio.Event],
+        cancel_event: asyncio.Event | None,
         contract_index: ContractIndex,
         completion_queue: asyncio.Queue[str],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
         file_deadline = loop.time() + budget.file_seconds
         path = node.planned_file.path
-        validation_feedback: Tuple[str, ...] = ()
+        validation_feedback: tuple[str, ...] = ()
         try:
             for attempt in range(1, self.max_retries + 2):
                 node.attempts = attempt
@@ -547,7 +538,7 @@ class GenerationScheduler:
     def _block_descendants(
         self,
         source: str,
-        reverse_dependencies: Mapping[str, Set[str]],
+        reverse_dependencies: Mapping[str, set[str]],
     ) -> None:
         pending = list(reverse_dependencies[source])
         while pending:

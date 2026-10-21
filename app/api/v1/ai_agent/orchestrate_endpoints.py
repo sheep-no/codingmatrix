@@ -6,7 +6,8 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -36,7 +37,7 @@ from app.utils.security import verify_token
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
 # 修复 v5.x → v6.x：test/validation/cost/perf/warning/file_rejected/step_detail
 # 之前被错误包装成 progress 导致前端对应 UI 永远收不到数据
-PASSTHROUGH_SSE_EVENTS: FrozenSet[str] = frozenset({
+PASSTHROUGH_SSE_EVENTS: frozenset[str] = frozenset({
     # 进度类
     "thinking", "model_info", "file", "file_diff",
     # 实时统计/结果
@@ -50,7 +51,7 @@ PASSTHROUGH_SSE_EVENTS: FrozenSet[str] = frozenset({
 })
 
 
-def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: bool | None = None) -> Dict[str, Any]:
+def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: bool | None = None) -> dict[str, Any]:
     """Describe engine, tool, and Skill routing for the model and the UI."""
     requested_engine = getattr(request, "engine", None)
     if incremental is None:
@@ -88,7 +89,7 @@ def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: boo
     }
 
 
-def _pipeline_mode_banner(payload: Dict[str, Any]) -> str:
+def _pipeline_mode_banner(payload: dict[str, Any]) -> str:
     return (
         "[Pipeline Mode]\n"
         f"engine={payload['engine']} incremental={str(payload['incremental']).lower()} "
@@ -106,7 +107,7 @@ def _select_core_adapter(orchestrator, *, incremental: bool, spec_first: bool):
     return TraditionalAdapter(orchestrator), "traditional"
 
 
-def _core_request_metadata(request) -> Dict[str, Any]:
+def _core_request_metadata(request) -> dict[str, Any]:
     metadata = request.model_dump(
         include={
             "contracts", "framework", "runtime", "required_validation_scopes",
@@ -121,7 +122,7 @@ def _core_request_metadata(request) -> Dict[str, Any]:
 
 def _legacy_requirement_with_allowed_files(
     requirement: str,
-    allowed_files: List[str],
+    allowed_files: list[str],
 ) -> str:
     """Project the structured file boundary onto the legacy text contract."""
     if not allowed_files:
@@ -200,7 +201,7 @@ def resolve_stream_output_dir(
     return output_dir, resolved_name, resolved_session
 
 
-def _generation_result_error(result: Dict[str, Any]) -> str | None:
+def _generation_result_error(result: dict[str, Any]) -> str | None:
     """Return an actionable error when an orchestrator result is unsuccessful."""
     if result.get("success") is True:
         return None
@@ -251,9 +252,9 @@ from .schemas import (
 )
 from .single_file_generation import generate_single_file
 
-_decision_queues: Dict[str, asyncio.Queue] = {}
-_cancel_events: Dict[str, asyncio.Event] = {}
-_pending_stream_owners: Dict[str, str] = {}
+_decision_queues: dict[str, asyncio.Queue] = {}
+_cancel_events: dict[str, asyncio.Event] = {}
+_pending_stream_owners: dict[str, str] = {}
 
 
 def _generation_http_exception(error: Exception) -> HTTPException:
@@ -263,8 +264,8 @@ def _generation_http_exception(error: Exception) -> HTTPException:
         return HTTPException(status_code=503, detail=message)
     return HTTPException(status_code=500, detail=f"项目生成失败: {message}")
 # 运行中的生成任务，用于浏览器重连
-_active_tasks: Dict[str, dict] = {}
-_user_creation_locks: Dict[str, asyncio.Lock] = {}
+_active_tasks: dict[str, dict] = {}
+_user_creation_locks: dict[str, asyncio.Lock] = {}
 
 
 class _SseBroadcast:
@@ -535,7 +536,7 @@ def _is_analyze_intent(requirement: str) -> bool:
     return False
 
 
-def _resolve_project_dir(project_path: str) -> Tuple[Optional[Path], Optional[str]]:
+def _resolve_project_dir(project_path: str) -> tuple[Path | None, str | None]:
     """同步解析项目目录（供线程池调用，避免阻塞事件循环）。
 
     返回 (project_dir, error)：成功时 error 为 None；失败时 project_dir 为 None，
@@ -562,7 +563,7 @@ def _resolve_project_dir(project_path: str) -> Tuple[Optional[Path], Optional[st
     return project_dir, None
 
 
-def _locate_snapshot_project_dir(session_id: str) -> Optional[Path]:
+def _locate_snapshot_project_dir(session_id: str) -> Path | None:
     """同步定位快照所属项目目录（供线程池调用）；两处候选均不存在时返回 None。"""
     project_dir = Path(f"orchestrator/{session_id}")
     if not project_dir.exists():
@@ -908,7 +909,7 @@ async def orchestrate_project(
     metrics_token = begin_llm_call_metrics()
     metrics_active = True
 
-    def close_generation_metrics() -> Dict[str, int]:
+    def close_generation_metrics() -> dict[str, int]:
         nonlocal metrics_active
         if not metrics_active:
             return {}
@@ -2226,7 +2227,7 @@ async def session_action_endpoint(
 @router.post("/session/{session_id}/decision")
 async def submit_decision_endpoint(
     session_id: str,
-    decisions: Dict[str, str],
+    decisions: dict[str, str],
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):

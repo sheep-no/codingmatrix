@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Tuple
 
 _PYTHON_ONLY_PATTERNS = (
     r'^\s*def\s+\w+\s*\(.*\)\s*:',
@@ -32,7 +31,7 @@ def balanced_delimiters(source: str) -> bool:
     return source.count('{') == source.count('}') and source.count('(') == source.count(')')
 
 
-def _heuristic_js(source: str) -> Tuple[bool, str]:
+def _heuristic_js(source: str) -> tuple[bool, str]:
     if has_python_only_syntax(source):
         return False, "源码中出现 Python 专有语法"
     if not balanced_delimiters(source):
@@ -40,7 +39,7 @@ def _heuristic_js(source: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def check_js_source(source: str) -> Tuple[bool, str]:
+def check_js_source(source: str) -> tuple[bool, str]:
     """校验 JS/ESM 源码，返回 (是否通过, 错误信息)。
 
     node 缺失、超时或被信号终止时退回语法启发式，避免把合法代码判为失败。
@@ -64,7 +63,7 @@ def check_js_source(source: str) -> Tuple[bool, str]:
         return _heuristic_js(source)
 
 
-def check_ts_source(source: str, *, jsx: bool = False) -> Tuple[bool, str]:
+def check_ts_source(source: str, *, jsx: bool = False) -> tuple[bool, str]:
     """校验 TypeScript/TSX 源码，返回 (是否通过, 错误信息)。"""
     if jsx and has_python_only_syntax(source):
         return False, "源码中出现 Python 专有语法"
@@ -105,7 +104,7 @@ def check_ts_source(source: str, *, jsx: bool = False) -> Tuple[bool, str]:
         return balanced, "" if balanced else unbalanced_error
 
 
-def vue_script_source(content: str) -> Tuple[str, bool, bool]:
+def vue_script_source(content: str) -> tuple[str, bool, bool]:
     """提取 .vue 单文件组件的 <script> 块。
 
     返回 (script 源码, 是否 TS, 是否 TSX)。无 <script> 时源码为空串。

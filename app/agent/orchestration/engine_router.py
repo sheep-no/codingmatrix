@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from .routing import CORE_ENGINE, engine_metadata, select_engine
 
@@ -14,7 +15,7 @@ Handler = Callable[[], Any | Awaitable[Any]]
 class EngineRouteResult:
     engine: str
     result: Any
-    shadow: Optional[Dict[str, Any]] = None
+    shadow: dict[str, Any] | None = None
 
 
 def _file_paths(result: Any) -> set[str]:
@@ -28,7 +29,7 @@ def _file_paths(result: Any) -> set[str]:
     return set()
 
 
-def compare_shadow_results(primary: Any, shadow: Any) -> Dict[str, Any]:
+def compare_shadow_results(primary: Any, shadow: Any) -> dict[str, Any]:
     """Compare stable result facts without retaining generated source content."""
     primary_paths = _file_paths(primary)
     shadow_paths = _file_paths(shadow)
@@ -47,9 +48,9 @@ def compare_shadow_results(primary: Any, shadow: Any) -> Dict[str, Any]:
 
 async def route_generation(
     legacy_handler: Handler,
-    core_handler: Optional[Handler] = None,
+    core_handler: Handler | None = None,
     *,
-    requested_engine: Optional[str] = None,
+    requested_engine: str | None = None,
     shadow: bool = False,
 ) -> EngineRouteResult:
     """Run the selected handler and optionally run the other engine in shadow."""

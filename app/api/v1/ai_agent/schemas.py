@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,7 +22,7 @@ PATH_TRAVERSAL_PATTERN = re.compile(r'\.\./|\.\.\\')
 MAX_PROMPT_LENGTH = 5000
 
 
-def validate_session_id(v: Optional[str], field_name: str = "session_id") -> Optional[str]:
+def validate_session_id(v: str | None, field_name: str = "session_id") -> str | None:
     """验证会话 ID 格式"""
     if v is None:
         return v
@@ -37,7 +37,7 @@ def validate_session_id(v: Optional[str], field_name: str = "session_id") -> Opt
     return v
 
 
-def validate_path_safety(v: Optional[str], field_name: str = "path") -> Optional[str]:
+def validate_path_safety(v: str | None, field_name: str = "path") -> str | None:
     """验证路径安全性"""
     if v is None:
         return v
@@ -54,27 +54,27 @@ def validate_path_safety(v: Optional[str], field_name: str = "path") -> Optional
 
 class KnowledgeRequest(BaseModel):
     content: str = Field(..., description="知识内容", min_length=1)
-    knowledge_key: Optional[str] = Field(None, description="知识关键词")
+    knowledge_key: str | None = Field(None, description="知识关键词")
     category: str = Field("general", description="分类")
     importance: float = Field(0.5, description="重要性", ge=0.0, le=1.0)
-    tags: Optional[List[str]] = Field(default_factory=list, description="标签列表")
+    tags: list[str] | None = Field(default_factory=list, description="标签列表")
 
 
 class KnowledgeResponse(BaseModel):
     id: str
     content: str
-    knowledge_key: Optional[str]
+    knowledge_key: str | None
     category: str
     importance: float
     usage_count: int
-    created_at: Optional[str] = None
-    tags: Optional[List[str]] = None
+    created_at: str | None = None
+    tags: list[str] | None = None
 
 
 class SaveProjectRequest(BaseModel):
     name: str = Field(..., max_length=200, description="项目名称")
-    description: Optional[str] = Field(None, description="项目描述")
-    project_path: Optional[str] = Field(None, description="磁盘项目路径")
+    description: str | None = Field(None, description="项目描述")
+    project_path: str | None = Field(None, description="磁盘项目路径")
     project_data: str = Field(..., description="项目数据 (JSON 字符串)")
 
 
@@ -84,15 +84,15 @@ class ImportedProjectFile(BaseModel):
 
 
 class ImportProjectFilesRequest(BaseModel):
-    files: List[ImportedProjectFile] = Field(..., min_length=1, max_length=200)
-    project_name: Optional[str] = Field(None, max_length=80)
+    files: list[ImportedProjectFile] = Field(..., min_length=1, max_length=200)
+    project_name: str | None = Field(None, max_length=80)
 
 
 class SaveProjectResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str]
-    project_path: Optional[str]
+    description: str | None
+    project_path: str | None
     created_at: datetime
     message: str
 
@@ -106,16 +106,16 @@ class ProjectListResponse(BaseModel):
 class LoadProjectResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str]
-    project_path: Optional[str]
+    description: str | None
+    project_path: str | None
     project_data: str
     created_at: datetime
-    updated_at: Optional[datetime]
+    updated_at: datetime | None
 
 
 class OrchestratorRequest(BaseModel):
-    engine: Optional[Literal["legacy", "core"]] = Field(None, description="编排引擎；省略时沿用服务端配置")
-    contracts: Optional[Dict[str, Any]] = Field(
+    engine: Literal["legacy", "core"] | None = Field(None, description="编排引擎；省略时沿用服务端配置")
+    contracts: dict[str, Any] | None = Field(
         None,
         description=(
             "结构化项目契约；routes/endpoints 可选 request_body_schema、"
@@ -123,11 +123,11 @@ class OrchestratorRequest(BaseModel):
             "（HTTP body 序列化指导），首次生成与 repair 均应传入同一合同"
         ),
     )
-    framework: Optional[str] = Field(None, description="目标框架", min_length=1, max_length=100)
-    runtime: Optional[str] = Field(None, description="目标运行时", min_length=1, max_length=100)
+    framework: str | None = Field(None, description="目标框架", min_length=1, max_length=100)
+    runtime: str | None = Field(None, description="目标运行时", min_length=1, max_length=100)
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=MAX_PROMPT_LENGTH)
-    project_name: Optional[str] = Field(None, description="项目名称（可选，自动生成）", max_length=50)
-    output_dir: Optional[str] = Field(None, description="输出目录（可选）", max_length=500)
+    project_name: str | None = Field(None, description="项目名称（可选，自动生成）", max_length=50)
+    output_dir: str | None = Field(None, description="输出目录（可选）", max_length=500)
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
@@ -142,29 +142,29 @@ class OrchestratorRequest(BaseModel):
             "False 时视为明确失败"
         ),
     )
-    session_id: Optional[str] = Field(None, description="会话ID（用于增量生成/续传）")
-    is_resume: Optional[bool] = Field(None, description="True 仅重连指定存活任务；False 明确新生成；省略保留旧客户端行为")
+    session_id: str | None = Field(None, description="会话ID（用于增量生成/续传）")
+    is_resume: bool | None = Field(None, description="True 仅重连指定存活任务；False 明确新生成；省略保留旧客户端行为")
     incremental: bool = Field(False, description="是否启用增量生成")
     require_approval: bool = Field(False, description="是否要求关键文件人工审批")
     evaluation_only: bool = Field(False, description="只评价不修改 - 输出分析报告和改进建议，不生成代码文件")
-    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
-    provider_id: Optional[str] = Field(None, description="动态供应商 ID（使用用户自定义 API 端点）")
-    project_path: Optional[str] = Field(
+    api_key_token: str | None = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    provider_id: str | None = Field(None, description="动态供应商 ID（使用用户自定义 API 端点）")
+    project_path: str | None = Field(
         None,
         description="前端传来的项目路径（增量模式用，兼容旧时间戳目录）",
         max_length=500
     )
-    required_validation_scopes: List[str] = Field(
+    required_validation_scopes: list[str] = Field(
         default_factory=list,
         description="需要由 Agent Host 执行的本地验证范围",
         max_length=2,
     )
-    allowed_files: List[str] = Field(
+    allowed_files: list[str] = Field(
         default_factory=list,
         description="增量生成允许修改的项目相对路径集合",
         max_length=100,
     )
-    change_plan: List[Dict[str, Any]] = Field(
+    change_plan: list[dict[str, Any]] = Field(
         default_factory=list,
         description="增量生成的显式文件变更计划",
         max_length=100,
@@ -225,38 +225,38 @@ class OrchestratorResponse(BaseModel):
     success: bool
     output_dir: str
     total_files_created: int
-    total_files_failed: Optional[int] = 0
+    total_files_failed: int | None = 0
     complexity: str = "unknown"
-    models_used: Dict[str, str] = Field(default_factory=dict)
-    files: List[Dict[str, Any]]
-    validation: Dict[str, Any]
-    test_results: Optional[Dict[str, Any]] = None
-    specs_generated: Optional[List[str]] = None
-    context_summary: Optional[str] = None
-    context_full: Optional[Dict[str, Any]] = None
-    errors: List[str]
-    warnings: List[str]
+    models_used: dict[str, str] = Field(default_factory=dict)
+    files: list[dict[str, Any]]
+    validation: dict[str, Any]
+    test_results: dict[str, Any] | None = None
+    specs_generated: list[str] | None = None
+    context_summary: str | None = None
+    context_full: dict[str, Any] | None = None
+    errors: list[str]
+    warnings: list[str]
     elapsed_time: float
-    fix_attempts: List[Dict[str, Any]] = Field(default_factory=list)
-    session_id: Optional[str] = None
-    generation_metrics: Dict[str, Any] = Field(default_factory=dict)
-    repair_feedback: Dict[str, Any] = Field(default_factory=dict)
-    workflow: Dict[str, Any] = Field(default_factory=dict)
+    fix_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    session_id: str | None = None
+    generation_metrics: dict[str, Any] = Field(default_factory=dict)
+    repair_feedback: dict[str, Any] = Field(default_factory=dict)
+    workflow: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("context_summary", mode="before")
     @classmethod
-    def normalize_context_summary(cls, value: Any) -> Optional[str]:
+    def normalize_context_summary(cls, value: Any) -> str | None:
         if value is None or isinstance(value, str):
             return value
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 class ModifyRequest(BaseModel):
-    engine: Optional[Literal["legacy", "core"]] = Field(None, description="编排引擎；省略时沿用服务端配置")
-    requirement: Optional[str] = Field(None, description="修改需求描述（分析类请求必填，修改类可选）", max_length=5000)
-    project_path: Optional[str] = Field(None, description="已有项目路径（相对于 projects 目录）")
-    output_dir: Optional[str] = Field(None, description="输出目录（绝对路径或相对于 projects 目录）")
-    session_id: Optional[str] = Field(None, description="已有会话 ID")
+    engine: Literal["legacy", "core"] | None = Field(None, description="编排引擎；省略时沿用服务端配置")
+    requirement: str | None = Field(None, description="修改需求描述（分析类请求必填，修改类可选）", max_length=5000)
+    project_path: str | None = Field(None, description="已有项目路径（相对于 projects 目录）")
+    output_dir: str | None = Field(None, description="输出目录（绝对路径或相对于 projects 目录）")
+    session_id: str | None = Field(None, description="已有会话 ID")
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
@@ -271,7 +271,7 @@ class ModifyRequest(BaseModel):
     dependency_graph: bool = Field(True, description="是否启用依赖图")
     enable_cross_file_analysis: bool = Field(True, description="是否启用跨文件依赖分析（v4.8.0）")
     max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
-    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    api_key_token: str | None = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     incremental: bool = Field(True, description="是否增量修改")
 
     @field_validator('session_id')
@@ -290,9 +290,9 @@ class ComplexityAnalysisResponse(BaseModel):
     has_frontend: bool
     has_backend: bool
     has_database: bool
-    key_technologies: List[str]
-    risk_factors: List[str]
-    model_assignment: Dict[str, str]
+    key_technologies: list[str]
+    risk_factors: list[str]
+    model_assignment: dict[str, str]
 
 
 class ModelAssignmentContext(BaseModel):
@@ -302,66 +302,66 @@ class ModelAssignmentContext(BaseModel):
 
 
 class ModelFallbackEvent(BaseModel):
-    from_model: Optional[str] = None
+    from_model: str | None = None
     to_model: str
-    reason: Optional[str] = None
-    timestamp: Optional[str] = None
+    reason: str | None = None
+    timestamp: str | None = None
 
 
 class AgentModelContextUpdate(BaseModel):
     expected_revision: int = Field(..., ge=0)
-    config_version: Optional[str] = None
-    roles: Optional[Dict[str, str]] = None
-    current_model: Optional[str] = None
-    current_agent: Optional[str] = None
-    assignments: Optional[Dict[str, ModelAssignmentContext]] = None
-    fallback_history: Optional[List[ModelFallbackEvent]] = Field(None, max_length=50)
+    config_version: str | None = None
+    roles: dict[str, str] | None = None
+    current_model: str | None = None
+    current_agent: str | None = None
+    assignments: dict[str, ModelAssignmentContext] | None = None
+    fallback_history: list[ModelFallbackEvent] | None = Field(None, max_length=50)
 
 
 class AgentModelContextResponse(BaseModel):
     found: bool
     revision: int = Field(0, ge=0)
-    context: Dict[str, Any]
+    context: dict[str, Any]
 
 
 class RequirementAssociationRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)
-    complexity_level: Optional[str] = Field(None, description="项目复杂度等级 (simple/small/medium/large/enterprise)")
+    complexity_level: str | None = Field(None, description="项目复杂度等级 (simple/small/medium/large/enterprise)")
     skip_association: bool = Field(False, description="是否跳过联想环节")
 
 
 class RequirementAssociationResponse(BaseModel):
     skipped: bool = False
-    skip_reason: Optional[str] = None
-    domain_matched: Optional[str] = None
-    domains_matched: List[str] = Field(default_factory=list)
-    items: List[Dict[str, Any]] = Field(default_factory=list)
-    classified_items: Dict[str, Any] = Field(default_factory=dict)
-    enhanced_requirement: Optional[str] = None
-    devil_review_items: List[Dict[str, Any]] = Field(default_factory=list)
+    skip_reason: str | None = None
+    domain_matched: str | None = None
+    domains_matched: list[str] = Field(default_factory=list)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    classified_items: dict[str, Any] = Field(default_factory=dict)
+    enhanced_requirement: str | None = None
+    devil_review_items: list[dict[str, Any]] = Field(default_factory=list)
     elapsed_seconds: float = 0.0
 
 
 class EvaluateRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)
-    output_dir: Optional[str] = Field(None, description="输出目录 (可选)")
-    session_id: Optional[str] = Field(None, description="会话 ID")
-    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    output_dir: str | None = Field(None, description="输出目录 (可选)")
+    session_id: str | None = Field(None, description="会话 ID")
+    api_key_token: str | None = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class EvaluateResponse(BaseModel):
     mode: str = "evaluation_only"
     requirement: str
-    complexity: Dict[str, Any] = Field(default_factory=dict)
-    architecture: Dict[str, Any] = Field(default_factory=dict)
-    association_result: Dict[str, Any] = Field(default_factory=dict)
-    requirement_evaluation: Dict[str, Any] = Field(default_factory=dict)
-    architecture_evaluation: Dict[str, Any] = Field(default_factory=dict)
-    risk_evaluation: Dict[str, Any] = Field(default_factory=dict)
-    overall_assessment: Dict[str, Any] = Field(default_factory=dict)
+    complexity: dict[str, Any] = Field(default_factory=dict)
+    architecture: dict[str, Any] = Field(default_factory=dict)
+    association_result: dict[str, Any] = Field(default_factory=dict)
+    requirement_evaluation: dict[str, Any] = Field(default_factory=dict)
+    architecture_evaluation: dict[str, Any] = Field(default_factory=dict)
+    risk_evaluation: dict[str, Any] = Field(default_factory=dict)
+    overall_assessment: dict[str, Any] = Field(default_factory=dict)
     elapsed_seconds: float = 0.0
     success: bool = True
-    models_used: Dict[str, str] = Field(default_factory=dict)
+    models_used: dict[str, str] = Field(default_factory=dict)
 
 
 class TokenUsageStatsResponse(BaseModel):
@@ -372,7 +372,7 @@ class TokenUsageStatsResponse(BaseModel):
     total_messages: int = Field(0, description="总消息数")
     today_tokens: int = Field(0, description="今日 token 使用量")
     this_month_tokens: int = Field(0, description="本月 token 使用量")
-    by_model: Dict[str, int] = Field(default_factory=dict, description="按模型统计")
+    by_model: dict[str, int] = Field(default_factory=dict, description="按模型统计")
 
 
 # ==================== 方案 3：Agent 工具 - 会话搜索 ====================
@@ -397,4 +397,4 @@ class SessionMatch(BaseModel):
 class SearchSessionsResponse(BaseModel):
     """搜索会话响应"""
     query: str = Field(..., description="搜索查询")
-    matches: List[SessionMatch] = Field(default_factory=list, description="匹配结果列表")
+    matches: list[SessionMatch] = Field(default_factory=list, description="匹配结果列表")

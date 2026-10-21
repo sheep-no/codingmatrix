@@ -6,7 +6,8 @@ import hashlib
 import json
 import re
 from enum import Enum
-from typing import Any, Iterable, Mapping, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,8 +43,8 @@ class ContextEnvelope(BaseModel):
 
     task_id: str = Field(min_length=1)
     stage: str = Field(min_length=1)
-    file_path: Optional[str] = None
-    items: Tuple[ContextItem, ...] = ()
+    file_path: str | None = None
+    items: tuple[ContextItem, ...] = ()
     context_hash: str = Field(min_length=64, max_length=64)
     redacted_count: int = Field(default=0, ge=0)
 
@@ -54,10 +55,10 @@ class SkillPolicy(BaseModel):
     name: str = Field(min_length=1)
     stage: str = Field(min_length=1)
     priority: int = Field(default=50, ge=0, le=100)
-    languages: Tuple[str, ...] = ()
-    frameworks: Tuple[str, ...] = ()
-    hard_constraints: Tuple[str, ...] = ()
-    validation_rules: Tuple[str, ...] = ()
+    languages: tuple[str, ...] = ()
+    frameworks: tuple[str, ...] = ()
+    hard_constraints: tuple[str, ...] = ()
+    validation_rules: tuple[str, ...] = ()
 
 
 class MCPToolDescriptor(BaseModel):
@@ -65,10 +66,10 @@ class MCPToolDescriptor(BaseModel):
 
     name: str = Field(min_length=1)
     capability: str = Field(min_length=1)
-    read_scopes: Tuple[str, ...] = ()
-    write_scopes: Tuple[str, ...] = ()
-    project_scope: Optional[str] = None
-    dependencies: Tuple[str, ...] = ()
+    read_scopes: tuple[str, ...] = ()
+    write_scopes: tuple[str, ...] = ()
+    project_scope: str | None = None
+    dependencies: tuple[str, ...] = ()
     timeout_seconds: int = Field(default=60, ge=1, le=600)
     audited: bool = True
 
@@ -90,11 +91,11 @@ class ContextAssembler:
         *,
         task_id: str,
         stage: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         items: Iterable[Mapping[str, Any] | ContextItem] = (),
-        retrieval: Optional[RetrievalResult] = None,
+        retrieval: RetrievalResult | None = None,
         memory_entries: Iterable[Any] = (),
-        mcp_tools: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        mcp_tools: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> ContextEnvelope:
         candidates = [self._coerce(item) for item in items]
         if retrieval is not None:

@@ -1,6 +1,5 @@
 import logging
 import re
-from typing import List
 
 from app.agent.json_parser import extract_first_json_object
 from app.agent.orchestrator_requirements.data_models import AssociationItem
@@ -52,7 +51,7 @@ def build_llm_prompt(
     return "\n".join(parts)
 
 
-def parse_llm_response(response: str) -> List[AssociationItem]:
+def parse_llm_response(response: str) -> list[AssociationItem]:
     items = []
 
     # 用首个 JSON 对象替换贪婪 ``\{[\s\S]*\}``：响应含多段 JSON 时不再跨块
@@ -105,13 +104,13 @@ def parse_llm_response(response: str) -> List[AssociationItem]:
     return items
 
 
-def _extract_text_items(response: str) -> List[AssociationItem]:
+def _extract_text_items(response: str) -> list[AssociationItem]:
     """从非 JSON 响应中提取列表项作为联想项。
 
     只接受带列表标记的行并跳过 JSON 片段，避免把 prompt 说明文字或整块
     JSON 原文当成功能项（OA3 / PM2 家族）。
     """
-    items: List[AssociationItem] = []
+    items: list[AssociationItem] = []
     for line in response.splitlines():
         match = _LIST_ITEM_RE.match(line)
         if not match:
@@ -130,7 +129,7 @@ def _extract_text_items(response: str) -> List[AssociationItem]:
     return items
 
 
-def summarize_items(items: List[AssociationItem], label: str) -> str:
+def summarize_items(items: list[AssociationItem], label: str) -> str:
     if not items:
         return ""
     lines = []

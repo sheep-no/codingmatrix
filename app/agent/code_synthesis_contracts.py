@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Any, Mapping, Tuple
+from typing import Any
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,7 +27,7 @@ class HttpContract(BaseModel):
     status: str = "proposed"
 
     @model_validator(mode="after")
-    def validate_lifecycle(self) -> "HttpContract":
+    def validate_lifecycle(self) -> HttpContract:
         allowed_sources = {"user", "fixture", "existing", "architect", "model_proposal"}
         allowed_statuses = {"proposed", "validated", "frozen", "rejected"}
         if self.source not in allowed_sources:
@@ -58,10 +59,10 @@ class ProjectModel(BaseModel):
     language: str = Field(min_length=1)
     framework: str = ""
     runtime: str = ""
-    modules: Tuple[str, ...] = ()
-    targets: Tuple[str, ...] = ()
-    entrypoints: Tuple[str, ...] = ()
-    generated_zones: Tuple[str, ...] = ()
+    modules: tuple[str, ...] = ()
+    targets: tuple[str, ...] = ()
+    entrypoints: tuple[str, ...] = ()
+    generated_zones: tuple[str, ...] = ()
     capabilities: CapabilitySet = Field(default_factory=CapabilitySet)
 
 
@@ -69,8 +70,8 @@ class ValidationProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
-    required_scopes: Tuple[str, ...] = ()
-    commands: Tuple[Tuple[str, ...], ...] = ()
+    required_scopes: tuple[str, ...] = ()
+    commands: tuple[tuple[str, ...], ...] = ()
 
 
 class ModelCapabilityProfile(BaseModel):
@@ -88,7 +89,7 @@ class ModelCapabilityProfile(BaseModel):
     deterministic: bool = False
 
     @model_validator(mode="after")
-    def validate_structured_output(self) -> "ModelCapabilityProfile":
+    def validate_structured_output(self) -> ModelCapabilityProfile:
         if self.supports_json_schema and not self.supports_structured_output:
             raise ValueError("JSON Schema output requires structured output support")
         if self.max_output_tokens > self.max_context_tokens:
@@ -104,10 +105,10 @@ class ArtifactSpec(BaseModel):
     owner: str = Field(min_length=1)
     operation: str = Field(pattern=r"^(create|modify|delete|rename)$")
     strategy: GenerationStrategy
-    depends_on: Tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
     validation_profile: str = Field(min_length=1)
     source: str = Field(min_length=1)
-    preconditions: Tuple[str, ...] = ()
+    preconditions: tuple[str, ...] = ()
 
 
 class ChangePlanIR(BaseModel):
@@ -117,12 +118,12 @@ class ChangePlanIR(BaseModel):
 
     schema_version: int = Field(default=1, ge=1)
     project: ProjectModel
-    artifacts: Tuple[ArtifactSpec, ...] = ()
+    artifacts: tuple[ArtifactSpec, ...] = ()
     contracts: Mapping[str, Any] = Field(default_factory=dict)
     digest: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_plan(self) -> "ChangePlanIR":
+    def validate_plan(self) -> ChangePlanIR:
         paths = [artifact.path for artifact in self.artifacts]
         path_set = set(paths)
         if len(paths) != len(path_set):
@@ -147,11 +148,11 @@ class ChangePlanIR(BaseModel):
     def build(
         cls,
         project: ProjectModel,
-        artifacts: Tuple[ArtifactSpec, ...] | list[ArtifactSpec],
+        artifacts: tuple[ArtifactSpec, ...] | list[ArtifactSpec],
         contracts: Mapping[str, Any] | None = None,
         *,
         schema_version: int = 1,
-    ) -> "ChangePlanIR":
+    ) -> ChangePlanIR:
         normalized = tuple(sorted(artifacts, key=lambda item: item.path))
         payload = dict(contracts or {})
         digest = _plan_digest(schema_version, project, normalized, payload)
@@ -175,14 +176,14 @@ class StrategyDecision(BaseModel):
 
     strategy: GenerationStrategy
     reason: str = Field(min_length=1)
-    capability_evidence: Tuple[str, ...] = ()
+    capability_evidence: tuple[str, ...] = ()
     degraded: bool = False
 
 
 def _plan_digest(
     schema_version: int,
     project: ProjectModel,
-    artifacts: Tuple[ArtifactSpec, ...],
+    artifacts: tuple[ArtifactSpec, ...],
     contracts: Mapping[str, Any],
 ) -> str:
     project_payload = project.model_dump(mode="json")
@@ -199,7 +200,7 @@ def _plan_digest(
     ).hexdigest()
 
 
-def _assert_acyclic(artifacts: Tuple[ArtifactSpec, ...]) -> None:
+def _assert_acyclic(artifacts: tuple[ArtifactSpec, ...]) -> None:
     dependencies = {item.path: set(item.depends_on) for item in artifacts}
     visiting: set[str] = set()
     visited: set[str] = set()

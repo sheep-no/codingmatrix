@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
+from typing import Any
+from collections.abc import Callable, Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,8 +24,8 @@ class ArtifactDiagnostic(BaseModel):
 
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
-    path: Optional[str] = None
-    details: Dict[str, Any] = Field(default_factory=dict)
+    path: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactCompletionEvent(BaseModel):
@@ -41,26 +42,26 @@ class ArtifactCommitResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     success: bool
-    path: Optional[str] = None
-    content_hash: Optional[str] = None
+    path: str | None = None
+    content_hash: str | None = None
     size_bytes: int = Field(default=0, ge=0)
     idempotent: bool = False
-    completion_event: Optional[ArtifactCompletionEvent] = None
-    diagnostic: Optional[ArtifactDiagnostic] = None
+    completion_event: ArtifactCompletionEvent | None = None
+    diagnostic: ArtifactDiagnostic | None = None
 
 
 class ArtifactConsistencyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     success: bool
-    planned_paths: Tuple[str, ...]
-    manifest_paths: Tuple[str, ...]
-    completed_paths: Tuple[str, ...]
-    disk_paths: Tuple[str, ...]
-    diagnostic: Optional[ArtifactDiagnostic] = None
+    planned_paths: tuple[str, ...]
+    manifest_paths: tuple[str, ...]
+    completed_paths: tuple[str, ...]
+    disk_paths: tuple[str, ...]
+    diagnostic: ArtifactDiagnostic | None = None
 
     @model_validator(mode="after")
-    def validate_diagnostic(self) -> "ArtifactConsistencyResult":
+    def validate_diagnostic(self) -> ArtifactConsistencyResult:
         if self.success and self.diagnostic is not None:
             raise ValueError("successful consistency result cannot contain a diagnostic")
         if not self.success and self.diagnostic is None:
@@ -199,10 +200,10 @@ class ArtifactCommitter:
 
     @staticmethod
     def _failure(
-        path: Optional[str],
+        path: str | None,
         message: str,
         *,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> ArtifactCommitResult:
         return ArtifactCommitResult(
             success=False,
@@ -220,7 +221,7 @@ class ArtifactCommitter:
         path: str,
         message: str,
         *,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> ArtifactCommitResult:
         return ArtifactCommitResult(
             success=False,
@@ -347,7 +348,7 @@ def check_artifact_success_gate(
     )
 
 
-def _business_disk_paths(output_dir: Path, include: Iterable[str] = ()) -> Tuple[str, ...]:
+def _business_disk_paths(output_dir: Path, include: Iterable[str] = ()) -> tuple[str, ...]:
     """Enumerate artifact files on disk, ignoring hidden metadata and runtime noise.
 
     ``include`` lists paths that are part of the frozen plan, so a planned
@@ -372,14 +373,14 @@ def _business_disk_paths(output_dir: Path, include: Iterable[str] = ()) -> Tuple
 
 
 def _gate_failure(
-    planned_paths: Tuple[str, ...],
-    manifest_paths: Tuple[str, ...],
-    completed_paths: Tuple[str, ...],
-    disk_paths: Tuple[str, ...],
+    planned_paths: tuple[str, ...],
+    manifest_paths: tuple[str, ...],
+    completed_paths: tuple[str, ...],
+    disk_paths: tuple[str, ...],
     message: str,
     *,
-    path: Optional[str] = None,
-    details: Optional[Dict[str, Any]] = None,
+    path: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> ArtifactConsistencyResult:
     return ArtifactConsistencyResult(
         success=False,

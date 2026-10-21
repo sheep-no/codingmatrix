@@ -11,7 +11,7 @@ DependencyGraphValidator - 依赖图验证器
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,14 @@ class ValidationIssue:
     file_path: str
     message: str
     suggestion: str
-    related_files: List[str] = field(default_factory=list)
+    related_files: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ValidationResult:
     """验证结果"""
     passed: bool
-    issues: List[ValidationIssue] = field(default_factory=list)
+    issues: list[ValidationIssue] = field(default_factory=list)
     error_count: int = 0
     warning_count: int = 0
 
@@ -67,8 +67,8 @@ class DependencyGraphValidator:
         self,
         dep_graph,
         scope: str = "full",
-        new_files: Optional[List[str]] = None,
-        architecture: Optional[Dict[str, Any]] = None,
+        new_files: list[str] | None = None,
+        architecture: dict[str, Any] | None = None,
     ) -> ValidationResult:
         """验证依赖图
 
@@ -89,10 +89,10 @@ class DependencyGraphValidator:
     def validate_static(
         self,
         dep_graph,
-        architecture: Optional[Dict[str, Any]] = None,
+        architecture: dict[str, Any] | None = None,
     ) -> ValidationResult:
         """确定性校验：空图、非法路径、指向不存在节点的依赖。"""
-        issues: List[ValidationIssue] = []
+        issues: list[ValidationIssue] = []
         nodes = set(getattr(dep_graph, "nodes", {}) or {})
         if not nodes:
             issues.append(ValidationIssue(
@@ -195,7 +195,7 @@ def _is_invalid_file_path(path: Any) -> bool:
     return False
 
 
-def _heuristic_file_candidates(dep: str) -> List[str]:
+def _heuristic_file_candidates(dep: str) -> list[str]:
     raw = str(dep or "").replace("\\", "/").strip().strip(".")
     if not raw:
         return []
@@ -211,7 +211,7 @@ def _heuristic_file_candidates(dep: str) -> List[str]:
             candidates.append(f"{raw}.py")
             candidates.append(f"{raw}/__init__.py")
     seen = set()
-    unique: List[str] = []
+    unique: list[str] = []
     for item in candidates:
         if item and item not in seen:
             seen.add(item)

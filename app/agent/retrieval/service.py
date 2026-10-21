@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Dict, Iterable, List, Protocol
+from typing import Any, Protocol
+from collections.abc import Callable, Iterable
 
 from .models import RetrievalChunk, RetrievalRequest, RetrievalResult
 
@@ -40,8 +41,8 @@ class RetrievalService:
             if not request.source_filters
             or retriever.source_type in request.source_filters
         ]
-        chunks: Dict[str, RetrievalChunk] = {}
-        errors: List[Dict[str, Any]] = []
+        chunks: dict[str, RetrievalChunk] = {}
+        errors: list[dict[str, Any]] = []
 
         for retriever in selected:
             try:

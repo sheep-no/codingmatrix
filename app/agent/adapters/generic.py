@@ -11,7 +11,6 @@ GenericLanguageAdapter - 通用语言适配器
 
 import re
 from pathlib import Path
-from typing import Dict, List
 
 from .language_adapter import (
     ImportInfo,
@@ -86,9 +85,9 @@ class GenericLanguageAdapter(LanguageAdapter):
     }
 
     # file_plan 数据缓存（由 build_from_file_plan 设置）
-    _file_plan_data: Dict[str, Dict] = {}
+    _file_plan_data: dict[str, dict] = {}
 
-    def set_file_plan_data(self, file_plan: List[Dict]):
+    def set_file_plan_data(self, file_plan: list[dict]):
         """
         设置 file_plan 数据
 
@@ -105,7 +104,7 @@ class GenericLanguageAdapter(LanguageAdapter):
             if path:
                 self._file_plan_data[path] = item
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
         """
         解析导入语句
 
@@ -120,7 +119,7 @@ class GenericLanguageAdapter(LanguageAdapter):
         # 作为 fallback，尝试简单的通用模式匹配
         return self._guess_imports(content)
 
-    def _parse_plan_imports(self, imports: List) -> List[ImportInfo]:
+    def _parse_plan_imports(self, imports: list) -> list[ImportInfo]:
         """解析 file_plan 中的 imports 字段"""
         result = []
 
@@ -142,7 +141,7 @@ class GenericLanguageAdapter(LanguageAdapter):
 
         return result
 
-    def _guess_imports(self, content: str) -> List[ImportInfo]:
+    def _guess_imports(self, content: str) -> list[ImportInfo]:
         """
         尝试猜测导入（通用模式）
 
@@ -209,7 +208,7 @@ class GenericLanguageAdapter(LanguageAdapter):
         top = module.split('/')[0].split('.')[0].lower()
         return top in stdlib_prefixes
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         """
         将导入路径解析为文件路径
 
@@ -309,7 +308,7 @@ class GenericLanguageAdapter(LanguageAdapter):
 
         return "unknown"
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
         """
         提取符号定义
 
@@ -395,12 +394,12 @@ class GenericLanguageAdapter(LanguageAdapter):
 
         return False
 
-    def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
+    def validate_package_structure(self, package_path: str, files: dict[str, str]) -> list[str]:
         """验证包结构（通用适配器不做严格检查）"""
         # 通用适配器不假设包结构
         return []
 
-    def get_imports_from_file_plan(self, file_path: str) -> List[ImportInfo]:
+    def get_imports_from_file_plan(self, file_path: str) -> list[ImportInfo]:
         """从 file_plan 获取文件的导入信息"""
         if file_path in self._file_plan_data:
             plan = self._file_plan_data[file_path]

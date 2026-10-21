@@ -19,7 +19,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 from app.agent.dependency_rules import (
     _EXTENSIONLESS_PROJECT_FILES,
@@ -52,7 +52,7 @@ _META_PLAN_FILE_TYPES = frozenset({
 })
 
 
-def summarize_dependency_context(context: str) -> Dict[str, Any]:
+def summarize_dependency_context(context: str) -> dict[str, Any]:
     """返回依赖上下文的可审计摘要，避免日志记录完整源码。"""
     context = context or ""
     dependency_files = re.findall(r"^## 依赖文件: ([^\n]+)", context, re.MULTILINE)
@@ -73,7 +73,7 @@ class FileNode:
     path: str
     file_type: str
     priority: int  # 1-5，越小越优先
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
     description: str = ""
 
 
@@ -102,15 +102,15 @@ class DependencyGraph:
     _JS_IMPORT_EXTENSIONS = ('', '.js', '.ts', '.jsx', '.tsx', '.vue', '/index.js', '/index.ts')
 
     def __init__(self, language_adapter=None):
-        self.nodes: Dict[str, FileNode] = {}
-        self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
-        self.reverse_adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files that depend on it
+        self.nodes: dict[str, FileNode] = {}
+        self.adjacency: dict[str, set[str]] = defaultdict(set)  # file -> set of files it depends on
+        self.reverse_adjacency: dict[str, set[str]] = defaultdict(set)  # file -> set of files that depend on it
         # 被引用但尚未在图中的依赖引用（DG3）：不再静默丢弃，供完整性检查使用。
-        self.unresolved_dependencies: Dict[str, Set[str]] = defaultdict(set)
+        self.unresolved_dependencies: dict[str, set[str]] = defaultdict(set)
         self.language_adapter = language_adapter  # 语言适配器（可选）
         self.generation_plan = None
 
-    def add_file(self, path: str, file_type: Optional[str] = None, priority: int = 3, description: str = ""):
+    def add_file(self, path: str, file_type: str | None = None, priority: int = 3, description: str = ""):
         """添加文件节点"""
         if not path:
             return
@@ -183,7 +183,7 @@ class DependencyGraph:
             return True
         return Path(normalized).suffix.lower() in _PROJECT_FILE_SUFFIXES
 
-    def _resolve_dependency_reference(self, file_path: str, reference: str) -> Optional[str]:
+    def _resolve_dependency_reference(self, file_path: str, reference: str) -> str | None:
         """把依赖引用解析为图中的完整路径，无法唯一确定时返回 None。
 
         LLM 常声明文件名（`models.py`）或省略目录（`models/user.py`）而非完整
@@ -241,7 +241,7 @@ class DependencyGraph:
                     queue.append(neighbor)
         return False
 
-    def get_affected_files(self, changed_files: List[str]) -> Dict[str, List[str]]:
+    def get_affected_files(self, changed_files: list[str]) -> dict[str, list[str]]:
         """
         给定变更文件列表，返回所有受影响的下游文件。
 
@@ -259,7 +259,7 @@ class DependencyGraph:
             affected[changed] = dependents
         return affected
 
-    def _get_transitive_dependents(self, file_path: str, max_depth: int = 10) -> List[str]:
+    def _get_transitive_dependents(self, file_path: str, max_depth: int = 10) -> list[str]:
         """
         BFS 遍历 reverse_adjacency，查找所有传递依赖的下游文件。
 
@@ -287,7 +287,7 @@ class DependencyGraph:
 
         return result
 
-    def build_from_architecture(self, architecture: Dict[str, Any]):
+    def build_from_architecture(self, architecture: dict[str, Any]):
         """从架构设计结果构建依赖图（优先使用 LLM 声明的依赖）"""
         file_plan = architecture.get("file_plan", [])
         if file_plan:
@@ -582,7 +582,7 @@ class DependencyGraph:
         )
 
         # 按 (文件名, file_type) 分组
-        name_type_to_paths: Dict[tuple, List[str]] = defaultdict(list)
+        name_type_to_paths: dict[tuple, list[str]] = defaultdict(list)
         for path in list(self.nodes.keys()):
             filename = Path(path).name
             # 包入口文件（Python __init__.py、JS index.js、Rust lib.rs）在每个包里
@@ -645,7 +645,7 @@ class DependencyGraph:
             for old_path, best_path, score in removed:
                 logger.info(f"  移除 {old_path} (score={score}), 保留 {best_path}")
 
-    def get_unknown_type_files(self) -> List[str]:
+    def get_unknown_type_files(self) -> list[str]:
         """返回所有 file_type 为空或 unknown 的文件路径列表。
 
         utils 是架构师可显式声明的有效类型（build_from_architecture 已尝试用
@@ -664,7 +664,7 @@ class DependencyGraph:
             if old_type != new_type:
                 logger.info(f"file_type 更新: {path} ({old_type} -> {new_type})")
 
-    def refactor_file(self, old_path: str, new_files: List[Dict[str, Any]], import_mapping: Dict[str, str]) -> List[str]:
+    def refactor_file(self, old_path: str, new_files: list[dict[str, Any]], import_mapping: dict[str, str]) -> list[str]:
         """重构文件：将旧节点替换为新节点，更新依赖关系
 
         Args:
@@ -802,7 +802,7 @@ class DependencyGraph:
         checker = getattr(adapter, "is_known_external_module", None)
         return bool(checker and checker(normalized))
 
-    def _import_to_file_path(self, import_path: str) -> Optional[str]:
+    def _import_to_file_path(self, import_path: str) -> str | None:
         """将 import 路径转换为文件路径"""
         # 使用语言适配器
         if self.language_adapter:
@@ -853,7 +853,7 @@ class DependencyGraph:
         # 不返回不存在的路径（避免创建垃圾文件）
         return None
 
-    def build_from_specs(self, specs: Dict[str, Any]):
+    def build_from_specs(self, specs: dict[str, Any]):
         """根据规范构建基础依赖"""
         # 如果存在 OpenAPI 规范，添加相关的 API 和模型文件
         if "openapi" in specs:
@@ -882,7 +882,7 @@ class DependencyGraph:
         if not use_legacy_rules:
             logger.info("架构契约已提供依赖边界，跳过基于文件类型的兼容规则")
             return
-        type_to_files: Dict[str, List[str]] = defaultdict(list)
+        type_to_files: dict[str, list[str]] = defaultdict(list)
         for path, node in self.nodes.items():
             type_to_files[node.file_type].append(path)
 
@@ -932,7 +932,7 @@ class DependencyGraph:
             replaced_reverse_edges,
         )
 
-    def get_generation_order(self) -> List[str]:
+    def get_generation_order(self) -> list[str]:
         """
         获取文件生成顺序（拓扑排序）
 
@@ -943,7 +943,7 @@ class DependencyGraph:
         self._break_cycles()
 
         # Kahn's 算法实现拓扑排序
-        in_degree: Dict[str, int] = defaultdict(int)
+        in_degree: dict[str, int] = defaultdict(int)
 
         # 计算入度
         for node_path in self.nodes:
@@ -956,7 +956,7 @@ class DependencyGraph:
         # 用最小堆替代「每轮全量 sort + pop(0)」（DG5）：每轮 O(log V) 而非 O(V log V)。
         # 堆元素带单调递增序号，保证同优先级节点仍按入队顺序出队（与旧稳定排序一致）。
         counter = itertools.count()
-        queue: List = []
+        queue: list = []
         for node_path in self.nodes:
             if in_degree[node_path] == 0:
                 heapq.heappush(
@@ -996,8 +996,8 @@ class DependencyGraph:
         cycles = []
         # 显式栈迭代 DFS：旧实现是纯递归，深度超过 Python 默认递归上限
         # （约 1000 层依赖链）会抛 RecursionError（DG4）。
-        path: List[str] = []
-        position: Dict[str, int] = {}
+        path: list[str] = []
+        position: dict[str, int] = {}
 
         for start in self.nodes:
             if start in visited:
@@ -1056,7 +1056,7 @@ class DependencyGraph:
                     self.nodes[from_node].dependencies.remove(to_node)
                 logger.info(f"打破循环依赖: {from_node} -> {to_node} (目标入度={max_in_degree})")
 
-    def get_generation_layers(self) -> List[List[str]]:
+    def get_generation_layers(self) -> list[list[str]]:
         """
         获取按依赖关系分层的生成顺序
 
@@ -1068,7 +1068,7 @@ class DependencyGraph:
         # 先打破循环依赖
         self._break_cycles()
 
-        in_degree: Dict[str, int] = defaultdict(int)
+        in_degree: dict[str, int] = defaultdict(int)
         for node_path in self.nodes:
             if node_path not in in_degree:
                 in_degree[node_path] = 0
@@ -1105,11 +1105,11 @@ class DependencyGraph:
     def get_context_package_for_file(
         self,
         file_path: str,
-        generated_files: Dict[str, str],
+        generated_files: dict[str, str],
         max_context_bytes: int = 0,
         model_context_length: int = 0,
-        project_spec: Optional[Dict] = None,
-    ) -> Dict[str, Any]:
+        project_spec: dict | None = None,
+    ) -> dict[str, Any]:
         """构建目标文件的可序列化依赖上下文包。"""
         if max_context_bytes <= 0:
             # 未显式给出模型窗口时走集中式解析器（DG7），避免在本地硬编码窗口常量。
@@ -1120,7 +1120,7 @@ class DependencyGraph:
             ctx_len = model_context_length
             max_context_bytes = get_context_budget(ctx_len)
 
-        package: Dict[str, Any] = {
+        package: dict[str, Any] = {
             "target_file": file_path,
             "dependencies": [],
             "budget_chars": max_context_bytes,
@@ -1190,10 +1190,10 @@ class DependencyGraph:
     def get_context_for_file(
         self,
         file_path: str,
-        generated_files: Dict[str, str],
+        generated_files: dict[str, str],
         max_context_bytes: int = 0,
         model_context_length: int = 0,
-        project_spec: Optional[Dict] = None,
+        project_spec: dict | None = None,
     ) -> str:
         """渲染上下文包，保持现有工程师 prompt 接口兼容。"""
         package = self.get_context_package_for_file(
@@ -1219,7 +1219,7 @@ class DependencyGraph:
             parts.append(f"## 依赖文件: {dependency['path']}\n```\n{preview}{suffix}\n```\n")
         return "\n".join(parts)
 
-    def get_dependency_summary(self) -> Dict[str, List[str]]:
+    def get_dependency_summary(self) -> dict[str, list[str]]:
         """获取依赖关系摘要"""
         summary = {}
         for path, deps in self.adjacency.items():
@@ -1227,7 +1227,7 @@ class DependencyGraph:
                 summary[path] = list(deps)
         return summary
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """导出依赖图信息"""
         return {
             "nodes": {path: {"type": node.file_type, "priority": node.priority, "description": node.description} for path, node in self.nodes.items()},
@@ -1236,7 +1236,7 @@ class DependencyGraph:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], language_adapter=None) -> 'DependencyGraph':
+    def from_dict(cls, data: dict[str, Any], language_adapter=None) -> 'DependencyGraph':
         """从字典恢复依赖图"""
         graph = cls(language_adapter=language_adapter)
         
@@ -1340,7 +1340,7 @@ class DependencyGraph:
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
-    async def build_from_existing_project(self, project_path: Path) -> Dict[str, Any]:
+    async def build_from_existing_project(self, project_path: Path) -> dict[str, Any]:
         """
         从已有项目目录构建依赖图（解析源代码 import/require 语句）
 
@@ -1356,15 +1356,15 @@ class DependencyGraph:
 
         return result
 
-    def _build_graph_from_project(self, project_path: Path) -> Dict[str, Any]:
+    def _build_graph_from_project(self, project_path: Path) -> dict[str, Any]:
         """核心构建逻辑（原有 build_from_existing_project 内容）"""
         self.nodes.clear()
         self.adjacency.clear()
         self.reverse_adjacency.clear()
 
-        py_imports: Dict[str, List[str]] = {}
-        js_requires: Dict[str, List[str]] = {}
-        generic_imports: Dict[str, List[str]] = {}  # 通用依赖
+        py_imports: dict[str, list[str]] = {}
+        js_requires: dict[str, list[str]] = {}
+        generic_imports: dict[str, list[str]] = {}  # 通用依赖
 
         for file_path in project_path.rglob("*"):
             if any(part in SKIP_DIRS for part in file_path.parts):
@@ -1462,7 +1462,7 @@ class DependencyGraph:
             logger.info("依赖图已从源码轻量补全 description / unknown type")
         return changed
 
-    def enrich_and_save(self, project_path: Path, graph_path: Optional[str] = None) -> bool:
+    def enrich_and_save(self, project_path: Path, graph_path: str | None = None) -> bool:
         """Enrich from source and persist when anything changed."""
         changed = self.enrich_from_source(project_path)
         if changed:
@@ -1535,15 +1535,15 @@ class DependencyGraph:
             return inferred
         return ""
 
-    def _exported_symbol_names(self, content: str) -> List[str]:
+    def _exported_symbol_names(self, content: str) -> list[str]:
         if not self.language_adapter:
             return []
         try:
             defs = self.language_adapter.extract_definitions(content) or {}
         except Exception:
             return []
-        ranked: List[str] = []
-        fallback: List[str] = []
+        ranked: list[str] = []
+        fallback: list[str] = []
         for name, definition in defs.items():
             if not getattr(definition, "is_exported", True):
                 continue
@@ -1596,7 +1596,7 @@ class DependencyGraph:
             return ""
         return ""
 
-    def _parse_python_imports(self, file_path: Path, project_path: Path) -> List[str]:
+    def _parse_python_imports(self, file_path: Path, project_path: Path) -> list[str]:
         """解析 Python 文件的 import 语句，映射到项目内的文件路径"""
         deps = []
         try:
@@ -1631,7 +1631,7 @@ class DependencyGraph:
 
         return deps
 
-    def _parse_js_requires(self, file_path: Path, project_path: Path) -> List[str]:
+    def _parse_js_requires(self, file_path: Path, project_path: Path) -> list[str]:
         """解析 JS/TS/Vue 文件的 require/import 语句"""
         deps = []
         try:
@@ -1666,7 +1666,7 @@ class DependencyGraph:
 
     def _resolve_js_import(
         self, import_path: str, file_path: Path, project_path: Path
-    ) -> Optional[str]:
+    ) -> str | None:
         """把 JS/TS 导入路径解析为项目内相对文件路径，解析不到返回 None"""
         if import_path.startswith(('./', '../')):
             bases = [file_path.parent]
@@ -1692,7 +1692,7 @@ class DependencyGraph:
                     return candidate
         return None
 
-    def extract_dependencies_from_content(self, file_path: str, content: str) -> List[str]:
+    def extract_dependencies_from_content(self, file_path: str, content: str) -> list[str]:
         """
         从文件内容中提取项目内的依赖关系（增量场景反推）
 
@@ -1764,7 +1764,7 @@ class DependencyGraph:
 
         return list(set(deps))
 
-    def update_node_dependencies(self, file_path: str, new_deps: List[str]):
+    def update_node_dependencies(self, file_path: str, new_deps: list[str]):
         """
         更新某个文件的依赖关系（用于增量生成场景）
 
@@ -1795,7 +1795,7 @@ class DependencyGraph:
         for dep in new_deps:
             self.add_dependency(file_path, dep)
 
-    def validate_completeness(self) -> List[Dict[str, str]]:
+    def validate_completeness(self) -> list[dict[str, str]]:
         """
         验证依赖图完整性：检查被引用的模块是否在图中
 
@@ -1825,7 +1825,7 @@ class DependencyGraph:
 
         return issues
 
-    def get_missing_files(self) -> List[str]:
+    def get_missing_files(self) -> list[str]:
         """获取缺失的文件列表（被依赖但不在图中的文件）"""
         missing = set()
 
@@ -1837,7 +1837,7 @@ class DependencyGraph:
 
         return list(missing)
 
-    def add_missing_files(self, architecture: Dict[str, Any]) -> Dict[str, Any]:
+    def add_missing_files(self, architecture: dict[str, Any]) -> dict[str, Any]:
         """
         补充缺失的文件到架构和依赖图
 

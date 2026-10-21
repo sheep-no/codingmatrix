@@ -15,7 +15,7 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.agent.feedback_learner import FixPattern
 
@@ -32,10 +32,10 @@ MAX_CACHED_PATTERNS = 5000
 @dataclass
 class CloudPattern:
     """云端模式（包含额外元数据）"""
-    pattern: Dict[str, Any]  # FixPattern 的字典形式
+    pattern: dict[str, Any]  # FixPattern 的字典形式
     project_id: str  # 来源项目 ID
     project_type: str  # 项目类型（web/api/cli 等）
-    tech_stack: List[str]  # 技术栈
+    tech_stack: list[str]  # 技术栈
     upload_time: str  # 上传时间
     download_count: int = 0  # 被下载次数
     success_votes: int = 0  # 成功票数
@@ -74,9 +74,9 @@ class CloudLearningHub:
         self,
         project_id: str = "default",
         project_type: str = "web",
-        tech_stack: Optional[List[str]] = None,
+        tech_stack: list[str] | None = None,
         enable_cloud: bool = True,
-        cache_dir: Optional[Path] = None
+        cache_dir: Path | None = None
     ):
         self.project_id = project_id
         self.project_type = project_type
@@ -86,8 +86,8 @@ class CloudLearningHub:
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        self._local_patterns: Dict[str, CloudPattern] = {}
-        self._cloud_patterns: Dict[str, CloudPattern] = {}
+        self._local_patterns: dict[str, CloudPattern] = {}
+        self._cloud_patterns: dict[str, CloudPattern] = {}
 
         self._load_local_cache()
 
@@ -185,9 +185,9 @@ class CloudLearningHub:
     def download_similar_patterns(
         self,
         query_error_type: str,
-        query_keywords: Optional[List[str]] = None,
+        query_keywords: list[str] | None = None,
         max_results: int = 10
-    ) -> List[CloudPattern]:
+    ) -> list[CloudPattern]:
         """
         下载相似的修复模式
 
@@ -261,7 +261,7 @@ class CloudLearningHub:
 
         self._save_local_cache()
 
-    def get_project_knowledge_stats(self) -> Dict[str, Any]:
+    def get_project_knowledge_stats(self) -> dict[str, Any]:
         """获取项目知识统计"""
         total_patterns = len(self._local_patterns)
         high_quality_patterns = sum(
@@ -278,7 +278,7 @@ class CloudLearningHub:
         )
 
         # 按项目类型统计
-        project_type_counts: Dict[str, int] = {}
+        project_type_counts: dict[str, int] = {}
         for pattern in self._local_patterns.values():
             ptype = pattern.project_type
             project_type_counts[ptype] = project_type_counts.get(ptype, 0) + 1
@@ -314,14 +314,14 @@ class CloudLearningHub:
 
 
 # 全局单例
-_cloud_hub: Optional[CloudLearningHub] = None
+_cloud_hub: CloudLearningHub | None = None
 _hub_lock = asyncio.Lock()
 
 
 async def get_cloud_learning_hub(
     project_id: str = "default",
     project_type: str = "web",
-    tech_stack: Optional[List[str]] = None
+    tech_stack: list[str] | None = None
 ) -> CloudLearningHub:
     """获取 CloudLearningHub 单例"""
     global _cloud_hub

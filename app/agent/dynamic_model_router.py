@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.agent.models import (
     DEFAULT_ARCHITECT_MODEL,
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.yaml")
 
 # 备选模型 ID → Key 映射（配置文件不可用时的兜底）
-_FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
+_FALLBACK_MODEL_ID_TO_KEY: dict[str, str] = {
     "deepseek-r1": DEFAULT_REASONING_MODEL,
     "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
     "qwen3.5-4b": DEFAULT_CODE_MODEL,
@@ -38,14 +38,14 @@ _FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
 }
 
 
-_provider_map_cache: Optional[Dict[str, Any]] = None
-_model_id_key_cache: Optional[Dict[str, str]] = None
+_provider_map_cache: dict[str, Any] | None = None
+_model_id_key_cache: dict[str, str] | None = None
 
 
-def _dedupe_preserve_order(models: List[str]) -> List[str]:
+def _dedupe_preserve_order(models: list[str]) -> list[str]:
     """按首次出现顺序去重模型列表（降级链重复项会让实际降级深度小于声明）"""
     seen: set = set()
-    deduped: List[str] = []
+    deduped: list[str] = []
     for model in models:
         if model and model not in seen:
             seen.add(model)
@@ -53,7 +53,7 @@ def _dedupe_preserve_order(models: List[str]) -> List[str]:
     return deduped
 
 
-def _build_provider_map() -> Dict[str, "ModelProvider"]:
+def _build_provider_map() -> dict[str, "ModelProvider"]:
     """从 Agent 运行时配置构建 model_name -> provider 映射。"""
     global _provider_map_cache
     try:
@@ -84,7 +84,7 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
         return _provider_map_cache or {}
 
 
-def _build_model_id_to_key() -> Dict[str, str]:
+def _build_model_id_to_key() -> dict[str, str]:
     """从 Agent 运行时配置构建 model_id -> model_key 映射。"""
     global _model_id_key_cache
     try:
@@ -106,14 +106,14 @@ def _build_model_id_to_key() -> Dict[str, str]:
         return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
 
 
-def get_model_id_to_key() -> Dict[str, str]:
+def get_model_id_to_key() -> dict[str, str]:
     """获取模型ID到模型Key的映射（支持缓存刷新）"""
     if _model_id_key_cache is None:
         _build_model_id_to_key()
     return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
 
 
-def get_model_provider_map() -> Dict[str, Any]:
+def get_model_provider_map() -> dict[str, Any]:
     """获取模型名到Provider的映射（支持缓存刷新）"""
     if _provider_map_cache is None:
         _build_provider_map()
@@ -159,7 +159,7 @@ def resolve_model_key(model_id_or_key: str) -> str:
     return MODEL_ID_TO_KEY.get(model_id_or_key, model_id_or_key)
 
 
-def load_agent_model_config() -> Optional[Dict[str, Any]]:
+def load_agent_model_config() -> dict[str, Any] | None:
     """从配置文件加载 Agent 模型配置"""
     try:
         if os.path.exists(AGENT_MODEL_CONFIG_PATH):
@@ -171,7 +171,7 @@ def load_agent_model_config() -> Optional[Dict[str, Any]]:
     return None
 
 
-def save_agent_model_config(config: Dict[str, Any]) -> bool:
+def save_agent_model_config(config: dict[str, Any]) -> bool:
     """保存 Agent 模型配置到文件"""
     try:
         os.makedirs(os.path.dirname(AGENT_MODEL_CONFIG_PATH), exist_ok=True)
@@ -197,7 +197,7 @@ class ModelPerformanceTracker:
     MAX_DB_SIZE_BYTES = 1 * 1024 * 1024
     RETENTION_DAYS = 30
 
-    def __init__(self, db_path: Optional[str] = None, sync_lock_factory=None):
+    def __init__(self, db_path: str | None = None, sync_lock_factory=None):
         self.DB_PATH = db_path or self.__class__.DB_PATH
         self._conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -295,7 +295,7 @@ class ModelPerformanceTracker:
                 )
             self._conn.commit()
 
-    def get_best_model(self, task_type: str, top_k: int = 3) -> List[str]:
+    def get_best_model(self, task_type: str, top_k: int = 3) -> list[str]:
         cursor = self._conn.execute(
             "SELECT model_name, success_rate, avg_latency, total_calls, consecutive_failures "
             "FROM performance WHERE task_type = ? "
@@ -313,9 +313,9 @@ class ModelPerformanceTracker:
     def get_unified_best_model(
         self,
         task_type: str,
-        realtime_metrics: Dict[str, "ModelMetrics"],
+        realtime_metrics: dict[str, "ModelMetrics"],
         top_k: int = 3
-    ) -> List[str]:
+    ) -> list[str]:
         """统一选择最佳模型：结合历史数据和实时指标"""
         historical_best = self.get_best_model(task_type, top_k * 2)
 
@@ -353,11 +353,11 @@ class LearningRouter:
     EXPLORATION_RATE = 0.2
     DEGRADATION_THRESHOLD = 5
 
-    def __init__(self, tracker: Optional[ModelPerformanceTracker] = None):
+    def __init__(self, tracker: ModelPerformanceTracker | None = None):
         self._tracker = tracker or ModelPerformanceTracker()
-        self._degraded_models: Dict[str, Dict[str, int]] = {}
+        self._degraded_models: dict[str, dict[str, int]] = {}
 
-    def select_model(self, task_type: str, candidate_models: List[str]) -> str:
+    def select_model(self, task_type: str, candidate_models: list[str]) -> str:
         if not candidate_models:
             return candidate_models[0] if candidate_models else DEFAULT_FAST_MODEL
 
@@ -412,7 +412,7 @@ class LearningRouter:
         return self._tracker.get_total_records() > 10
 
 
-_learning_router: Optional[LearningRouter] = None
+_learning_router: LearningRouter | None = None
 _learning_router_lock = asyncio.Lock()
 
 
@@ -445,9 +445,9 @@ class ModelMetrics:
     total_latency_ms: float = 0.0
     recent_latencies: deque = field(default_factory=lambda: deque(maxlen=100))
     active_requests: int = 0  # 当前队列深度
-    last_error_time: Optional[float] = None
+    last_error_time: float | None = None
     consecutive_failures: int = 0
-    last_success_time: Optional[float] = None
+    last_success_time: float | None = None
 
     @property
     def success_rate(self) -> float:
@@ -504,7 +504,7 @@ class ModelMetrics:
         self.consecutive_failures = 0
         self.last_success_time = time.time()
 
-    def record_failure(self, error: str = "", latency_ms: Optional[float] = None):
+    def record_failure(self, error: str = "", latency_ms: float | None = None):
         self.total_requests += 1
         self.failed_requests += 1
         self.active_requests = max(0, self.active_requests - 1)
@@ -540,11 +540,11 @@ class DynamicModelRouter:
     ]
 
     def __init__(self):
-        self._metrics: Dict[str, ModelMetrics] = {}
+        self._metrics: dict[str, ModelMetrics] = {}
         self._lock = asyncio.Lock()
         self._fallback_order = self._load_fallback_chain("default")
 
-    def _load_fallback_chain(self, chain_name: str = "default") -> List[str]:
+    def _load_fallback_chain(self, chain_name: str = "default") -> list[str]:
         """从配置文件加载降级链（v3.0: 统一为 fallback_chain）"""
         config = load_agent_model_config()
         if config:
@@ -593,7 +593,7 @@ class DynamicModelRouter:
             metrics = self.get_or_create_metrics(model_name)
             metrics.start_request()
 
-    async def get_best_model(self, candidate_models: List[str], task_type: str = "general") -> str:
+    async def get_best_model(self, candidate_models: list[str], task_type: str = "general") -> str:
         """
         从候选模型中选择最佳模型
 
@@ -643,7 +643,7 @@ class DynamicModelRouter:
 
             return best_model
 
-    async def get_model_health_report(self) -> Dict[str, Dict]:
+    async def get_model_health_report(self) -> dict[str, dict]:
         """获取所有模型的健康报告"""
         async with self._lock:
             report = {}
@@ -660,7 +660,7 @@ class DynamicModelRouter:
                 }
             return report
 
-    async def reset_metrics(self, model_name: Optional[str] = None):
+    async def reset_metrics(self, model_name: str | None = None):
         """重置指标"""
         async with self._lock:
             if model_name:
@@ -689,7 +689,7 @@ class DynamicModelRouter:
         return assignment
 
     async def get_assignment_with_learning(
-        self, complexity=None, learning_router: Optional[LearningRouter] = None
+        self, complexity=None, learning_router: LearningRouter | None = None
     ) -> ModelAssignment:
         """获取模型分配（带学习路由，不再依赖复杂度）"""
         static_assignment = _load_roles_assignment()
@@ -720,7 +720,7 @@ class DynamicModelRouter:
 
 
 # 全局单例
-_dynamic_router: Optional[DynamicModelRouter] = None
+_dynamic_router: DynamicModelRouter | None = None
 _router_lock = asyncio.Lock()
 
 
@@ -754,7 +754,7 @@ class _LayeredModelRouterCompat:
     """兼容旧版按项目复杂度读取角色模型分配的接口。"""
 
     _config_loaded = False
-    _cached_assignments: Optional[Dict[str, ModelAssignment]] = None
+    _cached_assignments: dict[str, ModelAssignment] | None = None
 
     @classmethod
     def get_assignment(cls, complexity) -> ModelAssignment:
@@ -770,7 +770,7 @@ class _LayeredModelRouterCompat:
                 reviewer_model=DEFAULT_ARCHITECT_MODEL,
                 fallback_model=DEFAULT_FAST_MODEL,
             )
-            parsed: Dict[str, ModelAssignment] = {}
+            parsed: dict[str, ModelAssignment] = {}
             for level in ProjectComplexity:
                 raw = assignments.get(level.name, assignments.get(level.value, {}))
                 parsed[level.value] = ModelAssignment(
@@ -815,7 +815,7 @@ _DEFAULT_ROLES = {
     "fallback": "glm-z1-9b",
 }
 
-_roles_cache: Optional[Dict[str, str]] = None
+_roles_cache: dict[str, str] | None = None
 
 
 def _load_roles_assignment() -> ModelAssignment:
@@ -864,9 +864,9 @@ def reload_roles_config():
 
 
 async def get_best_model_with_health_awareness(
-    candidate_models: List[str],
+    candidate_models: list[str],
     task_type: str = "general",
-    routing_config: Optional[RoutingConfig] = None
+    routing_config: RoutingConfig | None = None
 ) -> str:
     """
     带健康感知的模型选择
@@ -935,7 +935,7 @@ async def get_best_model_with_health_awareness(
 # SiliconFlow 模型上下文窗口映射（来源：模型广场页面手动维护）
 # 当 API 支持返回 context_length 后可自动同步，当前为静态映射
 # 特殊模型（语音/图像/视频）无传统上下文概念，不在此映射中
-MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
+MODEL_CONTEXT_LENGTHS: dict[str, int] = {
     # Qwen 系列
     "Qwen/Qwen3.5-4B": 256 * 1024,       # 256k
     DEFAULT_FAST_MODEL: 128 * 1024,       # 128k
@@ -1052,7 +1052,7 @@ def get_max_output_tokens(model_name: str, reserve_for_input: int = 0, api_key_t
     return max(1024, min(max_out, ctx))
 
 
-def get_model_config(model_name: str, task_type: str = "generate", api_key_token: str = None) -> Dict[str, Any]:
+def get_model_config(model_name: str, task_type: str = "generate", api_key_token: str = None) -> dict[str, Any]:
     """获取模型的最佳配置参数（自动适配上下文窗口）
 
     Args:

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from app.agent.state import StateDelta
 
 
 def spec_first_result_to_delta(
-    result: Dict[str, Any],
+    result: dict[str, Any],
     *,
     revision: int,
     stage: str,

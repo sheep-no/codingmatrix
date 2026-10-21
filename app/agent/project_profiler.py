@@ -19,7 +19,6 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
 
 from app.utils.performance_metrics import metrics_collector
 
@@ -77,14 +76,14 @@ def _make_import_pattern(language: str) -> re.Pattern:
 
 
 # 语言别名：TypeScript 与 JavaScript 共用同一套分析规则
-_LANGUAGE_ALIASES: Dict[str, str] = {
+_LANGUAGE_ALIASES: dict[str, str] = {
     "typescript": "javascript",
     "ts": "javascript",
     "js": "javascript",
 }
 
 
-LANGUAGE_PROFILES: Dict[str, LanguageProfile] = {
+LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
     "python": LanguageProfile(
         extensions=(".py",),
         skip_dirs=("node_modules", "__pycache__", "venv", "env", ".venv", "dist", "build", ".tox"),
@@ -138,7 +137,7 @@ LANGUAGE_PROFILES: Dict[str, LanguageProfile] = {
 }
 
 # 跳过目录的公共集合（任何语言都跳过）
-_COMMON_SKIP_DIRS: Set[str] = {".git", "node_modules", "__pycache__", ".idea", ".vscode", ".DS_Store"}
+_COMMON_SKIP_DIRS: set[str] = {".git", "node_modules", "__pycache__", ".idea", ".vscode", ".DS_Store"}
 
 
 # ==================== 数据类 ====================
@@ -147,18 +146,18 @@ _COMMON_SKIP_DIRS: Set[str] = {".git", "node_modules", "__pycache__", ".idea", "
 class ArchitectureInfo:
     """架构信息"""
     pattern: str = "unknown"  # layered, mvc, mixin-heavy, flat
-    layers: Dict[str, List[str]] = field(default_factory=dict)
-    aggregate_classes: List[str] = field(default_factory=list)
-    export_modules: List[str] = field(default_factory=list)
+    layers: dict[str, list[str]] = field(default_factory=dict)
+    aggregate_classes: list[str] = field(default_factory=list)
+    export_modules: list[str] = field(default_factory=list)
     language: str = "python"
 
 
 @dataclass
 class RiskAreas:
     """高风险区域"""
-    high_dependency: List[str] = field(default_factory=list)
-    security_critical: List[str] = field(default_factory=list)
-    data_critical: List[str] = field(default_factory=list)
+    high_dependency: list[str] = field(default_factory=list)
+    security_critical: list[str] = field(default_factory=list)
+    data_critical: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -248,8 +247,8 @@ class ProjectProfiler:
     def __init__(
         self,
         project_root: str,
-        language: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        language: str | None = None,
+        cache_dir: str | None = None,
     ):
         self.project_root = Path(project_root)
         self.language = (language or "python").lower()
@@ -262,7 +261,7 @@ class ProjectProfiler:
         self.cache_dir = Path(cache_dir) if cache_dir else self.project_root / '.cache' / 'profiler'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def profile(self, project_root: Optional[str] = None) -> ProjectProfile:
+    def profile(self, project_root: str | None = None) -> ProjectProfile:
         """
         分析项目结构，生成项目指纹
 
@@ -383,9 +382,9 @@ class ProjectProfiler:
 
         return arch
 
-    def _detect_layers(self, root: Path) -> Dict[str, List[str]]:
+    def _detect_layers(self, root: Path) -> dict[str, list[str]]:
         """检测分层架构（跨语言通用，按目录名匹配）"""
-        layers: Dict[str, List[str]] = {}
+        layers: dict[str, list[str]] = {}
 
         for dirpath, dirnames, _ in os.walk(root):
             # 跳过隐藏目录与语言特定目录
@@ -406,9 +405,9 @@ class ProjectProfiler:
 
         return layers
 
-    def _detect_python_mixins(self, root: Path) -> List[str]:
+    def _detect_python_mixins(self, root: Path) -> list[str]:
         """检测 Python Mixin 类（仅 Python）"""
-        mixins: List[str] = []
+        mixins: list[str] = []
         for py_file in self._iter_source_files(root):
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
@@ -423,7 +422,7 @@ class ProjectProfiler:
                 continue
         return mixins[:20]
 
-    def _detect_export_modules(self, root: Path) -> List[str]:
+    def _detect_export_modules(self, root: Path) -> list[str]:
         """检测聚合导出模块（多语言版本）
 
         - Python: __init__.py（只包含 import 语句）
@@ -434,7 +433,7 @@ class ProjectProfiler:
         if not self.profile_rules.init_file:
             return []
 
-        export_modules: List[str] = []
+        export_modules: list[str] = []
         init_names = set(self.profile_rules.init_file)
 
         for path in self._iter_source_files(root):
@@ -517,8 +516,8 @@ class ProjectProfiler:
         ][:20]
 
         # 搜索安全 / 数据库关键字
-        security_files: Set[str] = set()
-        data_files: Set[str] = set()
+        security_files: set[str] = set()
+        data_files: set[str] = set()
 
         for src_file in self._iter_source_files(root):
             try:
@@ -538,9 +537,9 @@ class ProjectProfiler:
 
         return risks
 
-    def _count_imports(self, root: Path) -> Dict[str, int]:
+    def _count_imports(self, root: Path) -> dict[str, int]:
         """按语言规则统计 import 引用次数"""
-        import_counts: Dict[str, int] = defaultdict(int)
+        import_counts: dict[str, int] = defaultdict(int)
         pattern = self.profile_rules.import_pattern
 
         for src_file in self._iter_source_files(root):
@@ -565,7 +564,7 @@ class ProjectProfiler:
 
         return import_counts
 
-    def _is_project_module(self, module: str, root: Optional[Path] = None) -> bool:
+    def _is_project_module(self, module: str, root: Path | None = None) -> bool:
         """粗略判断是否是项目内模块（避免被大量外部 import 污染）"""
         if not module:
             return False
@@ -625,7 +624,7 @@ class ProjectProfiler:
 
         # 查找测试目录
         if self.profile_rules.test_dir_names:
-            test_dirs: List[str] = []
+            test_dirs: list[str] = []
             for dirpath, dirnames, _ in os.walk(root):
                 dirnames[:] = [
                     d for d in dirnames
@@ -639,7 +638,7 @@ class ProjectProfiler:
                 patterns.test_location = test_dirs[0]
 
         # 分析测试文件命名（按语言）
-        test_files: List[Path] = []
+        test_files: list[Path] = []
         for src_file in self._iter_source_files(root):
             if self._is_test_file(src_file):
                 test_files.append(src_file)
@@ -653,7 +652,7 @@ class ProjectProfiler:
 
         return patterns
 
-    def _detect_naming_convention(self, test_files: List[Path]) -> str:
+    def _detect_naming_convention(self, test_files: list[Path]) -> str:
         """按语言规则检测测试文件命名约定"""
         if self.language == "python":
             prefix = sum(1 for f in test_files if f.name.startswith("test_"))
@@ -673,7 +672,7 @@ class ProjectProfiler:
             return "*Test.java" if test >= it else "*IT.java"
         return self.profile_rules.test_file_globs[0]
 
-    def _detect_fixture_usage(self, root: Path, test_files: List[Path]) -> bool:
+    def _detect_fixture_usage(self, root: Path, test_files: list[Path]) -> bool:
         """按语言检测 fixture/配置使用"""
         # 方法 1：检查 fixture 配置文件
         if self.profile_rules.test_fixture_files:
@@ -713,7 +712,7 @@ class ProjectProfiler:
                 continue
         return hasher.hexdigest()
 
-    def _load_cache(self, cache_key: str) -> Optional[ProjectProfile]:
+    def _load_cache(self, cache_key: str) -> ProjectProfile | None:
         """加载缓存的项目指纹"""
         cache_file = self.cache_dir / f"{cache_key}.json"
         if not cache_file.exists():
@@ -777,7 +776,7 @@ def detect_project_language(project_root: str) -> str:
     if not root.exists():
         return "python"
 
-    counts: Dict[str, int] = defaultdict(int)
+    counts: dict[str, int] = defaultdict(int)
     # 优先看 lockfile/manifest
     manifest_hints = {
         "go.mod": "go", "go.sum": "go",

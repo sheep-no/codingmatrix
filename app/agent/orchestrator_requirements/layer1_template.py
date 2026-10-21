@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.orchestrator_requirements.constants import DOMAIN_TEMPLATES_DIR
 from app.agent.orchestrator_requirements.data_models import AssociationItem
@@ -10,7 +9,7 @@ from app.agent.orchestrator_requirements.data_models import AssociationItem
 logger = logging.getLogger(__name__)
 
 
-def _load_domain_template(template_path: Path) -> Optional[Dict]:
+def _load_domain_template(template_path: Path) -> dict | None:
     """同步加载领域模板：文件不存在返回 None，解析失败返回 None。"""
     if not template_path.exists():
         logger.debug(f"领域模板不存在: {template_path.stem}")
@@ -23,8 +22,8 @@ def _load_domain_template(template_path: Path) -> Optional[Dict]:
 
 
 async def layer1_cross_domain_template(
-    requirement: str, domains: List[str]
-) -> List[AssociationItem]:
+    requirement: str, domains: list[str]
+) -> list[AssociationItem]:
     if not domains:
         return []
 
@@ -93,7 +92,7 @@ async def layer1_cross_domain_template(
     return deduped
 
 
-def compute_template_confidence(requirement: str, template: Dict) -> float:
+def compute_template_confidence(requirement: str, template: dict) -> float:
     req_lower = requirement.lower()
     domain = template.get("domain", "")
     domain_keywords_map = {

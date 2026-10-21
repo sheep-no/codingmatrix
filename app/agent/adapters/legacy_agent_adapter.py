@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from app.agent.state import MessageEnvelope, StateDelta
 
@@ -43,7 +43,7 @@ def legacy_result_to_delta(
     )
 
 
-def _status(data: Dict[str, Any]) -> str:
+def _status(data: dict[str, Any]) -> str:
     if data.get("status") in {"failed", "partial_success", "completed"}:
         return data["status"]
     validation = data.get("validation")
@@ -54,7 +54,7 @@ def _status(data: Dict[str, Any]) -> str:
     return "completed"
 
 
-def _files(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _files(data: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = data.get("generated_files", data.get("files", []))
     if isinstance(candidates, dict):
         candidates = [{"path": path, **value} if isinstance(value, dict) else {"path": path, "content": value}
@@ -62,7 +62,7 @@ def _files(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [item for item in candidates if isinstance(item, dict)] if isinstance(candidates, list) else []
 
 
-def _errors(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _errors(data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_errors = data.get("errors", [])
     if isinstance(raw_errors, str):
         raw_errors = [raw_errors]

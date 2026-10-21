@@ -9,7 +9,8 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.code_validator import CodeValidator
 from app.agent.dynamic_model_router import LayeredModelRouter
@@ -32,9 +33,9 @@ class FixAttempt:
     error_message: str
     fix_applied: bool
     attempts: int
-    model_used: Optional[str] = None
-    original_content: Optional[str] = None
-    fixed_content: Optional[str] = None
+    model_used: str | None = None
+    original_content: str | None = None
+    fixed_content: str | None = None
 
 
 class ErrorRecoveryLoop:
@@ -42,18 +43,18 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None, cost_tracker=None):
+    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: str | None = None, cancel_event=None, cost_tracker=None):
         self.validator = validator
         self.reviewer = reviewer
         self.api_key_token = api_key_token
         self.cancel_event = cancel_event
         self._cost_tracker = cost_tracker
-        self.fix_history: List[FixAttempt] = []
+        self.fix_history: list[FixAttempt] = []
         self.repair_budget = RepairBudget()
         self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
-    def _record_llm_cost(self, response: Dict, model: str) -> None:
+    def _record_llm_cost(self, response: dict, model: str) -> None:
         """记录修复循环的 LLM 成本。
 
         修复链直连 call_llm（不经 LLMClient），若不在此累计，修复消耗不会进入
@@ -73,7 +74,7 @@ class ErrorRecoveryLoop:
         ) / 1_000_000
         self._cost_tracker.add_usage(model, prompt_tokens, completion_tokens, cost_usd)
 
-    def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
+    def _load_fallback_chain(self, chain_name: str = "error_recovery") -> list[str]:
         """加载错误恢复降级链。
 
         优先级：
@@ -108,7 +109,7 @@ class ErrorRecoveryLoop:
                 return [resolve_model_key(m) for m in chain]
         return []
 
-    def _get_user_fallback_preference(self) -> Optional[Dict]:
+    def _get_user_fallback_preference(self) -> dict | None:
         """获取用户的降级链偏好配置"""
         if not self.api_key_token:
             return None
@@ -126,8 +127,8 @@ class ErrorRecoveryLoop:
         content: str,
         file_description: str,
         backend_model: str,
-        callback: Optional[Callable] = None
-    ) -> Tuple[bool, str]:
+        callback: Callable | None = None
+    ) -> tuple[bool, str]:
         """验证并智能修复文件内容"""
         project_path = file_path.parent
 
@@ -164,10 +165,10 @@ class ErrorRecoveryLoop:
         self,
         file_path: Path,
         content: str,
-        errors: Dict,
+        errors: dict,
         backend_model: str,
-        callback: Optional[Callable] = None
-    ) -> Dict:
+        callback: Callable | None = None
+    ) -> dict:
         """智能修正循环：带模型降级策略、错误分类和 A/B 测试策略"""
         # 确定修复模型链：主模型 + 配置文件中的降级链
         models_to_try = [backend_model, *self.MODEL_FALLBACK_CHAIN]
@@ -459,7 +460,7 @@ class ErrorRecoveryLoop:
 
     def _build_targeted_error_context_with_template(
         self,
-        errors: Dict,
+        errors: dict,
         content: str,
         attempt: int,
         classification: ErrorClassification,
@@ -475,7 +476,7 @@ class ErrorRecoveryLoop:
 
         return base_context
 
-    def _select_fix_model_by_error_type(self, error_type: str, models_to_try: List[str], attempt: int) -> str:
+    def _select_fix_model_by_error_type(self, error_type: str, models_to_try: list[str], attempt: int) -> str:
         """根据错误类型选择最佳修复模型"""
         # 从配置文件加载错误类型到模型的映射
         from app.agent.dynamic_model_router import (
@@ -500,7 +501,7 @@ class ErrorRecoveryLoop:
         # 否则按尝试次数选择模型
         return models_to_try[attempt % len(models_to_try)]
 
-    def _build_targeted_error_context(self, errors: Dict, content: str, attempt: int, classification: ErrorClassification) -> str:
+    def _build_targeted_error_context(self, errors: dict, content: str, attempt: int, classification: ErrorClassification) -> str:
         """构建针对性的错误上下文（基于错误分类）"""
         context_parts = []
 
@@ -588,7 +589,7 @@ class ErrorRecoveryLoop:
 
         return "\n".join(context_parts) if context_parts else "未知验证错误"
 
-    def _extract_error_messages(self, errors: Dict) -> List[str]:
+    def _extract_error_messages(self, errors: dict) -> list[str]:
         """提取所有错误信息"""
         msgs = []
         for key in ["syntax_errors", "import_errors", "dependency_errors", "runtime_errors", "api_errors", "frontend_errors", "cross_file_errors"]:
@@ -598,11 +599,11 @@ class ErrorRecoveryLoop:
     async def fix_from_test_logs(
         self,
         test_runner: TestRunner,
-        failed_tests: List[str],
+        failed_tests: list[str],
         test_logs: str,
         project_path: Path,
-        callback: Optional[Callable] = None
-    ) -> Dict[str, Any]:
+        callback: Callable | None = None
+    ) -> dict[str, Any]:
         """根据测试日志自动修复失败的测试用例"""
         if not failed_tests:
             return {"success": True, "message": "没有失败的测试"}

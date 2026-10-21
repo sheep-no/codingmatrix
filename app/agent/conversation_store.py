@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, List, Optional
 
 import redis
 
@@ -77,7 +76,7 @@ class ConversationStore:
         """生成 Redis key"""
         return f"{REDIS_KEY_PREFIX}{session_id}"
 
-    def get_history(self, session_id: str, user_id: str = None) -> List[Dict[str, str]]:
+    def get_history(self, session_id: str, user_id: str = None) -> list[dict[str, str]]:
         """
         获取会话历史（优先 Redis，miss 从数据库加载）
 
@@ -104,7 +103,7 @@ class ConversationStore:
 
         return []
 
-    async def get_history_async(self, session_id: str, user_id: str = None) -> List[Dict[str, str]]:
+    async def get_history_async(self, session_id: str, user_id: str = None) -> list[dict[str, str]]:
         """
         异步获取会话历史（优先 Redis，miss 从数据库加载）
         """
@@ -127,7 +126,7 @@ class ConversationStore:
 
         return []
 
-    def _load_from_db_sync(self, session_id: str, user_id: str) -> List[Dict[str, str]]:
+    def _load_from_db_sync(self, session_id: str, user_id: str) -> list[dict[str, str]]:
         """同步方式从数据库加载历史消息"""
         try:
             import asyncio
@@ -140,7 +139,7 @@ class ConversationStore:
             logger.warning(f"Failed to load from DB (sync): {e}")
             return []
 
-    async def _load_from_db_async(self, session_id: str, user_id: str) -> List[Dict[str, str]]:
+    async def _load_from_db_async(self, session_id: str, user_id: str) -> list[dict[str, str]]:
         """异步方式从数据库加载历史消息"""
         try:
             from sqlalchemy import select
@@ -161,7 +160,7 @@ class ConversationStore:
             logger.warning(f"Failed to load from DB: {e}")
             return []
 
-    def _save_to_redis(self, session_id: str, messages: List[Dict[str, str]]):
+    def _save_to_redis(self, session_id: str, messages: list[dict[str, str]]):
         """保存到 Redis（带过期时间）"""
         try:
             self.redis.setex(
@@ -175,8 +174,8 @@ class ConversationStore:
     def _append_to_redis(
         self,
         session_id: str,
-        message: Dict[str, str],
-        seed: Optional[List[Dict[str, str]]] = None,
+        message: dict[str, str],
+        seed: list[dict[str, str]] | None = None,
     ) -> int:
         """原子追加一条消息到 Redis，返回追加后的条数（失败返回 -1）"""
         try:
@@ -210,7 +209,7 @@ class ConversationStore:
             # Redis miss（如 24h 过期）时先取数据库历史作为 seed。必须在写 DB
             # 之前取，否则 seed 会包含本次新消息；此前在 async 上下文调用同步
             # get_history 会短路返回 []，使缓存被覆盖为仅最新一条、历史不可见。
-            seed: Optional[List[Dict[str, str]]] = None
+            seed: list[dict[str, str]] | None = None
             try:
                 exists = await asyncio.to_thread(self.redis.exists, self._key(session_id))
                 if not exists:
@@ -282,10 +281,10 @@ class ConversationStore:
 
     def truncate_history(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         max_rounds: int = MAX_HISTORY_ROUNDS,
         max_tokens: int = MAX_HISTORY_TOKENS
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         截断历史消息（不调用 LLM，纯规则截断）
 
@@ -316,10 +315,10 @@ class ConversationStore:
         self,
         session_id: str,
         user_id: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         llm_caller: callable,
         max_tokens: int = MAX_HISTORY_TOKENS
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         压缩历史消息（调用 LLM 生成摘要）
 
@@ -370,7 +369,7 @@ class ConversationStore:
 
 
 # 全局实例
-_store: Optional[ConversationStore] = None
+_store: ConversationStore | None = None
 
 
 def get_conversation_store() -> ConversationStore:

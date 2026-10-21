@@ -11,7 +11,8 @@ the orchestration layer without passing through that adapter.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
+from collections.abc import Mapping, Sequence
 
 
 class GenerationAgentPort(Protocol):

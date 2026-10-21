@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ REACT_AUTO_FIX_TIMEOUT = 900.0
 
 class ErrorRecoveryMixin:
 
-    async def _try_react_auto_fix(self, failed_test_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _try_react_auto_fix(self, failed_test_results: dict[str, Any]) -> dict[str, Any] | None:
         # `self.error_recovery` 是构造出来的对象、恒为真值，真正的开关是
         # `enable_error_recovery`；只判对象存在性会让关掉开关的调用方仍走该路径。
         if (

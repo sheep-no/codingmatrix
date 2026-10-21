@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
+from collections.abc import Iterable
 
 README_NAMES = {"readme.md", "readme"}
 MANIFEST_NAMES = {
@@ -20,8 +21,8 @@ def scaffold_for_language(
     language: str,
     file_path: str,
     file_type: str,
-    architecture: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    architecture: dict[str, Any] | None = None,
+) -> str | None:
     architecture = architecture or {}
     name = Path(file_path).name.lower()
     kind = (file_type or "").lower()
@@ -40,7 +41,7 @@ def scaffold_for_language(
     return None
 
 
-def scaffold_readme(architecture: Dict[str, Any], language: str = "python") -> str:
+def scaffold_readme(architecture: dict[str, Any], language: str = "python") -> str:
     title = _project_title(architecture)
     lines = [f"# {title}", "", "## Files", ""]
     for item in _file_plan(architecture):
@@ -59,7 +60,7 @@ def scaffold_readme(architecture: Dict[str, Any], language: str = "python") -> s
     return "\n".join(lines)
 
 
-def scaffold_manifest(language: str, name: str, architecture: Dict[str, Any]) -> str:
+def scaffold_manifest(language: str, name: str, architecture: dict[str, Any]) -> str:
     if name == "requirements.txt":
         return _python_requirements(architecture)
     if name == "pyproject.toml":
@@ -80,7 +81,7 @@ def scaffold_manifest(language: str, name: str, architecture: Dict[str, Any]) ->
     return ""
 
 
-def scaffold_entry(language: str, file_path: str, architecture: Dict[str, Any]) -> Optional[str]:
+def scaffold_entry(language: str, file_path: str, architecture: dict[str, Any]) -> str | None:
     lang = (language or "python").lower()
     framework = _framework(architecture).lower()
     if lang == "python":
@@ -94,7 +95,7 @@ def scaffold_entry(language: str, file_path: str, architecture: Dict[str, Any]) 
     return None
 
 
-def scaffold_database(language: str, file_path: str, architecture: Dict[str, Any]) -> Optional[str]:
+def scaffold_database(language: str, file_path: str, architecture: dict[str, Any]) -> str | None:
     if (language or "python").lower() != "python":
         return None
     backend = _storage_backend(architecture)
@@ -136,12 +137,12 @@ def scaffold_database(language: str, file_path: str, architecture: Dict[str, Any
     )
 
 
-def _file_plan(architecture: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _file_plan(architecture: dict[str, Any]) -> list[dict[str, Any]]:
     plan = architecture.get("file_plan") or []
     return [item for item in plan if isinstance(item, dict)]
 
 
-def _project_title(architecture: Dict[str, Any]) -> str:
+def _project_title(architecture: dict[str, Any]) -> str:
     requirement = _strip_pipeline_banner(
         str(architecture.get("requirement") or architecture.get("project_name") or "")
     )
@@ -166,7 +167,7 @@ def _strip_pipeline_banner(requirement: str) -> str:
     return ""
 
 
-def _slug(architecture: Dict[str, Any]) -> str:
+def _slug(architecture: dict[str, Any]) -> str:
     title = _project_title(architecture).lower()
     chars = [ch if ch.isalnum() else "-" for ch in title]
     slug = "".join(chars).strip("-") or "app"
@@ -175,7 +176,7 @@ def _slug(architecture: Dict[str, Any]) -> str:
     return slug[:40]
 
 
-def _framework(architecture: Dict[str, Any]) -> str:
+def _framework(architecture: dict[str, Any]) -> str:
     spec = architecture.get("project_spec") or {}
     default = spec.get("default") if isinstance(spec, dict) else {}
     if isinstance(default, dict) and default.get("framework"):
@@ -183,7 +184,7 @@ def _framework(architecture: Dict[str, Any]) -> str:
     return str(architecture.get("framework") or "")
 
 
-def _storage_type(architecture: Dict[str, Any]) -> str:
+def _storage_type(architecture: dict[str, Any]) -> str:
     spec = architecture.get("project_spec") or {}
     default = spec.get("default") if isinstance(spec, dict) else {}
     storage = default.get("storage") if isinstance(default, dict) else {}
@@ -192,7 +193,7 @@ def _storage_type(architecture: Dict[str, Any]) -> str:
     return ""
 
 
-def _storage_backend(architecture: Dict[str, Any]) -> str:
+def _storage_backend(architecture: dict[str, Any]) -> str:
     spec = architecture.get("project_spec") or {}
     default = spec.get("default") if isinstance(spec, dict) else {}
     storage = default.get("storage") if isinstance(default, dict) else {}
@@ -203,7 +204,7 @@ def _storage_backend(architecture: Dict[str, Any]) -> str:
     return str(table_storage.get("backend") or "").lower()
 
 
-def _auth_scheme(architecture: Dict[str, Any]) -> str:
+def _auth_scheme(architecture: dict[str, Any]) -> str:
     spec = architecture.get("project_spec") or {}
     default = spec.get("default") if isinstance(spec, dict) else {}
     auth = default.get("auth") if isinstance(default, dict) else {}
@@ -214,7 +215,7 @@ def _auth_scheme(architecture: Dict[str, Any]) -> str:
     return str(table_auth.get("scheme") or "").lower()
 
 
-def _run_command(language: str, architecture: Dict[str, Any]) -> str:
+def _run_command(language: str, architecture: dict[str, Any]) -> str:
     lang = (language or "python").lower()
     if lang == "python":
         entry = next((item.get("path") for item in _file_plan(architecture) if item.get("file_type") == "entry"), "main.py")
@@ -230,9 +231,9 @@ def _run_command(language: str, architecture: Dict[str, Any]) -> str:
     return "see README"
 
 
-def _python_requirements(architecture: Dict[str, Any]) -> str:
+def _python_requirements(architecture: dict[str, Any]) -> str:
     framework = _framework(architecture).lower()
-    packages: List[str] = []
+    packages: list[str] = []
     if "flask" in framework:
         packages.append("flask")
     elif "fastapi" in framework or "uvicorn" in framework:
@@ -250,14 +251,14 @@ def _python_requirements(architecture: Dict[str, Any]) -> str:
         packages.append("pytest")
         if "fastapi" in framework:
             packages.append("httpx")
-    unique: List[str] = []
+    unique: list[str] = []
     for package in packages:
         if package not in unique:
             unique.append(package)
     return "\n".join(unique) + ("\n" if unique else "")
 
 
-def _python_pyproject(architecture: Dict[str, Any]) -> str:
+def _python_pyproject(architecture: dict[str, Any]) -> str:
     deps = ", ".join(
         f'"{line}"' for line in _python_requirements(architecture).splitlines() if line.strip()
     )
@@ -269,7 +270,7 @@ def _python_pyproject(architecture: Dict[str, Any]) -> str:
     )
 
 
-def _javascript_package_json(architecture: Dict[str, Any]) -> str:
+def _javascript_package_json(architecture: dict[str, Any]) -> str:
     entry = next(
         (item.get("path") for item in _file_plan(architecture) if item.get("file_type") == "entry"),
         "src/index.js",
@@ -294,7 +295,7 @@ def _javascript_package_json(architecture: Dict[str, Any]) -> str:
     )
 
 
-def _java_pom(architecture: Dict[str, Any]) -> str:
+def _java_pom(architecture: dict[str, Any]) -> str:
     artifact = _slug(architecture)
     return f"""<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
@@ -316,14 +317,14 @@ def _python_module(path: str) -> str:
     return ".".join(parts)
 
 
-def _api_modules(architecture: Dict[str, Any]) -> Iterable[str]:
+def _api_modules(architecture: dict[str, Any]) -> Iterable[str]:
     for item in _file_plan(architecture):
         path = str(item.get("path") or "")
         if (item.get("file_type") in {"api", "router", "routes", "controller"} or "/controllers/" in f"/{path}") and path.endswith(".py"):
             yield path
 
 
-def _python_entry(file_path: str, architecture: Dict[str, Any]) -> str:
+def _python_entry(file_path: str, architecture: dict[str, Any]) -> str:
     framework = _framework(architecture).lower()
     api_modules = list(_api_modules(architecture))
     if "flask" in framework:
@@ -378,7 +379,7 @@ def _python_entry(file_path: str, architecture: Dict[str, Any]) -> str:
     )
 
 
-def _javascript_entry(architecture: Dict[str, Any]) -> str:
+def _javascript_entry(architecture: dict[str, Any]) -> str:
     return (
         "const express = require('express');\n"
         "const app = express();\n"
@@ -436,7 +437,7 @@ TICKET_TEST_ROUTES = (
 )
 
 
-def scaffold_test(language: str, file_path: str, architecture: Dict[str, Any]) -> Optional[str]:
+def scaffold_test(language: str, file_path: str, architecture: dict[str, Any]) -> str | None:
     if (language or "python").lower() != "python":
         return None
     routes = _frozen_routes(architecture, file_path)
@@ -453,7 +454,7 @@ def _looks_like_test_path(file_path: str) -> bool:
     return "/tests/" in f"/{lower}" or name.startswith("test_") or name.endswith("_test.py")
 
 
-def _frozen_routes(architecture: Dict[str, Any], file_path: str) -> List[str]:
+def _frozen_routes(architecture: dict[str, Any], file_path: str) -> list[str]:
     normalized = (file_path or "").replace("\\", "/")
     table = architecture.get("symbol_table") if isinstance(architecture.get("symbol_table"), dict) else {}
     files = table.get("files") if isinstance(table.get("files"), dict) else {}

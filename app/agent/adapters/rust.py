@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List
 
 from .generic import GenericLanguageAdapter
 from .language_adapter import ImportInfo, LanguageAdapterRegistry, SymbolDefinition
@@ -16,8 +15,8 @@ class RustLanguageAdapter(GenericLanguageAdapter):
     package_init_filename = "lib.rs"
     supports_cross_file_symbol_validation = False
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
-        imports: List[ImportInfo] = []
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
+        imports: list[ImportInfo] = []
         for line in content.splitlines():
             use_match = re.match(r"\s*(?:pub\s+)?use\s+([^;]+);", line)
             if use_match:
@@ -35,7 +34,7 @@ class RustLanguageAdapter(GenericLanguageAdapter):
                 ))
         return imports
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         module = import_info.module.split("::{", 1)[0].rstrip(":")
         if not import_info.is_relative and not module.startswith("crate::"):
             return []
@@ -57,8 +56,8 @@ class RustLanguageAdapter(GenericLanguageAdapter):
         target = base.joinpath(*parts)
         return [target.with_suffix(".rs").as_posix(), (target / "mod.rs").as_posix()]
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
-        definitions: Dict[str, SymbolDefinition] = {}
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
+        definitions: dict[str, SymbolDefinition] = {}
         patterns = (
             (r"\b(?:pub\s+)?(struct|enum|trait)\s+(\w+)", None),
             (r"\b(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(([^)]*)\)", "function"),

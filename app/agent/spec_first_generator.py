@@ -14,7 +14,8 @@ SpecFirstGenerator - 规范先行生成器
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.shared_context import SharedContext
 from app.utils import call_llm
@@ -109,7 +110,7 @@ class SpecFirstGenerator:
 - 返回配置类代码
 - 同时返回 .env.example 内容（用分隔符分开）"""
 
-    def __init__(self, context: SharedContext, language: str = "python", api_key_token: Optional[str] = None):
+    def __init__(self, context: SharedContext, language: str = "python", api_key_token: str | None = None):
         self.context = context
         self.language = language
         self.api_key_token = api_key_token
@@ -124,8 +125,8 @@ class SpecFirstGenerator:
     async def generate_all_specs(
         self,
         requirement: str,
-        complexity: Dict[str, Any],
-        callback: Optional[Callable] = None
+        complexity: dict[str, Any],
+        callback: Callable | None = None
     ) -> bool:
         """
         生成所有规范
@@ -181,7 +182,7 @@ class SpecFirstGenerator:
         self.context.complete_phase("spec_generation")
         return True
 
-    async def _generate_openapi_spec(self, requirement: str, complexity: Dict) -> bool:
+    async def _generate_openapi_spec(self, requirement: str, complexity: dict) -> bool:
         """生成 OpenAPI 3.0 规范"""
         prompt = f"""请为以下项目需求生成 OpenAPI 3.0 规范（JSON 格式）。
 
@@ -363,7 +364,7 @@ OpenAPI 规范：
             logger.error(f"类型定义生成失败: {e}")
             return False
 
-    async def _generate_db_schema(self, requirement: str, complexity: Dict) -> bool:
+    async def _generate_db_schema(self, requirement: str, complexity: dict) -> bool:
         """生成数据库 Schema"""
         openapi_spec = self.context.get_spec("openapi")
         # 防御：确保 openapi_spec 是 dict 类型
@@ -428,7 +429,7 @@ OpenAPI 规范：
             logger.error(f"数据库 Schema 生成失败: {e}")
             return False
 
-    async def _generate_config(self, requirement: str, complexity: Dict) -> bool:
+    async def _generate_config(self, requirement: str, complexity: dict) -> bool:
         """生成配置规范"""
         # 根据语言选择配置策略
         lang = self.language
@@ -480,7 +481,7 @@ OpenAPI 规范：
 
     # ==================== 辅助方法 ====================
 
-    def _extract_json(self, text: str) -> Optional[Dict]:
+    def _extract_json(self, text: str) -> dict | None:
         """从文本中提取 JSON（委托给 json_parser）"""
         from app.agent.json_parser import safe_parse_json
         try:
@@ -493,7 +494,7 @@ OpenAPI 规范：
         from app.agent.utils import clean_code_block
         return clean_code_block(content)
 
-    def _report_progress(self, step: str, callback: Optional[Callable]):
+    def _report_progress(self, step: str, callback: Callable | None):
         """报告进度"""
         if not callback:
             return

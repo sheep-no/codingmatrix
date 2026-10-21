@@ -21,7 +21,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ class ArchitecturePreference:
 @dataclass
 class TechStackPreference:
     """技术栈偏好"""
-    frameworks: Dict[str, str] = field(default_factory=dict)  # category -> framework
-    libraries: List[str] = field(default_factory=list)
+    frameworks: dict[str, str] = field(default_factory=dict)  # category -> framework
+    libraries: list[str] = field(default_factory=list)
     database: str = ""
     api_style: str = "rest"  # rest/graphql/grpc
 
@@ -82,10 +82,10 @@ class UserPreferenceProfile:
     # 学习记录
     total_modifications: int = 0
     successful_predictions: int = 0
-    confidence_scores: Dict[str, float] = field(default_factory=dict)
+    confidence_scores: dict[str, float] = field(default_factory=dict)
 
     # 偏好强度（0-1）
-    preference_strength: Dict[str, float] = field(default_factory=dict)
+    preference_strength: dict[str, float] = field(default_factory=dict)
 
 
 class UserPreferenceLearner:
@@ -100,13 +100,13 @@ class UserPreferenceLearner:
     3. 更新偏好画像
     """
 
-    def __init__(self, user_id: str = "default", data_dir: Optional[Path] = None):
+    def __init__(self, user_id: str = "default", data_dir: Path | None = None):
         self.user_id = user_id
         self.data_dir = data_dir or PREFERENCE_DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.profile = UserPreferenceProfile(user_id=user_id)
-        self._modification_history: List[Dict[str, Any]] = []
+        self._modification_history: list[dict[str, Any]] = []
 
         self._load_preferences()
 
@@ -154,7 +154,7 @@ class UserPreferenceLearner:
         file_type: str,
         original_code: str,
         user_modified_code: str,
-        modification_type: Optional[str] = None
+        modification_type: str | None = None
     ):
         """
         记录用户修改
@@ -203,7 +203,7 @@ class UserPreferenceLearner:
         original: str,
         modified: str,
         file_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """分析修改内容"""
         analysis = {
             "file_type": file_type,
@@ -256,7 +256,7 @@ class UserPreferenceLearner:
         self,
         added: set,
         removed: set
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """分析命名风格变化"""
         snake_added = sum(1 for line in added if re.search(r'\b[a-z]+_[a-z]+\b', line))
         camel_added = sum(1 for line in added if re.search(r'\b[a-z]+[A-Z]\w+\b', line))
@@ -271,7 +271,7 @@ class UserPreferenceLearner:
 
         return None
 
-    def _analyze_comment_changes(self, original: str, modified: str) -> Optional[Dict[str, Any]]:
+    def _analyze_comment_changes(self, original: str, modified: str) -> dict[str, Any] | None:
         """分析注释变化"""
         original_comment_count = len(re.findall(r'(?:#|//|/\*|\*/)', original))
         modified_comment_count = len(re.findall(r'(?:#|//|/\*|\*/)', modified))
@@ -288,7 +288,7 @@ class UserPreferenceLearner:
         self,
         original: str,
         modified: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """分析结构变化"""
         original_funcs = len(re.findall(r'\bdef\b', original))
         original_classes = len(re.findall(r'\bclass\b', original))
@@ -307,7 +307,7 @@ class UserPreferenceLearner:
         self,
         original: str,
         modified: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """分析技术选型变化"""
         # 检测框架/库的替换
         frameworks = {
@@ -331,7 +331,7 @@ class UserPreferenceLearner:
 
         return changes if changes else None
 
-    def _update_preferences(self, analysis: Dict[str, Any]):
+    def _update_preferences(self, analysis: dict[str, Any]):
         """根据分析更新偏好"""
         for change in analysis.get("changes", []):
             change_type = change.get("type")
@@ -453,7 +453,7 @@ class UserPreferenceLearner:
 
         return "\n".join(parts)
 
-    def get_learning_stats(self) -> Dict[str, Any]:
+    def get_learning_stats(self) -> dict[str, Any]:
         """获取学习统计"""
         return {
             "user_id": self.user_id,
@@ -471,7 +471,7 @@ class UserPreferenceLearner:
 
 
 # 全局单例
-_user_preference_learners: Dict[str, UserPreferenceLearner] = {}
+_user_preference_learners: dict[str, UserPreferenceLearner] = {}
 _learner_lock = asyncio.Lock()
 
 

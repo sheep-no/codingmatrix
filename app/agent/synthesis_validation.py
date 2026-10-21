@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from time import monotonic
-from typing import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -107,7 +107,7 @@ class SynthesisCandidate(BaseModel):
     context_hash: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_unique_paths(self) -> "SynthesisCandidate":
+    def validate_unique_paths(self) -> SynthesisCandidate:
         paths = tuple(item.path for item in self.artifacts)
         if len(paths) != len(set(paths)):
             raise ValueError("candidate artifact paths must be unique")
@@ -138,7 +138,7 @@ class ValidationLayerResult(BaseModel):
     elapsed_ms: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
-    def validate_diagnostics(self) -> "ValidationLayerResult":
+    def validate_diagnostics(self) -> ValidationLayerResult:
         if self.status is LayerStatus.PASSED and self.diagnostics:
             raise ValueError("passed validation layer cannot contain diagnostics")
         if self.status is not LayerStatus.PASSED and not self.diagnostics:
@@ -160,7 +160,7 @@ class CandidateValidationResult(BaseModel):
     failure: CandidateFailure | None = None
 
     @model_validator(mode="after")
-    def validate_sequence(self) -> "CandidateValidationResult":
+    def validate_sequence(self) -> CandidateValidationResult:
         indexes = tuple(item.level.index for item in self.layers)
         if indexes != tuple(range(len(indexes))):
             raise ValueError("candidate validation layers must form a V0-based prefix")

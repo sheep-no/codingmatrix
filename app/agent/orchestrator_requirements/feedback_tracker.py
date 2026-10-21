@@ -3,7 +3,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class AssociationFeedbackTracker:
         self._cleanup()
 
     def record_choice(self, session_id: str, requirement: str,
-                      items: List[Dict], action: str):
+                      items: list[dict], action: str):
         with self._write_lock:
             for item in items:
                 self._conn.execute(
@@ -77,7 +77,7 @@ class AssociationFeedbackTracker:
             )
             self._conn.commit()
 
-    def get_feedback_stats(self) -> Dict[str, Any]:
+    def get_feedback_stats(self) -> dict[str, Any]:
         cursor = self._conn.execute(
             "SELECT item_source, user_action, COUNT(*) FROM association_feedback "
             "GROUP BY item_source, user_action"
@@ -89,7 +89,7 @@ class AssociationFeedbackTracker:
             stats[key] = count
         return stats
 
-    def get_rejection_reason_stats(self) -> Dict[str, int]:
+    def get_rejection_reason_stats(self) -> dict[str, int]:
         cursor = self._conn.execute(
             "SELECT rejection_reason, COUNT(*) FROM association_feedback "
             "WHERE user_action = 'rejected' AND rejection_reason != '' "

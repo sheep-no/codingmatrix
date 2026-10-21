@@ -11,7 +11,8 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.agent.topology_scheduler import HeartbeatTracker
@@ -24,10 +25,10 @@ class ReActStep:
     """ReAct 步骤"""
     step_type: str  # thought, action, observation, reflection, final
     content: str
-    tool_name: Optional[str] = None
-    tool_params: Optional[Dict] = None
+    tool_name: str | None = None
+    tool_params: dict | None = None
     tool_result: Any = None
-    success: Optional[bool] = None
+    success: bool | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -36,7 +37,7 @@ class ReActResult:
     """ReAct 执行结果"""
     success: bool
     final_answer: str
-    steps: List[ReActStep]
+    steps: list[ReActStep]
     total_steps: int
     execution_time: float
     reflection_summary: str = ""
@@ -103,21 +104,21 @@ class ReActEngine:
 
     def __init__(
         self,
-        tools: Dict[str, Dict],
+        tools: dict[str, dict],
         call_llm_fn: Callable,
         project_path: str = "",
         max_rounds: int = 6,
         mode: str = "simple",  # "simple" or "full"
-        callback: Optional[Any] = None,
-        emit_event_fn: Optional[Callable] = None,
+        callback: Any | None = None,
+        emit_event_fn: Callable | None = None,
         role_name: str = "ReAct",
-        memory: Optional[Any] = None,  # AgentMemory 实例（full 模式用）
-        stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
-        cancel_event: Optional[asyncio.Event] = None,  # 取消信号
+        memory: Any | None = None,  # AgentMemory 实例（full 模式用）
+        stream_callback: Callable | None = None,  # 流式输出回调（full 模式用）
+        cancel_event: asyncio.Event | None = None,  # 取消信号
         heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为超时（推理模型需要更长时间）
-        heartbeat_tracker: Optional[HeartbeatTracker] = None,
-        required_tool_names: Optional[set[str]] = None,
-        preverified_tool_names: Optional[set[str]] = None,
+        heartbeat_tracker: HeartbeatTracker | None = None,
+        required_tool_names: set[str] | None = None,
+        preverified_tool_names: set[str] | None = None,
     ):
         """
         初始化 ReAct 引擎
@@ -152,8 +153,8 @@ class ReActEngine:
 
         self.tool_names = list(tools.keys())
         self.json_parser = ArchitectJsonParser()
-        self.steps: List[ReActStep] = []
-        self.tool_history: List[str] = []
+        self.steps: list[ReActStep] = []
+        self.tool_history: list[str] = []
         self.used_tool_names: set[str] = set()
 
         # 心跳跟踪器（用于写入活动超时检测）
@@ -213,7 +214,7 @@ class ReActEngine:
                 f"3. 当你已收集足够信息时，直接生成最终答案\n"
             )
 
-    def _parse_tool_call(self, text: str) -> Optional[Dict]:
+    def _parse_tool_call(self, text: str) -> dict | None:
         """解析工具调用 JSON"""
         if not text:
             return None
@@ -237,7 +238,7 @@ class ReActEngine:
         from app.agent.json_parser import parse_tool_call
         return parse_tool_call(text, known_tools=set(self.tool_names) or None)
 
-    async def _execute_tool(self, tool_name: str, tool_params: Dict, timeout: float = 120.0) -> Tuple[bool, Any]:
+    async def _execute_tool(self, tool_name: str, tool_params: dict, timeout: float = 120.0) -> tuple[bool, Any]:
         """执行工具（同步和异步函数统一处理），带超时保护"""
         if tool_name not in self.tools:
             return False, {"error": f"工具不存在: {tool_name}"}
@@ -269,7 +270,7 @@ class ReActEngine:
         self.steps.append(step)
         logger.debug(f"{self.role_name} ReAct 步骤: {step.step_type} - {step.content[:50]}...")
 
-    async def _emit_event(self, event_type: str, data: Dict):
+    async def _emit_event(self, event_type: str, data: dict):
         """推送事件"""
         if self.callback and self.emit_event_fn:
             try:
@@ -285,7 +286,7 @@ class ReActEngine:
             except Exception as e:
                 logger.debug(f"流式输出回调失败（非致命）: {e}")
 
-    async def _reflect(self, task: str, steps: List[ReActStep]) -> Dict[str, Any]:
+    async def _reflect(self, task: str, steps: list[ReActStep]) -> dict[str, Any]:
         """Reflection 阶段 - 反思是否继续（full 模式用）
 
         Returns:
@@ -330,7 +331,7 @@ class ReActEngine:
 
         return result
 
-    async def _generate_final_answer(self, task: str, steps: List[ReActStep]) -> str:
+    async def _generate_final_answer(self, task: str, steps: list[ReActStep]) -> str:
         """生成最终答案（full 模式用）"""
         steps_summary = "\n".join([
             f"- [{s.step_type}] {s.content}"
@@ -691,7 +692,7 @@ class ReActEngine:
             self._heartbeat_tracker.touch()
         return await self.call_llm_fn(prompt, system_prompt)
 
-    async def _run_full_iteration(self, task: str, iteration: int) -> Optional[str]:
+    async def _run_full_iteration(self, task: str, iteration: int) -> str | None:
         """执行全模式的单轮迭代
 
         Returns:

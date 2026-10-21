@@ -4,7 +4,6 @@ import logging
 import re
 import subprocess as sp
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.dependency_rules import EXTENSION_TYPE_MAP
 from app.agent.project_profiler import (
@@ -68,13 +67,13 @@ class UtilsMixin:
 
         return True
 
-    async def _select_dynamic_model(self, candidate_models: List[str], task_type: str) -> str:
+    async def _select_dynamic_model(self, candidate_models: list[str], task_type: str) -> str:
         from app.agent.dynamic_model_router import get_dynamic_router
 
         router = await get_dynamic_router()
         return await router.get_best_model(candidate_models, task_type)
 
-    def _validate_file_plan(self, file_plan: List[Dict]) -> List[Dict]:
+    def _validate_file_plan(self, file_plan: list[dict]) -> list[dict]:
         valid_files = []
         for file_info in file_plan:
             path = file_info.get("path", "")
@@ -120,7 +119,7 @@ class UtilsMixin:
 
         return valid_files
 
-    async def _profile_project(self, language: Optional[str] = None) -> Optional[ProjectProfile]:
+    async def _profile_project(self, language: str | None = None) -> ProjectProfile | None:
         """分析项目模式
 
         Args:
@@ -140,8 +139,8 @@ class UtilsMixin:
             logger.error(f"项目分析失败：{e}")
             return None
 
-    def _compute_layers(self, file_plan: List[Dict]) -> List[List[str]]:
-        groups: Dict[int, List[str]] = {}
+    def _compute_layers(self, file_plan: list[dict]) -> list[list[str]]:
+        groups: dict[int, list[str]] = {}
         for fi in file_plan:
             p = fi.get("priority", 3)
             if p not in groups:
@@ -153,9 +152,9 @@ class UtilsMixin:
     async def _cache_specs(
         self,
         requirement: str,
-        architecture: Dict,
-        file_plan: List[Dict],
-        requirement_vector: Optional[List[float]] = None
+        architecture: dict,
+        file_plan: list[dict],
+        requirement_vector: list[float] | None = None
     ):
         if not self.spec_cache:
             return
@@ -183,8 +182,8 @@ class UtilsMixin:
     async def _record_learning_data(
         self,
         requirement: str,
-        architecture: Dict,
-        file_plan: List[Dict]
+        architecture: dict,
+        file_plan: list[dict]
     ):
         if not self.feedback_learner:
             return
@@ -290,7 +289,7 @@ class UtilsMixin:
             else:
                 self.warnings.append(f"API 警告: {issue.message}")
 
-    async def _save_to_memory(self, requirement: str, architecture: Dict):
+    async def _save_to_memory(self, requirement: str, architecture: dict):
         if not self.memory_enabled:
             return
 
@@ -328,7 +327,7 @@ class UtilsMixin:
                 raise
             raise RuntimeError(f"LLM patch call failed: {e}") from e
 
-    def _estimate_generation_cost(self, architecture: Dict, file_plan: List[Dict]) -> Dict:
+    def _estimate_generation_cost(self, architecture: dict, file_plan: list[dict]) -> dict:
         estimated_files = len(file_plan)
         level = self.complexity.level.value if self.complexity else "unknown"
 

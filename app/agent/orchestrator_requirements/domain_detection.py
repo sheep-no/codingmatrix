@@ -1,4 +1,3 @@
-from typing import List
 
 DOMAIN_KEYWORDS = {
     "banking": ["银行", "金融", "转账", "存款", "贷款", "账户", "支付", "理财", "信贷", "风控"],
@@ -14,7 +13,7 @@ DOMAIN_KEYWORDS = {
 }
 
 
-def _detect_domains(requirement: str) -> List[str]:
+def _detect_domains(requirement: str) -> list[str]:
     req_lower = requirement.lower()
 
     scored = []

@@ -6,7 +6,8 @@ import hashlib
 import json
 import re
 from pathlib import PurePosixPath
-from typing import Any, Iterable, Mapping, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,9 +32,9 @@ class PlanFile(BaseModel):
     language: str = ""
     file_type: str = ""
     priority: int = Field(default=3, ge=1, le=5)
-    dependencies: Tuple[str, ...] = ()
-    imports: Tuple[str, ...] = ()
-    contract_refs: Tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    imports: tuple[str, ...] = ()
+    contract_refs: tuple[str, ...] = ()
     contract: Mapping[str, Any] = Field(default_factory=dict)
 
 
@@ -47,14 +48,14 @@ class GenerationPlan(BaseModel):
     language: str = ""
     framework: str = ""
     runtime: str = ""
-    requested_paths: Tuple[str, ...] = ()
-    files: Tuple[PlanFile, ...] = ()
+    requested_paths: tuple[str, ...] = ()
+    files: tuple[PlanFile, ...] = ()
     interfaces: InterfaceRegistry = Field(default_factory=InterfaceRegistry.build)
     dependencies: DependencyManifest = Field(default_factory=DependencyManifest.build)
     digest: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_digest(self) -> "GenerationPlan":
+    def validate_digest(self) -> GenerationPlan:
         payload = {"version": self.version, "policy": self.policy, "language": self.language, "framework": self.framework, "runtime": self.runtime, "requested_paths": self.requested_paths, "files": [item.model_dump(mode="json") for item in self.files], "interfaces": self.interfaces.model_dump(mode="json"), "dependencies": self.dependencies.model_dump(mode="json")}
         expected = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
         if self.digest != expected:
@@ -62,7 +63,7 @@ class GenerationPlan(BaseModel):
         return self
 
     @classmethod
-    def build(cls, files: Iterable[Mapping[str, object] | PlanFile], *, language: str = "", framework: str = "", runtime: str = "", requested_paths: Optional[Iterable[str]] = None, policy: str = "extensible", version: int = 1, interfaces: Optional[InterfaceRegistry] = None, dependencies: Optional[DependencyManifest] = None) -> "GenerationPlan":
+    def build(cls, files: Iterable[Mapping[str, object] | PlanFile], *, language: str = "", framework: str = "", runtime: str = "", requested_paths: Iterable[str] | None = None, policy: str = "extensible", version: int = 1, interfaces: InterfaceRegistry | None = None, dependencies: DependencyManifest | None = None) -> GenerationPlan:
         normalized = tuple(sorted((_coerce_file(item) for item in files), key=lambda item: item.path))
         paths = {item.path for item in normalized}
         if len(paths) != len(normalized):
@@ -82,7 +83,7 @@ class GenerationPlan(BaseModel):
         return cls(version=version, policy=policy, language=language, framework=framework, runtime=runtime, requested_paths=requested, files=normalized, interfaces=registry, dependencies=manifest, digest=digest)
 
     @classmethod
-    def from_architecture(cls, architecture: Mapping[str, object], **kwargs: object) -> "GenerationPlan":
+    def from_architecture(cls, architecture: Mapping[str, object], **kwargs: object) -> GenerationPlan:
         files = architecture.get("file_plan", ())
         if isinstance(files, str):
             files = [files]
@@ -111,7 +112,7 @@ class GenerationPlan(BaseModel):
             build_options["requested_paths"] = strict_paths
         return cls.build(files, language=str(project.get("language", architecture.get("language", ""))), framework=str(project.get("framework", architecture.get("framework", ""))), runtime=str(project.get("runtime", architecture.get("runtime", ""))), interfaces=interfaces, dependencies=dependencies, **build_options)
 
-    def file_entries(self) -> Tuple[Mapping[str, object], ...]:
+    def file_entries(self) -> tuple[Mapping[str, object], ...]:
         """Return a compatibility projection with mutable collection fields."""
         return tuple({
             "path": item.path,
@@ -131,7 +132,7 @@ def add_profile_components(
     profile_context: Mapping[str, object],
     *,
     policy: str = "extensible",
-    requested_paths: Optional[Iterable[str]] = None,
+    requested_paths: Iterable[str] | None = None,
     language: str = "",
     framework: str = "",
     runtime: str = "",
@@ -203,7 +204,7 @@ def _module_key(path: str) -> str:
     return ".".join(part for part in parts if part not in ("", "."))
 
 
-def _resolve_plan_dependencies(files: Tuple[PlanFile, ...], paths: set) -> Tuple[PlanFile, ...]:
+def _resolve_plan_dependencies(files: tuple[PlanFile, ...], paths: set) -> tuple[PlanFile, ...]:
     """把 file_plan 的 dependencies 规范化为计划内文件路径。
 
     架构师提示词允许用 imports 或 dependencies 声明依赖方向，模型常在该字段
@@ -237,7 +238,7 @@ def _resolve_plan_dependencies(files: Tuple[PlanFile, ...], paths: set) -> Tuple
     return tuple(resolved_files) if changed else files
 
 
-def _match_plan_dependency(dependency: str, paths: set, index: dict) -> Optional[str]:
+def _match_plan_dependency(dependency: str, paths: set, index: dict) -> str | None:
     """返回依赖对应的计划内文件路径；无法解析时返回 None。"""
     if dependency in paths:
         return dependency
@@ -288,7 +289,7 @@ def _normalize_path(path: str) -> str:
     return PurePosixPath(*parts).as_posix()
 
 
-def _assert_acyclic(files: Tuple[PlanFile, ...]) -> None:
+def _assert_acyclic(files: tuple[PlanFile, ...]) -> None:
     dependencies = {item.path: set(item.dependencies) for item in files}
     visiting = set()
     visited = set()

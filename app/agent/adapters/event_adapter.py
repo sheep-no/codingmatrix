@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from app.agent.state import MessageEnvelope
 
 
 def progress_event_to_message(
-    event: str | Dict[str, Any],
+    event: str | dict[str, Any],
     *,
     session_id: str,
     task_id: str,

@@ -15,7 +15,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class GlobalConstraint:
     category: ConstraintCategory
     description: str
     original_text: str
-    applies_to: List[str]
+    applies_to: list[str]
     priority: str
 
 
@@ -65,7 +65,7 @@ class GlobalConstraintParser:
         "必须用", "必须使用", "必须采用"
     ]
 
-    CONSTRAINT_PATTERNS: Dict[str, Dict] = {
+    CONSTRAINT_PATTERNS: dict[str, dict] = {
         "tech_stack": {
             "patterns": [
                 r"必须\s*用\s*([\w\-\.]+)",
@@ -141,10 +141,10 @@ class GlobalConstraintParser:
     }
 
     def __init__(self):
-        self.constraints: List[GlobalConstraint] = []
+        self.constraints: list[GlobalConstraint] = []
         self.raw_text: str = ""
 
-    def parse_requirement(self, requirement: str) -> List[GlobalConstraint]:
+    def parse_requirement(self, requirement: str) -> list[GlobalConstraint]:
         """
         解析需求文本，提取全局约束
 
@@ -167,7 +167,7 @@ class GlobalConstraintParser:
         logger.info(f"解析全局约束: {len(self.constraints)} 个")
         return self.constraints
 
-    def _extract_global_statements(self, text: str) -> List[str]:
+    def _extract_global_statements(self, text: str) -> list[str]:
         """提取包含全局关键词的语句"""
         statements = []
 
@@ -185,7 +185,7 @@ class GlobalConstraintParser:
 
         return statements
 
-    def _classify_constraint(self, statement: str) -> Optional[GlobalConstraint]:
+    def _classify_constraint(self, statement: str) -> GlobalConstraint | None:
         """分类约束"""
         for category, config in self.CONSTRAINT_PATTERNS.items():
             for pattern in config["patterns"]:
@@ -236,7 +236,7 @@ class GlobalConstraintParser:
         self,
         file_path: str,
         file_type: str
-    ) -> List[GlobalConstraint]:
+    ) -> list[GlobalConstraint]:
         """
         获取适用于特定文件的约束
 
@@ -310,11 +310,11 @@ class GlobalConstraintParser:
 
         return "\n".join(lines)
 
-    def get_all_constraints(self) -> List[GlobalConstraint]:
+    def get_all_constraints(self) -> list[GlobalConstraint]:
         """获取所有约束"""
         return self.constraints.copy()
 
-    def get_constraints_summary(self) -> Dict[str, Any]:
+    def get_constraints_summary(self) -> dict[str, Any]:
         """获取约束摘要"""
         summary = {
             "total": len(self.constraints),
@@ -338,7 +338,7 @@ class GlobalConstraintParser:
 
     def merge_with_decisions(
         self,
-        decisions: Dict[str, str]
+        decisions: dict[str, str]
     ) -> str:
         """
         将用户决策合并到约束 prompt

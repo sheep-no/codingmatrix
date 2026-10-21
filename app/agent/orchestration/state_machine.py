@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .models import OrchestrationStage, OrchestrationState, OrchestrationStatus, utc_now
 
@@ -58,9 +58,9 @@ def advance_state(
     *,
     event_id: str,
     expected_revision: int,
-    resume_cursor: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    occurred_at: Optional[datetime] = None,
+    resume_cursor: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
 ) -> OrchestrationState:
     """Advance exactly one lifecycle stage and persist its idempotency key."""
     if not _validate_event(state, event_id, expected_revision):
@@ -91,8 +91,8 @@ def terminate_state(
     *,
     event_id: str,
     expected_revision: int,
-    diagnostic: Optional[Dict[str, Any]] = None,
-    occurred_at: Optional[datetime] = None,
+    diagnostic: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
 ) -> OrchestrationState:
     """Set the task's single terminal status and terminal event identifier."""
     if not _validate_event(state, event_id, expected_revision):

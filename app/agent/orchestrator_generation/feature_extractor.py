@@ -1,14 +1,13 @@
 import logging
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
 async def extract_and_save_feature_list(
     requirement: str,
-    generated_files: Dict[str, str],
+    generated_files: dict[str, str],
     domain: str = ""
-) -> Optional[Dict]:
+) -> dict | None:
     try:
         from app.agent.project_metadata import ProjectMetadataManager
         pm = ProjectMetadataManager()

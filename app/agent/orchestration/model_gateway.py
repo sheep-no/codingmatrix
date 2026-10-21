@@ -8,7 +8,8 @@ import json
 import logging
 from datetime import datetime
 from enum import Enum
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional, Union
+from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -21,7 +22,7 @@ from .models import utc_now
 
 logger = logging.getLogger(__name__)
 
-RawModelResult = Union[Dict[str, Any], AsyncIterator[str]]
+RawModelResult = dict[str, Any] | AsyncIterator[str]
 ModelCaller = Callable[..., Awaitable[RawModelResult]]
 
 
@@ -32,15 +33,15 @@ class ModelCallContext(BaseModel):
 
     task_id: str = Field(min_length=1)
     stage_id: str = Field(min_length=1)
-    file_path: Optional[str] = None
+    file_path: str | None = None
     call_id: str = Field(min_length=1)
     react_round: int = Field(default=0, ge=0)
-    context_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    context_hash: str | None = Field(default=None, min_length=64, max_length=64)
     started_at: datetime
     deadline_at: datetime
 
     @model_validator(mode="after")
-    def validate_deadline(self) -> "ModelCallContext":
+    def validate_deadline(self) -> ModelCallContext:
         if self.started_at.tzinfo is None or self.deadline_at.tzinfo is None:
             raise ValueError("model call timestamps must be timezone-aware")
         if self.deadline_at <= self.started_at:
@@ -55,13 +56,13 @@ class ModelCallContext(BaseModel):
         task_id: str,
         stage_id: str,
         call_id: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         react_round: int = 0,
-        context_hash: Optional[str] = None,
+        context_hash: str | None = None,
         task_elapsed_seconds: float = 0.0,
         stage_elapsed_seconds: float = 0.0,
         file_elapsed_seconds: float = 0.0,
-    ) -> "ModelCallContext":
+    ) -> ModelCallContext:
         started_at = utc_now()
         return cls(
             task_id=task_id,
@@ -92,9 +93,9 @@ class ModelCallActivity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     call_id: str
-    last_stream_data_at: Optional[datetime] = None
-    last_keepalive_at: Optional[datetime] = None
-    last_model_data_at: Optional[datetime] = None
+    last_stream_data_at: datetime | None = None
+    last_keepalive_at: datetime | None = None
+    last_model_data_at: datetime | None = None
 
 
 class ModelCallTelemetry(BaseModel):
@@ -104,15 +105,15 @@ class ModelCallTelemetry(BaseModel):
 
     call_id: str
     started_at: datetime
-    completed_at: Optional[datetime] = None
-    elapsed_seconds: Optional[float] = None
-    finish_reason: Optional[str] = None
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
+    completed_at: datetime | None = None
+    elapsed_seconds: float | None = None
+    finish_reason: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
     input_chars: int = 0
-    max_tokens: Optional[int] = None
-    synthesis_protocol: Optional[str] = None
+    max_tokens: int | None = None
+    synthesis_protocol: str | None = None
     capability_degraded: bool = False
 
 
@@ -126,7 +127,7 @@ class ModelGatewayError(RuntimeError):
         self.context = context
 
     @property
-    def diagnostic(self) -> Dict[str, Any]:
+    def diagnostic(self) -> dict[str, Any]:
         diagnostic = {
             "code": self.code,
             "message": str(self),
@@ -156,34 +157,32 @@ class ModelGateway:
         self,
         caller: ModelCaller = call_llm,
         *,
-        activity_callback: Optional[
-            Callable[[ModelCallContext, ModelStreamDataKind, datetime], None]
-        ] = None,
-        model_profile: Optional[ModelCapabilityProfile] = None,
+        activity_callback: Callable[[ModelCallContext, ModelStreamDataKind, datetime], None] | None = None,
+        model_profile: ModelCapabilityProfile | None = None,
     ) -> None:
         self._caller = caller
         self._activity_callback = activity_callback
-        self._activity: Dict[str, ModelCallActivity] = {}
-        self._telemetry: Dict[str, ModelCallTelemetry] = {}
+        self._activity: dict[str, ModelCallActivity] = {}
+        self._telemetry: dict[str, ModelCallTelemetry] = {}
         self._model_profile = model_profile
 
     @property
-    def model_profile(self) -> Optional[ModelCapabilityProfile]:
+    def model_profile(self) -> ModelCapabilityProfile | None:
         return self._model_profile
 
     def activity_for(self, call_id: str) -> ModelCallActivity:
         return self._activity.get(call_id, ModelCallActivity(call_id=call_id))
 
-    def telemetry_for(self, call_id: str) -> Optional[ModelCallTelemetry]:
+    def telemetry_for(self, call_id: str) -> ModelCallTelemetry | None:
         return self._telemetry.get(call_id)
 
     async def call(
         self,
         context: ModelCallContext,
         *,
-        cancel_event: Optional[asyncio.Event] = None,
+        cancel_event: asyncio.Event | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         kwargs = self._adapt_request(kwargs)
         self._start_telemetry(context, kwargs)
         try:
@@ -210,12 +209,12 @@ class ModelGateway:
         self,
         context: ModelCallContext,
         *,
-        cancel_event: Optional[asyncio.Event] = None,
+        cancel_event: asyncio.Event | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         kwargs = self._adapt_request(kwargs)
         self._start_telemetry(context, kwargs)
-        stream_result: Optional[AsyncIterator[str]] = None
+        stream_result: AsyncIterator[str] | None = None
         try:
             async with asyncio.timeout(self._remaining_seconds(context)):
                 result = await self._await_with_cancel(
@@ -249,7 +248,7 @@ class ModelGateway:
                 await self._close_stream(stream_result)
             self._finish_telemetry(context)
 
-    def _start_telemetry(self, context: ModelCallContext, kwargs: Dict[str, Any]) -> None:
+    def _start_telemetry(self, context: ModelCallContext, kwargs: dict[str, Any]) -> None:
         prompt = kwargs.get("prompt") or ""
         messages = kwargs.get("messages")
         input_chars = len(prompt)
@@ -264,7 +263,7 @@ class ModelGateway:
             capability_degraded=kwargs.get("capability_degraded", False),
         )
 
-    def _adapt_request(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _adapt_request(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         if self._model_profile is None or "synthesis_protocol" in kwargs:
             return kwargs
         profile = self._model_profile
@@ -303,7 +302,7 @@ class ModelGateway:
         if isinstance(parsed, dict):
             self._merge_response_metadata(context.call_id, parsed)
 
-    def _merge_response_metadata(self, call_id: str, response: Dict[str, Any]) -> None:
+    def _merge_response_metadata(self, call_id: str, response: dict[str, Any]) -> None:
         current = self._telemetry.get(call_id)
         if current is None:
             return
@@ -313,7 +312,7 @@ class ModelGateway:
              if choice.get("finish_reason")),
             None,
         )
-        updates: Dict[str, Any] = {}
+        updates: dict[str, Any] = {}
         for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
             if usage.get(field) is not None:
                 updates[field] = int(usage[field])
@@ -326,7 +325,7 @@ class ModelGateway:
         self,
         awaitable: Awaitable[RawModelResult],
         context: ModelCallContext,
-        cancel_event: Optional[asyncio.Event],
+        cancel_event: asyncio.Event | None,
     ) -> RawModelResult:
         async with asyncio.timeout(self._remaining_seconds(context)):
             return await self._await_with_cancel(awaitable, context, cancel_event)
@@ -335,7 +334,7 @@ class ModelGateway:
         self,
         awaitable: Awaitable[Any],
         context: ModelCallContext,
-        cancel_event: Optional[asyncio.Event],
+        cancel_event: asyncio.Event | None,
     ) -> Any:
         if cancel_event is None:
             return await awaitable
@@ -378,7 +377,7 @@ class ModelGateway:
         observed_at = utc_now()
         kind = self._classify_chunk(chunk)
         current = self.activity_for(context.call_id)
-        updates: Dict[str, Any] = {"last_stream_data_at": observed_at}
+        updates: dict[str, Any] = {"last_stream_data_at": observed_at}
         if kind is ModelStreamDataKind.KEEPALIVE:
             updates["last_keepalive_at"] = observed_at
         elif kind is ModelStreamDataKind.MODEL_DATA:

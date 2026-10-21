@@ -14,7 +14,8 @@ import inspect
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.tools import (
     _tool_delete_files_by_pattern as _impl_delete_files_by_pattern,
@@ -82,7 +83,7 @@ class ToolResult:
     """工具执行结果"""
     success: bool
     result: Any
-    error: Optional[str] = None
+    error: str | None = None
     execution_time: float = 0.0
     tool_name: str = ""
 
@@ -105,7 +106,7 @@ def _interpret_tool_result(result: Any, start_time: float) -> ToolResult:
     )
 
 
-def _wrap_sync(func, project_path: str, params: Dict) -> ToolResult:
+def _wrap_sync(func, project_path: str, params: dict) -> ToolResult:
     """将同步工具函数适配为 ToolResult"""
     start = time.time()
     try:
@@ -114,7 +115,7 @@ def _wrap_sync(func, project_path: str, params: Dict) -> ToolResult:
         return ToolResult(False, None, str(e), time.time() - start)
 
 
-async def _wrap_async(func, project_path: str, params: Dict) -> ToolResult:
+async def _wrap_async(func, project_path: str, params: dict) -> ToolResult:
     """将异步工具函数适配为 ToolResult"""
     start = time.time()
     try:
@@ -127,7 +128,7 @@ class ToolRegistry:
     """工具注册表"""
 
     _instance = None
-    _tools: Dict[str, Dict[str, Any]] = {}
+    _tools: dict[str, dict[str, Any]] = {}
 
     @classmethod
     def get_instance(cls) -> "ToolRegistry":
@@ -146,7 +147,7 @@ class ToolRegistry:
         name: str,
         func: Callable,
         description: str,
-        parameters_schema: Optional[Dict] = None
+        parameters_schema: dict | None = None
     ) -> None:
         self._tools[name] = {
             "func": func,
@@ -154,21 +155,21 @@ class ToolRegistry:
             "parameters": parameters_schema or {}
         }
 
-    def get(self, name: str) -> Optional[Callable]:
+    def get(self, name: str) -> Callable | None:
         tool = self._tools.get(name)
         return tool["func"] if tool else None
 
-    def get_schema(self, name: str) -> Optional[Dict]:
+    def get_schema(self, name: str) -> dict | None:
         tool = self._tools.get(name)
         return tool["parameters"] if tool else None
 
-    def list_tools(self) -> List[Dict[str, str]]:
+    def list_tools(self) -> list[dict[str, str]]:
         return [
             {"name": name, "description": t["description"]}
             for name, t in self._tools.items()
         ]
 
-    def get_all_schemas(self) -> List[Dict]:
+    def get_all_schemas(self) -> list[dict]:
         return [
             {
                 "type": "function",
@@ -225,7 +226,7 @@ class EnhancedExecutor:
         return 0
 
     @staticmethod
-    def _params_to_schema(params: Dict[str, str]) -> Dict:
+    def _params_to_schema(params: dict[str, str]) -> dict:
         """将 SPECIALIST_TOOLS 的 params 格式转为 JSON Schema"""
         if not params:
             return {"type": "object", "properties": {}, "required": []}
@@ -244,7 +245,7 @@ class EnhancedExecutor:
 
         def _adapt_sync(fn):
             """将 tools.py 的同步函数适配为 (params) -> ToolResult"""
-            async def wrapper(params: Optional[Dict] = None, project_path: Optional[str] = None, **kwargs) -> ToolResult:
+            async def wrapper(params: dict | None = None, project_path: str | None = None, **kwargs) -> ToolResult:
                 call_params = dict(params or {})
                 call_params.update(kwargs)
                 call_project_path = project_path if project_path is not None else self.project_path
@@ -254,7 +255,7 @@ class EnhancedExecutor:
 
         def _adapt_async(fn):
             """将 tools.py 的异步函数适配为 (params) -> ToolResult"""
-            async def wrapper(params: Optional[Dict] = None, project_path: Optional[str] = None, **kwargs) -> ToolResult:
+            async def wrapper(params: dict | None = None, project_path: str | None = None, **kwargs) -> ToolResult:
                 call_params = dict(params or {})
                 call_params.update(kwargs)
                 call_project_path = project_path if project_path is not None else self.project_path
@@ -430,7 +431,7 @@ class EnhancedExecutor:
             self.tool_registry.register(name=name, func=func, description=desc, parameters_schema=schema)
         self.tool_registry._registered_project_path = self.project_path
 
-    async def execute_tool(self, tool_name: str, params: Dict) -> ToolResult:
+    async def execute_tool(self, tool_name: str, params: dict) -> ToolResult:
         """执行单个工具"""
         func = self.tool_registry.get(tool_name)
         if not func:
@@ -447,7 +448,7 @@ class EnhancedExecutor:
         except Exception as e:
             return ToolResult(False, None, str(e), 0, tool_name)
 
-    async def execute(self, step: Dict) -> ToolResult:
+    async def execute(self, step: dict) -> ToolResult:
         """执行单个步骤"""
         step_type = step.get("type")
         params = step.get("params", {})
@@ -468,7 +469,7 @@ class EnhancedExecutor:
 
         return ToolResult(False, None, f"未知步骤类型: {step_type}", 0, step_type)
 
-    async def execute_file_operation(self, params: Dict) -> ToolResult:
+    async def execute_file_operation(self, params: dict) -> ToolResult:
         """执行文件操作"""
         operation = params.get("operation", "read")
         path = params.get("path", "")
@@ -480,7 +481,7 @@ class EnhancedExecutor:
             return await self.execute_tool("list_files", {"directory": path})
         return ToolResult(False, None, f"未知文件操作: {operation}", 0, "file_operation")
 
-    async def _adapt_http(self, params: Dict) -> ToolResult:
+    async def _adapt_http(self, params: dict) -> ToolResult:
         """适配 API 调用步骤"""
         return await self.execute_tool("http_request", params)
 
@@ -490,7 +491,7 @@ class StreamingExecutor(EnhancedExecutor):
 
     def __init__(self, file_operator=None, project_path: str = "."):
         super().__init__(file_operator, project_path)
-        self._stream_callback: Optional[Callable[[str], None]] = None
+        self._stream_callback: Callable[[str], None] | None = None
 
     def set_stream_callback(self, callback: Callable[[str], None]) -> None:
         self._stream_callback = callback
@@ -503,7 +504,7 @@ class StreamingExecutor(EnhancedExecutor):
             except Exception as e:
                 logger.error(f"流式输出回调失败: {e}")
 
-    async def execute_with_stream(self, step: Dict) -> ToolResult:
+    async def execute_with_stream(self, step: dict) -> ToolResult:
         """带流式输出的执行"""
         step_type = step.get("type")
         await self._stream_output(f"[开始执行: {step_type}]\n")

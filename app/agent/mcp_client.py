@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -39,19 +39,19 @@ class MCPError(Exception):
 class MCPServerConnection:
     """单个 MCP Server 连接"""
 
-    def __init__(self, name: str, config: Dict[str, Any]):
+    def __init__(self, name: str, config: dict[str, Any]):
         self.name = name
         self.config = config
         self.transport = config.get("transport", "stdio")
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._http_client: Optional[httpx.AsyncClient] = None
-        self._url: Optional[str] = None
+        self._process: asyncio.subprocess.Process | None = None
+        self._http_client: httpx.AsyncClient | None = None
+        self._url: str | None = None
         self._initialized = False
-        self._tools: List[Dict] = []
+        self._tools: list[dict] = []
         self._request_id = 0
-        self._pending: Dict[int, asyncio.Future] = {}
+        self._pending: dict[int, asyncio.Future] = {}
         self._write_lock = asyncio.Lock()
-        self._read_task: Optional[asyncio.Task] = None
+        self._read_task: asyncio.Task | None = None
 
     async def connect(self) -> bool:
         """连接到 MCP Server"""
@@ -167,7 +167,7 @@ class MCPServerConnection:
                     future.set_exception(MCPError(f"MCP Server {self.name} 连接已断开"))
             self._pending.clear()
 
-    def _handle_message(self, msg: Dict):
+    def _handle_message(self, msg: dict):
         """处理收到的 JSON-RPC 消息"""
         msg_id = msg.get("id")
         if msg_id is not None and msg_id in self._pending:
@@ -181,7 +181,7 @@ class MCPServerConnection:
         self._request_id += 1
         return self._request_id
 
-    async def _send_request(self, method: str, params: Dict, timeout: float = MCP_CONNECT_TIMEOUT) -> Optional[Any]:
+    async def _send_request(self, method: str, params: dict, timeout: float = MCP_CONNECT_TIMEOUT) -> Any | None:
         """发送 JSON-RPC 请求并等待响应"""
         req_id = self._next_id()
         message = {
@@ -196,7 +196,7 @@ class MCPServerConnection:
         else:
             return await self._send_http_request(message, timeout)
 
-    async def _send_stdio_request(self, req_id: int, message: Dict, timeout: float) -> Optional[Any]:
+    async def _send_stdio_request(self, req_id: int, message: dict, timeout: float) -> Any | None:
         """通过 stdio 发送请求"""
         if not self._process or not self._process.stdin:
             return None
@@ -220,7 +220,7 @@ class MCPServerConnection:
             logger.error(f"[MCP:{self.name}] 请求超时: {message['method']}")
             return None
 
-    async def _send_http_request(self, message: Dict, timeout: float) -> Optional[Any]:
+    async def _send_http_request(self, message: dict, timeout: float) -> Any | None:
         """通过 HTTP 发送请求"""
         if not self._http_client or not self._url:
             return None
@@ -240,7 +240,7 @@ class MCPServerConnection:
             logger.error(f"[MCP:{self.name}] HTTP 请求失败: {e}")
             return None
 
-    async def _send_notification(self, method: str, params: Dict):
+    async def _send_notification(self, method: str, params: dict):
         """发送 JSON-RPC 通知（无响应）"""
         message = {
             "jsonrpc": "2.0",
@@ -252,7 +252,7 @@ class MCPServerConnection:
             self._process.stdin.write(data.encode("utf-8"))
             await self._process.stdin.drain()
 
-    async def list_tools(self) -> List[Dict]:
+    async def list_tools(self) -> list[dict]:
         """获取 MCP Server 提供的工具列表"""
         if not self._initialized:
             return []
@@ -265,7 +265,7 @@ class MCPServerConnection:
         logger.info(f"[MCP:{self.name}] 发现 {len(self._tools)} 个工具")
         return self._tools
 
-    async def call_tool(self, tool_name: str, arguments: Dict) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict) -> Any:
         """调用 MCP Server 的工具"""
         if not self._initialized:
             raise MCPError(f"MCP Server {self.name} 未连接")
@@ -340,7 +340,7 @@ class MCPServerConnection:
         self._initialized = False
         logger.info(f"[MCP:{self.name}] 已断开连接")
 
-    def get_tools_as_specialist_format(self) -> Dict[str, Dict]:
+    def get_tools_as_specialist_format(self) -> dict[str, dict]:
         """将 MCP 工具转换为 SPECIALIST_TOOLS 格式"""
         tools = {}
         for tool_def in self._tools:
@@ -402,8 +402,8 @@ class MCPClientManager:
         # 已有状态说明是复用单例，跳过重复初始化
         if getattr(self, "_servers", None) is not None:
             return
-        self._servers: Dict[str, MCPServerConnection] = {}
-        self._all_tools: Dict[str, Dict] = {}
+        self._servers: dict[str, MCPServerConnection] = {}
+        self._all_tools: dict[str, dict] = {}
 
     @classmethod
     def get_or_create_instance(cls) -> "MCPClientManager":
@@ -416,7 +416,7 @@ class MCPClientManager:
     def get_instance(cls) -> Optional["MCPClientManager"]:
         return cls._instance
 
-    async def load_servers(self, config_path: Optional[str] = None) -> int:
+    async def load_servers(self, config_path: str | None = None) -> int:
         """从配置文件加载 MCP Server
 
         Returns:
@@ -468,7 +468,7 @@ class MCPClientManager:
         return connected
 
     @staticmethod
-    def _read_servers_config(path: str) -> Optional[Dict[str, Any]]:
+    def _read_servers_config(path: str) -> dict[str, Any] | None:
         """同步读取 MCP 配置文件（供工作线程调用）。"""
         if not os.path.exists(path):
             logger.info(f"MCP 配置文件不存在: {path}，跳过 MCP 加载")
@@ -481,14 +481,14 @@ class MCPClientManager:
             logger.error(f"读取 MCP 配置失败: {e}")
             return None
 
-    def get_server(self, name: str) -> Optional[MCPServerConnection]:
+    def get_server(self, name: str) -> MCPServerConnection | None:
         return self._servers.get(name)
 
-    def get_all_tools(self) -> Dict[str, Dict]:
+    def get_all_tools(self) -> dict[str, dict]:
         """获取所有 MCP 工具（SPECIALIST_TOOLS 格式）"""
         return self._all_tools
 
-    def get_tool_names(self) -> List[str]:
+    def get_tool_names(self) -> list[str]:
         return list(self._all_tools.keys())
 
     async def disconnect_all(self):
@@ -500,7 +500,7 @@ class MCPClientManager:
         logger.info("所有 MCP Server 已断开")
 
     @staticmethod
-    def create_default_config(path: Optional[str] = None) -> str:
+    def create_default_config(path: str | None = None) -> str:
         """创建默认配置文件"""
         config_path = path or MCP_CONFIG_PATH
         os.makedirs(os.path.dirname(config_path), exist_ok=True)

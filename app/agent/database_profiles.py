@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, Iterable, Tuple
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,15 +26,15 @@ class DatabaseContract(BaseModel):
     migration_tool: str | None = None
     test_database: str = Field(min_length=1)
     status: DatabaseProfileStatus
-    capabilities: Tuple[str, ...] = ()
-    diagnostics: Tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
 
 class DatabaseProfileRegistry:
     """Resolve aliases while preserving an explicit unsupported fallback."""
 
     def __init__(self, profiles: Iterable[DatabaseContract] = ()) -> None:
-        self._profiles: Dict[str, DatabaseContract] = {}
+        self._profiles: dict[str, DatabaseContract] = {}
         for profile in profiles:
             self.register(profile)
 
@@ -56,7 +56,7 @@ class DatabaseProfileRegistry:
             diagnostics=(f"database profile not found: {name}",),
         )
 
-    def all(self) -> Tuple[DatabaseContract, ...]:
+    def all(self) -> tuple[DatabaseContract, ...]:
         return tuple(dict.fromkeys(self._profiles.values()))
 
 

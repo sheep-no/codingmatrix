@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Mapping, Protocol, Tuple
+from typing import Any, Protocol
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -19,7 +20,7 @@ class ContractAssertion(BaseModel):
 
     fact: str = Field(min_length=1)
     operator: ComparisonOperator
-    expected: Tuple[str, ...] = ()
+    expected: tuple[str, ...] = ()
     reference: str = ""
 
 
@@ -31,10 +32,10 @@ class ContractDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(default=1, ge=1)
-    assertions: Tuple[ContractAssertion, ...] = ()
+    assertions: tuple[ContractAssertion, ...] = ()
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any] | None) -> "ContractDeclaration":
+    def from_mapping(cls, payload: Mapping[str, Any] | None) -> ContractDeclaration:
         if not payload:
             return cls()
         declaration = payload.get("declaration", payload)
@@ -61,31 +62,31 @@ class FactSet(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
-    values: Tuple[str, ...] = ()
+    values: tuple[str, ...] = ()
 
 
 class ArtifactFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(default=1, ge=1)
-    facts: Tuple[FactSet, ...] = ()
+    facts: tuple[FactSet, ...] = ()
 
     @model_validator(mode="after")
-    def validate_unique_names(self) -> "ArtifactFacts":
+    def validate_unique_names(self) -> ArtifactFacts:
         names = [fact.name for fact in self.facts]
         if len(names) != len(set(names)):
             raise ValueError("artifact fact names must be unique")
         return self
 
     @classmethod
-    def build(cls, values: Mapping[str, Tuple[str, ...] | list[str] | set[str]]) -> "ArtifactFacts":
+    def build(cls, values: Mapping[str, tuple[str, ...] | list[str] | set[str]]) -> ArtifactFacts:
         facts = tuple(
             FactSet(name=name, values=tuple(sorted({str(value) for value in items})))
             for name, items in sorted(values.items())
         )
         return cls(facts=facts)
 
-    def values_for(self, name: str) -> Tuple[str, ...] | None:
+    def values_for(self, name: str) -> tuple[str, ...] | None:
         return next((fact.values for fact in self.facts if fact.name == name), None)
 
 
@@ -96,12 +97,12 @@ class SymbolContract(BaseModel):
 
     schema_version: int = Field(default=1, ge=1)
     artifact: str = Field(min_length=1)
-    provides: Tuple[str, ...] = ()
-    requires: Tuple[str, ...] = ()
-    required_fixtures: Tuple[str, ...] = ()
+    provides: tuple[str, ...] = ()
+    requires: tuple[str, ...] = ()
+    required_fixtures: tuple[str, ...] = ()
 
     @model_validator(mode="after")
-    def validate_symbols(self) -> "SymbolContract":
+    def validate_symbols(self) -> SymbolContract:
         for name, values in (
             ("provides", self.provides),
             ("requires", self.requires),
@@ -116,10 +117,10 @@ class SymbolContract(BaseModel):
         cls,
         artifact: str,
         *,
-        provides: Tuple[str, ...] | list[str] | set[str] = (),
-        requires: Tuple[str, ...] | list[str] | set[str] = (),
-        required_fixtures: Tuple[str, ...] | list[str] | set[str] = (),
-    ) -> "SymbolContract":
+        provides: tuple[str, ...] | list[str] | set[str] = (),
+        requires: tuple[str, ...] | list[str] | set[str] = (),
+        required_fixtures: tuple[str, ...] | list[str] | set[str] = (),
+    ) -> SymbolContract:
         return cls(
             artifact=artifact,
             provides=tuple(sorted({str(value) for value in provides if str(value)})),
@@ -131,7 +132,7 @@ class SymbolContract(BaseModel):
 def missing_symbols(
     contract: SymbolContract,
     provided: ArtifactFacts | Mapping[str, Any],
-) -> Tuple[str, ...]:
+) -> tuple[str, ...]:
     """Return unresolved required symbols without interpreting source syntax."""
     if isinstance(provided, ArtifactFacts):
         exported = set(provided.values_for("symbols") or ())
@@ -153,15 +154,15 @@ class GateDiagnostic(BaseModel):
     message: str = Field(min_length=1)
     fact: str = Field(min_length=1)
     reference: str = ""
-    expected: Tuple[str, ...] = ()
-    actual: Tuple[str, ...] = ()
+    expected: tuple[str, ...] = ()
+    actual: tuple[str, ...] = ()
 
 
 class ContractGateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: GateStatus
-    diagnostics: Tuple[GateDiagnostic, ...] = ()
+    diagnostics: tuple[GateDiagnostic, ...] = ()
 
     @property
     def passed(self) -> bool:
@@ -169,12 +170,12 @@ class ContractGateResult(BaseModel):
 
 
 class SourceAdapter(Protocol):
-    def extract_contract_facts(self, content: str, file_path: str = "") -> Mapping[str, Tuple[str, ...]]: ...
+    def extract_contract_facts(self, content: str, file_path: str = "") -> Mapping[str, tuple[str, ...]]: ...
     def parse_imports(self, content: str, file_path: str = "") -> list[Any]: ...
     def resolve_import_to_file(self, import_info: Any, current_file: str) -> list[str]: ...
     def is_project_module(self, module_name: str) -> bool: ...
-    def source_diagnostics(self, content: str, file_path: str = "") -> Tuple[str, ...]: ...
-    def repair_source(self, content: str, file_path: str, diagnostics: Tuple[str, ...]) -> str | None: ...
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]: ...
+    def repair_source(self, content: str, file_path: str, diagnostics: tuple[str, ...]) -> str | None: ...
 
 
 class CandidateValidation(BaseModel):
@@ -182,7 +183,7 @@ class CandidateValidation(BaseModel):
 
     facts: ArtifactFacts
     gate: ContractGateResult
-    diagnostics: Tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
     @property
     def passed(self) -> bool:
@@ -267,7 +268,7 @@ def _dependency_diagnostics(
     file_path: str,
     content: str,
     planned_contents: Mapping[str, str],
-) -> Tuple[str, ...]:
+) -> tuple[str, ...]:
     planned_paths = set(planned_contents)
     diagnostics: list[str] = []
     for import_info in adapter.parse_imports(content, file_path):

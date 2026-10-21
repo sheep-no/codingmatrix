@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 _NEGATION_RE = re.compile(
@@ -19,7 +19,7 @@ def _is_cjk(keyword: str) -> bool:
     return bool(_CJK_RE.search(keyword))
 
 
-def find_keyword_spans(text: str, keyword: str) -> List[Tuple[int, int]]:
+def find_keyword_spans(text: str, keyword: str) -> list[tuple[int, int]]:
     """Return (start, end) spans for keyword hits in text."""
     if not text or not keyword:
         return []
@@ -47,7 +47,7 @@ def is_span_negated(text: str, start: int, window: int = 16) -> bool:
     return bool(_NEGATION_RE.search(prefix))
 
 
-def first_positive_span(text: str, keyword: str) -> Optional[Tuple[int, int]]:
+def first_positive_span(text: str, keyword: str) -> tuple[int, int] | None:
     for start, end in find_keyword_spans(text, keyword):
         if not is_span_negated(text, start):
             return start, end
@@ -58,7 +58,7 @@ def has_positive_keyword(text: str, keywords: Sequence[str]) -> bool:
     return any(first_positive_span(text, keyword) for keyword in keywords)
 
 
-def positive_keywords(text: str, keywords: Iterable[str]) -> List[str]:
+def positive_keywords(text: str, keywords: Iterable[str]) -> list[str]:
     hits = []
     for keyword in keywords:
         if first_positive_span(text, keyword):

@@ -1,13 +1,13 @@
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def check_requirement_coverage(
     requirement: str,
-    architecture: Dict,
-    file_plan: List[Dict],
-    association_result: Optional[Any] = None,
-) -> Dict[str, Any]:
+    architecture: dict,
+    file_plan: list[dict],
+    association_result: Any | None = None,
+) -> dict[str, Any]:
     if not association_result:
         return {"checked": False, "uncovered": [], "coverage_rate": 1.0}
 

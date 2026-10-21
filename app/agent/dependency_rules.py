@@ -6,10 +6,9 @@
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # 文件类型到依赖类型的映射
-DEPENDENCY_RULES: Dict[str, List[str]] = {
+DEPENDENCY_RULES: dict[str, list[str]] = {
     # 基础设施层 - 最先生成
     "config": [],
     "env": [],
@@ -55,7 +54,7 @@ DEPENDENCY_RULES: Dict[str, List[str]] = {
 }
 
 # 文件路径到类型的映射规则
-PATH_TYPE_RULES: List[Tuple[str, str]] = [
+PATH_TYPE_RULES: list[tuple[str, str]] = [
     # 配置
     ("requirements.txt", "config"),
     ("package.json", "config"),
@@ -279,7 +278,7 @@ def _normalize_extensionless_name(name: str) -> str:
     return lowered
 
 
-def infer_file_type_fallback(path: str, fallback: str = "utils", package_init_filename: Optional[str] = None) -> str:
+def infer_file_type_fallback(path: str, fallback: str = "utils", package_init_filename: str | None = None) -> str:
     """无语言适配器参与时的通用文件类型推断。
 
     顺序与 DependencyGraph._infer_file_type 的历史 fallback 保持一致：
@@ -290,7 +289,7 @@ def infer_file_type_fallback(path: str, fallback: str = "utils", package_init_fi
     normalized = path.replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
-    best_type: Optional[str] = None
+    best_type: str | None = None
     best_length = 0
     for pattern, file_type in PATH_TYPE_RULES:
         if pattern.endswith("/"):

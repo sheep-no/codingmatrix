@@ -9,7 +9,6 @@ import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +60,8 @@ class StrategyEvaluator:
 
     def __init__(self, strategies_file: Path = None):
         self.strategies_file = Path(strategies_file) if strategies_file else DEFAULT_STRATEGIES_FILE
-        self.strategies: Dict[str, List[RepairStrategy]] = {}
-        self.evaluation_history: List[StrategyEvaluationResult] = []
+        self.strategies: dict[str, list[RepairStrategy]] = {}
+        self.evaluation_history: list[StrategyEvaluationResult] = []
         self.N_CONSECUTIVE_BETTER = 3  # 连续 N 次表现更好就替换
 
         self._load_strategies()
@@ -111,7 +110,7 @@ class StrategyEvaluator:
             if temporary_name is not None and os.path.exists(temporary_name):
                 os.unlink(temporary_name)
 
-    def get_best_strategy(self, error_type: str) -> Optional[RepairStrategy]:
+    def get_best_strategy(self, error_type: str) -> RepairStrategy | None:
         """
         获取最佳修复策略（带 A/B 测试逻辑）
 
@@ -301,7 +300,7 @@ class StrategyEvaluator:
                             self._save_strategies()
                             break
 
-    def get_strategy_template(self, error_type: str) -> Tuple[Optional[str], Optional[str]]:
+    def get_strategy_template(self, error_type: str) -> tuple[str | None, str | None]:
         """
         获取修复策略模板
 
@@ -323,7 +322,7 @@ class StrategyEvaluator:
                     self._save_strategies()
                     return
 
-    def get_strategy_stats(self, error_type: str = None) -> Dict:
+    def get_strategy_stats(self, error_type: str = None) -> dict:
         """获取策略统计信息"""
         stats = {}
 

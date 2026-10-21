@@ -9,7 +9,6 @@ import re
 import subprocess
 import symtable
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from app.agent.code_patcher import apply_incremental_change
 from app.agent.code_validator import CodeValidator
@@ -38,9 +37,9 @@ def _python_module_name(file_path: str) -> str:
     return normalized.replace('/', '.')
 
 
-def _python_project_module_aliases(all_project_files: List[str], current_file: str) -> Dict[str, str]:
+def _python_project_module_aliases(all_project_files: list[str], current_file: str) -> dict[str, str]:
     """Resolve unique short imports such as ``models`` from planned paths."""
-    candidates: Dict[str, set[str]] = {}
+    candidates: dict[str, set[str]] = {}
     for path in all_project_files:
         if not path.endswith('.py') or path == current_file:
             continue
@@ -88,7 +87,7 @@ def _python_defined_exports(content: str) -> set[str]:
     return exports
 
 
-def _structured_import_diagnostics(errors: List[str]) -> List[Dict[str, str]]:
+def _structured_import_diagnostics(errors: list[str]) -> list[dict[str, str]]:
     """将静态门禁文本转换为模型可直接执行的诊断项。"""
     diagnostics = []
     for error in errors:
@@ -115,7 +114,7 @@ def _structured_import_diagnostics(errors: List[str]) -> List[Dict[str, str]]:
     return diagnostics
 
 
-def _repair_python_known_imports(content: str, errors: List[str]) -> str:
+def _repair_python_known_imports(content: str, errors: list[str]) -> str:
     """Add unambiguous framework imports reported as undefined globals."""
     if "模块 sqlalchemy.ext.session 当前运行时不可导入" in errors:
         content = re.sub(
@@ -351,7 +350,7 @@ def _repair_python_sqlalchemy_datetime_defaults(content: str, file_path: str) ->
 def _repair_python_sqlalchemy_get_db(
     content: str,
     file_path: str,
-    architecture: Optional[Dict] = None,
+    architecture: dict | None = None,
 ) -> str:
     """Complete the standard FastAPI session dependency for SQLAlchemy databases."""
     if not _file_matches_role(file_path, architecture, {"database"}) or "SessionLocal" not in content:
@@ -396,9 +395,9 @@ def _repair_python_sqlalchemy_get_db(
     )
 
 
-def _repair_python_project_call_keywords(content: str, errors: List[str]) -> str:
+def _repair_python_project_call_keywords(content: str, errors: list[str]) -> str:
     """Remove keyword arguments proven absent from a generated dependency signature."""
-    invalid_keywords: Dict[str, set[str]] = {}
+    invalid_keywords: dict[str, set[str]] = {}
     pattern = re.compile(r"调用 (\w+) 使用了未声明参数 ([\w, ]+)，请匹配 .+ 中的真实签名")
     for error in errors:
         match = pattern.fullmatch(error)
@@ -430,7 +429,7 @@ def _repair_python_project_call_keywords(content: str, errors: List[str]) -> str
     return ast.unparse(tree) + "\n"
 
 
-def _repair_python_schema_field_access(content: str, errors: List[str]) -> str:
+def _repair_python_schema_field_access(content: str, errors: list[str]) -> str:
     """Remove operations that read fields absent from generated request schemas."""
     invalid_attributes = {
         (match.group(1), match.group(2))
@@ -500,12 +499,12 @@ def _repair_python_schema_field_access(content: str, errors: List[str]) -> str:
 
 def _repair_python_project_symbol_imports(
     content: str,
-    errors: List[str],
-    generated_contents: Dict[str, str],
+    errors: list[str],
+    generated_contents: dict[str, str],
 ) -> str:
     """Import project symbols from their unique generated definition."""
-    defined_exporters: Dict[str, List[str]] = {}
-    exported_symbols: Dict[str, List[str]] = {}
+    defined_exporters: dict[str, list[str]] = {}
+    exported_symbols: dict[str, list[str]] = {}
     for dependency_path, dependency_source in generated_contents.items():
         if not dependency_path.endswith(".py"):
             continue
@@ -586,7 +585,7 @@ def _repair_python_project_symbol_imports(
     return "\n".join(imports) + "\n" + content.lstrip("\n")
 
 
-def _validate_python_implementation(content: str, file_path: str) -> List[str]:
+def _validate_python_implementation(content: str, file_path: str) -> list[str]:
     """Reject syntactically valid Python placeholders that contain no implementation."""
     if not file_path.endswith('.py') or file_path.endswith('__init__.py'):
         return []
@@ -609,7 +608,7 @@ def _validate_python_implementation(content: str, file_path: str) -> List[str]:
     return ["Python 文件仅包含导入或说明文本，缺少可执行实现"]
 
 
-def _validate_python_test_structure(content: str, file_path: str) -> List[str]:
+def _validate_python_test_structure(content: str, file_path: str) -> list[str]:
     """Reject Python test modules that pytest cannot collect or configure."""
     if not file_path.endswith(".py") or "test" not in Path(file_path).name.lower():
         return []
@@ -664,8 +663,8 @@ def _validate_python_test_structure(content: str, file_path: str) -> List[str]:
 def _validate_python_database_abstraction(
     content: str,
     file_path: str,
-    architecture: Optional[Dict] = None,
-) -> List[str]:
+    architecture: dict | None = None,
+) -> list[str]:
     """Prevent a database module from mixing incompatible persistence stacks."""
     if not _file_matches_role(file_path, architecture, {"database"}):
         return []
@@ -684,7 +683,7 @@ def _validate_python_database_abstraction(
     return []
 
 
-def _file_plan_item(file_path: str, architecture: Optional[Dict]) -> Dict:
+def _file_plan_item(file_path: str, architecture: dict | None) -> dict:
     if not isinstance(architecture, dict):
         return {}
     normalized = file_path.replace("\\", "/")
@@ -694,12 +693,12 @@ def _file_plan_item(file_path: str, architecture: Optional[Dict]) -> Dict:
     return {}
 
 
-def _file_contract(file_path: str, architecture: Optional[Dict]) -> Dict:
+def _file_contract(file_path: str, architecture: dict | None) -> dict:
     contract = _file_plan_item(file_path, architecture).get("contract", {})
     return contract if isinstance(contract, dict) else {}
 
 
-def _file_role(file_path: str, architecture: Optional[Dict]) -> str:
+def _file_role(file_path: str, architecture: dict | None) -> str:
     item = _file_plan_item(file_path, architecture)
     contract = _file_contract(file_path, architecture)
     return str(contract.get("role") or item.get("file_type") or "").lower()
@@ -717,7 +716,7 @@ _ROLE_ALIASES = {
 
 def _file_matches_role(
     file_path: str,
-    architecture: Optional[Dict],
+    architecture: dict | None,
     expected_roles: set[str],
 ) -> bool:
     """Match architecture metadata first, then infer legacy plans from paths."""
@@ -753,7 +752,7 @@ def _file_matches_role(
 
 
 def _architecture_path_for_role(
-    architecture: Optional[Dict],
+    architecture: dict | None,
     expected_role: str,
 ) -> str:
     file_plan = architecture.get("file_plan", []) if isinstance(architecture, dict) else []
@@ -769,8 +768,8 @@ def _architecture_path_for_role(
 def _repair_python_sqlalchemy_table_initialization(
     content: str,
     file_path: str,
-    generated_contents: Dict[str, str],
-    architecture: Optional[Dict],
+    generated_contents: dict[str, str],
+    architecture: dict | None,
 ) -> str:
     """Create SQLAlchemy tables from an entry module after models are imported."""
     if not _file_matches_role(file_path, architecture, {"entry"}):
@@ -898,7 +897,7 @@ def _repair_python_sqlalchemy_table_initialization(
 
 
 def _repair_python_test_database_fixtures(
-    content: str, file_path: str, architecture: Optional[Dict]
+    content: str, file_path: str, architecture: dict | None
 ) -> str:
     """Ensure SQLAlchemy test table fixtures run with per-test isolation."""
     normalized_name = Path(file_path).name.lower()
@@ -1063,7 +1062,7 @@ def _repair_python_test_database_fixtures(
     return ast.unparse(tree) + "\n"
 
 
-def _declared_python_framework_roots(architecture: Optional[Dict]) -> set[str]:
+def _declared_python_framework_roots(architecture: dict | None) -> set[str]:
     """Return Python framework imports explicitly selected by the architecture."""
     if not isinstance(architecture, dict):
         return set()
@@ -1083,7 +1082,7 @@ def _declared_python_framework_roots(architecture: Optional[Dict]) -> set[str]:
     return {framework for framework in known_frameworks if framework in serialized}
 
 
-def _validate_python_contract(content: str, file_path: str, architecture: Optional[Dict]) -> List[str]:
+def _validate_python_contract(content: str, file_path: str, architecture: dict | None) -> list[str]:
     """Validate language-neutral architecture contracts for Python files."""
     file_plan_item = _file_plan_item(file_path, architecture)
     contract = _file_contract(file_path, architecture)
@@ -1237,8 +1236,8 @@ def _repair_python_pydantic_base_alias(content: str, file_path: str) -> str:
 def _repair_python_shared_base(
     content: str,
     file_path: str,
-    generated_contents: Dict[str, str],
-    architecture: Optional[Dict] = None,
+    generated_contents: dict[str, str],
+    architecture: dict | None = None,
 ) -> str:
     """Normalize a model's duplicate SQLAlchemy Base to the shared database Base."""
     if not _file_matches_role(file_path, architecture, {"model"}):
@@ -1267,7 +1266,7 @@ def _repair_python_shared_base(
     return f"from {_python_module_name(database_path)} import Base\n" + repaired.lstrip("\n")
 
 
-def _invalid_sqlalchemy_metadata_owners(content: str, file_path: str) -> List[ast.Attribute]:
+def _invalid_sqlalchemy_metadata_owners(content: str, file_path: str) -> list[ast.Attribute]:
     """Find model-class metadata initialization through a nonexistent Class.Base."""
     if not file_path.endswith(".py"):
         return []
@@ -1295,7 +1294,7 @@ def _invalid_sqlalchemy_metadata_owners(content: str, file_path: str) -> List[as
     return invalid_owners
 
 
-def _validate_python_sqlalchemy_metadata_owner(content: str, file_path: str) -> List[str]:
+def _validate_python_sqlalchemy_metadata_owner(content: str, file_path: str) -> list[str]:
     if not _invalid_sqlalchemy_metadata_owners(content, file_path):
         return []
     return [
@@ -1303,7 +1302,7 @@ def _validate_python_sqlalchemy_metadata_owner(content: str, file_path: str) -> 
     ]
 
 
-def _python_class_fields(content: str) -> Dict[str, set[str]]:
+def _python_class_fields(content: str) -> dict[str, set[str]]:
     """Extract declared class fields without importing generated project code."""
     tree = ast.parse(content)
     fields = {}
@@ -1328,8 +1327,8 @@ def _python_class_fields(content: str) -> Dict[str, set[str]]:
 def _validate_python_schema_field_access(
     content: str,
     file_path: str,
-    generated_contents: Dict[str, str],
-) -> List[str]:
+    generated_contents: dict[str, str],
+) -> list[str]:
     """Reject attribute reads absent from an annotated generated Schema class."""
     if not file_path.endswith(".py"):
         return []
@@ -1338,7 +1337,7 @@ def _validate_python_schema_field_access(
     except SyntaxError:
         return []
 
-    schema_fields: Dict[str, Tuple[str, set[str]]] = {}
+    schema_fields: dict[str, tuple[str, set[str]]] = {}
     for dependency_path, dependency_source in generated_contents.items():
         if not dependency_path.endswith(".py"):
             continue
@@ -1388,8 +1387,8 @@ def _validate_python_schema_field_access(
 def _repair_python_sqlalchemy_metadata_owner(
     content: str,
     file_path: str,
-    generated_contents: Dict[str, str],
-    architecture: Optional[Dict] = None,
+    generated_contents: dict[str, str],
+    architecture: dict | None = None,
 ) -> str:
     """Replace Model.Base.metadata with the database module's shared Base."""
     database_path = _architecture_path_for_role(architecture, "database") or "database.py"
@@ -1423,10 +1422,10 @@ def _repair_python_sqlalchemy_metadata_owner(
 def _validate_python_project_imports(
     content: str,
     file_path: str,
-    generated_contents: Dict[str, str],
-    all_project_files: List[str],
-    architecture: Optional[Dict] = None,
-) -> List[str]:
+    generated_contents: dict[str, str],
+    all_project_files: list[str],
+    architecture: dict | None = None,
+) -> list[str]:
     """校验 Python 项目内导入只引用已生成依赖及其真实导出。"""
     if not file_path.endswith('.py'):
         return []
@@ -1449,7 +1448,7 @@ def _validate_python_project_imports(
     }
     generated_modules.update({alias: generated_modules[module] for alias, module in project_aliases.items() if module in generated_modules})
     errors = []
-    imported_project_functions: Dict[str, Tuple[str, str]] = {}
+    imported_project_functions: dict[str, tuple[str, str]] = {}
 
     def allows_deferred_model_import(module: str) -> bool:
         target_path = project_modules.get(module)
@@ -1650,7 +1649,7 @@ def _validate_python_project_imports(
 
 def _repair_python_sync_async_calls(
     content: str,
-    generated_contents: Dict[str, str],
+    generated_contents: dict[str, str],
 ) -> str:
     """Align await usage with the actual async/sync project function definition."""
     try:
@@ -1658,7 +1657,7 @@ def _repair_python_sync_async_calls(
     except SyntaxError:
         return content
 
-    async_functions: Dict[Tuple[str, str], bool] = {}
+    async_functions: dict[tuple[str, str], bool] = {}
     for path, source in generated_contents.items():
         if not path.endswith(".py"):
             continue
@@ -1671,7 +1670,7 @@ def _repair_python_sync_async_calls(
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 async_functions[(module, node.name)] = isinstance(node, ast.AsyncFunctionDef)
 
-    imported_functions: Dict[str, Tuple[str, str]] = {}
+    imported_functions: dict[str, tuple[str, str]] = {}
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and node.module:
             module = node.module.lstrip(".")
@@ -1709,7 +1708,7 @@ def _is_edit_marker(content: str) -> bool:
         return False
 
 
-def _git_stash_push(work_dir: str, files: List[str], message: str = "agent-backup") -> bool:
+def _git_stash_push(work_dir: str, files: list[str], message: str = "agent-backup") -> bool:
     """用 git stash 备份已 track 的文件"""
     if not files:
         return True
@@ -1759,7 +1758,7 @@ def _git_stash_drop(work_dir: str) -> bool:
 
 
 def _fix_absolute_imports(
-    content: str, file_path: str, all_project_files: List[str]
+    content: str, file_path: str, all_project_files: list[str]
 ) -> str:
     """修复 Python 文件中的绝对导入，转为相对导入。
 
@@ -1908,8 +1907,8 @@ class FilesMixin:
 
     async def _generate_files_small_project(
         self,
-        file_plan: List[Dict],
-        project_context: Dict,
+        file_plan: list[dict],
+        project_context: dict,
         total_files: int
     ):
         # 分离已有文件和新文件
@@ -1980,14 +1979,14 @@ class FilesMixin:
 
     async def _generate_files_by_dep_layers(
         self,
-        file_plan: List[Dict],
-        project_context: Dict,
+        file_plan: list[dict],
+        project_context: dict,
         total_files: int,
         dep_graph
     ):
         layers = dep_graph.get_generation_layers()
 
-        file_info_map: Dict[str, Dict] = {fi.get("path", ""): fi for fi in file_plan}
+        file_info_map: dict[str, dict] = {fi.get("path", ""): fi for fi in file_plan}
 
         for layer_idx, layer in enumerate(layers):
             if self.cancel_event and self.cancel_event.is_set():
@@ -2020,7 +2019,7 @@ class FilesMixin:
             stashed = _git_stash_push(str(self.output_dir), existing_files, f"agent-backup-layer-{layer_idx}")
 
             # 直接并发生成，由 LLMClient 内部信号量控制并发度
-            async def generate_file(file_path: str) -> Dict:
+            async def generate_file(file_path: str) -> dict:
                 fi = file_info_map.get(file_path, {"path": file_path, "description": f"生成 {file_path}"})
                 return await self._generate_single_file(fi, project_context, total_files, self._generated_contents)
 
@@ -2071,11 +2070,11 @@ class FilesMixin:
 
     async def _generate_single_file(
         self,
-        file_info: Dict,
-        project_context: Dict,
+        file_info: dict,
+        project_context: dict,
         total_files: int,
-        generated_contents: Optional[Dict] = None
-    ) -> Optional[Dict]:
+        generated_contents: dict | None = None
+    ) -> dict | None:
         file_path = file_info.get("path", "")
         description = file_info.get("description", "")
 
@@ -2655,13 +2654,13 @@ class FilesMixin:
         self,
         file_path: str,
         description: str,
-        project_context: Dict,
+        project_context: dict,
         reason: str,
         engineer,
         spec_context: str = "",
         dep_context: str = "",
         heartbeat_tracker=None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """恢复无效内容（orchestrator_files 版本）"""
         if "JSON 元数据" in reason:
             recovery_prompt = f"""【紧急修复】上次你返回了 JSON 元数据，不是代码。
@@ -2725,8 +2724,8 @@ router = APIRouter()
         self,
         file_path: str,
         description: str,
-        project_context: Dict
-    ) -> Optional[str]:
+        project_context: dict
+    ) -> str | None:
         raise RuntimeError(
             f"direct LLM file generation is disabled: {file_path}"
         )
@@ -2736,7 +2735,7 @@ router = APIRouter()
         file_path: str,
         content: str,
         description: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if self.enable_error_recovery and not getattr(self, "model_assignment", None):
             raise RuntimeError("model assignment is required for file validation")
         content_hash = CodeValidator._compute_content_hash(content)
@@ -2838,7 +2837,7 @@ router = APIRouter()
         from app.agent.utils import clean_code_block
         return clean_code_block(content)
 
-    def _select_alternative_model(self, primary_model: str) -> Optional[str]:
+    def _select_alternative_model(self, primary_model: str) -> str | None:
         """Pick a distinct assigned model for the cross-validation A/B pass.
 
         Returns None when no distinct model exists and the user enabled the
@@ -2875,8 +2874,8 @@ router = APIRouter()
     async def _apply_patches_incremental(
         self,
         requirement: str,
-        incremental_plan: List[Dict],
-        project_context: Dict,
+        incremental_plan: list[dict],
+        project_context: dict,
         total_files: int
     ):
         changed_files = [fi.get("path", "") for fi in incremental_plan]

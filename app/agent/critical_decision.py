@@ -14,7 +14,7 @@ CriticalDecisionExtractor - 关键决策提取器
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,10 @@ class CriticalDecision:
     category: DecisionCategory
     question: str
     context: str
-    options: List[Dict[str, str]]
+    options: list[dict[str, str]]
     default: str
-    impact_files: List[str]
-    selected: Optional[str] = None
+    impact_files: list[str]
+    selected: str | None = None
 
 
 class CriticalDecisionExtractor:
@@ -58,7 +58,7 @@ class CriticalDecisionExtractor:
     - 前端框架：Vue vs React vs Svelte
     """
 
-    DECISION_TEMPLATES: Dict[str, Dict] = {
+    DECISION_TEMPLATES: dict[str, dict] = {
         "auth_strategy": {
             "question": "认证模块策略选择",
             "context": "系统需要用户认证功能。JWT 方式无状态适合分布式，Session 方式状态化适合单机，OAuth 适合第三方集成。",
@@ -135,14 +135,14 @@ class CriticalDecisionExtractor:
     }
 
     def __init__(self):
-        self.decisions: List[CriticalDecision] = []
-        self.user_choices: Dict[str, str] = {}
+        self.decisions: list[CriticalDecision] = []
+        self.user_choices: dict[str, str] = {}
 
     def extract_from_architecture(
         self,
-        architecture: Dict[str, Any],
-        complexity_analysis: Optional[Dict] = None
-    ) -> List[CriticalDecision]:
+        architecture: dict[str, Any],
+        complexity_analysis: dict | None = None
+    ) -> list[CriticalDecision]:
         """
         从架构设计中提取关键决策点
 
@@ -177,9 +177,9 @@ class CriticalDecisionExtractor:
 
     def _analyze_uncertainty(
         self,
-        architecture: Dict[str, Any],
-        complexity_analysis: Optional[Dict]
-    ) -> List[str]:
+        architecture: dict[str, Any],
+        complexity_analysis: dict | None
+    ) -> list[str]:
         """分析架构设计中的不确定决策点"""
         decisions_needed = []
 
@@ -240,8 +240,8 @@ class CriticalDecisionExtractor:
     def _identify_impact_files(
         self,
         decision_id: str,
-        architecture: Dict[str, Any]
-    ) -> List[str]:
+        architecture: dict[str, Any]
+    ) -> list[str]:
         """识别决策影响的文件"""
         file_plan = architecture.get("file_plan", [])
         impact_files = []
@@ -269,7 +269,7 @@ class CriticalDecisionExtractor:
 
         return impact_files
 
-    def format_as_questions(self) -> List[Dict[str, Any]]:
+    def format_as_questions(self) -> list[dict[str, Any]]:
         """将决策转换为选择题格式"""
         questions = []
         for decision in self.decisions:
@@ -288,7 +288,7 @@ class CriticalDecisionExtractor:
         self,
         decision_id: str,
         choice: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         应用用户选择的决策
 
@@ -315,7 +315,7 @@ class CriticalDecisionExtractor:
             "applied": True
         }
 
-    def _get_impact_files(self, decision_id: str) -> List[str]:
+    def _get_impact_files(self, decision_id: str) -> list[str]:
         """获取决策影响的文件列表"""
         for decision in self.decisions:
             if decision.id == decision_id:
@@ -341,7 +341,7 @@ class CriticalDecisionExtractor:
             return "用户架构决策:\n" + "\n".join(parts)
         return ""
 
-    def get_all_choices(self) -> Dict[str, str]:
+    def get_all_choices(self) -> dict[str, str]:
         """获取所有用户决策"""
         return self.user_choices.copy()
 
@@ -354,7 +354,7 @@ class CriticalDecisionExtractor:
                 logger.info(f"跳过决策 {decision.id}，使用默认值 {decision.default}")
 
 
-def should_skip_user_decision(complexity_analysis: Optional[Any], questions: Optional[list] = None) -> bool:
+def should_skip_user_decision(complexity_analysis: Any | None, questions: list | None = None) -> bool:
     """Skip waiting on architecture questions for simple, single-purpose requirements."""
     if not questions:
         return True
@@ -376,7 +376,7 @@ def should_skip_user_decision(complexity_analysis: Optional[Any], questions: Opt
     return bool(not has_frontend and not has_backend and not has_database and not has_auth and estimated <= 5)
 
 
-def _complexity_flag(complexity_analysis: Optional[Any], name: str) -> bool:
+def _complexity_flag(complexity_analysis: Any | None, name: str) -> bool:
     if not complexity_analysis:
         return False
     if isinstance(complexity_analysis, dict):
@@ -384,7 +384,7 @@ def _complexity_flag(complexity_analysis: Optional[Any], name: str) -> bool:
     return bool(getattr(complexity_analysis, name, False))
 
 
-def _complexity_int(complexity_analysis: Optional[Any], name: str, default: int = 0) -> int:
+def _complexity_int(complexity_analysis: Any | None, name: str, default: int = 0) -> int:
     if not complexity_analysis:
         return default
     if isinstance(complexity_analysis, dict):

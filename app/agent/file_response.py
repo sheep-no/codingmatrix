@@ -11,8 +11,8 @@ from typing import Any, Optional
 @dataclass(frozen=True)
 class FileResponse:
     kind: str
-    content: Optional[str] = None
-    diagnostic: Optional[str] = None
+    content: str | None = None
+    diagnostic: str | None = None
 
 
 _CODE_KEYS = ("content", "code", "file_content", "source", "body", "implementation")

@@ -6,7 +6,6 @@ AI 审查器
 
 import json
 import logging
-from typing import Dict, List, Optional
 
 from pydantic import ValidationError
 
@@ -23,7 +22,7 @@ class AIReviewer:
     AI 审查器 - 验证执行结果的质量和安全性
     """
 
-    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: Optional[str] = None):
+    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: str | None = None):
         self.model = ModelRegistry.get(model_key)
         self.api_key_token = api_key_token
         # JSON parsing uses unified json_parser module
@@ -141,7 +140,7 @@ class AIReviewer:
 
         return ReviewResult(approved=True, risk_level="low")
 
-    async def review_plan(self, plan: List[Dict]) -> ReviewResult:
+    async def review_plan(self, plan: list[dict]) -> ReviewResult:
         """
         审查执行计划
 

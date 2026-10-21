@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -34,7 +33,7 @@ class ComparableSynthesisInput(BaseModel):
     plan_digest: str = Field(min_length=64, max_length=64)
     contract_digest: str = Field(min_length=64, max_length=64)
     context_hash: str = Field(min_length=64, max_length=64)
-    required_paths: Tuple[str, ...] = ()
+    required_paths: tuple[str, ...] = ()
 
     @classmethod
     def build(
@@ -43,7 +42,7 @@ class ComparableSynthesisInput(BaseModel):
         plan: ChangePlanIR,
         contracts: ContractIndex,
         context_hash: str,
-    ) -> "ComparableSynthesisInput":
+    ) -> ComparableSynthesisInput:
         return cls(
             request=request,
             plan_digest=plan.digest,
@@ -52,7 +51,7 @@ class ComparableSynthesisInput(BaseModel):
             required_paths=tuple(artifact.path for artifact in plan.artifacts),
         )
 
-    def assert_compatible(self, other: "ComparableSynthesisInput") -> None:
+    def assert_compatible(self, other: ComparableSynthesisInput) -> None:
         if self != other:
             raise ValueError("synthesis inputs are not comparable")
 
@@ -73,16 +72,16 @@ class ModelOperation(BaseModel):
 
     schema_version: int = Field(default=1, ge=1)
     operation: ModelOperationKind
-    target_path: Optional[str] = None
-    allowed_paths: Tuple[str, ...] = ()
-    depends_on: Tuple[str, ...] = ()
-    contract_refs: Tuple[str, ...] = ()
-    content: Optional[str] = Field(default=None, min_length=1)
-    patch: Optional[str] = Field(default=None, min_length=1)
-    explanation: Optional[str] = Field(default=None, min_length=1)
+    target_path: str | None = None
+    allowed_paths: tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
+    contract_refs: tuple[str, ...] = ()
+    content: str | None = Field(default=None, min_length=1)
+    patch: str | None = Field(default=None, min_length=1)
+    explanation: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
-    def validate_scope(self) -> "ModelOperation":
+    def validate_scope(self) -> ModelOperation:
         paths = self.allowed_paths
         if any(not _safe_relative_path(path) for path in paths):
             raise ValueError("allowed_paths must contain safe relative paths")

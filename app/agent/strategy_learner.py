@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class StrategyState:
     """策略状态"""
     project_complexity: str  # simple/small/medium/large
     file_type: str  # python/javascript/typescript/vue 等
-    error_type: Optional[str]  # 错误类型
+    error_type: str | None  # 错误类型
     has_history_errors: bool  # 是否有历史错误
 
     def to_key(self) -> str:
@@ -107,13 +107,13 @@ class StrategyLearner:
     PROMPT_TEMPLATES = ["standard", "detailed", "minimal", "preventive"]
     TEMPERATURES = [0.3, 0.5, 0.7, 0.9]
 
-    def __init__(self, data_dir: Optional[Path] = None):
+    def __init__(self, data_dir: Path | None = None):
         self.data_dir = data_dir or STRATEGY_DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.q_table: Dict[str, Dict[str, QValue]] = defaultdict(dict)
-        self._current_state: Optional[StrategyState] = None
-        self._current_action: Optional[StrategyAction] = None
+        self.q_table: dict[str, dict[str, QValue]] = defaultdict(dict)
+        self._current_state: StrategyState | None = None
+        self._current_action: StrategyAction | None = None
 
         self._load_q_table()
 
@@ -152,7 +152,7 @@ class StrategyLearner:
         except Exception as e:
             logger.error(f"StrategyLearner: 保存 Q 表失败 {e}")
 
-    def _get_all_actions(self) -> List[StrategyAction]:
+    def _get_all_actions(self) -> list[StrategyAction]:
         """获取所有可能的动作"""
         actions = []
         for model in self.MODEL_SELECTION_STRATEGIES:
@@ -170,7 +170,7 @@ class StrategyLearner:
     def select_action(
         self,
         state: StrategyState,
-        available_actions: Optional[List[StrategyAction]] = None
+        available_actions: list[StrategyAction] | None = None
     ) -> StrategyAction:
         """
         使用 ε-greedy 策略选择动作
@@ -222,7 +222,7 @@ class StrategyLearner:
     def update(
         self,
         reward: float,
-        next_state: Optional[StrategyState] = None
+        next_state: StrategyState | None = None
     ):
         """
         更新 Q 值
@@ -275,7 +275,7 @@ class StrategyLearner:
         self._current_state = None
         self._current_action = None
 
-    def get_best_action(self, state: StrategyState) -> Optional[StrategyAction]:
+    def get_best_action(self, state: StrategyState) -> StrategyAction | None:
         """获取某状态下的最佳动作"""
         state_key = state.to_key()
 
@@ -293,9 +293,9 @@ class StrategyLearner:
         self,
         project_complexity: str,
         file_type: str,
-        error_type: Optional[str] = None,
+        error_type: str | None = None,
         has_history_errors: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         获取策略推荐
 
@@ -342,7 +342,7 @@ class StrategyLearner:
             "is_learned": True
         }
 
-    def get_learning_stats(self) -> Dict[str, Any]:
+    def get_learning_stats(self) -> dict[str, Any]:
         """获取学习统计"""
         total_states = len(self.q_table)
         total_actions = sum(len(actions) for actions in self.q_table.values())
@@ -385,7 +385,7 @@ class StrategyLearner:
 
 
 # 全局单例
-_strategy_learner: Optional[StrategyLearner] = None
+_strategy_learner: StrategyLearner | None = None
 _learner_lock = asyncio.Lock()
 
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.agent.language_detector import LanguageDetector
 from app.agent.specialist_base import Specialist
@@ -84,7 +84,7 @@ class BackendEngineer(Specialist):
         return 'unknown'
 
     @staticmethod
-    def _build_spec_constraints(file_type: str, file_spec: Dict) -> str:
+    def _build_spec_constraints(file_type: str, file_spec: dict) -> str:
         """构建 project_spec 约束文本"""
         if not file_spec:
             return ""
@@ -122,7 +122,7 @@ class BackendEngineer(Specialist):
         return "\n".join(lines)
 
     @staticmethod
-    def _build_file_scope_constraints(file_path: str, architecture: Dict) -> str:
+    def _build_file_scope_constraints(file_path: str, architecture: dict) -> str:
         """构建架构文件集合和项目内导入约束。"""
         planned_files = [
             item.get("path", "")
@@ -148,7 +148,7 @@ class BackendEngineer(Specialist):
         ])
 
     @staticmethod
-    def _get_file_contract(file_path: str, architecture: Dict) -> Dict:
+    def _get_file_contract(file_path: str, architecture: dict) -> dict:
         normalized = file_path.replace("\\", "/")
         for item in architecture.get("file_plan", []):
             if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == normalized:
@@ -157,7 +157,7 @@ class BackendEngineer(Specialist):
         return {}
 
     @classmethod
-    def _build_contract_constraints(cls, file_path: str, architecture: Dict) -> str:
+    def _build_contract_constraints(cls, file_path: str, architecture: dict) -> str:
         contract = cls._get_file_contract(file_path, architecture)
         lines = ["【架构职责契约 - 必须遵守】"]
         for key, label in (("role", "职责"), ("runtime", "运行时"), ("database_abstraction", "数据库抽象")):
@@ -199,7 +199,7 @@ class BackendEngineer(Specialist):
 
     @staticmethod
     def _build_runtime_consistency_constraints(
-        file_path: str, file_type: str, project_language: str, architecture: Dict
+        file_path: str, file_type: str, project_language: str, architecture: dict
     ) -> str:
         """构建跨文件运行时和测试 API 一致性约束。"""
         if project_language.lower() != "python":
@@ -221,7 +221,7 @@ class BackendEngineer(Specialist):
             if isinstance(item, dict) and item.get("path")
         ]
 
-        def item_type(item: Dict) -> str:
+        def item_type(item: dict) -> str:
             contract = item.get("contract", {})
             contract_role = contract.get("role") if isinstance(contract, dict) else ""
             return str(
@@ -409,11 +409,11 @@ class BackendEngineer(Specialist):
         self,
         file_path: str,
         description: str,
-        project_context: Dict,
+        project_context: dict,
         spec_context: str = "",
         dep_context: str = "",
-        project_path: Optional[str] = None,
-        callback: Optional[Any] = None,
+        project_path: str | None = None,
+        callback: Any | None = None,
         is_existing_file: bool = False,
         heartbeat_tracker=None,
     ) -> str:
@@ -709,8 +709,8 @@ from .utils import greet, farewell
         self,
         question: str,
         project_path: str,
-        project_context: Optional[Dict] = None,
-        callback: Optional[Any] = None,
+        project_context: dict | None = None,
+        callback: Any | None = None,
         heartbeat_tracker=None,
     ) -> str:
         """分析模式 — 只读代码，用自然语言回答用户问题

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Mapping
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,7 +41,7 @@ class ProjectSnapshot(BaseModel):
     files: tuple[SnapshotFile, ...] = ()
 
     @classmethod
-    def scan(cls, root: Path, *, revision: str = "working-tree") -> "ProjectSnapshot":
+    def scan(cls, root: Path, *, revision: str = "working-tree") -> ProjectSnapshot:
         files = []
         for path in sorted(root.rglob("*")):
             relative = path.relative_to(root)

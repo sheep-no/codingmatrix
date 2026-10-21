@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List
 
 from .generic import GenericLanguageAdapter
 from .language_adapter import ImportInfo, LanguageAdapterRegistry, SymbolDefinition
@@ -27,8 +26,8 @@ class JavaLanguageAdapter(GenericLanguageAdapter):
         "com.fasterxml.",
     )
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
-        imports: List[ImportInfo] = []
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
+        imports: list[ImportInfo] = []
         for line in content.splitlines():
             match = re.match(r"\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;", line)
             if match:
@@ -40,15 +39,15 @@ class JavaLanguageAdapter(GenericLanguageAdapter):
                 ))
         return imports
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         module = import_info.module.removesuffix(".*")
         if not module or module.startswith(self.external_package_prefixes):
             return []
         relative_path = module.replace(".", "/") + ".java"
         return [f"src/main/java/{relative_path}", f"src/test/java/{relative_path}", relative_path]
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
-        definitions: Dict[str, SymbolDefinition] = {}
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
+        definitions: dict[str, SymbolDefinition] = {}
         patterns = (
             (r"\b(class|interface|enum|record)\s+(\w+)", "class"),
             (r"\b(?:public|protected|private)?\s*(?:static\s+)?[\w<>?, \[\]]+\s+(\w+)\s*\([^;{}]*\)\s*\{", "function"),

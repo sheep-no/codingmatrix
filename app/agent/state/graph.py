@@ -5,15 +5,15 @@ from __future__ import annotations
 import copy
 import inspect
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Dict, Mapping, Optional, Union
+from collections.abc import Awaitable, Callable, Mapping
 
 from .models import State, StateDelta
 from .reducer import StateReducer
 
 END = "__end__"
 NEXT_NODE_METADATA_KEY = "_next_node"
-NodeHandler = Callable[[State], Union[StateDelta, Awaitable[StateDelta]]]
-RouteHandler = Callable[[State], Union[str, Awaitable[str]]]
+NodeHandler = Callable[[State], StateDelta | Awaitable[StateDelta]]
+RouteHandler = Callable[[State], str | Awaitable[str]]
 
 
 class GraphDefinitionError(ValueError):
@@ -37,7 +37,7 @@ class StateGraph:
         edges: Mapping[str, str],
         conditional_edges: Mapping[str, _ConditionalRoute],
         error_edges: Mapping[str, str],
-        reducer: Optional[StateReducer] = None,
+        reducer: StateReducer | None = None,
         max_steps: int = 100,
     ) -> None:
         self.nodes = dict(nodes)
@@ -142,33 +142,33 @@ class StateGraph:
 
 class StateGraphBuilder:
     def __init__(self, max_steps: int = 100) -> None:
-        self._nodes: Dict[str, NodeHandler] = {}
-        self._edges: Dict[str, str] = {}
-        self._conditional_edges: Dict[str, _ConditionalRoute] = {}
-        self._error_edges: Dict[str, str] = {}
+        self._nodes: dict[str, NodeHandler] = {}
+        self._edges: dict[str, str] = {}
+        self._conditional_edges: dict[str, _ConditionalRoute] = {}
+        self._error_edges: dict[str, str] = {}
         self._max_steps = max_steps
 
-    def add_node(self, name: str, handler: NodeHandler) -> "StateGraphBuilder":
+    def add_node(self, name: str, handler: NodeHandler) -> StateGraphBuilder:
         if not name or name == END or name in self._nodes:
             raise GraphDefinitionError(f"invalid or duplicate node: {name!r}")
         self._nodes[name] = handler
         return self
 
-    def add_edge(self, source: str, target: str) -> "StateGraphBuilder":
+    def add_edge(self, source: str, target: str) -> StateGraphBuilder:
         self._edges[source] = target
         return self
 
     def add_conditional_edges(
         self, source: str, selector: RouteHandler, mapping: Mapping[str, str]
-    ) -> "StateGraphBuilder":
+    ) -> StateGraphBuilder:
         self._conditional_edges[source] = _ConditionalRoute(selector, dict(mapping))
         return self
 
-    def add_error_edge(self, source: str, target: str) -> "StateGraphBuilder":
+    def add_error_edge(self, source: str, target: str) -> StateGraphBuilder:
         self._error_edges[source] = target
         return self
 
-    def compile(self, reducer: Optional[StateReducer] = None) -> StateGraph:
+    def compile(self, reducer: StateReducer | None = None) -> StateGraph:
         references = [*self._edges.values(), *self._error_edges.values()]
         references.extend(target for route in self._conditional_edges.values() for target in route.mapping.values())
         unknown = {name for name in references if name != END and name not in self._nodes}

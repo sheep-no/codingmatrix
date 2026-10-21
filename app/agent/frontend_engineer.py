@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.agent.specialist_base import Specialist
 from app.agent.tracing import traced
@@ -62,7 +62,7 @@ class FrontendEngineer(Specialist):
         return 'unknown'
 
     @staticmethod
-    def _build_spec_constraints(file_type: str, file_spec: Dict) -> str:
+    def _build_spec_constraints(file_type: str, file_spec: dict) -> str:
         """构建 project_spec 约束文本"""
         if not file_spec:
             return ""
@@ -95,11 +95,11 @@ class FrontendEngineer(Specialist):
         self,
         file_path: str,
         description: str,
-        project_context: Dict,
+        project_context: dict,
         spec_context: str = "",
         dep_context: str = "",
-        project_path: Optional[str] = None,
-        callback: Optional[Any] = None,
+        project_path: str | None = None,
+        callback: Any | None = None,
         is_existing_file: bool = False,
         heartbeat_tracker=None,
     ) -> str:
@@ -322,8 +322,8 @@ class FrontendEngineer(Specialist):
         self,
         question: str,
         project_path: str,
-        project_context: Optional[Dict] = None,
-        callback: Optional[Any] = None,
+        project_context: dict | None = None,
+        callback: Any | None = None,
         heartbeat_tracker=None,
     ) -> str:
         """分析模式 — 只读代码，用自然语言回答用户问题

@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import List
 
 
 @dataclass
@@ -18,14 +17,14 @@ class AssociationItem:
 
 @dataclass
 class AssociationResult:
-    items: List[AssociationItem] = field(default_factory=list)
+    items: list[AssociationItem] = field(default_factory=list)
     enhanced_requirement: str = ""
     domain_matched: str = ""
-    domains_matched: List[str] = field(default_factory=list)
+    domains_matched: list[str] = field(default_factory=list)
     history_matched_count: int = 0
     llm_called: bool = False
     dual_model_used: bool = False
-    devil_review_items: List[dict] = field(default_factory=list)
+    devil_review_items: list[dict] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     skipped: bool = False
     skip_reason: str = ""

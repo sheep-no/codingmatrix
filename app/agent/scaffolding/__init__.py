@@ -8,7 +8,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path, PurePosixPath
-from typing import Mapping, Tuple
+from collections.abc import Mapping
 
 import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -46,10 +46,10 @@ class ScaffoldRequest(BaseModel):
     framework: str = Field(min_length=1)
     language: str = Field(min_length=1)
     target_dir: str = Field(min_length=1)
-    command: Tuple[str, ...] = Field(min_length=1)
+    command: tuple[str, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_target(self) -> "ScaffoldRequest":
+    def validate_target(self) -> ScaffoldRequest:
         normalized = _normalize_relative_path(self.target_dir)
         if normalized != self.target_dir:
             raise ValueError("scaffold target_dir must be a normalized relative path")

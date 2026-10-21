@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Iterable, Mapping, Optional, Tuple
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -20,8 +20,8 @@ class InterfaceSymbol(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
-    parameters: Tuple[str, ...] = ()
-    return_type: Optional[str] = None
+    parameters: tuple[str, ...] = ()
+    return_type: str | None = None
     is_async: bool = False
     visibility: InterfaceVisibility = InterfaceVisibility.PUBLIC
 
@@ -31,7 +31,7 @@ class InterfaceEntry(BaseModel):
 
     module: str = Field(min_length=1)
     owner: str = Field(min_length=1)
-    symbols: Tuple[InterfaceSymbol, ...] = ()
+    symbols: tuple[InterfaceSymbol, ...] = ()
 
 
 class InterfaceRegistry(BaseModel):
@@ -40,17 +40,17 @@ class InterfaceRegistry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: int = Field(default=1, ge=1)
-    entries: Tuple[InterfaceEntry, ...] = ()
+    entries: tuple[InterfaceEntry, ...] = ()
     digest: str = Field(default="", min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_digest(self) -> "InterfaceRegistry":
+    def validate_digest(self) -> InterfaceRegistry:
         if self.digest != _digest(self.version, self.entries):
             raise ValueError("interface registry digest does not match its contents")
         return self
 
     @classmethod
-    def build(cls, entries: Iterable[Mapping[str, object] | InterfaceEntry], version: int = 1) -> "InterfaceRegistry":
+    def build(cls, entries: Iterable[Mapping[str, object] | InterfaceEntry], version: int = 1) -> InterfaceRegistry:
         if isinstance(entries, str) or entries is None:
             entries = ()
         elif isinstance(entries, Mapping):
@@ -64,11 +64,11 @@ class InterfaceRegistry(BaseModel):
         digest = _digest(version, normalized)
         return cls(version=version, entries=normalized, digest=digest)
 
-    def symbol_owner(self, symbol: str) -> Optional[str]:
+    def symbol_owner(self, symbol: str) -> str | None:
         owners = {entry.owner for entry in self.entries for item in entry.symbols if item.name == symbol}
         return next(iter(owners)) if len(owners) == 1 else None
 
-    def symbols_for(self, module: str) -> Tuple[InterfaceSymbol, ...]:
+    def symbols_for(self, module: str) -> tuple[InterfaceSymbol, ...]:
         return tuple(item for entry in self.entries if entry.module == module for item in entry.symbols)
 
 
@@ -105,7 +105,7 @@ def _coerce_symbol(item: object) -> InterfaceSymbol:
     return InterfaceSymbol(name=name, **fields)
 
 
-def _coerce_parameters(value: object) -> Tuple[str, ...]:
+def _coerce_parameters(value: object) -> tuple[str, ...]:
     """把参数列表归一化为字符串元组。
 
     架构师可能给出 "uid"、{"name": "uid", "type": "int"} 或 {"uid": "int"}
@@ -134,7 +134,7 @@ def _parameter_text(name: object, spec: object) -> str:
     return f"{label}: {annotation}" if annotation else label
 
 
-def _validate_entries(entries: Tuple[InterfaceEntry, ...]) -> None:
+def _validate_entries(entries: tuple[InterfaceEntry, ...]) -> None:
     owners = {}
     for entry in entries:
         for symbol in entry.symbols:
@@ -146,14 +146,14 @@ def _validate_entries(entries: Tuple[InterfaceEntry, ...]) -> None:
             owners[symbol.name] = entry.owner
 
 
-def _merge_entries(entries: Tuple[InterfaceEntry, ...]) -> Tuple[InterfaceEntry, ...]:
+def _merge_entries(entries: tuple[InterfaceEntry, ...]) -> tuple[InterfaceEntry, ...]:
     """合并同一 module 的多条条目（保留首个 owner），符号按出现顺序去重。
 
     架构师按类/接口逐条输出时同一文件会重复出现，而 registry 的访问器
     （``symbols_for``/``symbol_owner``）本来就按 module 聚合，重复条目只是
     簿记冗余；把它当作硬失败会让合法架构直接中断生成。
     """
-    merged: dict[str, Tuple[str, list]] = {}
+    merged: dict[str, tuple[str, list]] = {}
     for entry in entries:
         _owner, symbols = merged.setdefault(entry.module, (entry.owner, []))
         seen = {_symbol_key(symbol) for symbol in symbols}
@@ -168,11 +168,11 @@ def _merge_entries(entries: Tuple[InterfaceEntry, ...]) -> Tuple[InterfaceEntry,
     )
 
 
-def _symbol_key(symbol: InterfaceSymbol) -> Tuple:
+def _symbol_key(symbol: InterfaceSymbol) -> tuple:
     return (symbol.name, symbol.visibility, symbol.parameters, symbol.return_type, symbol.is_async)
 
 
-def _digest(version: int, entries: Tuple[InterfaceEntry, ...]) -> str:
+def _digest(version: int, entries: tuple[InterfaceEntry, ...]) -> str:
     payload = {"version": version, "entries": [item.model_dump(mode="json") for item in entries]}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return hashlib.sha256(encoded).hexdigest()

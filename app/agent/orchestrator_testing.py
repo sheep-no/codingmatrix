@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.agent.failure_clusterer import FailureCluster, FailureClusterer
 from app.agent.impact_analyzer import ImpactAnalyzer
@@ -17,9 +17,9 @@ class TestingMixin:
     async def _run_dynamic_tests(
         self,
         runner: IsolatedTestRunner,
-        modified_files: Optional[List[str]] = None,
-        project_profile: Optional[ProjectProfile] = None
-    ) -> Dict[str, Any]:
+        modified_files: list[str] | None = None,
+        project_profile: ProjectProfile | None = None
+    ) -> dict[str, Any]:
         self._report_progress(PROGRESS_LABELS["running_tests"], 0, 1, phase="testing")
         self._update_phase("running_tests")
 
@@ -103,9 +103,9 @@ class TestingMixin:
 
     async def _select_tests(
         self,
-        modified_files: Optional[List[str]],
-        project_profile: Optional[ProjectProfile]
-    ) -> List[str]:
+        modified_files: list[str] | None,
+        project_profile: ProjectProfile | None
+    ) -> list[str]:
         """智能测试选择"""
         if not modified_files or not project_profile:
             # 回退到全量测试
@@ -131,9 +131,9 @@ class TestingMixin:
 
     async def _cluster_test_failures(
         self,
-        failed_tests: List[str],
+        failed_tests: list[str],
         logs: str
-    ) -> List[FailureCluster]:
+    ) -> list[FailureCluster]:
         """测试失败聚类"""
         try:
             # 解析测试结果
@@ -166,7 +166,7 @@ class TestingMixin:
             logger.error(f"测试失败聚类失败：{e}")
             return []
 
-    def _collect_all_tests(self) -> List[str]:
+    def _collect_all_tests(self) -> list[str]:
         """收集所有测试文件"""
         test_files = []
         for pattern in ["test_*.py", "tests/**/*.py", "test/**/*.py", "**/*.test.js", "**/*.spec.js"]:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def utc_now() -> str:
@@ -21,14 +21,14 @@ class MessageEnvelope:
     sequence: int
     type: str
     source: str
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=utc_now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MessageEnvelope":
+    def from_dict(cls, data: dict[str, Any]) -> MessageEnvelope:
         return cls(**data)
 
 
@@ -38,21 +38,21 @@ class State:
     task_id: str
     revision: int = 0
     status: str = "planned"
-    messages: List[MessageEnvelope] = field(default_factory=list)
-    planned_changes: List[Dict[str, Any]] = field(default_factory=list)
-    generated_files: List[Dict[str, Any]] = field(default_factory=list)
-    validation_results: List[Dict[str, Any]] = field(default_factory=list)
-    pending_actions: List[Dict[str, Any]] = field(default_factory=list)
-    errors: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    messages: list[MessageEnvelope] = field(default_factory=list)
+    planned_changes: list[dict[str, Any]] = field(default_factory=list)
+    generated_files: list[dict[str, Any]] = field(default_factory=list)
+    validation_results: list[dict[str, Any]] = field(default_factory=list)
+    pending_actions: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["messages"] = [message.to_dict() for message in self.messages]
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "State":
+    def from_dict(cls, data: dict[str, Any]) -> State:
         values = dict(data)
         values["messages"] = [
             message if isinstance(message, MessageEnvelope)
@@ -65,12 +65,12 @@ class State:
 @dataclass
 class StateDelta:
     expected_revision: int
-    status: Optional[str] = None
-    messages: List[MessageEnvelope] = field(default_factory=list)
-    planned_changes: List[Dict[str, Any]] = field(default_factory=list)
-    generated_files: List[Dict[str, Any]] = field(default_factory=list)
-    validation_results: List[Dict[str, Any]] = field(default_factory=list)
-    pending_actions: List[Dict[str, Any]] = field(default_factory=list)
-    replace_pending_actions: Optional[List[Dict[str, Any]]] = None
-    errors: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    status: str | None = None
+    messages: list[MessageEnvelope] = field(default_factory=list)
+    planned_changes: list[dict[str, Any]] = field(default_factory=list)
+    generated_files: list[dict[str, Any]] = field(default_factory=list)
+    validation_results: list[dict[str, Any]] = field(default_factory=list)
+    pending_actions: list[dict[str, Any]] = field(default_factory=list)
+    replace_pending_actions: list[dict[str, Any]] | None = None
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
