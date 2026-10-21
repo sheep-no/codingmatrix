@@ -529,3 +529,16 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - grep 到引用与 knip 报 unused 同时出现时，以 grep 实际引用链为准；如需前端死代码分析，必须先配置 knip.json（入口 + vue 插件）再采信输出
   - `tests/unit/test_websocket_url.js` 是 P0-6 修复的 Node --test 自包含单测（复制被测纯函数、零 import 属设计），勿按死文件清理
   - `src/dist/` 为构建产物目录，扫描工具应忽略
+
+### ruff 门禁规则集与保留决策集（2026-10-21 收敛）
+- Date: 2026-10-21
+- Context: Agent 范围内 ruff 规则面扩展批次（#427-#433）完成后的总结
+- Category: 构建与编译
+- Instructions:
+  - Agent 范围三目录（`app/agent`、`app/api/v1/ai_agent`、`app/tasks`）已归零 37 条规则：`F821,F823,F811,F402,F601,B904,F541,SIM114,PIE790,SIM118,RUF022,RET504,RUF005,B007,RUF059,W605,SIM102,F401,ASYNC,I001,RUF010,FURB188,RUF051,PIE810,SIM103,PERF102,RUF015,G201,PLW0602,SIM117,UP006,UP007,UP035,UP037,UP045,RUF012,RUF013,TRY002`。每批合并后可在门禁命令追加这些规则回归验证。
+  - 保留决策集（不修，勿重复评估）：BLE001 315（宽 except 逐项容错，PERF203 同源）、B008 80（FastAPI Depends 模式）、PLW1510 36（subprocess 加 check=True 会改变失败语义）、DTZ005 40/DTZ006 2（datetime 时区语义全链路决策）、TRY004 13（ValueError→TypeError 异常类型变化需查调用方）、S110 18/S112 3（逐项容错）、SIM115 2（tools.py TemporaryFile 有 finally close，与 with 等价）。
+  - **RUF100 剔除**：本项目 ruff 以显式 `--select` 子集运行，RUF100 对未启用规则的 noqa 判 `non-enabled` 并误删有意抑制（实测删掉 specialist_base/project_config/multi_model_agent 7 处 F401 re-export 契约 noqa）。autofix 后必须 `git diff | grep '^-' | grep noqa` 复核，re-export noqa 是 #412 确立的契约。
+  - **typing 批次经验**：UP006/UP045/UP035/UP037/UP007 全 safe autofix，但 UP035 的 fix 被标 deprecated 拒绝自动执行，需手写脚本：AST 收集 Name 节点判定真用（字符串/注释提及保守保留），多行 `from typing import (` 整块重写。autofix 后必须跑「209 模块遍历 import」+ 全量测试。
+  - **`Optional[callable]` 陷阱**：`callable`（内建函数）作类型注解时，`Optional[callable]` 靠 typing.Union 不校验参数侥幸通过，PEP604 语法 `callable | None` import 即 TypeError。UP007/RUF013 autofix 会触发此炸点，共修 4 处（architecture_inspector、incremental_modify×2、architect），正确写法 `Callable | None`。
+  - **RUF012 甄别方法**：加 ClassVar 前必须确认类非 dataclass/pydantic/SQLAlchemy declarative（AST 查 decorator/bases），否则会把字段从模型定义中排除产生破坏。实测 60 处全为普通类。裸赋值形态按值类型推断 list/dict/set；ClassVar 导入要插在 `from __future__` 之后。
+  - 全批次基线：5216 passed / 3 skipped（PR #418 曾合法删除 4 个 ContentAnalyzer 测试，基线 5215→5211→5216 属正常漂移，排查先看并行 PR）。
