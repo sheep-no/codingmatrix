@@ -15,6 +15,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_app import celery_app
 from app.core.config import settings
 from app.tasks.base import BaseTask
+from app.tasks.exceptions import AgentTaskTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def generate_code(self, task_id: str, prompt: str, language: str, user_id: int, 
         return asyncio.run(_execute())
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("代码生成超时") from None
+        raise AgentTaskTimeoutError("代码生成超时") from None
 
 
 @celery_app.task(
@@ -205,7 +206,7 @@ def modify_with_test(
         return asyncio.run(_execute())
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("修改+测试任务超时") from None
+        raise AgentTaskTimeoutError("修改+测试任务超时") from None
     except Exception as e:
         logger.error(f"Task {task_id} failed: {e}")
         raise

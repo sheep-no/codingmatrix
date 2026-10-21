@@ -10,6 +10,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from app.celery_app import celery_app
 from app.tasks.base import BaseTask
+from app.tasks.exceptions import AgentTaskTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def generate_project(self, task_id: str, requirement: str, user_id: int, **kwarg
         return asyncio.run(_execute())
     except SoftTimeLimitExceeded:
         logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("任务执行超时") from None
+        raise AgentTaskTimeoutError("任务执行超时") from None
     except Exception:
         logger.exception(f"Task {task_id} failed")
         raise
