@@ -414,7 +414,7 @@ class ArchitectureInspector:
         if not naming_rules:
             return violations
 
-        for file_path, _content in self.generated_files.items():
+        for file_path in self.generated_files.keys():
             file_naming_violation = self._check_file_naming(file_path, naming_rules)
             if file_naming_violation:
                 violations.append(ArchitectureViolation(

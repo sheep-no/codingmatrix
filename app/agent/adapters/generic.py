@@ -180,7 +180,7 @@ class GenericLanguageAdapter(LanguageAdapter):
             stripped = line.strip()
 
             # 跳过注释
-            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '#', '/*')):
                 continue
 
             for pattern, is_relative in patterns:
@@ -202,7 +202,7 @@ class GenericLanguageAdapter(LanguageAdapter):
     def _looks_like_stdlib(self, module: str) -> bool:
         """粗略判断是否像标准库"""
         # 绝对路径或系统路径
-        if module.startswith('/') or module.startswith('C:\\'):
+        if module.startswith(('/', 'C:\\')):
             return True
         # 常见标准库前缀
         stdlib_prefixes = ['std', 'system', 'core', 'posix', 'win32']
@@ -328,7 +328,7 @@ class GenericLanguageAdapter(LanguageAdapter):
             stripped = line.strip()
 
             # 跳过注释
-            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '#', '/*')):
                 continue
 
             # 函数定义（通用模式）

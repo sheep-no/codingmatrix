@@ -812,10 +812,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
         # 常见项目模块前缀
         project_prefixes = ['app', 'src', 'lib', 'pkg', 'internal', 'core']
-        if top_level in project_prefixes:
-            return True
-
-        return False
+        return top_level in project_prefixes
 
     def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
         """验证 Python 包结构

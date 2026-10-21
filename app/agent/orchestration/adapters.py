@@ -124,7 +124,7 @@ def restore_dropped_import_lines(content: str, missing_lines: Sequence[str]) -> 
     if not remaining:
         return content
     prefix = "\n".join(remaining) + "\n"
-    if content.startswith("#!") or content.startswith("# -*-") or content.startswith("# coding"):
+    if content.startswith(("#!", "# -*-", "# coding")):
         first, _, rest = content.partition("\n")
         return f"{first}\n{prefix}{rest}"
     return prefix + content

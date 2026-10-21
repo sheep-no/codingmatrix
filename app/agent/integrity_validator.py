@@ -284,7 +284,7 @@ class IntegrityValidator:
                 if match:
                     module = match.group(1)
                     # 只处理 app. 开头的项目内模块
-                    if module.startswith('app') or module.startswith('src'):
+                    if module.startswith(('app', 'src')):
                         imports.append(module)
 
         return imports
@@ -299,10 +299,7 @@ class IntegrityValidator:
         if top_level in self.COMMON_THIRD_PARTY:
             return True
         # 相对导入
-        if module.startswith('.'):
-            return True
-
-        return False
+        return bool(module.startswith('.'))
 
     def _module_exists(self, module: str, files: Dict[str, str]) -> bool:
         """检查模块是否在生成的文件中存在"""
@@ -477,7 +474,7 @@ class IntegrityValidator:
                 init_filename = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
                 if init_filename and missing.endswith(init_filename):
                     fixes[missing] = self._generate_init_content(missing, generated_files)
-                elif missing.endswith('index.js') or missing.endswith('index.ts'):
+                elif missing.endswith(('index.js', 'index.ts')):
                     fixes[missing] = self._generate_index_content(missing, generated_files)
                 else:
                     continue
@@ -522,7 +519,7 @@ class IntegrityValidator:
         lines = [f'// Package {parent.replace("/", ".")}\n']
 
         # 扫描同目录下的其他 .ts/.js 文件
-        for file_path, _content in generated_files.items():
+        for file_path in generated_files.keys():
             if file_path == index_path:
                 continue
             file_parent = str(Path(file_path).parent)

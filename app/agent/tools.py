@@ -261,7 +261,7 @@ def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
 
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
-            if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+            if not stripped or stripped.startswith(('#', '//')):
                 continue
 
             fn_match = patterns["function"].search(line)

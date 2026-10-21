@@ -124,7 +124,7 @@ class TopologyScheduler:
         self.adjacency.clear()
         self.reverse_adjacency.clear()
 
-        for path, _node in dep_graph.nodes.items():
+        for path in dep_graph.nodes.keys():
             dep_count = len(dep_graph.adjacency.get(path, set()))
             self.nodes[path] = ScheduleNode(
                 file_path=path,

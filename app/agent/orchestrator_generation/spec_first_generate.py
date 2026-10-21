@@ -165,10 +165,10 @@ def _package_entry_content(
 ):
     init_filename = language_adapter.package_init_filename if language_adapter else "__init__.py"
     if init_filename and (
-        missing_file.endswith(init_filename) or missing_file.endswith("__init__.py")
+        missing_file.endswith((init_filename, "__init__.py"))
     ):
         return integrity_validator._generate_init_content(missing_file, generated_files_dict)
-    if missing_file.endswith("index.js") or missing_file.endswith("index.ts"):
+    if missing_file.endswith(("index.js", "index.ts")):
         return integrity_validator._generate_index_content(missing_file, generated_files_dict)
     return None
 
@@ -1900,9 +1900,7 @@ class SpecFirstGenerateMixin:
             sanitized = strip_css_noise(content)
             lines = [l.strip() for l in sanitized.split('\n') if l.strip()]
             chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
-            if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
-                return False
-            return True
+            return not (chinese_lines > len(lines) * 0.3 and chinese_lines > 3)
 
         return True
 

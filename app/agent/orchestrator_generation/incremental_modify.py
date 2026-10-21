@@ -729,12 +729,8 @@ class IncrementalModifyMixin:
             if keyword in description or keyword in reason:
                 return True
 
-        # 新增文件默认为简单变更
-        if action == "add":
-            return True
-
-        # 修改文件默认为复杂变更（需要理解原代码）
-        return False
+        # 新增文件默认为简单变更；修改文件默认为复杂变更（需要理解原代码）
+        return action == "add"
 
     async def _update_dependency_graph_incremental(
         self,
@@ -796,7 +792,7 @@ class IncrementalModifyMixin:
             line = line.strip()
 
             # Python import
-            if line.startswith('import ') or line.startswith('from '):
+            if line.startswith(('import ', 'from ')):
                 # from .xxx import yyy
                 if line.startswith('from .'):
                     # 相对导入
@@ -893,10 +889,7 @@ class IncrementalModifyMixin:
         if "fastapi" in reason_lower and ("from fastapi" in content_lower or "fastapi" in content_lower):
             return True
 
-        if "flask" in reason_lower and ("from flask" in content_lower or "flask" in content_lower):
-            return True
-
-        return False
+        return bool("flask" in reason_lower and ("from flask" in content_lower or "flask" in content_lower))
 
     # 端点"已实现"的判定模式（{path} 会被替换为转义后的端点路径）
     _ROUTE_PATTERNS = (

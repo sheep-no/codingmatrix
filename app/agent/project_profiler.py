@@ -570,7 +570,7 @@ class ProjectProfiler:
         if not module:
             return False
         # 绝对路径或系统路径
-        if module.startswith('/') or module.startswith('C:\\') or module.startswith('.'):
+        if module.startswith(('/', 'C:\\', '.')):
             return True
         # 标准库前缀（不同语言）
         stdlib_prefixes = {
@@ -589,7 +589,7 @@ class ProjectProfiler:
         prefixes = stdlib_prefixes.get(self.language, ())
         # 检查前缀
         for prefix in prefixes:
-            if module == prefix or module.startswith(prefix + ".") or module.startswith(prefix + "/"):
+            if module == prefix or module.startswith((prefix + ".", prefix + "/")):
                 return False
         # Python：第三方包（flask/requests/numpy）与项目模块在模块名上无法区分，
         # 用「项目内是否存在对应源文件」判据把它们排除，避免污染 high_dependency（PP10）。

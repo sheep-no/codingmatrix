@@ -608,7 +608,7 @@ class CrossValidator:
             # 跳过注释
             if not stripped:
                 continue
-            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '#', '/*')):
                 continue
 
             # 函数定义
@@ -697,7 +697,7 @@ class CrossValidator:
             # 跳过注释和定义行
             if not stripped:
                 continue
-            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '#', '/*')):
                 continue
             if _DEF_LINE_RE.match(stripped):
                 continue
@@ -1235,7 +1235,7 @@ class CrossValidator:
 
         for line in content.split('\n'):
             line = line.strip()
-            if line.startswith('//') or line.startswith('#') or line.startswith('/*'):
+            if line.startswith(('//', '#', '/*')):
                 continue
 
             for pattern in patterns:
@@ -1706,7 +1706,7 @@ class CrossValidator:
     ) -> Dict[str, str]:
         """生成缺失的模块文件"""
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-        default_ext = list(extensions)[0] if extensions else '.py'
+        default_ext = next(iter(extensions)) if extensions else '.py'
         missing_paths = []
         for module in missing_modules:
             file_path = module.replace('.', '/') + default_ext
@@ -1898,7 +1898,7 @@ class CrossValidator:
             logger.warning("拒绝覆盖 %s：修复结果为空", file_path)
             return None
         leading = cleaned.lstrip()
-        if leading.startswith("<think>") or leading.startswith("<thinking>"):
+        if leading.startswith(("<think>", "<thinking>")):
             logger.warning("拒绝覆盖 %s：修复结果含思考标签", file_path)
             return None
         if file_path.endswith(".py"):

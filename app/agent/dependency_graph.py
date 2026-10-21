@@ -862,7 +862,7 @@ class DependencyGraph:
             schemas = openapi.get("components", {}).get("schemas", {})
 
             # 为每个 API 路径添加 API 文件
-            for path_str, _methods in paths.items():
+            for path_str in paths.keys():
                 api_path = self._path_to_api_file(path_str)
                 if api_path:
                     self.add_file(api_path, file_type="api", priority=4)
@@ -1588,7 +1588,7 @@ class DependencyGraph:
                 if text:
                     return text[:200]
                 continue
-            if line.startswith("/*") or line.startswith("/**"):
+            if line.startswith(("/*", "/**")):
                 text = line.lstrip("/*").rstrip("*/").strip().lstrip("*").strip()
                 if text:
                     return text[:200]
@@ -1620,7 +1620,7 @@ class DependencyGraph:
                 init_file_name = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
                 candidate = str(base_path / init_file_name)
                 extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-                default_ext = list(extensions)[0] if extensions else '.py'
+                default_ext = next(iter(extensions)) if extensions else '.py'
                 candidate_py = str(base_path) + default_ext
 
                 for candidate_path in [candidate, candidate_py]:
@@ -1804,7 +1804,7 @@ class DependencyGraph:
         """
         issues = []
 
-        for path, _node in self.nodes.items():
+        for path in self.nodes.keys():
             # 检查所有依赖是否都在图中
             for dep in self.adjacency.get(path, set()):
                 if dep not in self.nodes:

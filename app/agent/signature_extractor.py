@@ -198,7 +198,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 if idx <= skip_until:
                     continue
                 stripped = line.strip()
-                if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+                if not stripped or stripped.startswith(('#', '//')):
                     continue
 
                 # 计算当前行的缩进
@@ -263,7 +263,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
         defs = []
         for line in lines:
             stripped = line.strip()
-            if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+            if not stripped or stripped.startswith(('#', '//')):
                 continue
             if _GENERIC_IMPORT.search(line):
                 imports.append(_clip_signature(stripped))
@@ -320,7 +320,7 @@ def _extract_python_signatures(content: str) -> Optional[str]:
 def _is_class_field(stripped: str, ext: str) -> bool:
     """判断是否为类字段定义行"""
     # 跳过空行、注释、装饰器、pass、return 等
-    if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+    if not stripped or stripped.startswith(('#', '//')):
         return False
     if stripped.startswith('@') or stripped in ('pass', '...', 'continue', 'break'):
         return False

@@ -168,7 +168,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
                 continue
 
             # 跳过注释
-            if stripped.startswith('//') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '/*')):
                 continue
 
             # ES6 import: import xxx from 'module'
@@ -282,7 +282,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
         # 非相对导入（包或绝对路径）
         # 检查是否是项目内路径（如 @/xxx, src/xxx）
-        if module.startswith('@/') or module.startswith('src/'):
+        if module.startswith(('@/', 'src/')):
             clean_module = module
             if clean_module.startswith('@/'):
                 clean_module = clean_module[2:]
@@ -350,7 +350,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             stripped = line.strip()
 
             # 跳过注释
-            if stripped.startswith('//') or stripped.startswith('/*'):
+            if stripped.startswith(('//', '/*')):
                 continue
 
             # export default 的符号名就是 default；不登记它会让声明了 default
@@ -479,7 +479,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             return True
 
         # 别名路径（@/xxx, src/xxx）
-        if module_name.startswith('@/') or module_name.startswith('src/'):
+        if module_name.startswith(('@/', 'src/')):
             return True
 
         # Node.js 内置模块

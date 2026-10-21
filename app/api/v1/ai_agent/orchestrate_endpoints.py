@@ -1013,7 +1013,7 @@ async def orchestrate_project(
             execution_time=execution_time
         )
 
-        for _role, model in result.get("models_used", {}).items():
+        for model in result.get("models_used", {}).values():
             await update_model_stats(
                 db, int(user_id),
                 model, model,

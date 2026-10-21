@@ -373,9 +373,7 @@ def should_skip_user_decision(complexity_analysis: Optional[Any], questions: Opt
             level = level.value
     if str(level).lower() == "simple":
         return True
-    if not has_frontend and not has_backend and not has_database and not has_auth and estimated <= 5:
-        return True
-    return False
+    return bool(not has_frontend and not has_backend and not has_database and not has_auth and estimated <= 5)
 
 
 def _complexity_flag(complexity_analysis: Optional[Any], name: str) -> bool:
