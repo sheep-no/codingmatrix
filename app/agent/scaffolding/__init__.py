@@ -251,7 +251,7 @@ def _read_dependency_manifest(project_dir: Path) -> DependencyManifest:
     if requirements.is_file():
         for raw_line in requirements.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
-            if not line or line.startswith("#") or line.startswith(("-", "http://", "https://")):
+            if not line or line.startswith(("#", "-", "http://", "https://")):
                 continue
             match = re.match(r"([A-Za-z0-9_.-]+)\s*([<>=!~].*)?$", line)
             if match:

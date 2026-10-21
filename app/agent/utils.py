@@ -269,9 +269,7 @@ def _is_edit_marker(content: str, file_path: str = "") -> bool:
             "key_features", "notes", "summary", "result",
             "output", "response"
         }
-        if metadata_keys & set(obj.keys()):
-            return True
-        return False
+        return bool(metadata_keys & set(obj.keys()))
     except (json.JSONDecodeError, ValueError):
         return False
 
@@ -1093,9 +1091,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
             l_stripped = l.strip()
             if not l_stripped:
                 continue
-            if l_stripped.startswith('#') or l_stripped.startswith('//'):
+            if l_stripped.startswith(('#', '//')):
                 continue
-            if l_stripped.startswith('"""') or l_stripped.startswith("'''"):
+            if l_stripped.startswith(('"""', "'''")):
                 continue
             if l_stripped.startswith('/*') or l_stripped.endswith('*/'):
                 continue

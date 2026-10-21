@@ -184,7 +184,7 @@ def _is_invalid_file_path(path: Any) -> bool:
     if not path:
         return True
     normalized = str(path).replace("\\", "/").strip()
-    if not normalized or normalized.startswith("/") or normalized.startswith("~"):
+    if not normalized or normalized.startswith(("/", "~")):
         return True
     if any(part == ".." for part in normalized.split("/")):
         return True

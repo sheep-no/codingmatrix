@@ -464,9 +464,7 @@ class IsolatedTestRunner:
                 return False
             if name.startswith('.') and name not in ('.env.example', '.coveragerc'):
                 return False
-            if item.is_file() and item.stat().st_size > MAX_FILE_SIZE_BYTES:
-                return False
-            return True
+            return not (item.is_file() and item.stat().st_size > MAX_FILE_SIZE_BYTES)
 
         try:
             for item in src.iterdir():
@@ -574,7 +572,7 @@ class IsolatedTestRunner:
             content = req_file.read_text(encoding='utf-8', errors='ignore')
             for line in content.splitlines():
                 line = line.strip()
-                if not line or line.startswith('#') or line.startswith('-'):
+                if not line or line.startswith(('#', '-')):
                     continue
                 pkg_name = re.split(r'[=<>!\s\[;]', line)[0].strip().lower()
                 pkg_base = re.split(r'\[', pkg_name)[0].strip()

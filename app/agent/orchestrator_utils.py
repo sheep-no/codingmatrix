@@ -235,9 +235,7 @@ class UtilsMixin:
         ext = Path(file_path).suffix.lower()
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx'}:
             return True
-        if ext == '.py' and ('api' in file_path.lower() or 'route' in file_path.lower()):
-            return True
-        return False
+        return bool(ext == '.py' and ('api' in file_path.lower() or 'route' in file_path.lower()))
 
     async def _check_and_report_api_issues(self, file_path: str, content: str):
         if not self.api_contract_checker:

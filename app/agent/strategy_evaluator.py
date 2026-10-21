@@ -199,7 +199,7 @@ class StrategyEvaluator:
         self.evaluation_history.append(result)
 
         # 更新策略统计信息
-        for _error_type, strategies in self.strategies.items():
+        for strategies in self.strategies.values():
             for strategy in strategies:
                 if strategy.strategy_id == result.strategy_id:
                     strategy.total_attempts += 1
@@ -315,7 +315,7 @@ class StrategyEvaluator:
 
     def disable_strategy(self, strategy_id: str):
         """禁用策略"""
-        for _error_type, strategies in self.strategies.items():
+        for strategies in self.strategies.values():
             for strategy in strategies:
                 if strategy.strategy_id == strategy_id:
                     strategy.is_active = False

@@ -289,9 +289,7 @@ def _matches_test_pattern(pattern: str, target: str) -> bool:
     if fnmatchcase(normalized_target, normalized_pattern):
         return True
     # 不含目录分隔符的模式按文件名匹配
-    if "/" not in normalized_pattern and Path(normalized_target).name == normalized_pattern:
-        return True
-    return False
+    return bool("/" not in normalized_pattern and Path(normalized_target).name == normalized_pattern)
 
 
 def _get_related_tests(target_files: List[str]) -> List[str]:
