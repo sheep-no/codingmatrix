@@ -6,7 +6,8 @@ import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 from .evaluation_matrix import (
     FIXED_EVALUATION_MATRIX,

@@ -11,7 +11,8 @@ import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable, Iterator
 
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
@@ -86,9 +87,9 @@ def _iter_module_scope(body: Iterable[ast.stmt]) -> Iterator[ast.stmt]:
             yield from _iter_module_scope(getattr(node, "finalbody", ()) or ())
 
 
-def _module_level_exports(tree: ast.Module) -> Dict[str, set]:
+def _module_level_exports(tree: ast.Module) -> dict[str, set]:
     """模块对外可见的类/函数/变量名（忽略函数与类体内部的局部定义）。"""
-    exports: Dict[str, set] = {"classes": set(), "functions": set(), "variables": set()}
+    exports: dict[str, set] = {"classes": set(), "functions": set(), "variables": set()}
     for node in _iter_module_scope(tree.body):
         if isinstance(node, ast.ClassDef):
             exports["classes"].add(node.name)
@@ -145,7 +146,7 @@ class CodeValidator:
         self._cache_hits = 0
         self._cache_misses = 0
 
-    def _import_search_paths(self, file_path: Path) -> List[str]:
+    def _import_search_paths(self, file_path: Path) -> list[str]:
         """Return the candidate directory and configured project roots for imports."""
         paths = [file_path.parent.resolve(), self.project_path]
         src_dir = self.project_path / "src"
@@ -153,7 +154,7 @@ class CodeValidator:
             paths.append(src_dir.resolve())
         return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
 
-    def _project_top_level_packages(self) -> List[str]:
+    def _project_top_level_packages(self) -> list[str]:
         """项目根下可被 `import X` 命中的顶层包/模块名。
 
         含 `__init__.py` 的目录是常规包；不含 `__init__.py` 但含 `.py` 文件的
@@ -174,7 +175,7 @@ class CodeValidator:
             return []
         return names
 
-    def _resolve_project_module(self, module: str) -> Optional[Path]:
+    def _resolve_project_module(self, module: str) -> Path | None:
         """把绝对模块名解析为项目内的源文件/包目录；项目外返回 None。
 
         直接按文件定位，绕开 sys.modules 与 sys.path：Agent 自身与生成项目
@@ -200,7 +201,7 @@ class CodeValidator:
                 return base
         return None
 
-    def _missing_project_symbols(self, module: str, names: Iterable[str]) -> List[str]:
+    def _missing_project_symbols(self, module: str, names: Iterable[str]) -> list[str]:
         """`from <module> import <name>` 中项目模块未导出的符号名。"""
         path = self._resolve_project_module(module)
         if path is None or not path.is_file():
@@ -224,7 +225,7 @@ class CodeValidator:
                 missing.append(name)
         return missing
 
-    def _python_third_party_imports(self) -> List[str]:
+    def _python_third_party_imports(self) -> list[str]:
         """项目中来自第三方包的顶层 Python 导入名（排序去重）。
 
         只用标准库或项目内模块的项目不需要依赖清单；该判断同样避免了把
@@ -262,7 +263,7 @@ class CodeValidator:
         return hashlib.sha256(file_content.encode('utf-8')).hexdigest()[:16]
 
     @classmethod
-    def _project_content_hash(cls, files: List[Path]) -> str:
+    def _project_content_hash(cls, files: list[Path]) -> str:
         """读取全部待校验文件内容并计算项目级哈希（同步，供工作线程调用）。
 
         `run_full_validation` 的缓存键是全项目内容拼接后的哈希，需要逐个读取
@@ -290,7 +291,7 @@ class CodeValidator:
             oldest_key, oldest_entry = self._lru_cache.popitem(last=False)
             self._cache_size_bytes -= sys.getsizeof(oldest_key) + sys.getsizeof(oldest_entry)
 
-    def get_cached_validation(self, file_path: Path) -> Optional[Dict]:
+    def get_cached_validation(self, file_path: Path) -> dict | None:
         cache_key = None
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -314,7 +315,7 @@ class CodeValidator:
             self._cache_misses += 1
             return None
 
-    def cache_validation(self, file_path: Path, result: Dict):
+    def cache_validation(self, file_path: Path, result: dict):
         cache_key = None
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -325,7 +326,7 @@ class CodeValidator:
         except Exception as e:
             logger.debug(f"缓存写入失败 {cache_key or file_path}：{e}")
 
-    def store_validation(self, cache_key: str, result: Dict):
+    def store_validation(self, cache_key: str, result: dict):
         """按内容哈希键写入校验缓存。
 
         调用方可能已持有内存中的内容、文件尚未落盘，因此这里按 key 直接写入，
@@ -341,7 +342,7 @@ class CodeValidator:
         self._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
         self._clear_old_cache()
 
-    def get_cached_validation_by_key(self, cache_key: str) -> Optional[Dict]:
+    def get_cached_validation_by_key(self, cache_key: str) -> dict | None:
         """按键读取校验结果（键由调用方构造，非文件路径）。
 
         `get_cached_validation` 面向真实文件路径（先读盘、再按内容算键），而
@@ -363,7 +364,7 @@ class CodeValidator:
         self._cache_misses += 1
         return None
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         total_requests = self._cache_hits + self._cache_misses
         hit_rate = self._cache_hits / total_requests if total_requests > 0 else 0.0
         return {
@@ -375,7 +376,7 @@ class CodeValidator:
             "hit_rate": hit_rate,
         }
 
-    async def validate_syntax(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_syntax(self, file_path: Path) -> tuple[bool, list[str]]:
         """验证语法正确性"""
         if file_path.suffix != '.py':
             return True, []
@@ -389,7 +390,7 @@ class CodeValidator:
         except Exception as e:
             return False, [f"验证失败: {e!s}"]
 
-    async def validate_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_imports(self, file_path: Path) -> tuple[bool, list[str]]:
         """验证导入语句"""
         if file_path.suffix != '.py':
             return True, []
@@ -453,7 +454,7 @@ class CodeValidator:
         except Exception as e:
             return False, [f"导入验证失败: {e!s}"]
 
-    async def validate_runtime_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_runtime_imports(self, file_path: Path) -> tuple[bool, list[str]]:
         """运行时导入验证：静态解析导入，不执行被校验代码。
 
         原实现用 `spec.loader.exec_module` 真实执行模块级代码：会触发被校验
@@ -471,7 +472,7 @@ class CodeValidator:
         if file_path.name == '__init__.py':
             return True, []
 
-        errors: List[str] = []
+        errors: list[str] = []
         try:
             source = await _read_text_async(file_path)
         except Exception as e:
@@ -513,7 +514,7 @@ class CodeValidator:
 
         return len(errors) == 0, errors
 
-    async def validate_api_compatibility(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_api_compatibility(self, file_path: Path) -> tuple[bool, list[str]]:
         """API 兼容性检查：已知库的版本不兼容问题"""
         if file_path.suffix != '.py':
             return True, []
@@ -558,7 +559,7 @@ class CodeValidator:
 
         return len(errors) == 0, errors
 
-    async def validate_js_syntax(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_js_syntax(self, file_path: Path) -> tuple[bool, list[str]]:
         """验证 JavaScript 语法"""
         if file_path.suffix != '.js':
             return True, []
@@ -584,7 +585,7 @@ class CodeValidator:
         except Exception as e:
             return False, [f"JS 验证异常: {e!s}"]
 
-    async def validate_html_structure(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_html_structure(self, file_path: Path) -> tuple[bool, list[str]]:
         """验证 HTML 基本结构"""
         if file_path.suffix != '.html':
             return True, []
@@ -597,7 +598,7 @@ class CodeValidator:
         except Exception as e:
             return False, [f"HTML 验证异常: {e!s}"]
 
-    async def validate_css_syntax(self, file_path: Path) -> Tuple[bool, List[str]]:
+    async def validate_css_syntax(self, file_path: Path) -> tuple[bool, list[str]]:
         """验证 CSS 基本语法"""
         if file_path.suffix != '.css':
             return True, []
@@ -610,7 +611,7 @@ class CodeValidator:
         except Exception as e:
             return False, [f"CSS 验证异常: {e!s}"]
 
-    async def validate_cross_file_consistency(self) -> Tuple[bool, List[str]]:
+    async def validate_cross_file_consistency(self) -> tuple[bool, list[str]]:
         """跨文件一致性检查：验证导入、导出、路由定义是否匹配。
 
         该方法整体是同步的（rglob 全项目 + 读取并 AST 解析每个 `.py`），放在
@@ -619,14 +620,14 @@ class CodeValidator:
         """
         return await asyncio.to_thread(self._validate_cross_file_consistency_sync)
 
-    def _validate_cross_file_consistency_sync(self) -> Tuple[bool, List[str]]:
+    def _validate_cross_file_consistency_sync(self) -> tuple[bool, list[str]]:
         errors = []
 
         # 收集所有 Python 文件
         py_files = list(self.project_path.rglob('*.py'))
 
         # 1. 收集所有模块中定义的类、函数、变量
-        defined_symbols: Dict[str, Dict[str, set]] = {}  # module_name -> {classes, functions, variables}
+        defined_symbols: dict[str, dict[str, set]] = {}  # module_name -> {classes, functions, variables}
         for f in py_files:
             if '__pycache__' in str(f):
                 continue
@@ -693,7 +694,7 @@ class CodeValidator:
 
         return len(errors) == 0, errors
 
-    async def validate_single_file(self, file_path: Path) -> Dict[str, Any]:
+    async def validate_single_file(self, file_path: Path) -> dict[str, Any]:
         """验证单个文件的语法、导入、API 兼容性、运行时一致性和前端文件（用于修复循环）"""
         results = {
             "syntax_errors": [],
@@ -743,7 +744,7 @@ class CodeValidator:
         return results
 
     @staticmethod
-    def _packages_from_pipfile(pipfile: Path) -> List[str]:
+    def _packages_from_pipfile(pipfile: Path) -> list[str]:
         """解析 Pipfile 依赖名。
 
         Pipfile 是 TOML 格式，用标准库 `tomllib`（3.11+）解析。此前用第三方
@@ -756,7 +757,7 @@ class CodeValidator:
         deps = list(pipdata.get('packages', {}).keys()) + list(pipdata.get('dev-packages', {}).keys())
         return [d.lower().replace('-', '_').split('[')[0] for d in deps if not d.startswith(('.', '/'))]
 
-    async def validate_requirements(self) -> Tuple[bool, List[str]]:
+    async def validate_requirements(self) -> tuple[bool, list[str]]:
         """验证 requirements.txt / pyproject.toml / Pipfile 是否完整。
 
         读取依赖清单、扫描全部 .py 收集第三方导入都是同步阻塞操作，
@@ -764,7 +765,7 @@ class CodeValidator:
         """
         return await asyncio.to_thread(self._validate_requirements_sync)
 
-    def _validate_requirements_sync(self) -> Tuple[bool, List[str]]:
+    def _validate_requirements_sync(self) -> tuple[bool, list[str]]:
         req_file = self.project_path / 'requirements.txt'
         pyproject_file = self.project_path / 'pyproject.toml'
         pipfile = self.project_path / 'Pipfile'
@@ -868,7 +869,7 @@ class CodeValidator:
             )
         return True, []
 
-    async def run_full_validation(self) -> Dict[str, Any]:
+    async def run_full_validation(self) -> dict[str, Any]:
         """运行完整验证（并发优化 + 缓存 + 运行时/API 兼容性检查 + 前端验证 + 跨文件检查）"""
         results = {
             "syntax_errors": [],
@@ -903,7 +904,7 @@ class CodeValidator:
                 return results
 
         # 并发验证 Python 文件
-        async def validate_py_file(py_file: Path) -> Tuple[List[str], List[str], List[str], List[str]]:
+        async def validate_py_file(py_file: Path) -> tuple[list[str], list[str], list[str], list[str]]:
             syntax_ok, syntax_errs = await self.validate_syntax(py_file)
             _import_ok, import_errs = await self.validate_imports(py_file)
             runtime_ok, runtime_errs = await self.validate_runtime_imports(py_file)
@@ -936,7 +937,7 @@ class CodeValidator:
                         results["is_valid"] = False
 
         # 并发验证前端文件
-        async def validate_frontend_file(f: Path) -> List[str]:
+        async def validate_frontend_file(f: Path) -> list[str]:
             if f.suffix == '.js':
                 ok, errs = await self.validate_js_syntax(f)
                 return errs if not ok else []

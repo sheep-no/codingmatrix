@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List
 
 from app.agent.orchestrator_requirements.constants import (
     MIN_HISTORY_PROJECTS,
@@ -13,7 +12,7 @@ from app.agent.orchestrator_requirements.data_models import AssociationItem
 logger = logging.getLogger(__name__)
 
 
-async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
+async def layer2_semantic_match(requirement: str) -> list[AssociationItem]:
     try:
         from app.agent.vector_index import VectorIndexManager
         vi = VectorIndexManager()
@@ -68,7 +67,7 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
     return await layer2_keyword_fallback(requirement)
 
 
-async def layer2_keyword_fallback(requirement: str) -> List[AssociationItem]:
+async def layer2_keyword_fallback(requirement: str) -> list[AssociationItem]:
     try:
         from app.agent.project_metadata import ProjectMetadataManager
         pm = ProjectMetadataManager()
@@ -116,7 +115,7 @@ def check_history_data_available() -> bool:
     return False
 
 
-def keyword_match_history(requirement: str, projects: List[Dict]) -> List[Dict]:
+def keyword_match_history(requirement: str, projects: list[dict]) -> list[dict]:
     req_words = set(re.findall(r'[\w]+', requirement.lower()))
     scored = []
     for project in projects:

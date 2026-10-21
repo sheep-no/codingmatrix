@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List
 
 from .generic import GenericLanguageAdapter
 from .language_adapter import ImportInfo, LanguageAdapterRegistry, SymbolDefinition
@@ -16,8 +15,8 @@ class GoLanguageAdapter(GenericLanguageAdapter):
     package_init_filename = ""
     supports_cross_file_symbol_validation = False
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
-        imports: List[ImportInfo] = []
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
+        imports: list[ImportInfo] = []
         blocks = re.findall(r"\bimport\s*\((.*?)\)", content, flags=re.DOTALL)
         candidates = list(blocks)
         candidates.extend(re.findall(r"\bimport\s+([^\n]+)", content))
@@ -31,7 +30,7 @@ class GoLanguageAdapter(GenericLanguageAdapter):
                 ))
         return imports
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         module = import_info.module.strip("/")
         if not self.is_project_module(module):
             return []
@@ -43,8 +42,8 @@ class GoLanguageAdapter(GenericLanguageAdapter):
         package = parts[-1]
         return [f"{local_module}/{package}.go", f"{local_module}.go"]
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
-        definitions: Dict[str, SymbolDefinition] = {}
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
+        definitions: dict[str, SymbolDefinition] = {}
         for line_number, line in enumerate(content.splitlines(), 1):
             type_match = re.search(r"\btype\s+(\w+)\s+(struct|interface)\b", line)
             if type_match:

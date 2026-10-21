@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from app.agent.dependency_rules import infer_file_type_fallback
@@ -33,19 +33,19 @@ class FileArtifact:
     file_type: str  # 'spec', 'model', 'api', 'service', 'view', 'config', 'util', 'test'
     generated_by: str  # model name
     generation_order: int
-    depends_on: List[str] = field(default_factory=list)  # 依赖的其他文件路径
+    depends_on: list[str] = field(default_factory=list)  # 依赖的其他文件路径
     validation_passed: bool = True
     validation_revision: int = -1
     validation_content_hash: str = ""
-    validation_errors: List[str] = field(default_factory=list)
-    review_issues: List[str] = field(default_factory=list)
+    validation_errors: list[str] = field(default_factory=list)
+    review_issues: list[str] = field(default_factory=list)
     fix_attempts: int = 0
     content_hash: str = ""
-    imports: List[str] = field(default_factory=list)
-    exports: List[str] = field(default_factory=list)
+    imports: list[str] = field(default_factory=list)
+    exports: list[str] = field(default_factory=list)
     language: str = ""
     status: str = "generated"
-    diagnostics: List[str] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -53,7 +53,7 @@ class FileArtifact:
 class SpecArtifact:
     """规范类产物（OpenAPI、类型定义、数据库 Schema）"""
     spec_type: str  # 'openapi', 'types', 'db_schema', 'config'
-    content: Dict[str, Any]
+    content: dict[str, Any]
     generated_by: str
     version: int = 1
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -64,10 +64,10 @@ class GenerationPhase:
     """生成阶段状态"""
     name: str
     status: str  # 'pending', 'in_progress', 'completed', 'failed'
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
     files_total: int = 0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 class SharedContext:
@@ -89,31 +89,31 @@ class SharedContext:
         self.revision: int = 0
 
         # 复杂度分析
-        self.complexity: Optional[Dict[str, Any]] = None
-        self.model_assignment: Optional[Dict[str, str]] = None
+        self.complexity: dict[str, Any] | None = None
+        self.model_assignment: dict[str, str] | None = None
 
         # 架构设计
         self.project_type: str = "unknown"
-        self.tech_stack: List[str] = []
-        self.directory_structure: Dict[str, Any] = {}
+        self.tech_stack: list[str] = []
+        self.directory_structure: dict[str, Any] = {}
 
         # 规范产物（Spec-First 核心）
-        self.specs: Dict[str, SpecArtifact] = {}
+        self.specs: dict[str, SpecArtifact] = {}
 
         # 文件产物
-        self.files: Dict[str, FileArtifact] = {}
+        self.files: dict[str, FileArtifact] = {}
         self.file_generation_order: int = 0
 
         # 依赖关系
-        self.dependencies: Dict[str, List[str]] = {}  # file -> [dependencies]
+        self.dependencies: dict[str, list[str]] = {}  # file -> [dependencies]
 
         # 生成阶段
-        self.phases: Dict[str, GenerationPhase] = {}
+        self.phases: dict[str, GenerationPhase] = {}
 
         # 全局状态
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
-        self.metrics: Dict[str, Any] = {}
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
+        self.metrics: dict[str, Any] = {}
 
     # ==================== 指标管理 ====================
 
@@ -137,7 +137,7 @@ class SharedContext:
         )
         self._log_event("phase_start", {"phase": phase_name, "total_files": total_files})
 
-    def complete_phase(self, phase_name: str, errors: Optional[List[str]] = None):
+    def complete_phase(self, phase_name: str, errors: list[str] | None = None):
         """完成一个生成阶段"""
         if phase_name in self.phases:
             phase = self.phases[phase_name]
@@ -148,13 +148,13 @@ class SharedContext:
                 self.errors.extend(errors)
         self._log_event("phase_complete", {"phase": phase_name, "errors": errors})
 
-    def get_phase_status(self) -> Dict[str, str]:
+    def get_phase_status(self) -> dict[str, str]:
         """获取所有阶段的状态"""
         return {name: phase.status for name, phase in self.phases.items()}
 
     # ==================== 规范管理 ====================
 
-    def save_spec(self, spec_type: str, content: Dict[str, Any], model_name: str):
+    def save_spec(self, spec_type: str, content: dict[str, Any], model_name: str):
         """保存规范产物"""
         self.specs[spec_type] = SpecArtifact(
             spec_type=spec_type,
@@ -163,7 +163,7 @@ class SharedContext:
         )
         self._log_event("spec_saved", {"type": spec_type, "model": model_name})
 
-    def get_spec(self, spec_type: str) -> Optional[Dict[str, Any]]:
+    def get_spec(self, spec_type: str) -> dict[str, Any] | None:
         """获取规范内容"""
         artifact = self.specs.get(spec_type)
         return artifact.content if artifact else None
@@ -181,7 +181,7 @@ class SharedContext:
 
     # ==================== 文件管理 ====================
 
-    def register_file(self, file_path: str, file_type: str, depends_on: Optional[List[str]] = None) -> int:
+    def register_file(self, file_path: str, file_type: str, depends_on: list[str] | None = None) -> int:
         """注册一个待生成的文件，返回生成序号"""
         self.file_generation_order += 1
         order = self.file_generation_order
@@ -238,7 +238,7 @@ class SharedContext:
                 language=Path(file_path).suffix.lstrip("."),
             )
 
-    def update_file_validation(self, file_path: str, passed: bool, errors: Optional[List[str]] = None):
+    def update_file_validation(self, file_path: str, passed: bool, errors: list[str] | None = None):
         """更新文件验证状态"""
         if file_path in self.files:
             artifact = self.files[file_path]
@@ -272,7 +272,7 @@ class SharedContext:
             for dependency in self.dependencies.get(file_path, [])
         )
 
-    def get_artifact_manifest(self) -> Dict[str, Dict[str, Any]]:
+    def get_artifact_manifest(self) -> dict[str, dict[str, Any]]:
         """返回不包含源码的文件产物清单。"""
         return {
             path: {
@@ -292,7 +292,7 @@ class SharedContext:
         }
 
     @staticmethod
-    def _extract_file_symbols(file_path: str, content: str) -> tuple[List[str], List[str]]:
+    def _extract_file_symbols(file_path: str, content: str) -> tuple[list[str], list[str]]:
         """提取跨语言常见导入和导出符号，无法识别时返回空列表。"""
         imports = re.findall(
             r"^\s*(?:from\s+([\w./-]+)\s+import|import\s+([\w./-]+)|#include\s*[<\"]([^>\"]+)|(?:const|let|var)\s+\w+\s*=\s*require\(['\"]([^'\"]+))",
@@ -307,7 +307,7 @@ class SharedContext:
         )
         return sorted(set(import_values)), sorted(set(exports))
 
-    def update_file_review(self, file_path: str, issues: Optional[List[str]] = None):
+    def update_file_review(self, file_path: str, issues: list[str] | None = None):
         """更新文件审查结果"""
         if file_path in self.files and issues:
             self.files[file_path].review_issues.extend(issues)
@@ -317,7 +317,7 @@ class SharedContext:
         if file_path in self.files:
             self.files[file_path].fix_attempts += 1
 
-    def get_file_content(self, file_path: str) -> Optional[str]:
+    def get_file_content(self, file_path: str) -> str | None:
         """获取已生成的文件内容"""
         artifact = self.files.get(file_path)
         return artifact.content if artifact else None
@@ -347,15 +347,15 @@ class SharedContext:
 
     # ==================== 依赖查询 ====================
 
-    def get_dependencies_for(self, file_path: str) -> List[str]:
+    def get_dependencies_for(self, file_path: str) -> list[str]:
         """获取某个文件的依赖列表"""
         return self.dependencies.get(file_path, [])
 
-    def get_dependents_of(self, file_path: str) -> List[str]:
+    def get_dependents_of(self, file_path: str) -> list[str]:
         """获取依赖某个文件的其他文件列表"""
         return [f for f, deps in self.dependencies.items() if file_path in deps]
 
-    def get_generation_order(self) -> List[str]:
+    def get_generation_order(self) -> list[str]:
         """按依赖顺序获取文件生成顺序"""
         # 简单的拓扑排序
         visited = set()
@@ -391,7 +391,7 @@ class SharedContext:
         self.warnings.append(warning)
         self._log_event("warning", {"message": warning})
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取上下文摘要（用于序列化/日志）"""
         return {
             "session_id": self.session_id,
@@ -408,7 +408,7 @@ class SharedContext:
             "metrics": self.metrics
         }
 
-    def to_export_dict(self) -> Dict[str, Any]:
+    def to_export_dict(self) -> dict[str, Any]:
         """导出完整的上下文字典（用于保存或调试）"""
         return {
             "session_id": self.session_id,
@@ -454,6 +454,6 @@ class SharedContext:
             "metrics": self.metrics
         }
 
-    def _log_event(self, event_type: str, details: Dict[str, Any]):
+    def _log_event(self, event_type: str, details: dict[str, Any]):
         """记录事件（用于调试和追踪）"""
         logger.debug(f"[Context:{self.session_id}] {event_type}: {json.dumps(details, ensure_ascii=False)}")

@@ -6,7 +6,7 @@ import os
 import signal
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, Mapping, Tuple
+from collections.abc import Iterable, Mapping
 
 import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -34,7 +34,7 @@ class CommandSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: ToolchainAction
-    command: Tuple[str, ...] = Field(min_length=1)
+    command: tuple[str, ...] = Field(min_length=1)
     shell: bool = False
     timeout_seconds: int = Field(default=120, ge=1, le=3600)
 
@@ -49,7 +49,7 @@ class CommandSpec(BaseModel):
         return values
 
     @staticmethod
-    def validate_command(command: Iterable[str]) -> Tuple[str, ...]:
+    def validate_command(command: Iterable[str]) -> tuple[str, ...]:
         values = tuple(command)
         if not values or any(not isinstance(part, str) or not part.strip() for part in values):
             raise ValueError("toolchain commands must contain non-empty arguments")
@@ -64,9 +64,9 @@ class ToolchainProbePlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     workspace: str = Field(min_length=1)
-    commands: Tuple[CommandSpec, ...] = ()
+    commands: tuple[CommandSpec, ...] = ()
     status: str = "detected"
-    evidence: Tuple[str, ...] = ()
+    evidence: tuple[str, ...] = ()
 
     def for_action(self, action: ToolchainAction) -> CommandSpec | None:
         return next((item for item in self.commands if item.action is action), None)
@@ -86,7 +86,7 @@ class ToolchainRunner:
         self.output_limit = output_limit
         self.allowed_executables = frozenset(allowed_executables)
 
-    async def run(self, spec: CommandSpec, workspace: Path) -> Tuple[int, str, str]:
+    async def run(self, spec: CommandSpec, workspace: Path) -> tuple[int, str, str]:
         if spec.shell:
             raise ValueError("toolchain runner requires shell=false")
         workspace = await asyncio.to_thread(workspace.resolve)
@@ -253,7 +253,7 @@ def detect_toolchain(workspace: Path) -> ToolchainProbePlan:
 def _append_command(
     commands: list[CommandSpec],
     action: ToolchainAction,
-    command: Tuple[str, ...],
+    command: tuple[str, ...],
     *,
     timeout_seconds: int = 120,
 ) -> None:

@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ TECH_KEYWORDS = (
 )
 
 
-def batch_cosine_similarity(query: List[float], vectors: List[List[float]]) -> List[float]:
+def batch_cosine_similarity(query: list[float], vectors: list[list[float]]) -> list[float]:
     """批量计算 query 向量与多个向量的余弦相似度"""
     if not vectors:
         return []
@@ -89,24 +89,24 @@ class CacheEntry:
     access_count: int = 0           # 访问次数
 
     # 语义向量（BCE embedding）
-    requirement_vector: Optional[List[float]] = None
+    requirement_vector: list[float] | None = None
 
     # 缓存的规范
-    specs: Dict[str, Any] = field(default_factory=dict)
+    specs: dict[str, Any] = field(default_factory=dict)
 
     # 架构设计
-    architecture: Dict[str, Any] = field(default_factory=dict)
-    file_plan: List[Dict[str, Any]] = field(default_factory=list)
+    architecture: dict[str, Any] = field(default_factory=dict)
+    file_plan: list[dict[str, Any]] = field(default_factory=list)
     
     # 依赖图（序列化后的节点和边）
-    dependency_graph: Dict[str, Any] = field(default_factory=dict)
+    dependency_graph: dict[str, Any] = field(default_factory=dict)
 
     # 元数据
-    complexity: Dict[str, Any] = field(default_factory=dict)
-    tech_stack: List[str] = field(default_factory=list)
+    complexity: dict[str, Any] = field(default_factory=dict)
+    tech_stack: list[str] = field(default_factory=list)
 
     # 关键词索引（用于快速匹配 + embedding 缓存失败时的降级）
-    keywords: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
     # 完整需求文本（关键词相似度按全文比较；requirement_preview 只有前 200 字符）
     requirement: str = ""
@@ -120,19 +120,19 @@ class CacheEntry:
 class SpecCache:
     """规范缓存管理器（带向量索引优化）"""
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         self.cache_dir = cache_dir or CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache: Dict[str, CacheEntry] = {}
+        self._cache: dict[str, CacheEntry] = {}
 
         # 向量索引优化
-        self._tech_index: Dict[str, List[str]] = {}  # tech_stack -&gt; [req_hash]
-        self._vector_cache: Dict[str, List[float]] = {}  # req_hash -&gt; vector (内存)
+        self._tech_index: dict[str, list[str]] = {}  # tech_stack -&gt; [req_hash]
+        self._vector_cache: dict[str, list[float]] = {}  # req_hash -&gt; vector (内存)
 
         # 异步懒加载索引（不阻塞初始化）
         self._index_loaded = False
         self._index_lock = asyncio.Lock()
-        self._index_load_task: Optional[asyncio.Task] = None
+        self._index_load_task: asyncio.Task | None = None
 
         self._stats = {"hits": 0, "misses": 0, "total_requests": 0}
 
@@ -242,10 +242,10 @@ class SpecCache:
 
     @staticmethod
     def _normalize_tech_stack(
-        architecture: Dict[str, Any],
-        tech_stack: List[str],
-        complexity: Dict[str, Any],
-    ) -> List[str]:
+        architecture: dict[str, Any],
+        tech_stack: list[str],
+        complexity: dict[str, Any],
+    ) -> list[str]:
         """统一技术栈口径（SC5）。
 
         两个 save 调用点分别传 `architecture["tech_stack"]` 与
@@ -254,7 +254,7 @@ class SpecCache:
         `_extract_tech_keywords` 用小写词查索引，归一也修好了大写技术栈
         （如 "Flask"）永远匹配不到预过滤的问题。
         """
-        merged: List[str] = []
+        merged: list[str] = []
         for source in (
             (architecture or {}).get("tech_stack") if isinstance(architecture, dict) else None,
             tech_stack,
@@ -289,7 +289,7 @@ class SpecCache:
         text = re.sub(r'\s+', ' ', text).strip()
         return re.sub(r'[^\w\s\u4e00-\u9fff]', '', text)
 
-    def extract_keywords(self, requirement: str) -> List[str]:
+    def extract_keywords(self, requirement: str) -> list[str]:
         """提取需求关键词"""
         text = requirement.lower()
         keywords = []
@@ -332,7 +332,7 @@ class SpecCache:
         union = kw1 | kw2
         return len(intersection) / len(union)
 
-    def _extract_tech_keywords(self, requirement: str) -> List[str]:
+    def _extract_tech_keywords(self, requirement: str) -> list[str]:
         """从需求中提取技术栈关键词（用于索引预过滤）"""
         text = requirement.lower()
         return [kw for kw in TECH_KEYWORDS if kw in text]
@@ -341,9 +341,9 @@ class SpecCache:
         self,
         requirement: str,
         min_similarity: float = JACCARD_SIMILARITY_THRESHOLD,
-        requirement_vector: Optional[List[float]] = None,
+        requirement_vector: list[float] | None = None,
         complexity_level: str = "",
-    ) -> Optional[CacheEntry]:
+    ) -> CacheEntry | None:
         """
         查找相似需求的缓存（带索引优化）
 
@@ -476,13 +476,13 @@ class SpecCache:
     def save(
         self,
         requirement: str,
-        specs: Dict[str, Any],
-        architecture: Dict[str, Any],
-        file_plan: List[Dict],
-        complexity: Dict[str, Any],
-        tech_stack: List[str],
-        requirement_vector: Optional[List[float]] = None,
-        dependency_graph: Optional[Dict[str, Any]] = None,
+        specs: dict[str, Any],
+        architecture: dict[str, Any],
+        file_plan: list[dict],
+        complexity: dict[str, Any],
+        tech_stack: list[str],
+        requirement_vector: list[float] | None = None,
+        dependency_graph: dict[str, Any] | None = None,
         complexity_level: str = "",
     ) -> str:
         """缓存规范"""
@@ -538,7 +538,7 @@ class SpecCache:
         logger.info(f"缓存规范: {req_hash} ({len(specs)} 个规范, {len(tech_stack)} 个技术栈, {'有' if requirement_vector else '无'} embedding)")
         return req_hash
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取缓存统计"""
         total = self._stats["total_requests"]
         hits = self._stats["hits"]
@@ -553,7 +553,7 @@ class SpecCache:
             "tech_index_groups": len(self._tech_index)
         }
 
-    def clear_expired(self, min_age: Optional[timedelta] = None) -> int:
+    def clear_expired(self, min_age: timedelta | None = None) -> int:
         """清理过期缓存（或指定最小年龄的缓存）"""
         now = datetime.now()
         expired = []
@@ -650,13 +650,13 @@ class SpecCache:
     async def async_save(
         self,
         requirement: str,
-        specs: Dict[str, Any],
-        architecture: Dict[str, Any],
-        file_plan: List[Dict],
-        complexity: Dict[str, Any],
-        tech_stack: List[str],
-        requirement_vector: Optional[List[float]] = None,
-        dependency_graph: Optional[Dict[str, Any]] = None,
+        specs: dict[str, Any],
+        architecture: dict[str, Any],
+        file_plan: list[dict],
+        complexity: dict[str, Any],
+        tech_stack: list[str],
+        requirement_vector: list[float] | None = None,
+        dependency_graph: dict[str, Any] | None = None,
         complexity_level: str = "",
     ) -> str:
         """异步缓存规范（非阻塞事件循环）"""
@@ -668,7 +668,7 @@ class SpecCache:
             complexity_level=complexity_level,
         )
 
-    async def async_clear_expired(self, min_age: Optional[timedelta] = None) -> int:
+    async def async_clear_expired(self, min_age: timedelta | None = None) -> int:
         """异步清理过期缓存"""
         await self._ensure_index_loaded()
         return await asyncio.to_thread(self.clear_expired, min_age)

@@ -23,7 +23,6 @@ import tempfile
 import venv as venv_mod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ FORBIDDEN_PATTERNS = [
     r'http\.server\.',
 ]
 
-ALLOWED_PIP_PACKAGES: Set[str] = {
+ALLOWED_PIP_PACKAGES: set[str] = {
     'pytest', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout',
     'pytest-mock', 'pytest-xdist', 'nose', 'allure-pytest',
 
@@ -90,7 +89,7 @@ ALLOWED_PIP_PACKAGES: Set[str] = {
     'hiredis',
 }
 
-ENV_WHITELIST: Set[str] = {
+ENV_WHITELIST: set[str] = {
     'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE',
     'TERM', 'TMPDIR', 'TEMP', 'TMP',
     'PYTHONUNBUFFERED', 'PYTHONDONTWRITEBYTECODE',
@@ -117,7 +116,7 @@ DEPENDENCY_SETUP_TIMEOUT = 300
 
 
 class _SemaphoreHolder:
-    semaphore: Optional[asyncio.Semaphore] = None
+    semaphore: asyncio.Semaphore | None = None
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -134,8 +133,8 @@ class TestResult:
     failed: int
     errors: int
     logs: str
-    failed_tests: List[str]
-    security_warnings: List[str] = field(default_factory=list)
+    failed_tests: list[str]
+    security_warnings: list[str] = field(default_factory=list)
     method: str = "local_sandbox"
     language: str = "python"
     framework: str = "pytest"
@@ -157,7 +156,7 @@ class IsolatedTestRunner:
         timeout: int = 120,
         max_log_bytes: int = 50000,
         enable_security_scan: bool = True,
-        required_services: Optional[List[str]] = None,
+        required_services: list[str] | None = None,
     ):
         self.project_path = Path(project_path).resolve()
         self.timeout = timeout
@@ -165,21 +164,21 @@ class IsolatedTestRunner:
         self.enable_security_scan = enable_security_scan
         self.required_services = required_services or []
 
-        self._temp_dir: Optional[Path] = None
-        self._venv_dir: Optional[Path] = None
-        self._work_dir: Optional[Path] = None
-        self._venv_python: Optional[str] = None
+        self._temp_dir: Path | None = None
+        self._venv_dir: Path | None = None
+        self._work_dir: Path | None = None
+        self._venv_python: str | None = None
         self._detected_config = None
         self._framework_detector = FrameworkDetector()
 
         self._service_container_mgr = None
-        self._service_env_vars: Dict[str, str] = {}
+        self._service_env_vars: dict[str, str] = {}
 
     @traced("test.run", attributes={"component": "testing"})
     async def run_tests(
         self,
-        test_paths: Optional[List[str]] = None,
-        test_command: Optional[str] = None,
+        test_paths: list[str] | None = None,
+        test_command: str | None = None,
     ) -> TestResult:
         result = TestResult(
             success=False, total_tests=0, passed=0,
@@ -188,7 +187,7 @@ class IsolatedTestRunner:
 
         sem = _get_semaphore()
         async with sem:
-            temp_dir_path: Optional[str] = None
+            temp_dir_path: str | None = None
             language = "python"
             framework = "unknown"
 
@@ -378,7 +377,7 @@ class IsolatedTestRunner:
         except Exception as e:
             logger.warning(f"启动服务容器失败: {e}")
 
-    async def _check_local_services(self, services: List[str]):
+    async def _check_local_services(self, services: list[str]):
         """Docker 不可用时检测本地服务，未运行则提示并降级"""
         missing = []
         found_env = {}
@@ -626,7 +625,7 @@ class IsolatedTestRunner:
 
     # ==================== 多语言测试命令构建 ====================
 
-    def _find_test_files(self) -> List[str]:
+    def _find_test_files(self) -> list[str]:
         tests = []
         for d in ['tests', 'test', '__tests__']:
             if (self._work_dir / d).exists():
@@ -643,9 +642,9 @@ class IsolatedTestRunner:
 
     async def _build_test_command(
         self,
-        test_paths: Optional[List[str]],
-        test_command: Optional[str],
-    ) -> List[str]:
+        test_paths: list[str] | None,
+        test_command: str | None,
+    ) -> list[str]:
         if test_command:
             return shlex.split(test_command)
 
@@ -682,7 +681,7 @@ class IsolatedTestRunner:
 
     # ==================== 测试执行 ====================
 
-    async def _execute_test(self, cmd: List[str]) -> TestResult:
+    async def _execute_test(self, cmd: list[str]) -> TestResult:
         env = self._build_sandbox_env()
 
         try:
@@ -751,7 +750,7 @@ class IsolatedTestRunner:
 
     # ==================== 环境隔离 ====================
 
-    def _build_sandbox_env(self) -> Dict[str, str]:
+    def _build_sandbox_env(self) -> dict[str, str]:
         env = {}
 
         for key in ENV_WHITELIST:
@@ -782,7 +781,7 @@ class IsolatedTestRunner:
 
     # ==================== 安全扫描 ====================
 
-    def _scan_security(self) -> List[str]:
+    def _scan_security(self) -> list[str]:
         warnings = []
         py_files = list(self.project_path.rglob("*.py"))
 

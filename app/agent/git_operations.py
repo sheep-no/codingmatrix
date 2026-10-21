@@ -14,7 +14,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class SnapshotInfo:
     commit_hash: str
     message: str
     timestamp: str
-    files_changed: List[str] = field(default_factory=list)
+    files_changed: list[str] = field(default_factory=list)
 
 
 class GitOperations:
@@ -76,7 +76,7 @@ class GitOperations:
         project_path: Path,
         name: str,
         base: str = "main",
-    ) -> Optional[str]:
+    ) -> str | None:
         """创建新分支"""
         def _create():
             result = subprocess.run(
@@ -128,8 +128,8 @@ class GitOperations:
         self,
         project_path: Path,
         message: str,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
         """提交快照（带结构化消息）"""
         def _commit():
             add_result = subprocess.run(
@@ -185,7 +185,7 @@ class GitOperations:
         project_path: Path,
         tag_name: str,
         message: str = "",
-    ) -> Optional[str]:
+    ) -> str | None:
         """创建标注标签"""
         def _tag():
             cmd = ["git", "tag", "-a", tag_name, "-m", message or tag_name]
@@ -287,7 +287,7 @@ class GitOperations:
             logger.error(f"回滚异常: {e}")
             return False
 
-    async def list_snapshots(self, project_path: Path) -> List[SnapshotInfo]:
+    async def list_snapshots(self, project_path: Path) -> list[SnapshotInfo]:
         """列出所有标签快照"""
         def _list():
             result = subprocess.run(
@@ -408,7 +408,7 @@ class GitOperations:
             logger.error(f"切换分支异常: {name}, {e}")
             return False
 
-    async def checkout_mainline(self, project_path: Path) -> Optional[str]:
+    async def checkout_mainline(self, project_path: Path) -> str | None:
         """切换到主线分支，返回实际切换到的分支名
 
         依次尝试已存在的 main / master；两者都不存在时在当前位置创建 main。
@@ -443,7 +443,7 @@ class GitOperations:
         project_path: Path,
         from_commit: str,
         to_commit: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """列出两个 commit 之间发生变化的文件（相对路径）"""
         if not from_commit or not to_commit:
             return []

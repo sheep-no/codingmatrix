@@ -24,7 +24,8 @@ v5.14 重构：拆分为独立模块，此文件保留 MultiModelAgent + 向后�
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.agent_executor import ANALYSIS_TOOLS, AgentExecutor  # noqa: F401
 from app.agent.ai_reviewer import AIReviewer  # noqa: F401
@@ -68,7 +69,7 @@ class MultiModelAgent:
         enable_review: bool = True,
         enable_file_contract: bool = True,
         complexity: str = "MEDIUM",
-        orchestrator_factory: Optional[Callable] = None,
+        orchestrator_factory: Callable | None = None,
         api_key_token: str = None,
     ):
         self.router = ModelRouter()
@@ -99,15 +100,15 @@ class MultiModelAgent:
     async def process(
         self,
         task: str,
-        context: Optional[Dict[str, Any]] = None,
-        task_type: Optional[TaskType] = None,
-        files: Optional[List[str]] = None,
-        stream_callback: Optional[Callable] = None,
+        context: dict[str, Any] | None = None,
+        task_type: TaskType | None = None,
+        files: list[str] | None = None,
+        stream_callback: Callable | None = None,
         use_dynamic_routing: bool = True,
-        complexity: Optional[str] = None,
-        dependency_hints: Optional[str] = None,
-        output_dir: Optional[str] = None
-    ) -> Dict:
+        complexity: str | None = None,
+        dependency_hints: str | None = None,
+        output_dir: str | None = None
+    ) -> dict:
         """
         处理任务
 
@@ -117,7 +118,7 @@ class MultiModelAgent:
         - dependency_hints: 来自 DependencyGraph 的结构化提示，会注入到规划 prompt
         - output_dir: 项目输出目录（代码生成任务委托给 OrchestratorAgent 时必需）
         """
-        async def emit(event_type: str, data: Dict):
+        async def emit(event_type: str, data: dict):
             if stream_callback:
                 try:
                     await stream_callback(event_type, data)

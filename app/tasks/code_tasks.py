@@ -8,7 +8,6 @@ import logging
 import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Dict, List
 
 import yaml
 from celery.exceptions import SoftTimeLimitExceeded
@@ -89,7 +88,7 @@ def modify_with_test(
     task_id: str,
     user_id: int,
     requirement: str,
-    target_files: List[str] = None,
+    target_files: list[str] = None,
     max_retry_loops: int = None,
     **kwargs
 ):
@@ -214,11 +213,11 @@ def modify_with_test(
 
 # ==================== 辅助函数 ====================
 
-def _collect_guard_violations(target_files: List[str]) -> List[Dict]:
+def _collect_guard_violations(target_files: list[str]) -> list[dict]:
     """对变更后的目标文件执行守护合约检查（经便捷函数单一入口）。"""
     from app.utils.guard_contracts import check_file_against_contracts
 
-    violations: List[Dict] = []
+    violations: list[dict] = []
     for file_path in (target_files or []):
         if not _is_safe_target_path(file_path):
             logger.warning(f"跳过越界的目标文件：{file_path}")
@@ -251,7 +250,7 @@ def _normalize_repo_path(path: str) -> str:
     return normalized
 
 
-def _find_affected_files(dep_graph: Dict, target_files: List[str]) -> List[str]:
+def _find_affected_files(dep_graph: dict, target_files: list[str]) -> list[str]:
     """通过依赖图谱查找受影响的文件。
 
     ``reverse_index`` 的形状是 ``{被依赖文件: [依赖它的文件, ...]}``，
@@ -292,7 +291,7 @@ def _matches_test_pattern(pattern: str, target: str) -> bool:
     return bool("/" not in normalized_pattern and Path(normalized_target).name == normalized_pattern)
 
 
-def _get_related_tests(target_files: List[str]) -> List[str]:
+def _get_related_tests(target_files: list[str]) -> list[str]:
     """获取关联的测试文件"""
     test_map_path = Path(settings.FILE_TO_TEST_MAP_PATH)
     if not test_map_path.exists():
@@ -320,8 +319,8 @@ def _get_related_tests(target_files: List[str]) -> List[str]:
         return []
 
 
-async def _agent_modify(requirement: str, target_files: List[str], affected_files: List[str],
-                        progress_cb, **kwargs) -> Dict:
+async def _agent_modify(requirement: str, target_files: list[str], affected_files: list[str],
+                        progress_cb, **kwargs) -> dict:
     """调用 Agent 执行代码修改"""
     # 这里调用 AI 模型生成代码
     # 简化版：实际应调用 MultiModelAgent 或 ProjectGeneratorAgent
@@ -342,8 +341,8 @@ async def _agent_modify(requirement: str, target_files: List[str], affected_file
     return {"content": result.get("content", ""), "status": "completed"}
 
 
-async def _agent_fix_from_test_logs(test_logs: List[Dict], original_result: Dict,
-                                    progress_cb, **kwargs) -> Dict:
+async def _agent_fix_from_test_logs(test_logs: list[dict], original_result: dict,
+                                    progress_cb, **kwargs) -> dict:
     """根据测试日志调用 Agent 修复"""
     from app.api.v1.Aicode import call_siliconflow_api
 
@@ -363,7 +362,7 @@ async def _agent_fix_from_test_logs(test_logs: List[Dict], original_result: Dict
     return {"content": result.get("content", ""), "status": "fixed", "retry": len(test_logs)}
 
 
-async def _run_tests(test_files: List[str]) -> Dict:
+async def _run_tests(test_files: list[str]) -> dict:
     """运行测试文件（安全隔离版，使用 IsolatedTestRunner）"""
     if not test_files:
         # 无测试文件不等于验证通过（TSK18）

@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Any, Literal, Mapping, Optional, Tuple
+from typing import Any, Literal
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,8 +32,8 @@ class ScopeRef(BaseModel):
 class ContextPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    sources: Tuple[str, ...] = ()
-    scopes: Tuple[ScopeRef, ...] = ()
+    sources: tuple[str, ...] = ()
+    scopes: tuple[ScopeRef, ...] = ()
     max_chars: int = Field(default=120_000, gt=0)
     inherit_parent: bool = True
 
@@ -42,13 +43,13 @@ class ToolGrant(BaseModel):
 
     tool: str = Field(min_length=1)
     capability: str = Field(min_length=1)
-    operations: Tuple[Literal["read", "write", "execute"], ...] = ()
-    scopes: Tuple[ScopeRef, ...] = ()
+    operations: tuple[Literal["read", "write", "execute"], ...] = ()
+    scopes: tuple[ScopeRef, ...] = ()
     timeout_seconds: float = Field(default=30, gt=0)
     require_approval: bool = False
 
     @model_validator(mode="after")
-    def validate_scope_for_execution(self) -> "ToolGrant":
+    def validate_scope_for_execution(self) -> ToolGrant:
         if "execute" in self.operations and not self.scopes:
             raise ValueError("execute tool grants require at least one scope")
         return self
@@ -59,8 +60,8 @@ class ModelPolicy(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    capabilities: Tuple[str, ...] = ()
-    preferred_models: Tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    preferred_models: tuple[str, ...] = ()
     allow_fallback: bool = True
     max_attempts: int = Field(default=1, ge=1, le=10)
 
@@ -81,16 +82,16 @@ class WorkflowNode(BaseModel):
     node_id: str = Field(min_length=1)
     kind: WorkflowNodeKind
     handler_ref: str = Field(min_length=1)
-    depends_on: Tuple[str, ...] = ()
-    agent_role: Optional[str] = None
-    input_refs: Tuple[str, ...] = ()
-    output_refs: Tuple[str, ...] = ()
-    provided_symbols: Tuple[str, ...] = ()
-    required_symbols: Tuple[str, ...] = ()
-    required_fixtures: Tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
+    agent_role: str | None = None
+    input_refs: tuple[str, ...] = ()
+    output_refs: tuple[str, ...] = ()
+    provided_symbols: tuple[str, ...] = ()
+    required_symbols: tuple[str, ...] = ()
+    required_fixtures: tuple[str, ...] = ()
     technology: TechnologyProfile = Field(default_factory=TechnologyProfile)
     context_policy: ContextPolicy = Field(default_factory=ContextPolicy)
-    tool_grants: Tuple[ToolGrant, ...] = ()
+    tool_grants: tuple[ToolGrant, ...] = ()
     model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
     budget_scope: Literal["task", "stage", "file", "model_call"] = "stage"
     max_attempts: int = Field(default=1, ge=1, le=10)
@@ -108,18 +109,18 @@ class WorkflowIR(BaseModel):
     language: str = ""
     framework: str = ""
     runtime: str = ""
-    languages: Tuple[str, ...] = ()
-    frameworks: Tuple[str, ...] = ()
-    runtimes: Tuple[str, ...] = ()
+    languages: tuple[str, ...] = ()
+    frameworks: tuple[str, ...] = ()
+    runtimes: tuple[str, ...] = ()
     entry_node: str = Field(min_length=1)
-    nodes: Tuple[WorkflowNode, ...] = ()
-    generation_plan: Optional[Any] = None
-    contract_index: Optional[Any] = None
+    nodes: tuple[WorkflowNode, ...] = ()
+    generation_plan: Any | None = None
+    contract_index: Any | None = None
     budgets: Any
     digest: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_workflow(self) -> "WorkflowIR":
+    def validate_workflow(self) -> WorkflowIR:
         node_map = {node.node_id: node for node in self.nodes}
         if len(node_map) != len(self.nodes):
             raise ValueError("workflow node IDs must be unique")
@@ -166,7 +167,7 @@ class WorkflowIR(BaseModel):
         return self
 
     @classmethod
-    def build(cls, **values: Any) -> "WorkflowIR":
+    def build(cls, **values: Any) -> WorkflowIR:
         """Normalize input models and calculate the immutable workflow digest."""
         values.pop("digest", None)
         candidate = cls.model_construct(digest="0" * 64, **values)

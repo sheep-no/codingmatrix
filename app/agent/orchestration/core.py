@@ -6,7 +6,8 @@ import asyncio
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any
+from collections.abc import Mapping
 
 from app.agent.shared_context import SharedContext
 from app.agent.workflow_ir import (
@@ -78,7 +79,7 @@ class OrchestratorCore:
         *,
         output_dir: Path,
         shared_context: SharedContext,
-        cancel_event: Optional[asyncio.Event] = None,
+        cancel_event: asyncio.Event | None = None,
         max_concurrent: int = 5,
     ) -> OrchestrationResult:
         """Run an adapter through the complete Core lifecycle and success gate."""
@@ -189,7 +190,7 @@ class OrchestratorCore:
         *,
         output_dir: Path,
         shared_context: SharedContext,
-        cancel_event: Optional[asyncio.Event],
+        cancel_event: asyncio.Event | None,
         max_concurrent: int,
         expected_revision: int,
     ) -> OrchestrationResult:
@@ -311,8 +312,8 @@ class OrchestratorCore:
         *,
         event_id: str,
         expected_revision: int,
-        resume_cursor: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        resume_cursor: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> OrchestrationResult:
         state = await self._require_state(task_id)
         updated = advance_state(
@@ -334,8 +335,8 @@ class OrchestratorCore:
         *,
         event_id: str,
         expected_revision: int,
-        diagnostic: Optional[Dict[str, Any]] = None,
-        artifact_consistency: Optional[ArtifactConsistencyResult] = None,
+        diagnostic: dict[str, Any] | None = None,
+        artifact_consistency: ArtifactConsistencyResult | None = None,
     ) -> OrchestrationResult:
         state = await self._require_state(task_id)
         if status is OrchestrationStatus.COMPLETED:
@@ -362,7 +363,7 @@ class OrchestratorCore:
         *,
         event_id: str,
         expected_revision: int,
-        artifact_consistency: Optional[ArtifactConsistencyResult] = None,
+        artifact_consistency: ArtifactConsistencyResult | None = None,
     ) -> OrchestrationResult:
         """Map one scheduler result to the single task terminal transition."""
         if schedule.status is GenerationScheduleStatus.COMPLETED:
@@ -449,8 +450,8 @@ def _build_workflow_ir(
     plan: Any,
     contract_index: Any,
     *,
-    model_routing: Optional[Dict[str, str]] = None,
-    technology: Optional[Dict[str, str]] = None,
+    model_routing: dict[str, str] | None = None,
+    technology: dict[str, str] | None = None,
 ) -> WorkflowIR:
     """Project the frozen generation plan into a callable-free workflow graph."""
     routing = model_routing or {}
@@ -521,7 +522,7 @@ def _build_workflow_ir(
     )
 
 
-def _technology_metadata(command: OrchestrationCommand, adapter: Any, plan: Any) -> Dict[str, Any]:
+def _technology_metadata(command: OrchestrationCommand, adapter: Any, plan: Any) -> dict[str, Any]:
     project_plan = getattr(adapter, "project_plan", None)
     request = command.request
     languages = _technology_values(

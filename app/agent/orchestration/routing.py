@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 LEGACY_ENGINE = "legacy"
 CORE_ENGINE = "core"
@@ -22,7 +22,7 @@ def select_engine(requested: str | None = None) -> str:
     return CORE_ENGINE if value == CORE_ENGINE else LEGACY_ENGINE
 
 
-def engine_metadata(engine: str) -> Dict[str, Any]:
+def engine_metadata(engine: str) -> dict[str, Any]:
     selected = select_engine(engine)
     return {
         "engine": selected,

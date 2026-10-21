@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-from typing import Dict, List
 
 from app.agent.specialist_base import Specialist
 from app.agent.tracing import traced
@@ -55,7 +54,7 @@ class CodeReviewer(Specialist):
     }
 
     @traced("reviewer.review_code", attributes={"component": "specialist", "role": "reviewer"})
-    async def review_code(self, code: str, file_path: str, context: str = "") -> Dict:
+    async def review_code(self, code: str, file_path: str, context: str = "") -> dict:
         """审查代码"""
         # 文档/文本类文件不是代码：不对其做基于 import 语句的版本兼容性检查，
         # 也要求审查器只评估文件自身内容，不得把文中提到的其他文件、目录或包
@@ -123,7 +122,7 @@ class CodeReviewer(Specialist):
 
         return result
 
-    async def _check_version_compatibility(self, code: str) -> List[str]:
+    async def _check_version_compatibility(self, code: str) -> list[str]:
         """动态检查代码中使用的库版本兼容性"""
         issues = []
 

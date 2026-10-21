@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Tuple
+from collections.abc import Mapping
 
 from app.agent.toolchain import (
     CommandSpec,
@@ -21,8 +21,8 @@ from app.agent.validation_report import (
 
 @dataclass(frozen=True)
 class ValidationPlan:
-    commands: Tuple[CommandSpec, ...]
-    unsupported_steps: Tuple[str, ...]
+    commands: tuple[CommandSpec, ...]
+    unsupported_steps: tuple[str, ...]
 
     @property
     def ready(self) -> bool:
@@ -92,7 +92,7 @@ class ValidationCoordinator:
         self,
         plan: ValidationPlan,
         workspace: Path,
-    ) -> Tuple[ValidationResult, ...]:
+    ) -> tuple[ValidationResult, ...]:
         """Execute approved commands without invoking a shell."""
         results = []
         for command in plan.commands:
@@ -109,7 +109,7 @@ class ValidationCoordinator:
     def to_report(
         self,
         plan: ValidationPlan,
-        results: Tuple[ValidationResult, ...],
+        results: tuple[ValidationResult, ...],
         *,
         context_hash: str,
     ) -> ValidationReport:

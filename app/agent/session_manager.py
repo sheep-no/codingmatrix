@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from app.agent.tracing import traced
@@ -49,7 +49,7 @@ class FileStatus:
     path: str
     status: str = "pending"    # pending, generating, completed, failed, skipped, needs_update
     content_hash: str = ""     # 内容哈希（用于增量检测）
-    content_embedding: Optional[List[float]] = None  # 内容 embedding（用于语义变更检测）
+    content_embedding: list[float] | None = None  # 内容 embedding（用于语义变更检测）
     last_modified: str = ""    # 最后修改时间
     error: str = ""
 
@@ -63,14 +63,14 @@ class SessionState:
     status: str = SessionStatus.RUNNING.value
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
 
     # 架构设计
-    architecture: Dict[str, Any] = field(default_factory=dict)
-    file_plan: List[Dict[str, Any]] = field(default_factory=list)
+    architecture: dict[str, Any] = field(default_factory=dict)
+    file_plan: list[dict[str, Any]] = field(default_factory=list)
 
     # 文件状态
-    file_statuses: Dict[str, FileStatus] = field(default_factory=dict)
+    file_statuses: dict[str, FileStatus] = field(default_factory=dict)
 
     # 进度
     current_step: str = ""
@@ -79,18 +79,18 @@ class SessionState:
     files_total: int = 0
 
     # 错误和警告
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     # 增量生成
     is_incremental: bool = False
-    changed_files: List[str] = field(default_factory=list)  # 需要重新生成的文件
-    unchanged_files: List[str] = field(default_factory=list)  # 可复用的文件
+    changed_files: list[str] = field(default_factory=list)  # 需要重新生成的文件
+    unchanged_files: list[str] = field(default_factory=list)  # 可复用的文件
 
     # v4.8.0: Git 分支管理
-    current_branch: Optional[str] = None
-    base_commit: Optional[str] = None
-    snapshot_tags: List[str] = field(default_factory=list)
+    current_branch: str | None = None
+    base_commit: str | None = None
+    snapshot_tags: list[str] = field(default_factory=list)
 
 # 人机协作
     pause_reason: str = ""      # 暂停原因
@@ -101,12 +101,12 @@ class SessionState:
     def approval_queue(self) -> asyncio.Queue:
         return self._approval_queue
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为字典"""
         return {k: v for k, v in asdict(self).items() if not k.startswith('_')}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SessionState':
+    def from_dict(cls, data: dict[str, Any]) -> 'SessionState':
         """从字典反序列化"""
         data = data.copy()
         data['_approval_queue'] = asyncio.Queue()
@@ -122,15 +122,15 @@ class SessionState:
 class SessionManager:
     """会话管理器（统一状态管理：DB 为唯一真相源，SM 为写透缓存）"""
 
-    def __init__(self, session_dir: Optional[Path] = None, db_session_factory=None):
+    def __init__(self, session_dir: Path | None = None, db_session_factory=None):
         self.session_dir = session_dir or SESSION_DIR
         self.session_dir.mkdir(parents=True, exist_ok=True)
-        self._active_sessions: Dict[str, SessionState] = {}
+        self._active_sessions: dict[str, SessionState] = {}
         self._lock = asyncio.Lock()
-        self._session_locks: Dict[str, asyncio.Lock] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
         self._db_session_factory = db_session_factory
 
-    async def _sync_to_db(self, session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
+    async def _sync_to_db(self, session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: str | None = None):
         """将状态变更写透到 DB（统一状态管理的核心方法）"""
         if not self._db_session_factory:
             return
@@ -166,9 +166,9 @@ class SessionManager:
         self,
         requirement: str,
         output_dir: str,
-        architecture: Optional[Dict] = None,
-        file_plan: Optional[List[Dict]] = None,
-        session_id: Optional[str] = None
+        architecture: dict | None = None,
+        file_plan: list[dict] | None = None,
+        session_id: str | None = None
     ) -> SessionState:
         """创建新会话"""
         if not session_id:
@@ -195,7 +195,7 @@ class SessionManager:
         return state
 
     @traced("session.resume", attributes={"component": "session"})
-    async def resume_session(self, session_id: str) -> Optional[SessionState]:
+    async def resume_session(self, session_id: str) -> SessionState | None:
         """恢复已有会话（增量生成）"""
         async with self._lock:
             if session_id in self._active_sessions:
@@ -238,7 +238,7 @@ class SessionManager:
         session_id: str,
         file_path: str,
         status: str,
-        content: Optional[str] = None,
+        content: str | None = None,
         error: str = ""
     ):
         """更新文件状态"""
@@ -303,7 +303,7 @@ class SessionManager:
         state.updated_at = datetime.now().isoformat()
         await self._save_session(state)
 
-    async def complete_session(self, session_id: str, errors: Optional[List[str]] = None, files_generated: int = 0, files_total: int = 0):
+    async def complete_session(self, session_id: str, errors: list[str] | None = None, files_generated: int = 0, files_total: int = 0):
         """完成会话（写透到 DB）"""
         state = await self._get_state(session_id)
         if not state:
@@ -336,7 +336,7 @@ class SessionManager:
         await self._save_session(state)
         await self._sync_to_db(session_id, SessionStatus.CANCELLED.value)
 
-    async def _get_state(self, session_id: str) -> Optional[SessionState]:
+    async def _get_state(self, session_id: str) -> SessionState | None:
         """获取会话状态，优先从内存加载，失败则从磁盘恢复"""
         async with self._lock:
             state = self._active_sessions.get(session_id)
@@ -417,7 +417,7 @@ class SessionManager:
                     if to_remove > 0:
                         logger.warning(f"会话数超限，强制移除 {to_remove} 个最旧非运行会话")
 
-    async def get_session_status(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_session_status(self, session_id: str) -> dict[str, Any] | None:
         """获取会话状态"""
         state = await self._get_state(session_id)
         if not state:
@@ -457,8 +457,8 @@ class SessionManager:
         session_id: str,
         new_requirement: str,
         output_dir: Path,
-        file_embeddings: Optional[Dict[str, List[float]]] = None
-    ) -> Dict[str, Any]:
+        file_embeddings: dict[str, list[float]] | None = None
+    ) -> dict[str, Any]:
         """
         检测增量变化，返回需要重新生成的文件列表
 
@@ -557,7 +557,7 @@ class SessionManager:
             "small_changes": small_changes
         }
 
-    def get_file_plan_for_incremental(self, state: SessionState) -> List[Dict]:
+    def get_file_plan_for_incremental(self, state: SessionState) -> list[dict]:
         """获取增量生成的文件计划（只包含需要生成的文件）"""
         if not state.is_incremental:
             return state.file_plan
@@ -573,7 +573,7 @@ class SessionManager:
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
     @staticmethod
-    def _compute_embedding_similarity(vec1: List[float], vec2: List[float]) -> float:
+    def _compute_embedding_similarity(vec1: list[float], vec2: list[float]) -> float:
         """计算 embedding 余弦相似度"""
         return cosine_similarity(vec1, vec2)
 
@@ -590,7 +590,7 @@ class SessionManager:
         return lock
 
     @staticmethod
-    def _read_session_json(session_file: Path) -> Dict[str, Any]:
+    def _read_session_json(session_file: Path) -> dict[str, Any]:
         """同步读取会话文件，供 asyncio.to_thread 在工作线程调用。"""
         with open(session_file, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -602,7 +602,7 @@ class SessionManager:
             return f.read()
 
     @staticmethod
-    def _write_session_json(session_file: Path, data: Dict[str, Any]) -> None:
+    def _write_session_json(session_file: Path, data: dict[str, Any]) -> None:
         """原子写入会话文件（先写临时文件再重命名），供 asyncio.to_thread 调用。"""
         tmp_file = session_file.with_suffix('.tmp')
         with open(tmp_file, 'w', encoding='utf-8') as f:

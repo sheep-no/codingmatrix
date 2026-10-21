@@ -17,7 +17,6 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List
 
 from app.agent.orchestrator_requirements.constants import DEVILS_ADVOCATE_MODEL
 from app.agent.orchestrator_requirements.data_models import AssociationItem
@@ -88,10 +87,10 @@ REVIEW_ROLES = {
 
 async def multi_angle_review(
     requirement: str,
-    items: List[AssociationItem],
+    items: list[AssociationItem],
     severity: ReviewSeverity = ReviewSeverity.STANDARD,
     architect: object = None,
-) -> List[Dict]:
+) -> list[dict]:
     """
     多角度审查入口
 
@@ -129,8 +128,8 @@ async def multi_angle_review(
 
 async def parallel_multi_review(
     requirement: str,
-    items: List[AssociationItem],
-) -> List[Dict]:
+    items: list[AssociationItem],
+) -> list[dict]:
     """
     并行执行 3 个角色的审查
 
@@ -178,7 +177,7 @@ async def _review_with_role(
     system_prompt: str,
     requirement: str,
     items_summary: str,
-) -> List[Dict]:
+) -> list[dict]:
     """使用特定角色进行审查"""
     prompt = f"""{system_prompt}
 
@@ -204,7 +203,7 @@ async def _review_with_role(
         return []
 
 
-def parse_multi_review_response(response: str, role_name: str) -> List[Dict]:
+def parse_multi_review_response(response: str, role_name: str) -> list[dict]:
     """解析多角度审查响应"""
     try:
         json_match = re.search(r'\{[\s\S]*\}', response)
@@ -237,9 +236,9 @@ def parse_multi_review_response(response: str, role_name: str) -> List[Dict]:
 
 async def devil_advocate_review(
     requirement: str,
-    items: List[AssociationItem],
+    items: list[AssociationItem],
     architect: object = None
-) -> List[Dict]:
+) -> list[dict]:
     """
     保持向后兼容的魔鬼代言人函数
 
@@ -294,7 +293,7 @@ async def devil_advocate_review(
         return []
 
 
-def parse_devil_response(response: str) -> List[Dict]:
+def parse_devil_response(response: str) -> list[dict]:
     """解析魔鬼代言人响应"""
     try:
         json_match = re.search(r'\{[\s\S]*\}', response)

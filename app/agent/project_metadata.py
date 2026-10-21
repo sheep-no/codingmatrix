@@ -7,7 +7,6 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL
 from app.agent.vector_index import METADATA_PATH
@@ -25,7 +24,7 @@ class ProjectMetadataManager:
 
     def __init__(self):
         METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self._projects: List[Dict] = []
+        self._projects: list[dict] = []
         self._load()
 
     def _load(self):
@@ -55,7 +54,7 @@ class ProjectMetadataManager:
                 os.unlink(temporary_name)
             raise
 
-    def _append_and_save(self, project_meta: Dict) -> None:
+    def _append_and_save(self, project_meta: dict) -> None:
         """在锁内重读磁盘最新状态后追加并原子落盘，避免并发 last-write-wins。"""
         with _metadata_lock:
             self._load()
@@ -73,21 +72,21 @@ class ProjectMetadataManager:
             and p.get("feature_list") and len(p.get("feature_list")) > 0
         )
 
-    def get_projects_by_domain(self, domain: str) -> List[Dict]:
+    def get_projects_by_domain(self, domain: str) -> list[dict]:
         return [
             p for p in self._projects
             if p.get("domain") == domain
         ]
 
-    def get_all_projects(self) -> List[Dict]:
+    def get_all_projects(self) -> list[dict]:
         return self._projects
 
     async def extract_and_save(
         self, requirement: str,
-        generated_files: Dict[str, str],
+        generated_files: dict[str, str],
         domain: str = "",
-        project_id: Optional[str] = None,
-    ) -> Dict:
+        project_id: str | None = None,
+    ) -> dict:
         feature_list, feature_source = await self._extract_feature_list(
             requirement, generated_files
         )
@@ -121,8 +120,8 @@ class ProjectMetadataManager:
 
     async def _extract_feature_list(
         self, requirement: str,
-        generated_files: Dict[str, str]
-    ) -> "tuple[List[str], str]":
+        generated_files: dict[str, str]
+    ) -> "tuple[list[str], str]":
         file_summary = self._summarize_files(generated_files)
 
         # JSON 示例的字面花括号必须转义，否则会被 f-string 当作格式说明符求值并抛
@@ -173,7 +172,7 @@ class ProjectMetadataManager:
 
         return self._parse_features_with_source(response)
 
-    def _summarize_files(self, generated_files: Dict[str, str]) -> str:
+    def _summarize_files(self, generated_files: dict[str, str]) -> str:
         total = len(generated_files)
         lines = []
         for filepath, content in list(generated_files.items())[:50]:
@@ -184,11 +183,11 @@ class ProjectMetadataManager:
             lines.append(f"  ...（共 {total} 个文件，仅展示前 50 个）")
         return "\n".join(lines)
 
-    def _parse_feature_response(self, response: str) -> List[str]:
+    def _parse_feature_response(self, response: str) -> list[str]:
         features, _ = self._parse_features_with_source(response)
         return features
 
-    def _parse_features_with_source(self, response: str) -> "tuple[List[str], str]":
+    def _parse_features_with_source(self, response: str) -> "tuple[list[str], str]":
         # 逐「{」尝试解析首个 JSON 对象；贪婪 \{[\s\S]*\} 在多 JSON 块时会跨块匹配
         # 导致 json.loads 失败，进而把整段 JSON 原文当成功能项。
         from app.agent.json_parser import extract_first_json_object
@@ -202,7 +201,7 @@ class ProjectMetadataManager:
         return self._parse_text_features(response), "llm_text"
 
     @staticmethod
-    def _coerce_feature_list(parsed: Dict) -> Optional[List[str]]:
+    def _coerce_feature_list(parsed: dict) -> list[str] | None:
         # features 缺失/为 null/dict 时显式判非法，避免 TypeError 逃逸或静默空
         features = parsed.get("features")
         if not isinstance(features, list):
@@ -210,7 +209,7 @@ class ProjectMetadataManager:
         return [f for f in features if isinstance(f, str) and len(f) > 3][:30]
 
     @staticmethod
-    def _parse_text_features(response: str) -> List[str]:
+    def _parse_text_features(response: str) -> list[str]:
         features = []
         for line in response.strip().split("\n"):
             line = line.strip().lstrip("- ").lstrip("0123456789. ")
@@ -224,8 +223,8 @@ class ProjectMetadataManager:
 
     def _fallback_feature_list(
         self, requirement: str,
-        generated_files: Dict[str, str]
-    ) -> List[str]:
+        generated_files: dict[str, str]
+    ) -> list[str]:
         features = []
         for filepath in generated_files:
             filename = Path(filepath).stem
@@ -236,7 +235,7 @@ class ProjectMetadataManager:
 
     async def trigger_template_extraction(
         self, domain: str, min_projects: int = 15
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         domain_projects = self.get_projects_by_domain(domain)
         if len(domain_projects) < min_projects:
             logger.info(

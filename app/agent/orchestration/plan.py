@@ -8,7 +8,8 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any
+from collections.abc import Iterable, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -31,7 +32,7 @@ class PlanIssue(BaseModel):
 
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
-    path: Optional[str] = None
+    path: str | None = None
 
 
 class FilePlanValidationError(ValueError):
@@ -51,20 +52,20 @@ class PlannedFile(BaseModel):
     language: str = ""
     file_type: str = ""
     priority: int = Field(default=3, ge=1, le=5)
-    dependencies: Tuple[str, ...] = ()
-    imports: Tuple[str, ...] = ()
-    contract_refs: Tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    imports: tuple[str, ...] = ()
+    contract_refs: tuple[str, ...] = ()
     contract: Mapping[str, Any] = Field(default_factory=dict)
     origin: PlanFileOrigin = PlanFileOrigin.PLANNED
-    source: Optional[str] = None
-    reason: Optional[str] = None
-    strategy: Optional[str] = None
-    strategy_reason: Optional[str] = None
-    capability_evidence: Tuple[str, ...] = ()
+    source: str | None = None
+    reason: str | None = None
+    strategy: str | None = None
+    strategy_reason: str | None = None
+    capability_evidence: tuple[str, ...] = ()
     degraded: bool = False
 
     @model_validator(mode="after")
-    def validate_extension_provenance(self) -> "PlannedFile":
+    def validate_extension_provenance(self) -> PlannedFile:
         if self.origin is PlanFileOrigin.EXTENSION and not self.source:
             raise ValueError("extension file requires source")
         if self.origin is PlanFileOrigin.EXTENSION and not self.reason:
@@ -77,13 +78,13 @@ class GenerationPlan(BaseModel):
 
     version: int = Field(ge=1)
     policy: PlanPolicy
-    requested_paths: Tuple[str, ...] = ()
-    files: Tuple[PlannedFile, ...] = ()
+    requested_paths: tuple[str, ...] = ()
+    files: tuple[PlannedFile, ...] = ()
     digest: str = Field(min_length=64, max_length=64)
     frozen_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
-    def validate_frozen_plan(self) -> "GenerationPlan":
+    def validate_frozen_plan(self) -> GenerationPlan:
         planned_paths = [item.path for item in self.files]
         if len(set(planned_paths)) != len(planned_paths):
             raise ValueError("generation plan file paths must be unique")
@@ -155,7 +156,7 @@ def normalize_plan_path(path: str) -> str:
 def build_file_plan(
     file_entries: Sequence[Mapping[str, Any]],
     *,
-    requested_paths: Optional[Iterable[str]] = None,
+    requested_paths: Iterable[str] | None = None,
     version: int = 1,
     allow_empty: bool = False,
 ) -> GenerationPlan:
@@ -282,7 +283,7 @@ def build_file_plan(
 
 
 def _normalize_requested_paths(
-    requested_paths: Optional[Iterable[str]],
+    requested_paths: Iterable[str] | None,
     issues: list[PlanIssue],
     *,
     allow_empty: bool = False,
@@ -319,7 +320,7 @@ def _normalize_dependencies(
     entry: Mapping[str, Any],
     file_path: str,
     issues: list[PlanIssue],
-) -> Optional[Tuple[str, ...]]:
+) -> tuple[str, ...] | None:
     raw_dependencies = entry.get("dependencies", entry.get("depends_on", ()))
     if isinstance(raw_dependencies, str):
         raw_dependencies = (raw_dependencies,)
@@ -359,8 +360,8 @@ def _normalize_dependencies(
 def _plan_digest(
     version: int,
     policy: PlanPolicy,
-    requested_paths: Tuple[str, ...],
-    files: Tuple[PlannedFile, ...],
+    requested_paths: tuple[str, ...],
+    files: tuple[PlannedFile, ...],
 ) -> str:
     payload = {
         "version": version,

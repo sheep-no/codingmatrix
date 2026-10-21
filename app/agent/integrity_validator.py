@@ -16,7 +16,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +27,16 @@ class IntegrityIssue:
     issue_type: str  # missing_module, missing_init, import_error, api_mismatch
     message: str
     severity: str = "error"  # error, warning
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
 
 @dataclass
 class IntegrityResult:
     """完整性验证结果"""
     passed: bool = True
-    issues: List[IntegrityIssue] = field(default_factory=list)
-    missing_files: List[str] = field(default_factory=list)
-    fixed_files: List[str] = field(default_factory=list)
+    issues: list[IntegrityIssue] = field(default_factory=list)
+    missing_files: list[str] = field(default_factory=list)
+    fixed_files: list[str] = field(default_factory=list)
 
     def add_issue(self, issue: IntegrityIssue):
         self.issues.append(issue)
@@ -102,7 +101,7 @@ class IntegrityValidator:
         self.project_type = project_type
         self.language_adapter = language_adapter
 
-    def validate(self, generated_files: Dict[str, str]) -> IntegrityResult:
+    def validate(self, generated_files: dict[str, str]) -> IntegrityResult:
         """
         验证生成文件的完整性
 
@@ -135,7 +134,7 @@ class IntegrityValidator:
 
         return result
 
-    def _ensure_language_adapter(self, files: Dict[str, str]) -> None:
+    def _ensure_language_adapter(self, files: dict[str, str]) -> None:
         """未传入适配器时，按项目文件扩展名推断语言适配器。后端语言优先。
 
         - 仅在后端语言（python/go/java）中择一：混合前后端项目里不能因为
@@ -160,7 +159,7 @@ class IntegrityValidator:
         if extensions & {".js", ".jsx", ".ts", ".tsx"}:
             self.language_adapter = LanguageAdapterRegistry.get_adapter("javascript")
 
-    def _check_package_init(self, files: Dict[str, str], result: IntegrityResult):
+    def _check_package_init(self, files: dict[str, str], result: IntegrityResult):
         """检查包的入口文件是否存在（支持多语言）"""
         packages = set()
 
@@ -216,7 +215,7 @@ class IntegrityValidator:
                     ))
                     result.missing_files.append(init_path)
 
-    def _validate_imports(self, files: Dict[str, str], result: IntegrityResult):
+    def _validate_imports(self, files: dict[str, str], result: IntegrityResult):
         """验证所有导入语句"""
         for file_path, content in files.items():
             # 使用语言适配器
@@ -264,7 +263,7 @@ class IntegrityValidator:
                             suggestion=f"确保 {imp} 在 file_plan 中有对应文件"
                         ))
 
-    def _extract_imports(self, content: str) -> List[str]:
+    def _extract_imports(self, content: str) -> list[str]:
         """提取 Python 文件中的所有导入"""
         imports = []
 
@@ -301,7 +300,7 @@ class IntegrityValidator:
         # 相对导入
         return bool(module.startswith('.'))
 
-    def _module_exists(self, module: str, files: Dict[str, str]) -> bool:
+    def _module_exists(self, module: str, files: dict[str, str]) -> bool:
         """检查模块是否在生成的文件中存在"""
         # 使用语言适配器
         if self.language_adapter:
@@ -333,7 +332,7 @@ class IntegrityValidator:
 
         return False
 
-    def _validate_api_contracts(self, files: Dict[str, str], result: IntegrityResult):
+    def _validate_api_contracts(self, files: dict[str, str], result: IntegrityResult):
         """验证前端与后端的 API 契约一致性"""
         # 提取后端 API 端点和响应模型
         backend_apis = self._extract_backend_apis(files)
@@ -356,7 +355,7 @@ class IntegrityValidator:
                     suggestion=f"确保后端有对应的路由处理 {method} {endpoint}"
                 ))
 
-    def _extract_backend_apis(self, files: Dict[str, str]) -> List[Dict]:
+    def _extract_backend_apis(self, files: dict[str, str]) -> list[dict]:
         """提取后端 API 端点"""
         apis = []
         backend_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
@@ -389,7 +388,7 @@ class IntegrityValidator:
 
         return apis
 
-    def _extract_frontend_api_calls(self, files: Dict[str, str]) -> List[Dict]:
+    def _extract_frontend_api_calls(self, files: dict[str, str]) -> list[dict]:
         """提取前端 API 调用"""
         calls = []
 
@@ -425,7 +424,7 @@ class IntegrityValidator:
 
         return calls
 
-    def _api_endpoint_exists(self, endpoint: str, method: str, apis: List[Dict]) -> bool:
+    def _api_endpoint_exists(self, endpoint: str, method: str, apis: list[dict]) -> bool:
         """检查 API 端点是否存在（method + path 二元组匹配）。
 
         旧实现只比对路径，且用 `startswith` 做前缀判断，会把 `/api/users` 误判为
@@ -443,7 +442,7 @@ class IntegrityValidator:
                 return True
         return False
 
-    def generate_fixes(self, result: IntegrityResult, generated_files: Dict[str, str]) -> Dict[str, str]:
+    def generate_fixes(self, result: IntegrityResult, generated_files: dict[str, str]) -> dict[str, str]:
         """
         根据验证结果生成修复文件
 
@@ -483,7 +482,7 @@ class IntegrityValidator:
 
         return fixes
 
-    def _generate_init_content(self, init_path: str, generated_files: Dict[str, str]) -> str:
+    def _generate_init_content(self, init_path: str, generated_files: dict[str, str]) -> str:
         """生成真实的 __init__.py 内容：扫描同目录模块并 re-export 符号"""
         parent = str(Path(init_path).parent)
         lines = [f'"""Package {parent.replace("/", ".")}"""\n']
@@ -513,7 +512,7 @@ class IntegrityValidator:
 
         return '\n'.join(lines) + '\n'
 
-    def _generate_index_content(self, index_path: str, generated_files: Dict[str, str]) -> str:
+    def _generate_index_content(self, index_path: str, generated_files: dict[str, str]) -> str:
         """生成真实的 index.ts/js 内容：扫描同目录模块并 re-export"""
         parent = str(Path(index_path).parent)
         lines = [f'// Package {parent.replace("/", ".")}\n']

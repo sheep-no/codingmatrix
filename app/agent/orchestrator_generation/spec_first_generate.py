@@ -4,7 +4,8 @@ import os
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.architecture_inspector import ArchitectureInspector
@@ -64,7 +65,7 @@ async def gather_with_limit(coros, limit: int):
     return await asyncio.gather(*(run(coro) for coro in coros), return_exceptions=True)
 
 
-def sync_generation_architecture(project_context: Dict[str, Any], architecture: Dict[str, Any]) -> list:
+def sync_generation_architecture(project_context: dict[str, Any], architecture: dict[str, Any]) -> list:
     """Keep project_context.architecture pointing at the live architecture dict."""
     project_context["architecture"] = architecture
     return architecture.get("file_plan") or []
@@ -88,7 +89,7 @@ def _skipped_refinement(content: str):
     )
 
 
-def _is_adapter_owned_file(file_path: str, file_type: str, architecture: Dict[str, Any]) -> bool:
+def _is_adapter_owned_file(file_path: str, file_type: str, architecture: dict[str, Any]) -> bool:
     return bool(LanguageAdapterRegistry.scaffold_file(file_path, file_type, architecture or {}))
 
 
@@ -103,7 +104,7 @@ _LANGUAGE_EXCLUSIVE_EXTENSIONS = (
 _DEDUP_PRIORITY_DIRS = ('src/', 'app/', 'src/app/')
 
 
-def _select_language_mismatch_files(files: Dict[str, Any], expected_extensions: set) -> list:
+def _select_language_mismatch_files(files: dict[str, Any], expected_extensions: set) -> list:
     """挑出扩展名不属于项目允许集合的「本轮新生成」文件路径。
 
     断点续传复用的既有文件（``generated_by == "cached"``）不参与清理：
@@ -129,18 +130,18 @@ def _dedup_keep_rank(path: str) -> int:
     return len(_DEDUP_PRIORITY_DIRS) + (1 if ("/" not in path and "\\" not in path) else 0)
 
 
-def _select_duplicate_files(files: Dict[str, Any], contents: Dict[str, str]) -> Dict[str, str]:
+def _select_duplicate_files(files: dict[str, Any], contents: dict[str, str]) -> dict[str, str]:
     """按文件名聚合，返回 ``{待删路径: 保留路径}``。
 
     只有内容完全相同的同名文件才判为重复——Django 根 ``manage.py`` 与
     ``src/manage.py``、``app/main.py`` 与 ``config/main.py`` 是不同模块，
     不能只凭同名删除。断点续传复用的既有文件同样不参与删除。
     """
-    name_to_paths: Dict[str, list] = defaultdict(list)
+    name_to_paths: dict[str, list] = defaultdict(list)
     for file_path in files:
         name_to_paths[Path(file_path).name].append(file_path)
 
-    removals: Dict[str, str] = {}
+    removals: dict[str, str] = {}
     for paths in name_to_paths.values():
         if len(paths) <= 1:
             continue
@@ -161,7 +162,7 @@ def _package_entry_content(
     missing_file: str,
     integrity_validator,
     language_adapter,
-    generated_files_dict: Dict[str, str],
+    generated_files_dict: dict[str, str],
 ):
     init_filename = language_adapter.package_init_filename if language_adapter else "__init__.py"
     if init_filename and (
@@ -173,7 +174,7 @@ def _package_entry_content(
     return None
 
 
-def _require_project_complete(completeness: Dict[str, Any]) -> None:
+def _require_project_complete(completeness: dict[str, Any]) -> None:
     if completeness.get("is_complete"):
         return
     parts = []
@@ -207,8 +208,8 @@ class SpecFirstGenerateMixin:
     async def generate_with_spec_first(
         self,
         requirement: str,
-        callback: Optional[Callable] = None
-    ) -> Dict[str, Any]:
+        callback: Callable | None = None
+    ) -> dict[str, Any]:
         start_time = time.time()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -414,7 +415,7 @@ class SpecFirstGenerateMixin:
             decision_extractor.skip_remaining_decisions()
 
         refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
-        generated_contents: Dict[str, str] = {}
+        generated_contents: dict[str, str] = {}
         files_generated = 0
         files_failed = 0
 
@@ -611,7 +612,7 @@ class SpecFirstGenerateMixin:
             async def generate_single_file(
                 file_path: str,
                 file_index: int
-            ) -> Dict[str, Any]:
+            ) -> dict[str, Any]:
                 file_node = dep_graph.nodes.get(file_path)
                 description = file_node.description if file_node else f"生成 {file_path}"
                 file_type = file_node.file_type if file_node else "unknown"
@@ -1228,14 +1229,14 @@ class SpecFirstGenerateMixin:
         ctx: SharedContext,
         dep_graph: DependencyGraph,
         spec_generator: SpecFirstGenerator,
-        architecture: Dict,
+        architecture: dict,
         requirement: str,
-        project_context: Dict,
-        generated_contents: Dict[str, str],
-        callback: Optional[Callable] = None,
+        project_context: dict,
+        generated_contents: dict[str, str],
+        callback: Callable | None = None,
         language_adapter=None,
         allow_plan_expansion: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
         scheduler = TopologyScheduler(
@@ -1273,7 +1274,7 @@ class SpecFirstGenerateMixin:
                 callback=callback
             )
 
-        async def file_generator(file_path: str, upstream_context: Dict[str, str], tracker=None) -> str:
+        async def file_generator(file_path: str, upstream_context: dict[str, str], tracker=None) -> str:
             """单文件生成器（供 TopologyScheduler 调用）"""
             nonlocal files_generated, files_failed
             file_node = dep_graph.nodes.get(file_path)
@@ -1964,8 +1965,8 @@ class SpecFirstGenerateMixin:
         description: str,
         model_name: str,
         initial_content: str,
-        project_context: Dict,
-        callback: Optional[Callable],
+        project_context: dict,
+        callback: Callable | None,
         progress_current: int,
         progress_total: int,
     ):
@@ -1998,14 +1999,14 @@ class SpecFirstGenerateMixin:
         self,
         file_path: str,
         description: str,
-        project_context: Dict,
+        project_context: dict,
         spec_context: str,
         dep_context: str,
         engineer,
         callback,
         heartbeat_tracker=None,
         reason: str = "",
-    ) -> Optional[str]:
+    ) -> str | None:
         """Retry file generation with the current engineer model.
 
         替代原来的 _generate_placeholder，不再生成占位符文件。
@@ -2277,7 +2278,7 @@ class SpecFirstGenerateMixin:
         self,
         file_path: str,
         description: str,
-        project_context: Dict,
+        project_context: dict,
         reason: str,
         engineer,
         spec_context: str = "",
@@ -2285,7 +2286,7 @@ class SpecFirstGenerateMixin:
         callback=None,
         heartbeat_tracker=None,
         persist: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         """恢复无效内容：直接调用 LLM 生成代码（不走 ReAct，节省 token）
 
         Args:
@@ -2383,8 +2384,8 @@ class SpecFirstGenerateMixin:
     async def _validate_project_completeness(
         self,
         file_plan: list,
-        generated_files: Dict[str, str],
-    ) -> Dict[str, Any]:
+        generated_files: dict[str, str],
+    ) -> dict[str, Any]:
         """验证项目完整性
 
         检查所有计划文件是否都已生成，内容是否有效。
@@ -2484,8 +2485,8 @@ class SpecFirstGenerateMixin:
         self,
         file_to_split: str,
         requirement: str,
-        callback: Optional[Callable] = None,
-    ) -> Dict[str, Any]:
+        callback: Callable | None = None,
+    ) -> dict[str, Any]:
         """重构：拆分过大文件
 
         Args:
@@ -2619,7 +2620,7 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
 
         generated = []
         # 依赖上下文需要「已生成文件的路径 -> 内容」，与返回给调用方的路径列表分开维护。
-        generated_contents: Dict[str, str] = {}
+        generated_contents: dict[str, str] = {}
         errors = []
         for i, new_path in enumerate(added_paths):
             node = dep_graph.nodes.get(new_path)

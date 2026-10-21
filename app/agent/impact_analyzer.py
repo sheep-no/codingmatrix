@@ -8,7 +8,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.adapters import LanguageAdapterRegistry
 from app.utils.performance_metrics import metrics_collector
@@ -19,12 +18,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ChangeSummary:
     """代码变更摘要"""
-    modified_files: List[str] = field(default_factory=list)
-    new_symbols: List[str] = field(default_factory=list)
-    removed_symbols: List[str] = field(default_factory=list)
-    modified_symbols: List[str] = field(default_factory=list)
+    modified_files: list[str] = field(default_factory=list)
+    new_symbols: list[str] = field(default_factory=list)
+    removed_symbols: list[str] = field(default_factory=list)
+    modified_symbols: list[str] = field(default_factory=list)
     summary: str = ""
-    dynamic_imports: List[str] = field(default_factory=list)
+    dynamic_imports: list[str] = field(default_factory=list)
     analysis_time: float = 0.0
 
 
@@ -34,7 +33,7 @@ class ImpactAnalyzer:
     def __init__(self, project_root: str):
         self.project_root = Path(project_root)
 
-    def analyze(self, modified_files: List[str], old_versions: Optional[Dict[str, str]] = None) -> ChangeSummary:
+    def analyze(self, modified_files: list[str], old_versions: dict[str, str] | None = None) -> ChangeSummary:
         """
         分析文件变更，提取符号级信息
 
@@ -117,7 +116,7 @@ class ImpactAnalyzer:
 
         return summary
 
-    def _extract_symbols(self, content: str, file_path: str) -> List[Dict[str, str]]:
+    def _extract_symbols(self, content: str, file_path: str) -> list[dict[str, str]]:
         """
         提取文件中的符号（函数、类）
 
@@ -142,9 +141,9 @@ class ImpactAnalyzer:
         # 无专用适配器或解析不出符号时降级为文件名级推断，而非返回空。
         return self._filename_level_symbols(content, file_path)
 
-    def _extract_python_symbols(self, content: str, file_path: str) -> List[Dict[str, str]]:
+    def _extract_python_symbols(self, content: str, file_path: str) -> list[dict[str, str]]:
         """用 AST 提取 Python 的函数/类符号。"""
-        symbols: List[Dict[str, str]] = []
+        symbols: list[dict[str, str]] = []
 
         try:
             tree = ast.parse(content)
@@ -170,7 +169,7 @@ class ImpactAnalyzer:
 
         return symbols
 
-    def _extract_adapter_symbols(self, adapter, content: str, file_path: str) -> List[Dict[str, str]]:
+    def _extract_adapter_symbols(self, adapter, content: str, file_path: str) -> list[dict[str, str]]:
         """用语言适配器提取非 Python 文件符号。"""
         try:
             definitions = adapter.extract_definitions(content)
@@ -188,7 +187,7 @@ class ImpactAnalyzer:
             for name, definition in definitions.items()
         ]
 
-    def _filename_level_symbols(self, content: str, file_path: str) -> List[Dict[str, str]]:
+    def _filename_level_symbols(self, content: str, file_path: str) -> list[dict[str, str]]:
         """无法解析语法时，用文件名给出一个保守的文件级符号。"""
         stem = Path(file_path).stem
         if not stem or not content.strip():

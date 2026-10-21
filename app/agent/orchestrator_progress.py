@@ -5,7 +5,8 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 # P2 清理：删除死常量 MAX_CONCURRENT_LLM_CALLS
 # 之前这里有一行：MAX_CONCURRENT_LLM_CALLS = int(os.environ.get("CM_MAX_CONCURRENT_LLM_CALLS", "4"))
@@ -88,8 +89,8 @@ class CostTracker:
     completion_tokens: int = 0
     total_cost_usd: float = 0.0
     llm_calls: int = 0
-    model_costs: Dict[str, float] = field(default_factory=dict)
-    model_tokens: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    model_costs: dict[str, float] = field(default_factory=dict)
+    model_tokens: dict[str, dict[str, int]] = field(default_factory=dict)
     start_time: float = 0.0
 
     def add_usage(self, model: str, prompt_tokens: int, completion_tokens: int, cost_usd: float = 0.0):
@@ -109,7 +110,7 @@ class CostTracker:
             self.model_costs[model] = 0.0
         self.model_costs[model] += cost_usd
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取成本摘要"""
         elapsed = time.time() - self.start_time if self.start_time else 0
         return {
@@ -157,7 +158,7 @@ class ProgressMixin:
         if exc is not None:
             logger.error(f"异步事件推送失败: {exc}")
 
-    def _report_progress(self, step: str, current: int, total: int, callback: Optional[Callable] = None, **kwargs):
+    def _report_progress(self, step: str, current: int, total: int, callback: Callable | None = None, **kwargs):
         percentage = round((current / total * 100) if total > 0 else 0, 1)
 
         elapsed = 0
@@ -247,7 +248,7 @@ class ProgressMixin:
         }
         self._emit_event(event, label="思考事件")
 
-    def _report_test_results(self, test_results: Dict[str, Any]):
+    def _report_test_results(self, test_results: dict[str, Any]):
         """测试结果事件"""
         event = {
             "type": "test_results",
@@ -256,7 +257,7 @@ class ProgressMixin:
         }
         self._emit_event(event, label="测试结果事件")
 
-    def _report_validation_results(self, validation_results: Dict[str, Any]):
+    def _report_validation_results(self, validation_results: dict[str, Any]):
         """验证结果事件"""
         event = {
             "type": "validation_results",
@@ -265,7 +266,7 @@ class ProgressMixin:
         }
         self._emit_event(event, label="验证结果事件")
 
-    def _report_cost_update(self, cost_data: Dict[str, Any]):
+    def _report_cost_update(self, cost_data: dict[str, Any]):
         """成本更新事件"""
         event = {
             "type": "cost_update",
@@ -274,7 +275,7 @@ class ProgressMixin:
         }
         self._emit_event(event, label="成本更新事件")
 
-    def _report_performance_metrics(self, metrics: Dict[str, Any]):
+    def _report_performance_metrics(self, metrics: dict[str, Any]):
         """性能指标事件"""
         event = {
             "type": "performance_metrics",
@@ -334,7 +335,7 @@ class ProgressMixin:
         }
         self._emit_event(event, label="步骤详情事件")
 
-    def _emit_event(self, event: Dict[str, Any], label: str = "事件", callback: Optional[Callable] = None):
+    def _emit_event(self, event: dict[str, Any], label: str = "事件", callback: Callable | None = None):
         """统一事件推送入口。
 
         所有 `_report_*` 方法共用此处的 callback 调用 + asyncio 任务管理逻辑，
@@ -388,7 +389,7 @@ class ProgressMixin:
         return None
 
     @staticmethod
-    def _estimate_complexity(content: str, file_type: str) -> Dict[str, Any]:
+    def _estimate_complexity(content: str, file_type: str) -> dict[str, Any]:
         """估算代码复杂度"""
         lines = content.split('\n')
         line_count = len(lines)
@@ -463,7 +464,7 @@ class ProgressMixin:
         return f"{size_bytes:.1f} TB"
 
     @staticmethod
-    def _calculate_changes(old_content: str, new_content: str) -> Dict[str, int]:
+    def _calculate_changes(old_content: str, new_content: str) -> dict[str, int]:
         """计算文件变更统计
 
         用 difflib 序列比对按真实行内容统计新增/删除。原实现用行数差

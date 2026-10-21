@@ -6,16 +6,8 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    MutableMapping,
-    Optional,
-    Sequence,
-)
+from typing import Any
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +75,7 @@ def is_ticket_requirement(requirement: str) -> bool:
     return bool(re.search(r"ticket|工单", requirement or "", re.IGNORECASE))
 
 
-def build_ticket_eight_file_symbol_table() -> Dict[str, Any]:
+def build_ticket_eight_file_symbol_table() -> dict[str, Any]:
     """Signature-level contract for the compact 8-file ticket service."""
     service_signatures = {
         "hash_password": "def hash_password(password: str) -> str",
@@ -180,7 +172,7 @@ def build_ticket_eight_file_symbol_table() -> Dict[str, Any]:
     }
 
 
-def freeze_symbol_table(architecture: MutableMapping[str, Any]) -> Dict[str, Any]:
+def freeze_symbol_table(architecture: MutableMapping[str, Any]) -> dict[str, Any]:
     """Attach a frozen symbol table to architecture and sync file_plan contracts."""
     existing = architecture.get("symbol_table")
     if _table_has_provides(existing):
@@ -198,7 +190,7 @@ def freeze_symbol_table(architecture: MutableMapping[str, Any]) -> Dict[str, Any
 def attach_to_project_context(
     project_context: MutableMapping[str, Any],
     architecture: MutableMapping[str, Any],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     table = freeze_symbol_table(architecture)
     project_context["architecture"] = architecture
     project_context["symbol_table"] = table
@@ -223,14 +215,14 @@ def remember_generated_file(
     project_context: MutableMapping[str, Any],
     file_path: str,
     content: str,
-    architecture: Optional[Mapping[str, Any]] = None,
-) -> List[str]:
+    architecture: Mapping[str, Any] | None = None,
+) -> list[str]:
     record_generated_signature(project_context, file_path, content)
     arch = architecture or project_context.get("architecture") or {}
     return validate_file_against_symbol_table(file_path, content or "", arch)
 
 
-def derive_symbol_table(architecture: Mapping[str, Any]) -> Dict[str, Any]:
+def derive_symbol_table(architecture: Mapping[str, Any]) -> dict[str, Any]:
     spec = architecture.get("project_spec") or {}
     default = spec.get("default") if isinstance(spec, dict) else {}
     storage = default.get("storage") if isinstance(default, dict) else {}
@@ -245,7 +237,7 @@ def derive_symbol_table(architecture: Mapping[str, Any]) -> Dict[str, Any]:
         backend = "sqlalchemy"
     elif not backend and dialect in {"json_file", "json"}:
         backend = "json"
-    files: Dict[str, Any] = {}
+    files: dict[str, Any] = {}
     for item in architecture.get("file_plan") or []:
         if not isinstance(item, dict) or not item.get("path"):
             continue
@@ -269,13 +261,13 @@ def validate_file_against_symbol_table(
     file_path: str,
     content: str,
     architecture: Mapping[str, Any],
-) -> List[str]:
+) -> list[str]:
     table = architecture.get("symbol_table") if isinstance(architecture.get("symbol_table"), dict) else {}
     if not table:
         return []
     normalized = (file_path or "").replace("\\", "/")
     entry = (table.get("files") or {}).get(normalized) or {}
-    issues: List[str] = []
+    issues: list[str] = []
     if not content or not content.strip():
         if entry.get("provides") or entry.get("routes"):
             issues.append(f"{normalized}: empty file missing frozen contract")
@@ -315,18 +307,18 @@ def validate_file_against_symbol_table(
 def validate_project_against_symbol_table(
     files: Mapping[str, str],
     architecture: Mapping[str, Any],
-) -> List[str]:
-    issues: List[str] = []
+) -> list[str]:
+    issues: list[str] = []
     for path, content in files.items():
         issues.extend(validate_file_against_symbol_table(path, content or "", architecture))
     return issues
 
 
-def scan_python_packages(files: Mapping[str, str]) -> List[str]:
+def scan_python_packages(files: Mapping[str, str]) -> list[str]:
     from app.agent.adapters.python import PythonLanguageAdapter
 
     adapter = PythonLanguageAdapter()
-    packages: List[str] = []
+    packages: list[str] = []
     seen: set[str] = set()
     for path, content in files.items():
         if not str(path).endswith(".py") or not content:
@@ -357,11 +349,11 @@ def rewrite_manifests(
     architecture: Mapping[str, Any],
     files: Mapping[str, str],
     ctx: Any = None,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     from app.agent.adapters.boilerplate import scaffold_for_language, scaffold_readme
     from app.agent.utils import write_file_atomic
 
-    rewritten: Dict[str, str] = {}
+    rewritten: dict[str, str] = {}
     planned = {
         str(item.get("path") or "").replace("\\", "/")
         for item in architecture.get("file_plan") or []
@@ -416,7 +408,7 @@ def finalize_generated_project(
     architecture: Mapping[str, Any],
     files: Mapping[str, str],
     ctx: Any = None,
-) -> List[str]:
+) -> list[str]:
     issues = validate_project_against_symbol_table(files, architecture)
     if issues:
         logger.warning("symbol_table gate found %s issue(s)", len(issues))
@@ -504,7 +496,7 @@ def _sync_file_plan_contracts(architecture: MutableMapping[str, Any], table: Map
         item["contract"] = contract
 
 
-def _as_str_list(value: Any) -> List[str]:
+def _as_str_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -536,7 +528,7 @@ def _defined_names(file_path: str, content: str, architecture: Mapping[str, Any]
     return names
 
 
-def _extract_routes(content: str) -> List[str]:
+def _extract_routes(content: str) -> list[str]:
     """Extract `METHOD /path` pairs, including `APIRouter(prefix=...)` routers.
     FastAPI 的常见写法是 `router = APIRouter(prefix="/users")` 配合
     `@router.get("")`，装饰器上的路径不含前缀。不做前缀拼接会把这类
@@ -545,7 +537,7 @@ def _extract_routes(content: str) -> List[str]:
     text = content or ""
     prefixes = _router_prefixes(text)
 
-    routes: List[str] = []
+    routes: list[str] = []
     for router_name, method, path in ROUTE_DECORATOR_RE.findall(text):
         prefix = prefixes.get(router_name, "")
         if prefix:
@@ -555,9 +547,9 @@ def _extract_routes(content: str) -> List[str]:
     return routes
 
 
-def _router_prefixes(text: str) -> Dict[str, str]:
+def _router_prefixes(text: str) -> dict[str, str]:
     """Map router variable names to their `APIRouter(prefix=...)` value."""
-    prefixes: Dict[str, str] = {}
+    prefixes: dict[str, str] = {}
     for assign in APIRouter_ASSIGN_RE.finditer(text):
         start = assign.end()
         depth = 1
@@ -580,7 +572,7 @@ def _router_prefixes(text: str) -> Dict[str, str]:
     return prefixes
 
 
-def _extract_test_paths(content: str) -> List[str]:
+def _extract_test_paths(content: str) -> list[str]:
     return TEST_CLIENT_PATH_RE.findall(content or "")
 
 
@@ -634,8 +626,8 @@ def _adapter(architecture: Mapping[str, Any]):
     return LanguageAdapterRegistry.get_adapter(language) or LanguageAdapterRegistry.get_adapter("python")
 
 
-def _order_packages(packages: Iterable[str]) -> List[str]:
-    unique: List[str] = []
+def _order_packages(packages: Iterable[str]) -> list[str]:
+    unique: list[str] = []
     for name in packages:
         if name not in unique:
             unique.append(name)

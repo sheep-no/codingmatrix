@@ -1,7 +1,7 @@
 """Framework-independent capability contracts."""
 
 from enum import Enum
-from typing import FrozenSet, Iterable
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,7 +22,7 @@ class Capability(str, Enum):
 class CapabilitySet(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    values: FrozenSet[Capability] = Field(default_factory=frozenset)
+    values: frozenset[Capability] = Field(default_factory=frozenset)
 
     @classmethod
     def from_values(cls, values: Iterable[Capability | str]) -> "CapabilitySet":

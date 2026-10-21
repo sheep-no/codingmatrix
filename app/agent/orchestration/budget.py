@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -27,7 +26,7 @@ class ExecutionBudget(BaseModel):
     model_call_seconds: float = Field(gt=0)
 
     @model_validator(mode="after")
-    def validate_scope_order(self) -> "ExecutionBudget":
+    def validate_scope_order(self) -> ExecutionBudget:
         if self.file_seconds > self.stage_seconds:
             raise ValueError("file_seconds must be less than or equal to stage_seconds")
         if self.stage_seconds > self.task_seconds:
@@ -44,7 +43,7 @@ class ExecutionBudget(BaseModel):
         file_elapsed_seconds: float = 0.0,
         model_elapsed_seconds: float = 0.0,
     ) -> float:
-        elapsed: Dict[str, float] = {
+        elapsed: dict[str, float] = {
             "task": task_elapsed_seconds,
             "stage": stage_elapsed_seconds,
             "file": file_elapsed_seconds,
@@ -53,7 +52,7 @@ class ExecutionBudget(BaseModel):
         if any(value < 0 for value in elapsed.values()):
             raise ValueError("elapsed durations must be non-negative")
 
-        remaining: Tuple[Tuple[str, float], ...] = (
+        remaining: tuple[tuple[str, float], ...] = (
             ("task", self.task_seconds - task_elapsed_seconds),
             ("stage", self.stage_seconds - stage_elapsed_seconds),
             ("file", self.file_seconds - file_elapsed_seconds),

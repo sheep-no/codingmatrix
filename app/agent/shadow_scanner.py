@@ -9,12 +9,11 @@ import asyncio
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
 # 扫描已有项目时跳过的目录
-SKIP_DIRS: Set[str] = {
+SKIP_DIRS: set[str] = {
     '__pycache__', 'node_modules', '.git', 'venv', '.venv',
     'dist', 'build', 'target', '.next', 'coverage', '.pytest_cache',
     'playwright-report', 'test-results', '.turbo'
@@ -33,7 +32,7 @@ _SHADOW_PATTERNS = {
 _SOURCE_EXTENSIONS = frozenset({'.py', '.js', '.ts', '.jsx', '.tsx', '.vue'})
 
 
-async def scan_shadow_dependencies(project_path: Path) -> Dict[str, List[str]]:
+async def scan_shadow_dependencies(project_path: Path) -> dict[str, list[str]]:
     """
     异步阴影依赖扫描入口。
 
@@ -46,9 +45,9 @@ async def scan_shadow_dependencies(project_path: Path) -> Dict[str, List[str]]:
     return await asyncio.to_thread(_scan_sync, project_path)
 
 
-def _scan_sync(project_path: Path) -> Dict[str, List[str]]:
+def _scan_sync(project_path: Path) -> dict[str, list[str]]:
     """同步版阴影依赖扫描 — 在线程池中执行"""
-    shadow_deps: Dict[str, List[str]] = {}
+    shadow_deps: dict[str, list[str]] = {}
 
     for file_path in project_path.rglob("*"):
         if any(part in SKIP_DIRS for part in file_path.parts):

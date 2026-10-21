@@ -26,7 +26,6 @@ import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,8 @@ class PatchResult:
     original_content: str
     patched_content: str
     diff: str
-    errors: List[str]
-    warnings: List[str]
+    errors: list[str]
+    warnings: list[str]
 
 
 class CodePatcher:
@@ -91,8 +90,8 @@ class CodePatcher:
         file_path: str,
         original_content: str,
         change_request: str,
-        project_context: Optional[Dict] = None
-    ) -> Optional[str]:
+        project_context: dict | None = None
+    ) -> str | None:
         """
         基于需求变更生成 patch
 
@@ -254,7 +253,7 @@ class CodePatcher:
         self,
         file_path: Path,
         patch: str,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> PatchResult:
         """
         应用 patch 到实际文件
@@ -308,7 +307,7 @@ class CodePatcher:
 
         return result
 
-    def estimate_patch_impact(self, patch: str) -> Dict:
+    def estimate_patch_impact(self, patch: str) -> dict:
         """
         评估 patch 的影响范围
 
@@ -342,7 +341,7 @@ class CodePatcher:
 
     # ==================== 内部方法 ====================
 
-    def _extract_patch_from_response(self, response: str) -> Optional[str]:
+    def _extract_patch_from_response(self, response: str) -> str | None:
         """从 LLM 响应中提取 patch"""
         # 尝试提取 ```diff ... ``` 块
         match = re.search(r'```diff\s*\n(.*?)\n```', response, re.DOTALL)
@@ -377,7 +376,7 @@ class CodePatcher:
 
         return None
 
-    def _parse_patch(self, patch: str) -> List[Dict]:
+    def _parse_patch(self, patch: str) -> list[dict]:
         """解析 patch 为 hunks"""
         hunks = []
         # 用 splitlines 而非 split('\n')：后者对以换行结尾的 patch 会多出一个
@@ -435,7 +434,7 @@ class CodePatcher:
 
         return hunks
 
-    def _apply_hunks(self, original_lines: List[str], hunks: List[Dict]) -> Optional[List[str]]:
+    def _apply_hunks(self, original_lines: list[str], hunks: list[dict]) -> list[str] | None:
         """应用 hunks 到原始行（精确匹配）
 
         hunk 行号基于原始文件：多 hunk 时从后向前应用，避免前一个 hunk 改变
@@ -474,7 +473,7 @@ class CodePatcher:
 
         return result
 
-    def _apply_hunks_fuzzy(self, original_lines: List[str], hunks: List[Dict], max_offset: int = 5) -> Optional[List[str]]:
+    def _apply_hunks_fuzzy(self, original_lines: list[str], hunks: list[dict], max_offset: int = 5) -> list[str] | None:
         """应用 hunks 到原始行（模糊匹配，允许行号偏移）"""
         result = list(original_lines)
 
@@ -525,7 +524,7 @@ async def apply_incremental_change(
     file_path: Path,
     change_request: str,
     llm_call_fn,
-    project_context: Optional[Dict] = None
+    project_context: dict | None = None
 ) -> PatchResult:
     """
     应用增量变更到文件
@@ -571,11 +570,11 @@ async def apply_incremental_change(
 class CrossFilePatchResult:
     """跨文件 patch 应用结果"""
     primary_file: str
-    primary_result: Optional[PatchResult] = None
-    dependent_results: List[PatchResult] = field(default_factory=list)
-    changed_results: List[PatchResult] = field(default_factory=list)
-    failed_patches: List[str] = field(default_factory=list)
-    dependency_chain: Dict[str, List[str]] = field(default_factory=dict)
+    primary_result: PatchResult | None = None
+    dependent_results: list[PatchResult] = field(default_factory=list)
+    changed_results: list[PatchResult] = field(default_factory=list)
+    failed_patches: list[str] = field(default_factory=list)
+    dependency_chain: dict[str, list[str]] = field(default_factory=dict)
 
 
 class CrossFilePatcher:
@@ -593,10 +592,10 @@ class CrossFilePatcher:
     async def generate_cross_file_patches(
         self,
         requirement: str,
-        changed_files: List[str],
-        affected_files: Dict[str, List[str]],
+        changed_files: list[str],
+        affected_files: dict[str, list[str]],
         project_path: Path,
-        file_contents: Dict[str, str],
+        file_contents: dict[str, str],
     ) -> CrossFilePatchResult:
         """
         为变更文件和所有受影响文件生成 patch

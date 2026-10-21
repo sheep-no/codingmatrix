@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Dict, List
 
 from app.agent.orchestrator_files import (
     _git_stash_drop,
@@ -17,8 +16,8 @@ class IncrementalGenerateMixin:
     async def _handle_incremental_generation(
         self,
         requirement: str,
-        file_plan: List[Dict],
-        project_context: Dict,
+        file_plan: list[dict],
+        project_context: dict,
         total_files: int
     ):
         if not self.session_manager or not self.session_id:

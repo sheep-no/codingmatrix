@@ -6,7 +6,8 @@ import hashlib
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -226,7 +227,7 @@ class ChangePlan(BaseModel):
         changes: Iterable[Mapping[str, object] | FileChange],
         *,
         version: int = 1,
-    ) -> "ChangePlan":
+    ) -> ChangePlan:
         collapsed = collapse_change_items(changes, known_paths=snapshot.hashes())
         normalized = tuple(
             item if isinstance(item, FileChange) else FileChange(

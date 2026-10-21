@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Dict, List
 
 from app.agent.orchestrator_requirements.constants import (
     CONFIDENCE_DEFAULT_SHOW,
@@ -12,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 async def devil_advocate_review(
-    requirement: str, items: List[AssociationItem], architect: object = None
-) -> List[Dict]:
+    requirement: str, items: list[AssociationItem], architect: object = None
+) -> list[dict]:
     if not architect or len(items) < 3:
         return []
 
@@ -63,7 +62,7 @@ async def devil_advocate_review(
     return parse_devil_response(response)
 
 
-def parse_devil_response(response: str) -> List[Dict]:
+def parse_devil_response(response: str) -> list[dict]:
     import re as _re
     try:
         json_match = _re.search(r'\{[\s\S]*\}', response)

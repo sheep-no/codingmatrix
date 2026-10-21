@@ -19,7 +19,7 @@ def repair_contract_digest(requirement: str, file_entries: Iterable[str]) -> str
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def fastapi_crud_repair_applies(context: "RepairContext") -> bool:
+def fastapi_crud_repair_applies(context: RepairContext) -> bool:
     """Match the frozen-file FastAPI CRUD repair scope."""
     requirement = context.requirement.lower()
     frozen_files = _context_files(context)
@@ -28,7 +28,7 @@ def fastapi_crud_repair_applies(context: "RepairContext") -> bool:
     return all(marker in requirement for marker in ("repair the existing", "python", "fastapi", "crud"))
 
 
-def spring_crud_repair_applies(context: "RepairContext") -> bool:
+def spring_crud_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     planned_types = {path.rsplit("/", 1)[-1][:-5] for path in _context_files(context) if path.endswith(".java")}
     return "java" in requirement and "spring" in requirement and (
@@ -37,7 +37,7 @@ def spring_crud_repair_applies(context: "RepairContext") -> bool:
     )
 
 
-def flask_crud_repair_applies(context: "RepairContext") -> bool:
+def flask_crud_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     files = _context_files(context)
     if "app/main.py" in files:
@@ -45,28 +45,28 @@ def flask_crud_repair_applies(context: "RepairContext") -> bool:
     return all(marker in requirement for marker in ("repair the existing", "python", "flask", "crud"))
 
 
-def express_crud_repair_applies(context: "RepairContext") -> bool:
+def express_crud_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     return all(marker in requirement for marker in ("typescript", "express", "crud")) and "src/app.ts" in _context_files(context)
 
 
-def nestjs_crud_repair_applies(context: "RepairContext") -> bool:
+def nestjs_crud_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     return all(marker in requirement for marker in ("typescript", "nestjs", "crud")) and "src/main.ts" in _context_files(context)
 
 
-def go_crud_repair_applies(context: "RepairContext") -> bool:
+def go_crud_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     return "go" in requirement and "crud" in requirement and "cmd/server/main.go" in _context_files(context)
 
 
-def pygame_snake_repair_applies(context: "RepairContext") -> bool:
+def pygame_snake_repair_applies(context: RepairContext) -> bool:
     requirement = context.requirement.lower()
     required = {"main.py", "game/rules.py", "game/renderer.py", "game/input_loop.py", "tests/test_game.py"}
     return "pygame" in requirement and "snake" in requirement and required.issubset(_context_files(context))
 
 
-def _context_files(context: "RepairContext") -> set[str]:
+def _context_files(context: RepairContext) -> set[str]:
     if context.file_entries:
         return set(context.file_entries)
     project_context = context.project_context or {}

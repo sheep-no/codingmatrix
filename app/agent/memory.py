@@ -13,7 +13,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.utils.AiCodeUtil import get_embedding
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 SEMANTIC_SIMILARITY_THRESHOLD = 0.65
 
 
-def cosine_similarity(a: List[float], b: List[float]) -> float:
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     """计算两个向量的余弦相似度"""
     if not a or not b:
         return 0.0
@@ -58,15 +58,15 @@ def _estimate_tokens(text: str) -> int:
 @dataclass
 class MemoryEntry:
     """记忆条目"""
-    id: Optional[str] = None
+    id: str | None = None
     type: str = "conversation"  # "user", "assistant", "tool", "knowledge", "reflection"
     content: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
-    embedding: Optional[List[float]] = None
+    embedding: list[float] | None = None
     importance: float = 1.0  # 0.0-1.0，越高越重要
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         result = {
             "id": self.id,
             "type": self.type,
@@ -86,13 +86,13 @@ class BaseMemory:
     def add(self, entry: MemoryEntry) -> None:
         raise NotImplementedError
 
-    def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
+    def get_recent(self, limit: int = 10) -> list[MemoryEntry]:
         raise NotImplementedError
 
-    def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    def search(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         raise NotImplementedError
 
-    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    async def search_async(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         """基于语义的异步搜索（使用 embedding 余弦相似度）"""
         raise NotImplementedError
 
@@ -110,7 +110,7 @@ class ConversationMemory(BaseMemory):
 
     def __init__(self, max_entries: int = 100):
         self.max_entries = max_entries
-        self._entries: List[MemoryEntry] = []
+        self._entries: list[MemoryEntry] = []
         self._counter = 0
         self._is_compressed = False  # 是否已压缩过
         self._lock = threading.Lock()
@@ -176,7 +176,7 @@ class ConversationMemory(BaseMemory):
         self._is_compressed = True
         logger.info(f"对话记忆已压缩: {len(summarized)} 条 -> 1 条摘要")
 
-    def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
+    def get_recent(self, limit: int = 10) -> list[MemoryEntry]:
         with self._lock:
             return self._entries[-limit:] if self._entries else []
 
@@ -200,7 +200,7 @@ class ConversationMemory(BaseMemory):
 
         return "\n".join(result)
 
-    def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    def search(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         query_lower = query.lower()
         scored = []
 
@@ -214,7 +214,7 @@ class ConversationMemory(BaseMemory):
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return [e for _, _, e in scored[:limit]]
 
-    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    async def search_async(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         """基于语义的异步搜索（使用 embedding 余弦相似度）"""
         try:
             query_embedding = await get_embedding(query)
@@ -240,7 +240,7 @@ class ConversationMemory(BaseMemory):
             self._entries.clear()
             self._is_compressed = False
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取记忆摘要"""
         types = defaultdict(int)
         for entry in self._entries:
@@ -260,8 +260,8 @@ class KnowledgeMemory(BaseMemory):
 
     def __init__(self, max_entries: int = 500):
         self.max_entries = max_entries
-        self._entries: Dict[str, MemoryEntry] = {}
-        self._access_times: Dict[str, float] = {}
+        self._entries: dict[str, MemoryEntry] = {}
+        self._access_times: dict[str, float] = {}
         self._counter = 0
         self._lock = threading.Lock()
 
@@ -289,14 +289,14 @@ class KnowledgeMemory(BaseMemory):
         del self._entries[lru_key]
         del self._access_times[lru_key]
 
-    def get(self, key: str) -> Optional[MemoryEntry]:
+    def get(self, key: str) -> MemoryEntry | None:
         with self._lock:
             if key in self._entries:
                 self._access_times[key] = time.time()
                 return self._entries[key]
         return None
 
-    def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
+    def get_recent(self, limit: int = 10) -> list[MemoryEntry]:
         with self._lock:
             entries = sorted(
                 self._entries.values(),
@@ -305,7 +305,7 @@ class KnowledgeMemory(BaseMemory):
             )
         return entries[:limit]
 
-    def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    def search(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         query_lower = query.lower()
         results = []
 
@@ -319,7 +319,7 @@ class KnowledgeMemory(BaseMemory):
         results.sort(key=lambda e: e.importance, reverse=True)
         return results[:limit]
 
-    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    async def search_async(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         """基于语义的异步搜索"""
         try:
             query_embedding = await get_embedding(query)
@@ -356,7 +356,7 @@ class ReflectionMemory(BaseMemory):
 
     def __init__(self, max_entries: int = 50):
         self.max_entries = max_entries
-        self._entries: List[MemoryEntry] = []
+        self._entries: list[MemoryEntry] = []
         self._counter = 0
         self._lock = threading.Lock()
 
@@ -374,7 +374,7 @@ class ReflectionMemory(BaseMemory):
 
         logger.debug(f"反思记忆添加: {entry.content[:50]}...")
 
-    def add_reflection(self, content: str, metadata: Dict = None) -> None:
+    def add_reflection(self, content: str, metadata: dict = None) -> None:
         entry = MemoryEntry(
             type="reflection",
             content=content,
@@ -383,15 +383,15 @@ class ReflectionMemory(BaseMemory):
         )
         self.add(entry)
 
-    def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
+    def get_recent(self, limit: int = 10) -> list[MemoryEntry]:
         with self._lock:
             return self._entries[-limit:] if self._entries else []
 
-    def get_insights(self) -> List[str]:
+    def get_insights(self) -> list[str]:
         with self._lock:
             return [e.content for e in self._entries[-5:] if e.type == "reflection"]
 
-    def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    def search(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         query_lower = query.lower()
         with self._lock:
             entries_snapshot = list(self._entries)
@@ -400,7 +400,7 @@ class ReflectionMemory(BaseMemory):
             if query_lower in e.content.lower()
         ][:limit]
 
-    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+    async def search_async(self, query: str, limit: int = 5) -> list[MemoryEntry]:
         """基于语义的异步搜索"""
         try:
             query_embedding = await get_embedding(query)
@@ -441,7 +441,7 @@ class AgentMemory:
         self.knowledge = KnowledgeMemory(max_entries=knowledge_max)
         self.reflection = ReflectionMemory(max_entries=reflection_max)
 
-        self._session_id: Optional[str] = None
+        self._session_id: str | None = None
         self._created_at = time.time()
 
     @property
@@ -451,7 +451,7 @@ class AgentMemory:
             self._session_id = f"session_{time.time_ns()}"
         return self._session_id
 
-    def add_user_message(self, content: str, metadata: Dict = None) -> None:
+    def add_user_message(self, content: str, metadata: dict = None) -> None:
         entry = MemoryEntry(
             id=f"user_{int(time.time() * 1000)}",
             type="user",
@@ -460,7 +460,7 @@ class AgentMemory:
         )
         self.conversation.add(entry)
 
-    def add_assistant_message(self, content: str, metadata: Dict = None) -> None:
+    def add_assistant_message(self, content: str, metadata: dict = None) -> None:
         entry = MemoryEntry(
             id=f"asst_{int(time.time() * 1000)}",
             type="assistant",
@@ -488,7 +488,7 @@ class AgentMemory:
         )
         self.knowledge.add(entry)
 
-    def add_reflection(self, content: str, metadata: Dict = None) -> None:
+    def add_reflection(self, content: str, metadata: dict = None) -> None:
         self.reflection.add_reflection(content, metadata)
 
     def get_context_for_prompt(self, max_tokens: int = 4000) -> str:
@@ -515,7 +515,7 @@ class AgentMemory:
 
         return "\n".join(parts)
 
-    def get_full_context(self) -> Dict[str, Any]:
+    def get_full_context(self) -> dict[str, Any]:
         """获取完整上下文"""
         return {
             "session_id": self.session_id,
@@ -526,7 +526,7 @@ class AgentMemory:
             "last_updated": time.time()
         }
 
-    async def search_async(self, query: str, limit: int = 5) -> Dict[str, List]:
+    async def search_async(self, query: str, limit: int = 5) -> dict[str, list]:
         """统一的语义搜索入口，搜索所有记忆类型"""
         return {
             "conversation": await self.conversation.search_async(query, limit),

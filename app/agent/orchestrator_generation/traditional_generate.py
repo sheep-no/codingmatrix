@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
 from app.agent.dependency_graph import DependencyGraph
@@ -18,9 +19,9 @@ def _requires_layered_generation(total_files: int, dep_graph: DependencyGraph) -
 
 
 def _filter_planned_integrity_fixes(
-    fixes: Dict[str, str],
-    architecture: Optional[Dict[str, Any]],
-) -> Dict[str, str]:
+    fixes: dict[str, str],
+    architecture: dict[str, Any] | None,
+) -> dict[str, str]:
     """按冻结文件集过滤完整性修复产物。
 
     需求里出现 `Generate exactly these files and no others:` 时，架构会记录
@@ -32,7 +33,7 @@ def _filter_planned_integrity_fixes(
     if not strict_paths:
         return fixes
     allowed = {str(path).replace("\\", "/") for path in strict_paths}
-    kept: Dict[str, str] = {}
+    kept: dict[str, str] = {}
     for fix_path, fix_content in fixes.items():
         if str(fix_path).replace("\\", "/") in allowed:
             kept[fix_path] = fix_content
@@ -44,7 +45,7 @@ def _filter_planned_integrity_fixes(
 class TraditionalGenerateMixin:
 
     @traced("orchestrator.traditional", attributes={"component": "orchestrator"})
-    async def _generate_traditional(self, requirement: str, callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _generate_traditional(self, requirement: str, callback: Callable | None = None) -> dict[str, Any]:
         start_time = time.time()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 

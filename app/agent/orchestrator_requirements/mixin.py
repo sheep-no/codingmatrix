@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from app.agent.orchestrator_requirements.constants import (
     CONFIDENCE_DEFAULT_SHOW,
@@ -154,7 +154,7 @@ class RequirementAssociationMixin:
         )
 
     def _build_enhanced_requirement(
-        self, original: str, items: List[AssociationItem]
+        self, original: str, items: list[AssociationItem]
     ) -> str:
         accepted = [i for i in items if i.confidence >= CONFIDENCE_DEFAULT_SHOW]
         if not accepted:
@@ -177,8 +177,8 @@ class RequirementAssociationMixin:
         return "\n".join(parts)
 
     def _classify_items_for_display(
-        self, items: List[AssociationItem]
-    ) -> Dict[str, Any]:
+        self, items: list[AssociationItem]
+    ) -> dict[str, Any]:
         default_show = []
         collapsed = []
         for item in items:

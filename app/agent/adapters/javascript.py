@@ -11,7 +11,6 @@ JavaScriptLanguageAdapter - JavaScript/TypeScript 语言适配器
 import os
 import re
 from pathlib import Path
-from typing import Dict, List
 
 from .language_adapter import (
     ImportInfo,
@@ -154,7 +153,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         ("docs", "docs"),
     ]
 
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
         """解析 JavaScript/TypeScript 导入语句"""
         imports = []
 
@@ -249,7 +248,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
         return imports
 
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         """将导入路径解析为文件路径"""
         candidates = []
         module = import_info.module
@@ -341,7 +340,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
         return "unknown"
 
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
         """提取 JavaScript/TypeScript 文件中的符号定义"""
         definitions = {}
         lines = content.split('\n')
@@ -493,7 +492,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
         return False
 
-    def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
+    def validate_package_structure(self, package_path: str, files: dict[str, str]) -> list[str]:
         """验证 JS 模块结构
 
         JS/TS 没有目录级包入口要求：程序入口点由 file_plan 的 entry 文件决定，
@@ -503,7 +502,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         """
         return []
 
-    def get_required_package_files(self, package_path: str) -> List[str]:
+    def get_required_package_files(self, package_path: str) -> list[str]:
         """JS/TS 不要求目录级入口文件"""
         return []
 

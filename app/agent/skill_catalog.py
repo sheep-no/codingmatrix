@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Iterable, Tuple
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,11 +34,11 @@ class SkillManifest(BaseModel):
     source: str = Field(default="workspace", min_length=1)
     path: str = Field(min_length=1)
     description: str = ""
-    languages: Tuple[str, ...] = ()
-    frameworks: Tuple[str, ...] = ()
-    databases: Tuple[str, ...] = ()
-    capabilities: Tuple[str, ...] = ()
-    stages: Tuple[str, ...] = ()
+    languages: tuple[str, ...] = ()
+    frameworks: tuple[str, ...] = ()
+    databases: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    stages: tuple[str, ...] = ()
     priority: int = Field(default=50, ge=0, le=100)
     content: str = Field(min_length=1)
 
@@ -71,7 +71,7 @@ class SkillCatalog:
         self._skills = tuple(skills)
 
     @classmethod
-    def from_directory(cls, directory: Path, *, source: str = "workspace") -> "SkillCatalog":
+    def from_directory(cls, directory: Path, *, source: str = "workspace") -> SkillCatalog:
         skills = []
         if not directory.exists():
             return cls()
@@ -99,10 +99,10 @@ class SkillCatalog:
             ))
         return cls(skills)
 
-    def all(self) -> Tuple[SkillManifest, ...]:
+    def all(self) -> tuple[SkillManifest, ...]:
         return self._skills
 
-    def discover(self, query: str, *, limit: int = 5) -> Tuple[SkillManifest, ...]:
+    def discover(self, query: str, *, limit: int = 5) -> tuple[SkillManifest, ...]:
         ranked = sorted(
             ((skill.score(query), skill) for skill in self._skills),
             key=lambda item: (-item[0], item[1].name),
@@ -134,7 +134,7 @@ def _parse_front_matter(content: str) -> tuple[dict[str, str | list[str]], str]:
     return metadata, "\n".join(lines[end + 1:])
 
 
-def _as_tuple(value: object) -> Tuple[str, ...]:
+def _as_tuple(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
     if isinstance(value, list):

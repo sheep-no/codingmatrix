@@ -10,7 +10,7 @@ v4.8.0 新增：
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -22,16 +22,16 @@ class ServiceTemplate:
     """单个服务的配置模板"""
     name: str
     category: str  # 'cache', 'database', 'queue', 'search', 'storage'
-    python_packages: List[str] = field(default_factory=list)
-    env_vars: Dict[str, str] = field(default_factory=dict)
-    docker_service: Dict[str, Any] = field(default_factory=dict)
+    python_packages: list[str] = field(default_factory=list)
+    env_vars: dict[str, str] = field(default_factory=dict)
+    docker_service: dict[str, Any] = field(default_factory=dict)
     connection_code: str = ""
     health_check_command: str = ""
     default_port: int = 0
     docker_image: str = ""
 
 
-SERVICE_TEMPLATES: Dict[str, ServiceTemplate] = {
+SERVICE_TEMPLATES: dict[str, ServiceTemplate] = {
     "redis": ServiceTemplate(
         name="Redis",
         category="cache",
@@ -296,17 +296,17 @@ async def get_es() -> AsyncElasticsearch:
 }
 
 
-def get_service_template(service_name: str) -> Optional[ServiceTemplate]:
+def get_service_template(service_name: str) -> ServiceTemplate | None:
     """获取服务配置模板"""
     return SERVICE_TEMPLATES.get(service_name.lower())
 
 
-def get_all_service_names() -> List[str]:
+def get_all_service_names() -> list[str]:
     """获取所有支持的服务名称"""
     return list(SERVICE_TEMPLATES.keys())
 
 
-def detect_services_from_requirements(requirement: str) -> List[str]:
+def detect_services_from_requirements(requirement: str) -> list[str]:
     """
     从需求文本中检测需要哪些第三方服务
 
@@ -316,7 +316,7 @@ def detect_services_from_requirements(requirement: str) -> List[str]:
     Returns:
         匹配的服务名称列表
     """
-    DETECTION_KEYWORDS: Dict[str, List[str]] = {
+    DETECTION_KEYWORDS: dict[str, list[str]] = {
         "redis": ["redis", "缓存", "cache"],
         "postgresql": ["postgresql", "postgres", "关系数据库"],
         "mysql": ["mysql", "关系型数据库"],
@@ -348,7 +348,7 @@ def _keyword_matches(keyword: str, text: str) -> bool:
     return keyword in text
 
 
-def generate_env_example(services: List[str], custom_vars: Dict[str, str] = None) -> str:
+def generate_env_example(services: list[str], custom_vars: dict[str, str] = None) -> str:
     """
     生成 .env.example 文件内容
 
@@ -392,7 +392,7 @@ def generate_env_example(services: List[str], custom_vars: Dict[str, str] = None
     return "\n".join(lines)
 
 
-def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str:
+def generate_docker_compose(services: list[str], app_name: str = "myapp") -> str:
     """
     生成 docker-compose.yml 文件内容
 
@@ -403,8 +403,8 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
     Returns:
         docker-compose.yml 文件内容
     """
-    service_defs: Dict[str, Any] = {}
-    volume_defs: Dict[str, Any] = {}
+    service_defs: dict[str, Any] = {}
+    volume_defs: dict[str, Any] = {}
 
     for service_name in services:
         template = get_service_template(service_name)
@@ -416,7 +416,7 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
                         vol_name = vol.split(":")[0]
                         volume_defs[vol_name] = {}
 
-    app_service: Dict[str, Any] = {
+    app_service: dict[str, Any] = {
         "build": {"context": ".", "dockerfile": "Dockerfile"},
         "ports": ["8000:8000"],
         "environment": [],
@@ -442,7 +442,7 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
 
     service_defs["app"] = app_service
 
-    compose: Dict[str, Any] = {"services": service_defs}
+    compose: dict[str, Any] = {"services": service_defs}
     if volume_defs:
         compose["volumes"] = volume_defs
 
@@ -453,7 +453,7 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
     )
 
 
-def get_python_packages_for_services(services: List[str]) -> List[str]:
+def get_python_packages_for_services(services: list[str]) -> list[str]:
     """获取指定服务所需的所有 Python 包"""
     packages = ["fastapi", "uvicorn", "pydantic", "pydantic-settings"]
     for service_name in services:
@@ -463,7 +463,7 @@ def get_python_packages_for_services(services: List[str]) -> List[str]:
     return packages
 
 
-def get_connection_snippets(services: List[str]) -> Dict[str, str]:
+def get_connection_snippets(services: list[str]) -> dict[str, str]:
     """获取指定服务的连接代码片段"""
     snippets = {}
     for service_name in services:

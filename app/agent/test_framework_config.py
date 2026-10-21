@@ -9,7 +9,6 @@ v4.8.0 新增：
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +19,13 @@ class TestFrameworkConfig:
     language: str
     framework: str
     test_command: str
-    setup_commands: List[str] = field(default_factory=list)
+    setup_commands: list[str] = field(default_factory=list)
     docker_image: str = ""
     output_format: str = ""
-    custom_args: List[str] = field(default_factory=list)
+    custom_args: list[str] = field(default_factory=list)
 
 
-FRAMEWORK_PRESETS: Dict[str, TestFrameworkConfig] = {
+FRAMEWORK_PRESETS: dict[str, TestFrameworkConfig] = {
     "python_pytest": TestFrameworkConfig(
         language="python",
         framework="pytest",
@@ -78,7 +77,7 @@ FRAMEWORK_PRESETS: Dict[str, TestFrameworkConfig] = {
 }
 
 
-def get_framework_config(framework_key: str) -> Optional[TestFrameworkConfig]:
+def get_framework_config(framework_key: str) -> TestFrameworkConfig | None:
     """获取框架预设配置"""
     return FRAMEWORK_PRESETS.get(framework_key)
 

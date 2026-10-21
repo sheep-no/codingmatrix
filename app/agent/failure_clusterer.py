@@ -7,7 +7,6 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 from app.utils.performance_metrics import metrics_collector
 
@@ -19,8 +18,8 @@ class FailureCluster:
     """失败集群"""
     error_type: str
     error_location: str
-    error_keywords: List[str] = field(default_factory=list)
-    tests: List[Dict] = field(default_factory=list)
+    error_keywords: list[str] = field(default_factory=list)
+    tests: list[dict] = field(default_factory=list)
     root_cause_hint: str = ""
     count: int = 0
 
@@ -45,7 +44,7 @@ class FailureClusterer:
     def __init__(self):
         pass
 
-    def cluster(self, test_results: List[Dict]) -> List[FailureCluster]:
+    def cluster(self, test_results: list[dict]) -> list[FailureCluster]:
         """
         聚类测试失败，识别共同根因
 

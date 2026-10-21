@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Iterable, Mapping, Tuple
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,11 +31,11 @@ class DependencyManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: int = Field(default=1, ge=1)
-    dependencies: Tuple[Dependency, ...] = ()
+    dependencies: tuple[Dependency, ...] = ()
     digest: str = Field(default="", min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_digest(self) -> "DependencyManifest":
+    def validate_digest(self) -> DependencyManifest:
         payload = {"version": self.version, "dependencies": [item.model_dump(mode="json") for item in self.dependencies]}
         expected = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if self.digest != expected:
@@ -43,7 +43,7 @@ class DependencyManifest(BaseModel):
         return self
 
     @classmethod
-    def build(cls, dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object], version: int = 1) -> "DependencyManifest":
+    def build(cls, dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object], version: int = 1) -> DependencyManifest:
         entries = _normalize_dependencies(dependencies)
         values = tuple(sorted((_coerce_dependency(item) for item in entries), key=lambda item: (item.kind.value, item.name)))
         names = set()
@@ -58,7 +58,7 @@ class DependencyManifest(BaseModel):
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         return cls(version=version, dependencies=values, digest=digest)
 
-    def names(self, *kinds: DependencyKind) -> Tuple[str, ...]:
+    def names(self, *kinds: DependencyKind) -> tuple[str, ...]:
         selected = set(kinds)
         return tuple(item.name for item in self.dependencies if not selected or item.kind in selected)
 
@@ -68,7 +68,7 @@ class DependencyManifest(BaseModel):
 
 def _normalize_dependencies(
     dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object],
-) -> Tuple[Mapping[str, object] | Dependency | str, ...]:
+) -> tuple[Mapping[str, object] | Dependency | str, ...]:
     if dependencies is None or isinstance(dependencies, str):
         return ()
     if not isinstance(dependencies, Mapping):

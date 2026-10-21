@@ -1,5 +1,4 @@
 import logging
-from typing import Dict, List, Tuple
 
 from app.agent.orchestrator_requirements.constants import (
     DUAL_MODEL_A,
@@ -19,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 async def layer3_dual_model_deep(
     requirement: str,
-    layer1_items: List[AssociationItem],
-    layer2_items: List[AssociationItem],
+    layer1_items: list[AssociationItem],
+    layer2_items: list[AssociationItem],
     architect: object = None,
-) -> List[AssociationItem]:
+) -> list[AssociationItem]:
 
     if not architect:
         return []
@@ -90,9 +89,9 @@ async def layer3_dual_model_deep(
 
 
 def merge_dual_model_results(
-    items_a: List[AssociationItem], items_b: List[AssociationItem]
-) -> List[AssociationItem]:
-    content_map: Dict[str, Tuple[AssociationItem, List[str]]] = {}
+    items_a: list[AssociationItem], items_b: list[AssociationItem]
+) -> list[AssociationItem]:
+    content_map: dict[str, tuple[AssociationItem, list[str]]] = {}
 
     for item in items_a:
         key = f"{item.category}:{item.content[:50]}"

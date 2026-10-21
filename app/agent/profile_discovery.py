@@ -8,7 +8,6 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Tuple
 
 from app.agent.capability_resolver import resolve_capabilities
 from app.agent.database_profiles import DEFAULT_DATABASE_PROFILES
@@ -28,9 +27,9 @@ class DiscoveredProfile:
     language: str
     framework: str
     domain: ApplicationDomain
-    evidence: Tuple[str, ...]
-    capabilities: Tuple[str, ...]
-    gaps: Tuple[CapabilityGap, ...] = ()
+    evidence: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    gaps: tuple[CapabilityGap, ...] = ()
     status: str = "custom_pending"
 
 
@@ -38,8 +37,8 @@ class DiscoveredProfile:
 class ProfileProbeResult:
     profile: DiscoveredProfile
     passed: bool
-    checks: Tuple[str, ...]
-    failures: Tuple[str, ...] = ()
+    checks: tuple[str, ...]
+    failures: tuple[str, ...] = ()
 
 
 class ProfileCache:
@@ -102,7 +101,7 @@ class ProfileCache:
         self.put(updated)
         return updated
 
-    def promote_supported(self, profile: DiscoveredProfile, *, required_checks: Tuple[str, ...], checks: Tuple[str, ...]) -> DiscoveredProfile:
+    def promote_supported(self, profile: DiscoveredProfile, *, required_checks: tuple[str, ...], checks: tuple[str, ...]) -> DiscoveredProfile:
         """Promote a profile only after every required conformance check passes."""
         if profile.status != "experimental" or not set(required_checks).issubset(checks):
             raise ValueError("profile requires a passing experimental probe and complete conformance checks")
@@ -129,7 +128,7 @@ class ProfileCache:
 @dataclass(frozen=True)
 class ProfileProbeStep:
     name: str
-    command: Tuple[str, ...]
+    command: tuple[str, ...]
     action: ToolchainAction
     required: bool = True
 
@@ -137,7 +136,7 @@ class ProfileProbeStep:
         CommandSpec(action=self.action, command=self.command)
 
 
-def build_probe_plan(profile: DiscoveredProfile) -> Tuple[ProfileProbeStep, ...]:
+def build_probe_plan(profile: DiscoveredProfile) -> tuple[ProfileProbeStep, ...]:
     """Create safe, non-shell probe commands for a discovered profile."""
     from app.agent.framework_profiles import DEFAULT_PROFILES, ValidationStage
 
@@ -356,7 +355,7 @@ def _discover_database(workspace: Path, profile: DiscoveredProfile) -> str:
     return "unknown"
 
 
-def probe_profile(profile: DiscoveredProfile, *, checks: Tuple[str, ...]) -> ProfileProbeResult:
+def probe_profile(profile: DiscoveredProfile, *, checks: tuple[str, ...]) -> ProfileProbeResult:
     failures = tuple(gap.reason for gap in profile.gaps if gap.required)
     passed = bool(checks) and not failures
     return ProfileProbeResult(profile=profile, passed=passed, checks=checks, failures=failures)

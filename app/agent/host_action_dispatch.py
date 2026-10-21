@@ -8,11 +8,12 @@ layer importing the Web layer.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from collections.abc import Callable
 
 StateActionDispatcher = Callable[[str, Any], int]
 
-_dispatcher: Optional[StateActionDispatcher] = None
+_dispatcher: StateActionDispatcher | None = None
 
 
 def register_state_action_dispatcher(dispatcher: StateActionDispatcher) -> None:

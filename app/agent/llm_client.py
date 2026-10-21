@@ -15,7 +15,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 import httpx
 
@@ -32,9 +33,9 @@ MAX_CONCURRENT_PER_MODEL = 2  # 同一模型最多 2 个并发请求，避免 50
 # 按模型信号量缓存的条目上限。超出后回收空闲条目，避免动态模型名令模块级
 # dict 无界增长（LC8）。
 MAX_CACHED_MODEL_SEMAPHORES = 64
-_global_semaphore: Optional[asyncio.Semaphore] = None
-_model_semaphores: Dict[str, asyncio.Semaphore] = {}
-_model_semaphore_limits: Dict[str, int] = {}
+_global_semaphore: asyncio.Semaphore | None = None
+_model_semaphores: dict[str, asyncio.Semaphore] = {}
+_model_semaphore_limits: dict[str, int] = {}
 
 # 智谱免费档按模型限流；未列出的模型沿用 MAX_CONCURRENT_PER_MODEL。
 MODEL_CONCURRENCY_LIMITS = {
@@ -125,12 +126,12 @@ class LLMClient:
         self,
         model_name: str,
         task_type: str = "generate",
-        api_key_token: Optional[str] = None,
-        provider_id: Optional[str] = None,
+        api_key_token: str | None = None,
+        provider_id: str | None = None,
         cost_tracker=None,
         complexity: str = "medium",
-        semaphore: Optional[asyncio.Semaphore] = None,
-        cancel_event: Optional[asyncio.Event] = None,
+        semaphore: asyncio.Semaphore | None = None,
+        cancel_event: asyncio.Event | None = None,
     ):
         self.model_name = model_name
         self.task_type = task_type
@@ -160,7 +161,7 @@ class LLMClient:
             logger.debug(f"检查降级链偏好失败（非致命）: {e}")
         return False
 
-    async def call(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: Optional[int] = None) -> str:
+    async def call(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: int | None = None) -> str:
         """调用 LLM
 
         Args:
@@ -183,8 +184,8 @@ class LLMClient:
         self,
         prompt: str,
         system_prompt: str = "",
-        on_chunk: Optional[StreamChunkCallback] = None,
-        thinking_budget: Optional[int] = None,
+        on_chunk: StreamChunkCallback | None = None,
+        thinking_budget: int | None = None,
     ) -> str:
         """流式调用 LLM，逐 token 回调
 
@@ -269,8 +270,8 @@ class LLMClient:
         prompt: str,
         system_prompt: str,
         on_chunk: StreamChunkCallback,
-        thinking_budget: Optional[int] = None,
-    ) -> tuple[str, str, Dict[str, Any]]:
+        thinking_budget: int | None = None,
+    ) -> tuple[str, str, dict[str, Any]]:
         """消费 LLM 流式响应，返回 (full_content, full_reasoning, last_response_meta)
 
         适配器在 stream=True 时返回 AsyncIterator[str]，每行是 OpenAI 兼容格式的 JSON chunk 字符串。
@@ -308,7 +309,7 @@ class LLMClient:
 
         full_content = ""
         full_reasoning = ""
-        last_meta: Dict[str, Any] = {}
+        last_meta: dict[str, Any] = {}
         consume_started = time.monotonic()
         first_content_logged = False
         first_reasoning_logged = False
@@ -388,13 +389,13 @@ class LLMClient:
             len(full_reasoning),
         )
         # 合成兼容的 response dict 以复用 cost tracking
-        synthetic_response: Dict[str, Any] = {
+        synthetic_response: dict[str, Any] = {
             "choices": [{"message": {"content": full_content}}],
             "usage": last_meta.get("usage", {}),
         }
         return full_content, full_reasoning, synthetic_response
 
-    def _record_usage(self, response: Dict[str, Any], start_time: float) -> None:
+    def _record_usage(self, response: dict[str, Any], start_time: float) -> None:
         """记录成本追踪"""
         usage = response.get("usage", {}) if response else {}
         if usage and self._cost_tracker:
@@ -413,8 +414,8 @@ class LLMClient:
         self,
         prompt: str,
         system_prompt: str = "",
-        on_chunk: Optional[StreamChunkCallback] = None,
-        thinking_budget: Optional[int] = None,
+        on_chunk: StreamChunkCallback | None = None,
+        thinking_budget: int | None = None,
     ) -> str:
         """非流式调用 LLM（call() 走此路径）
 
@@ -497,7 +498,7 @@ class LLMClient:
             raise LLMClientError(f"LLM 调用失败: {self.model_name} - {e}") from e
 
     @property
-    def model_config(self) -> Dict:
+    def model_config(self) -> dict:
         return self._model_config
 
     @property

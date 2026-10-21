@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Set
 
 from .models import State, StateDelta
 
@@ -14,7 +13,7 @@ class StateConflictError(RuntimeError):
 
 class StateReducer:
     def __init__(self) -> None:
-        self._applied_event_ids: Set[str] = set()
+        self._applied_event_ids: set[str] = set()
 
     def apply(self, state: State, delta: StateDelta) -> State:
         if delta.expected_revision != state.revision:

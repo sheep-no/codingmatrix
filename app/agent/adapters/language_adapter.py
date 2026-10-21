@@ -11,7 +11,7 @@ LanguageAdapter - 语言适配层
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
 
 _EXTERNAL_SOURCE_SUFFIXES = {
     ".py", ".pyw", ".pyi",
@@ -25,7 +25,7 @@ _IMPORT_LINE_PREFIXES = (
 )
 
 
-def iter_logical_lines(content: str) -> List[str]:
+def iter_logical_lines(content: str) -> list[str]:
     """把导入语句的括号续行合并为单个逻辑行。
 
     Python/JS 的导入可用括号/花括号跨多行书写（`from x import (a,\\n b)`、
@@ -33,7 +33,7 @@ def iter_logical_lines(content: str) -> List[str]:
     关键字开头的行才可能触发合并，普通代码行原样输出，避免把无关的多行
     表达式拼到一起。
     """
-    logical: List[str] = []
+    logical: list[str] = []
     buf = ""
     depth = 0
     for raw in content.split("\n"):
@@ -58,10 +58,10 @@ def iter_logical_lines(content: str) -> List[str]:
 class ImportInfo:
     """导入信息"""
     module: str                  # 模块路径 (e.g., "app.models", "github.com/org/repo")
-    symbols: List[str] = field(default_factory=list)  # 导入的符号 (e.g., ["User", "Base"])
+    symbols: list[str] = field(default_factory=list)  # 导入的符号 (e.g., ["User", "Base"])
     is_relative: bool = False    # 是否是相对导入
     level: int = 0               # 相对导入层级（`.` 的个数），绝对导入为 0
-    alias: Optional[str] = None  # 别名 (e.g., "import numpy as np")
+    alias: str | None = None  # 别名 (e.g., "import numpy as np")
     raw_line: str = ""           # 原始行内容
 
 
@@ -71,7 +71,7 @@ class SymbolDefinition:
     name: str                    # 符号名
     symbol_type: str             # 类型: function, class, variable, constant, interface, type, struct
     line_number: int = 0
-    signature: Optional[str] = None  # 函数签名
+    signature: str | None = None  # 函数签名
     is_exported: bool = True     # 是否导出
 
 
@@ -82,7 +82,7 @@ class LanguageAdapter(ABC):
     language: str = "unknown"
 
     # 支持的文件扩展名
-    extensions: List[str] = []
+    extensions: list[str] = []
 
     # 包入口文件名 (Python: __init__.py, JS: index.js)
     package_init_filename: str = "__init__.py"
@@ -91,7 +91,7 @@ class LanguageAdapter(ABC):
     supports_cross_file_symbol_validation: bool = True
 
     @abstractmethod
-    def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
+    def parse_imports(self, content: str, file_path: str = "") -> list[ImportInfo]:
         """
         解析文件内容中的导入语句
 
@@ -104,7 +104,7 @@ class LanguageAdapter(ABC):
         """
 
     @abstractmethod
-    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> List[str]:
+    def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
         """
         将导入路径解析为可能的文件路径
 
@@ -129,7 +129,7 @@ class LanguageAdapter(ABC):
         """
 
     @abstractmethod
-    def extract_definitions(self, content: str) -> Dict[str, SymbolDefinition]:
+    def extract_definitions(self, content: str) -> dict[str, SymbolDefinition]:
         """
         提取文件中的符号定义
 
@@ -140,7 +140,7 @@ class LanguageAdapter(ABC):
             符号名 -> 定义信息的映射
         """
 
-    def extract_signatures(self, content: str, file_path: str = "") -> Optional[str]:
+    def extract_signatures(self, content: str, file_path: str = "") -> str | None:
         """提取依赖上下文所需的签名；专用适配器可接入语言工具链。"""
         from app.agent.signature_extractor import extract_signatures
 
@@ -150,7 +150,7 @@ class LanguageAdapter(ABC):
         self,
         content: str,
         file_path: str = "",
-    ) -> Mapping[str, Tuple[str, ...]]:
+    ) -> Mapping[str, tuple[str, ...]]:
         """Project source into fact sets understood by the generic contract gate."""
         definitions = self.extract_definitions(content)
         imports = self.parse_imports(content, file_path)
@@ -165,7 +165,7 @@ class LanguageAdapter(ABC):
             "signatures": signatures,
         }
 
-    def source_diagnostics(self, content: str, file_path: str = "") -> Tuple[str, ...]:
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]:
         """Return language-owned diagnostics that do not depend on project semantics."""
         return ()
 
@@ -173,8 +173,8 @@ class LanguageAdapter(ABC):
         self,
         file_path: str,
         file_type: str,
-        architecture: Optional[Dict] = None,
-    ) -> Optional[str]:
+        architecture: dict | None = None,
+    ) -> str | None:
         """Return a deterministic skeleton for entry, manifests, README, and frozen tests."""
         from .boilerplate import scaffold_for_language
 
@@ -189,8 +189,8 @@ class LanguageAdapter(ABC):
         self,
         content: str,
         file_path: str,
-        diagnostics: Tuple[str, ...],
-    ) -> Optional[str]:
+        diagnostics: tuple[str, ...],
+    ) -> str | None:
         """Return one language-owned minimal repair candidate when available."""
         return None
 
@@ -219,7 +219,7 @@ class LanguageAdapter(ABC):
         """
 
     @abstractmethod
-    def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
+    def validate_package_structure(self, package_path: str, files: dict[str, str]) -> list[str]:
         """
         验证包结构完整性，返回缺失的文件列表
 
@@ -250,7 +250,7 @@ class LanguageAdapter(ABC):
         prefixes = getattr(self, "external_package_prefixes", ()) or ()
         return bool(prefixes) and dotted.startswith(prefixes)
 
-    def get_required_package_files(self, package_path: str) -> List[str]:
+    def get_required_package_files(self, package_path: str) -> list[str]:
         """
         获取包所需的全部文件
 
@@ -286,8 +286,8 @@ class LanguageAdapterRegistry:
     4. Fallback 到 GenericLanguageAdapter
     """
 
-    _adapters: Dict[str, LanguageAdapter] = {}
-    _extension_map: Dict[str, str] = {}  # extension -> language
+    _adapters: dict[str, LanguageAdapter] = {}
+    _extension_map: dict[str, str] = {}  # extension -> language
 
     @classmethod
     def register(cls, adapter: LanguageAdapter):
@@ -297,7 +297,7 @@ class LanguageAdapterRegistry:
             cls._extension_map[ext] = adapter.language
 
     @classmethod
-    def get_adapter(cls, language: str) -> Optional[LanguageAdapter]:
+    def get_adapter(cls, language: str) -> LanguageAdapter | None:
         """
         根据语言名获取适配器
 
@@ -311,7 +311,7 @@ class LanguageAdapterRegistry:
         return cls._adapters.get("generic")
 
     @classmethod
-    def get_adapter_for_file(cls, file_path: str) -> Optional[LanguageAdapter]:
+    def get_adapter_for_file(cls, file_path: str) -> LanguageAdapter | None:
         """
         根据文件路径获取适配器
 
@@ -330,8 +330,8 @@ class LanguageAdapterRegistry:
         cls,
         file_path: str,
         file_type: str = "",
-        architecture: Optional[Dict] = None,
-    ) -> Optional[str]:
+        architecture: dict | None = None,
+    ) -> str | None:
         architecture = architecture or {}
         language = (
             architecture.get("language")
@@ -344,7 +344,7 @@ class LanguageAdapterRegistry:
         return adapter.scaffold_boilerplate(file_path, file_type or "", architecture)
 
     @classmethod
-    def detect_language(cls, files: Dict[str, str]) -> str:
+    def detect_language(cls, files: dict[str, str]) -> str:
         """
         根据文件集合自动检测项目语言
 
@@ -354,7 +354,7 @@ class LanguageAdapterRegistry:
         Returns:
             检测到的语言名（如果没有明确匹配，返回 "generic"）
         """
-        ext_count: Dict[str, int] = {}
+        ext_count: dict[str, int] = {}
 
         for file_path in files:
             ext = Path(file_path).suffix
@@ -380,7 +380,7 @@ class LanguageAdapterRegistry:
         return "generic"
 
     @classmethod
-    def get_adapter_for_project(cls, files: Dict[str, str]) -> LanguageAdapter:
+    def get_adapter_for_project(cls, files: dict[str, str]) -> LanguageAdapter:
         """
         根据项目文件自动选择最佳适配器
 
@@ -394,12 +394,12 @@ class LanguageAdapterRegistry:
         return cls.get_adapter(language)
 
     @classmethod
-    def get_all_adapters(cls) -> Dict[str, LanguageAdapter]:
+    def get_all_adapters(cls) -> dict[str, LanguageAdapter]:
         """获取所有已注册的适配器"""
         return cls._adapters.copy()
 
     @classmethod
-    def get_supported_extensions(cls) -> List[str]:
+    def get_supported_extensions(cls) -> list[str]:
         """获取所有支持的文件扩展名"""
         return list(cls._extension_map.keys())
 

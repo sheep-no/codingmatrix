@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Dict, Iterable, Set
+from typing import Any
+from collections.abc import Callable, Iterable
 
 from app.agent.state import State, StateDelta
 
@@ -11,7 +12,7 @@ LOCAL_SCOPES = {"local_runtime", "local_e2e"}
 UNSUPPORTED_STATUS = "unsupported"
 
 
-def _required_scopes(state: State) -> Set[str]:
+def _required_scopes(state: State) -> set[str]:
     configured = state.metadata.get("required_validation_scopes", [])
     if isinstance(configured, str):
         configured = [configured]
@@ -19,8 +20,8 @@ def _required_scopes(state: State) -> Set[str]:
 
 
 def derive_validation_status(
-    validation_results: Iterable[Dict[str, Any]],
-    required_scopes: Set[str],
+    validation_results: Iterable[dict[str, Any]],
+    required_scopes: set[str],
 ) -> str:
     results = list(validation_results)
     if any(result.get("passed") is False for result in results):
@@ -77,7 +78,7 @@ async def cloud_validation_node(
     )
 
 
-def local_validation_action(state: State, action: Dict[str, Any]) -> StateDelta:
+def local_validation_action(state: State, action: dict[str, Any]) -> StateDelta:
     if not isinstance(action, dict) or not action.get("type"):
         raise ValueError("local validation action requires a type")
     scopes = action.get("scopes", action.get("scope", []))

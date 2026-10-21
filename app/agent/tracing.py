@@ -32,7 +32,8 @@ import logging
 import math
 import os
 from contextvars import ContextVar
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ _otlp_endpoint: str = os.environ.get("OTEL_OTLP_ENDPOINT", "http://otel-collecto
 _service_name: str = os.environ.get("OTEL_SERVICE_NAME", "ai-agent")
 _sampling_rate: float = _parse_sampling_rate()
 
-_current_trace_id: ContextVar[Optional[str]] = ContextVar("current_trace_id", default=None)
+_current_trace_id: ContextVar[str | None] = ContextVar("current_trace_id", default=None)
 
 tracer: Any = None
 _tracer_provider: Any = None
@@ -192,7 +193,7 @@ if tracer is None:
     tracer = _NoopTracer()
 
 
-def traced(span_name: str, attributes: Optional[dict] = None):
+def traced(span_name: str, attributes: dict | None = None):
     """
     装饰器：为 async/sync 函数自动创建 Span
 
@@ -251,7 +252,7 @@ def _set_result_attrs(span, result):
                 span.set_attribute(f"result.{key}", result[key])
 
 
-def get_current_trace_id() -> Optional[str]:
+def get_current_trace_id() -> str | None:
     """获取当前 Trace ID（用于日志关联）"""
     if _otel_enabled and tracer is not None:
         from opentelemetry import trace

@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,9 +40,9 @@ class ValidationFinding(BaseModel):
 
     category: ValidationCategory
     message: str = Field(min_length=1)
-    file_path: Optional[str] = None
+    file_path: str | None = None
     scope: str = "cloud_syntax"
-    code: Optional[str] = None
+    code: str | None = None
     context_hash: str = Field(min_length=64, max_length=64)
 
 
@@ -62,8 +63,8 @@ class ValidationReport(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: str = "cloud"
-    findings: Tuple[ValidationFinding, ...] = ()
-    repair_evidence: Tuple[RepairEvidence, ...] = ()
+    findings: tuple[ValidationFinding, ...] = ()
+    repair_evidence: tuple[RepairEvidence, ...] = ()
     report_hash: str = Field(min_length=64, max_length=64)
 
     @classmethod
@@ -73,7 +74,7 @@ class ValidationReport(BaseModel):
         repair_evidence: Iterable[RepairEvidence] = (),
         *,
         source: str = "cloud",
-    ) -> "ValidationReport":
+    ) -> ValidationReport:
         normalized_findings = tuple(findings)
         normalized_repairs = tuple(repair_evidence)
         return cls(
@@ -92,18 +93,18 @@ class ValidationReport(BaseModel):
         return not self.findings
 
     @property
-    def scopes(self) -> Tuple[str, ...]:
+    def scopes(self) -> tuple[str, ...]:
         return tuple(sorted({finding.scope for finding in self.findings}))
 
     def with_finding(
         self,
         message: str,
         *,
-        category: Optional[ValidationCategory] = None,
-        file_path: Optional[str] = None,
+        category: ValidationCategory | None = None,
+        file_path: str | None = None,
         scope: str = "cloud_syntax",
-        code: Optional[str] = None,
-    ) -> "ValidationReport":
+        code: str | None = None,
+    ) -> ValidationReport:
         route_category = RepairRouter.route(error_message=message).category
         resolved = category or _ROUTE_CATEGORY_ALIASES.get(route_category)
         if resolved is None:
@@ -127,7 +128,7 @@ class ValidationReport(BaseModel):
         finding: ValidationFinding,
         candidate: str,
         budget: RepairBudget,
-    ) -> tuple[RepairRoute, Optional[RepairEvidence]]:
+    ) -> tuple[RepairRoute, RepairEvidence | None]:
         route = RepairRouter.route(finding.category.value, finding.message)
         if not route.auto_apply or not budget.consume(finding.category.value):
             return route, None

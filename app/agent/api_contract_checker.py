@@ -17,7 +17,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +36,9 @@ class APIEndpoint:
     method: EndpointMethod
     file_path: str
     line_number: int = 0
-    params: List[str] = field(default_factory=list)
-    request_body: Optional[str] = None
-    response_type: Optional[str] = None
+    params: list[str] = field(default_factory=list)
+    request_body: str | None = None
+    response_type: str | None = None
     description: str = ""
 
 
@@ -49,8 +48,8 @@ class ConsistencyIssue:
     severity: str  # 'error', 'warning', 'info'
     issue_type: str  # 'missing_backend', 'missing_frontend', 'method_mismatch'
     message: str
-    frontend_endpoint: Optional[APIEndpoint] = None
-    backend_endpoint: Optional[APIEndpoint] = None
+    frontend_endpoint: APIEndpoint | None = None
+    backend_endpoint: APIEndpoint | None = None
     suggestion: str = ""
 
 
@@ -113,11 +112,11 @@ class APIContractChecker:
     )
 
     def __init__(self):
-        self.backend_endpoints: List[APIEndpoint] = []
-        self.frontend_endpoints: List[APIEndpoint] = []
-        self.issues: List[ConsistencyIssue] = []
+        self.backend_endpoints: list[APIEndpoint] = []
+        self.frontend_endpoints: list[APIEndpoint] = []
+        self.issues: list[ConsistencyIssue] = []
 
-    def extract_backend_endpoints(self, code: str, file_path: str, framework: Optional[str] = None) -> List[APIEndpoint]:
+    def extract_backend_endpoints(self, code: str, file_path: str, framework: str | None = None) -> list[APIEndpoint]:
         """
         从后端代码中提取 API 端点
 
@@ -129,7 +128,7 @@ class APIContractChecker:
         Returns:
             提取的端点列表
         """
-        endpoints: List[APIEndpoint] = []
+        endpoints: list[APIEndpoint] = []
 
         if framework is None:
             framework = self._detect_framework(code)
@@ -169,7 +168,7 @@ class APIContractChecker:
 
         return endpoints
 
-    def extract_frontend_endpoints(self, code: str, file_path: str) -> List[APIEndpoint]:
+    def extract_frontend_endpoints(self, code: str, file_path: str) -> list[APIEndpoint]:
         """
         从前端代码中提取 API 调用端点
 
@@ -180,7 +179,7 @@ class APIContractChecker:
         Returns:
             提取的端点列表
         """
-        endpoints: List[APIEndpoint] = []
+        endpoints: list[APIEndpoint] = []
 
         # fetch('/path', {method: '...'}) / fetch(`/path/${id}`)
         for match in self._FETCH_RE.finditer(code):
@@ -231,9 +230,9 @@ class APIContractChecker:
 
     def check_consistency(
         self,
-        frontend_files: Dict[str, str],
-        backend_files: Dict[str, str]
-    ) -> List[ConsistencyIssue]:
+        frontend_files: dict[str, str],
+        backend_files: dict[str, str]
+    ) -> list[ConsistencyIssue]:
         """
         检查前后端 API 一致性
 
@@ -323,8 +322,8 @@ class APIContractChecker:
         file_path: str,
         code: str,
         is_frontend: bool,
-        counterpart_files: Dict[str, str]
-    ) -> List[ConsistencyIssue]:
+        counterpart_files: dict[str, str]
+    ) -> list[ConsistencyIssue]:
         """
         检查单个文件与对应端的一致性
 
@@ -394,7 +393,7 @@ class APIContractChecker:
 
         return issues
 
-    def generate_api_contract(self, backend_files: Dict[str, str]) -> Dict[str, List[Dict]]:
+    def generate_api_contract(self, backend_files: dict[str, str]) -> dict[str, list[dict]]:
         """
         从后端代码生成 API 契约（用于注入到前端生成的 prompt 中）
 
@@ -468,9 +467,9 @@ class APIContractChecker:
         return 'fastapi'
 
     @staticmethod
-    def _collect_prefixes(assign_re, code: str, kw_re) -> Dict[str, str]:
+    def _collect_prefixes(assign_re, code: str, kw_re) -> dict[str, str]:
         """收集 APIRouter(prefix=...) / Blueprint(url_prefix=...) 变量到前缀的映射"""
-        prefixes: Dict[str, str] = {}
+        prefixes: dict[str, str] = {}
         for match in assign_re.finditer(code):
             kw = kw_re.search(match.group('args'))
             if kw:
@@ -496,7 +495,7 @@ class APIContractChecker:
         except ValueError:
             return EndpointMethod.GET
 
-    def _method_from_text(self, text: Optional[str]) -> EndpointMethod:
+    def _method_from_text(self, text: str | None) -> EndpointMethod:
         """从 options 对象文本中提取 method，缺省为 GET"""
         if text:
             match = self._METHOD_KW_RE.search(text)
@@ -509,8 +508,8 @@ class APIContractChecker:
 
     def _add_backend_endpoint(
         self,
-        endpoints: List[APIEndpoint],
-        methods: List[str],
+        endpoints: list[APIEndpoint],
+        methods: list[str],
         path: str,
         file_path: str,
         code: str,
@@ -557,9 +556,9 @@ class APIContractChecker:
         """把任意命名的路径参数折叠为 :param，用于前后端键匹配"""
         return self._CANONICAL_PARAM_RE.sub(':param', path)
 
-    def _build_path_index(self, endpoints: List[APIEndpoint]) -> Dict[str, List[APIEndpoint]]:
+    def _build_path_index(self, endpoints: list[APIEndpoint]) -> dict[str, list[APIEndpoint]]:
         """构建端点索引：canonical_path -> [endpoints]"""
-        index: Dict[str, List[APIEndpoint]] = {}
+        index: dict[str, list[APIEndpoint]] = {}
         for ep in endpoints:
             index.setdefault(self._canonical_path(ep.path), []).append(ep)
         return index
@@ -567,7 +566,7 @@ class APIContractChecker:
 
 # ==================== 便捷函数 ====================
 
-def check_api_consistency(frontend_files: Dict[str, str], backend_files: Dict[str, str]) -> Tuple[bool, List[ConsistencyIssue]]:
+def check_api_consistency(frontend_files: dict[str, str], backend_files: dict[str, str]) -> tuple[bool, list[ConsistencyIssue]]:
     """
     快速检查 API 一致性
 
@@ -584,7 +583,7 @@ def check_api_consistency(frontend_files: Dict[str, str], backend_files: Dict[st
     return not has_errors, issues
 
 
-def generate_frontend_prompt_contract(backend_files: Dict[str, str]) -> str:
+def generate_frontend_prompt_contract(backend_files: dict[str, str]) -> str:
     """
     生成前端生成用的 API 契约 prompt
 

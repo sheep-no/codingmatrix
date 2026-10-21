@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.state import State, StateDelta
 

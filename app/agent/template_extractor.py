@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Dict, List, Optional
 
 from app.agent.json_parser import extract_first_json_object
 from app.agent.models import DEFAULT_REASONING_MODEL
@@ -40,8 +39,8 @@ _REVIEW_OUTPUT_EXAMPLE = """{
 class TemplateExtractor:
 
     async def extract_template(
-        self, domain: str, projects: List[Dict]
-    ) -> Optional[Dict]:
+        self, domain: str, projects: list[dict]
+    ) -> dict | None:
         feature_lists = []
         for p in projects:
             fl = p.get("feature_list", [])
@@ -104,7 +103,7 @@ class TemplateExtractor:
 
     def _parse_template_response(
         self, response: str, domain: str
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         template = extract_first_json_object(response)
         if template:
             template["domain"] = domain
@@ -116,7 +115,7 @@ class TemplateExtractor:
         logger.warning(f"模板萃取输出非 JSON: {response[:100]}")
         return None
 
-    async def _review_template(self, template: Dict) -> Dict:
+    async def _review_template(self, template: dict) -> dict:
         prompt = f"""你是领域模板审核员。请审核以下自动萃取的领域模板，判断是否可以入库使用。
 
 模板内容：
@@ -146,7 +145,7 @@ class TemplateExtractor:
 
         return {"approved": False, "reason": "审核过程异常"}
 
-    def _save_template(self, template: Dict, domain: str):
+    def _save_template(self, template: dict, domain: str):
         existing_path = DOMAIN_TEMPLATES_DIR / f"{domain}.json"
         if existing_path.exists():
             with open(existing_path, "r", encoding="utf-8") as f:

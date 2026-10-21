@@ -11,7 +11,6 @@ import logging
 import re
 import shlex
 from pathlib import Path
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 # 用 ContextVar 而非模块级全局：多项目同进程交替/并发生成时，全局变量会被
 # 后一个项目的白名单整体覆盖（T5）。ContextVar 让设置只作用于当前任务及其
 # 派生子任务，互不干扰。
-_allowed_file_paths: contextvars.ContextVar[Optional[frozenset]] = contextvars.ContextVar(
+_allowed_file_paths: contextvars.ContextVar[frozenset | None] = contextvars.ContextVar(
     "allowed_file_paths", default=None
 )
 
@@ -128,7 +127,7 @@ _EXT_BY_LANG = {
 }
 
 
-def _get_patterns_for_file(file_path: str) -> Dict:
+def _get_patterns_for_file(file_path: str) -> dict:
     """根据文件扩展名获取对应的正则模式"""
     ext = Path(file_path).suffix.lower()
     patterns = _SYMBOL_PATTERNS.get(ext)
@@ -177,7 +176,7 @@ def _extract_module_name(statement: str, ext: str) -> str:
 
 
 def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
-                    limit: int = 100) -> Dict:
+                    limit: int = 100) -> dict:
     """读取文件内容（支持分页）"""
     try:
         full_path = _safe_join(project_path, file_path)
@@ -204,7 +203,7 @@ def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
 
 
 def _tool_list_files(project_path: str, directory: str = ".",
-                     max_depth: int = 2) -> Dict:
+                     max_depth: int = 2) -> dict:
     """列出目录结构"""
     try:
         project_resolved = Path(project_path).resolve()
@@ -244,7 +243,7 @@ def _scan_dir(path: Path, entries: list, depth: int, max_depth: int, base: Path)
 # ==================== 代码分析工具（精读级） ====================
 
 
-def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
+def _tool_read_symbols(project_path: str, file_path: str) -> dict:
     """提取文件中的函数和类签名（不读取函数体）"""
     try:
         full_path = _safe_join(project_path, file_path)
@@ -299,7 +298,7 @@ def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
         return {"error": str(e)}
 
 
-def _tool_read_imports(project_path: str, file_path: str) -> Dict:
+def _tool_read_imports(project_path: str, file_path: str) -> dict:
     """提取文件中的 import 语句，分析依赖关系"""
     try:
         full_path = _safe_join(project_path, file_path)
@@ -333,7 +332,7 @@ def _tool_read_imports(project_path: str, file_path: str) -> Dict:
         return {"error": str(e)}
 
 
-def _tool_summarize_file(project_path: str, file_path: str) -> Dict:
+def _tool_summarize_file(project_path: str, file_path: str) -> dict:
     """返回文件摘要：导出的符号、行数、语言、依赖数"""
     try:
         full_path = _safe_join(project_path, file_path)
@@ -389,7 +388,7 @@ def _tool_summarize_file(project_path: str, file_path: str) -> Dict:
 
 
 def _tool_partial_update(project_path: str, path: str, target: str = None,
-                         replacement: str = None, function_name: str = None) -> Dict:
+                         replacement: str = None, function_name: str = None) -> dict:
     """精准替换文件中的函数或代码块"""
     try:
         full_path = _safe_join(project_path, path)
@@ -452,7 +451,7 @@ def _tool_partial_update(project_path: str, path: str, target: str = None,
 
 
 def _tool_insert_content(project_path: str, path: str, content: str,
-                         line: int = None, anchor: str = None) -> Dict:
+                         line: int = None, anchor: str = None) -> dict:
     """在文件指定位置插入内容（按行号或锚点文本）"""
     try:
         full_path = _safe_join(project_path, path)
@@ -484,7 +483,7 @@ def _tool_insert_content(project_path: str, path: str, content: str,
 
 
 def _tool_regex_replace(project_path: str, path: str, pattern: str,
-                        replacement: str, recursive: bool = False) -> Dict:
+                        replacement: str, recursive: bool = False) -> dict:
     """基于正则表达式的批量替换"""
     try:
         root = Path(project_path).resolve()
@@ -523,7 +522,7 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
 
 
 def _tool_execute_code(project_path: str, code: str, language: str = "python",
-                       timeout: int = 30) -> Dict:
+                       timeout: int = 30) -> dict:
     """沙箱执行代码验证（支持 Python 和 JavaScript）。
 
     注意：这是**弱沙箱**——危险操作靠静态正则黑名单拦截，字符串拼接、
@@ -551,7 +550,7 @@ def _tool_execute_code(project_path: str, code: str, language: str = "python",
         return {"success": False, "error": str(e)}
 
 
-def _execute_python_sandbox(code: str, timeout: int) -> Dict:
+def _execute_python_sandbox(code: str, timeout: int) -> dict:
     """Python 沙箱执行（子进程隔离 + 静态正则黑名单）。
 
     黑名单是尽力而为的拦截、可被混淆绕过，非安全边界（T6）。
@@ -602,7 +601,7 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
                 pass
 
 
-def _execute_js_sandbox(code: str, timeout: int) -> Dict:
+def _execute_js_sandbox(code: str, timeout: int) -> dict:
     """JavaScript 沙箱执行（通过 Node.js 子进程）"""
     import subprocess
     import tempfile
@@ -690,7 +689,7 @@ _ALLOWED_COMMAND_PREFIXES = [
 ]
 
 
-def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout: int = 60) -> Dict:
+def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout: int = 60) -> dict:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import os
     import subprocess
@@ -798,7 +797,7 @@ def _tool_search_files(
     directory: str = ".",
     context_lines: int = 1,
     max_results: int = 50,
-) -> Dict:
+) -> dict:
     """在项目文件中搜索文本或正则模式（grep 封装）
 
     用于跨文件验证：检查某个符号是否在目标文件中定义、某个导入是否正确等。
@@ -906,7 +905,7 @@ def _tool_search_files(
 # ==================== 写入工具 ====================
 
 
-def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
+def _tool_write_file(project_path: str, path: str, content: str) -> dict:
     """写入文件内容（创建或覆盖）"""
     try:
         from app.agent.utils import (
@@ -1032,7 +1031,7 @@ def _validate_file_syntax(file_path: str, content: str) -> str:
 # ==================== Git 工具 ====================
 
 
-def _run_git(project_path: str, args: list, timeout: int = 30) -> Dict:
+def _run_git(project_path: str, args: list, timeout: int = 30) -> dict:
     """执行 git 命令的内部辅助"""
     import subprocess
     try:
@@ -1055,7 +1054,7 @@ def _run_git(project_path: str, args: list, timeout: int = 30) -> Dict:
         return {"success": False, "error": str(e)}
 
 
-def _tool_git_status(project_path: str) -> Dict:
+def _tool_git_status(project_path: str) -> dict:
     """查看 Git 工作区状态"""
     result = _run_git(project_path, ["status", "--porcelain"])
     if not result["success"]:
@@ -1078,7 +1077,7 @@ def _tool_git_status(project_path: str) -> Dict:
     return {"success": True, "branch": branch, "files": files, "total": len(files)}
 
 
-def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = False) -> Dict:
+def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = False) -> dict:
     """查看 Git 文件差异"""
     args = ["diff"]
     if staged:
@@ -1098,7 +1097,7 @@ def _tool_git_diff(project_path: str, file_path: str = None, staged: bool = Fals
     return {"success": True, "stat": stat, "diff": detail[:10000]}
 
 
-def _tool_git_commit(project_path: str, message: str, files: list = None) -> Dict:
+def _tool_git_commit(project_path: str, message: str, files: list = None) -> dict:
     """提交 Git 修改"""
     if not message:
         return {"success": False, "error": "提交信息不能为空"}
@@ -1122,7 +1121,7 @@ def _tool_git_commit(project_path: str, message: str, files: list = None) -> Dic
     return {"success": True, "message": message, "commit_info": log_result.get("stdout", "")}
 
 
-def _tool_git_log(project_path: str, count: int = 10, file_path: str = None) -> Dict:
+def _tool_git_log(project_path: str, count: int = 10, file_path: str = None) -> dict:
     """查看 Git 提交历史"""
     args = ["log", f"-{count}", "--format=%H|%h|%an|%ai|%s"]
     if file_path:
@@ -1152,7 +1151,7 @@ def _tool_git_log(project_path: str, count: int = 10, file_path: str = None) -> 
 # ==================== 网络/搜索工具 ====================
 
 
-async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> Dict:
+async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> dict:
     """搜索网络信息（无 Key 的 Bing/DuckDuckGo HTML 检索）"""
     try:
         from app.utils.web_search import FreeWebSearch
@@ -1169,7 +1168,7 @@ async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> Dic
 
 
 async def _tool_http_request(project_path: str, method: str, url: str,
-                              headers: dict = None, body: dict = None) -> Dict:
+                              headers: dict = None, body: dict = None) -> dict:
     """发送 HTTP 请求（带 SSRF 防护）"""
     import ipaddress
     from urllib.parse import urlparse
@@ -1228,7 +1227,7 @@ async def _tool_http_request(project_path: str, method: str, url: str,
 
 
 def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
-                                   recursive: bool = False) -> Dict:
+                                   recursive: bool = False) -> dict:
     """按 glob 模式批量删除文件"""
     import os
     try:

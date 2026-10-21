@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Any, Dict, List
+from typing import Any
 
 from app.agent.state import State
 
 
-def state_to_session_summary(state: State) -> Dict[str, Any]:
+def state_to_session_summary(state: State) -> dict[str, Any]:
     return {
         "session_id": state.session_id,
         "task_id": state.task_id,
@@ -21,7 +21,7 @@ def state_to_session_summary(state: State) -> Dict[str, Any]:
     }
 
 
-def replay_messages(state: State, after_sequence: int = 0) -> List[Dict[str, Any]]:
+def replay_messages(state: State, after_sequence: int = 0) -> list[dict[str, Any]]:
     return [
         message.to_dict()
         for message in state.messages
@@ -29,7 +29,7 @@ def replay_messages(state: State, after_sequence: int = 0) -> List[Dict[str, Any
     ]
 
 
-def replay_session(state: State, after_sequence: int = 0) -> Dict[str, Any]:
+def replay_session(state: State, after_sequence: int = 0) -> dict[str, Any]:
     """Return replay data and a recovery action when the requested window has a gap."""
     messages = replay_messages(state, after_sequence)
     expected = after_sequence + 1

@@ -26,7 +26,7 @@ class CheckpointStore:
             raise ValueError("task_id must be a simple non-empty file name")
         return self.directory / f"{task_id}.json"
 
-    def save(self, state: State, task_id: Optional[str] = None) -> Path:
+    def save(self, state: State, task_id: str | None = None) -> Path:
         target = self.path_for(task_id or state.task_id)
         payload = {
             "schema_version": CURRENT_SCHEMA_VERSION,
@@ -45,7 +45,7 @@ class CheckpointStore:
             raise
         return target
 
-    def load(self, task_id: str) -> Optional[State]:
+    def load(self, task_id: str) -> State | None:
         path = self.path_for(task_id)
         if not path.exists():
             return None

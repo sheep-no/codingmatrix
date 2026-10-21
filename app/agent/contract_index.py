@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Iterable, Mapping, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,11 +32,11 @@ class ContractIndex(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: int = Field(default=1, ge=1)
-    entries: Tuple[ContractEntry, ...] = ()
+    entries: tuple[ContractEntry, ...] = ()
     digest: str = Field(min_length=64, max_length=64)
 
     @model_validator(mode="after")
-    def validate_index(self) -> "ContractIndex":
+    def validate_index(self) -> ContractIndex:
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
             raise ValueError("contract names must be unique")
@@ -49,7 +50,7 @@ class ContractIndex(BaseModel):
         entries: Iterable[ContractEntry | Mapping[str, Any]],
         *,
         version: int = 1,
-    ) -> "ContractIndex":
+    ) -> ContractIndex:
         normalized = tuple(
             sorted(
                 (entry if isinstance(entry, ContractEntry) else ContractEntry.model_validate(entry) for entry in entries),
@@ -58,10 +59,10 @@ class ContractIndex(BaseModel):
         )
         return cls(version=version, entries=normalized, digest=_digest(version, normalized))
 
-    def get(self, name: str) -> Optional[ContractEntry]:
+    def get(self, name: str) -> ContractEntry | None:
         return next((entry for entry in self.entries if entry.name == name), None)
 
-    def missing(self, names: Iterable[str]) -> Tuple[str, ...]:
+    def missing(self, names: Iterable[str]) -> tuple[str, ...]:
         known = {entry.name for entry in self.entries}
         return tuple(sorted(set(names) - known))
 
@@ -71,7 +72,7 @@ class ContractIndex(BaseModel):
         plan: Any,
         *,
         contracts: Any = None,
-    ) -> "ContractIndex":
+    ) -> ContractIndex:
         """Freeze plan interfaces, file contracts, and explicit contracts together."""
         entries: list[ContractEntry] = []
         interfaces = getattr(plan, "interfaces", None)
@@ -121,13 +122,13 @@ class ContractIndex(BaseModel):
         return cls.build(unique_entries, version=int(getattr(plan, "version", 1)))
 
 
-def _digest(version: int, entries: Tuple[ContractEntry, ...]) -> str:
+def _digest(version: int, entries: tuple[ContractEntry, ...]) -> str:
     payload = {"version": version, "entries": [entry.model_dump(mode="json") for entry in entries]}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _explicit_contract_entries(contracts: Any) -> Tuple[ContractEntry, ...]:
+def _explicit_contract_entries(contracts: Any) -> tuple[ContractEntry, ...]:
     if contracts is None:
         return ()
     if isinstance(contracts, ContractIndex):

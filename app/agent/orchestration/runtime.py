@@ -7,7 +7,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any
+from collections.abc import Mapping
 
 from app.agent.shared_context import SharedContext
 
@@ -18,7 +19,7 @@ from .routing import CORE_ENGINE_VERSION
 from .store import OrchestrationCheckpointStore
 
 
-def _workflow_projection(state: OrchestrationState) -> Dict[str, Any]:
+def _workflow_projection(state: OrchestrationState) -> dict[str, Any]:
     """Project the frozen workflow control plane onto the API payload.
 
     Core writes ``WorkflowIR`` to the scheduling checkpoint. Exposing its digest
@@ -69,9 +70,9 @@ async def execute_core_generation(
     session_id: str,
     mode: str,
     output_dir: Path,
-    metadata: Optional[Mapping[str, Any]] = None,
-    cancel_event: Optional[asyncio.Event] = None,
-) -> Dict[str, Any]:
+    metadata: Mapping[str, Any] | None = None,
+    cancel_event: asyncio.Event | None = None,
+) -> dict[str, Any]:
     """Execute one adapter and project its result onto the existing API contract."""
     request = {"requirement": requirement, **dict(metadata or {})}
     if "profile_context" not in request:

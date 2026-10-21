@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 from textwrap import dedent
-from typing import Any, Literal, Mapping, Optional, Tuple
+from typing import Any, Literal
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,10 +32,10 @@ class FastApiCrudIR(BaseModel):
     resource_name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     route_path: str = Field(pattern=r"^/[a-zA-Z0-9_/{}/-]+$")
     database_file: str = Field(default="todos.db", pattern=r"^[a-zA-Z0-9_.-]+\.db$")
-    fields: Tuple[CrudField, ...] = ()
+    fields: tuple[CrudField, ...] = ()
 
     @model_validator(mode="after")
-    def validate_fields(self) -> "FastApiCrudIR":
+    def validate_fields(self) -> FastApiCrudIR:
         names = [field.name for field in self.fields]
         if not names:
             raise ValueError("CRUD IR requires at least one field")
@@ -56,7 +57,7 @@ class FastApiCrudLayout(BaseModel):
     test: str
 
     @property
-    def paths(self) -> Tuple[str, ...]:
+    def paths(self) -> tuple[str, ...]:
         return (
             self.entry,
             self.model,
@@ -349,13 +350,13 @@ def select_fastapi_crud_renderer(
     requirement: str,
     file_entries: Mapping[str, Mapping[str, Any]],
     supplied_ir: object = None,
-) -> Optional[FastApiCrudRenderer]:
+) -> FastApiCrudRenderer | None:
     """Select deterministic generation only for a complete supported contract."""
     layout = _resolve_layout(tuple(file_entries))
     if layout is None:
         return None
 
-    ir: Optional[FastApiCrudIR]
+    ir: FastApiCrudIR | None
     if isinstance(supplied_ir, Mapping):
         if supplied_ir.get("kind") != "fastapi_sqlite_crud":
             return None
@@ -367,7 +368,7 @@ def select_fastapi_crud_renderer(
     return FastApiCrudRenderer(ir, layout)
 
 
-def _resolve_layout(paths: Tuple[str, ...]) -> Optional[FastApiCrudLayout]:
+def _resolve_layout(paths: tuple[str, ...]) -> FastApiCrudLayout | None:
     if len(paths) != 6 or any(not path.endswith(".py") for path in paths):
         return None
     resolved: dict[str, str] = {}
@@ -385,7 +386,7 @@ def _resolve_layout(paths: Tuple[str, ...]) -> Optional[FastApiCrudLayout]:
     return FastApiCrudLayout.model_validate(resolved)
 
 
-def _infer_todo_ir(requirement: str) -> Optional[FastApiCrudIR]:
+def _infer_todo_ir(requirement: str) -> FastApiCrudIR | None:
     lowered = requirement.lower()
     crud_markers = "crud" in lowered or all(term in requirement for term in ("创建", "查询", "更新", "删除"))
     if "fastapi" not in lowered or "sqlite" not in lowered or not crud_markers:
@@ -432,12 +433,12 @@ def _schema_default(field: CrudField) -> str:
     return f" = {field.default!r}"
 
 
-def _example_payload(fields: Tuple[CrudField, ...]) -> dict[str, object]:
+def _example_payload(fields: tuple[CrudField, ...]) -> dict[str, object]:
     values = {"string": "generated", "integer": 1, "number": 1.5, "boolean": False}
     return {field.name: field.default if field.default is not None else values[field.type] for field in fields}
 
 
-def _updated_payload(fields: Tuple[CrudField, ...]) -> dict[str, object]:
+def _updated_payload(fields: tuple[CrudField, ...]) -> dict[str, object]:
     first = fields[0]
     values = {"string": "updated", "integer": 2, "number": 2.5, "boolean": True}
     return {first.name: values[first.type]}

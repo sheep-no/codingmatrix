@@ -18,7 +18,6 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,9 @@ class ConsistencyChecker:
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
-        self.drift_records: List[SchemaDrift] = []
+        self.drift_records: list[SchemaDrift] = []
 
-    def check_all(self, original_dir: Optional[Path] = None) -> List[SchemaDrift]:
+    def check_all(self, original_dir: Path | None = None) -> list[SchemaDrift]:
         """执行所有一致性检查"""
         self.drift_records = []
 
@@ -87,7 +86,7 @@ class ConsistencyChecker:
                     severity="warning"
                 ))
 
-    def _extract_signatures(self, directory: Path) -> Dict[str, str]:
+    def _extract_signatures(self, directory: Path) -> dict[str, str]:
         """从 Python 文件中提取函数签名"""
         signatures = {}
         for py_file in directory.rglob("*.py"):
@@ -136,7 +135,7 @@ class ConsistencyChecker:
                 except Exception as e:
                     logger.debug(f"检查配置漂移失败 {config_name}: {e}")
 
-    def _extract_dependencies(self, content: str) -> List[str]:
+    def _extract_dependencies(self, content: str) -> list[str]:
         """从 requirements.txt 提取依赖名"""
         deps = []
         for line in content.split('\n'):
@@ -177,7 +176,7 @@ class ConsistencyChecker:
                 except Exception as e:
                     logger.debug(f"检查 OpenAPI 漂移失败 {openapi_name}: {e}")
 
-    def _load_openapi(self, file_path: Path) -> Optional[Dict]:
+    def _load_openapi(self, file_path: Path) -> dict | None:
         """加载 OpenAPI 文件"""
         try:
             content = file_path.read_text()

@@ -8,7 +8,8 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Any, Protocol
+from collections.abc import Mapping, Sequence
 
 from app.agent.change_plan import (
     ChangePlan,
@@ -64,11 +65,11 @@ def preserved_local_import_gaps(
     original_content: str,
     new_content: str,
     known_files: Sequence[str],
-) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return diagnostics and original import lines dropped from a modify candidate."""
     known = {str(path).replace("\\", "/") for path in known_files}
 
-    def local_imports(content: str) -> Tuple[set[str], list[str]]:
+    def local_imports(content: str) -> tuple[set[str], list[str]]:
         paths: set[str] = set()
         raw_lines: list[str] = []
         if not content or language_adapter is None:
@@ -145,7 +146,7 @@ def _import_statement_key(line: str) -> str:
     return text
 
 
-def _split_line_ending(line: str) -> Tuple[str, str]:
+def _split_line_ending(line: str) -> tuple[str, str]:
     if line.endswith("\r\n"):
         return line[:-2], "\r\n"
     if line.endswith("\n"):
@@ -166,7 +167,7 @@ class GenerationModeAdapter(Protocol):
 def _context_contract_payload(
     context: FileGenerationContext,
     fallback_index: ContractIndex,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Project a file's frozen contracts into prompt-ready structured data."""
     contract_index = getattr(context, "contract_index", fallback_index)
     http_contracts = getattr(
@@ -213,14 +214,14 @@ class TraditionalAdapter:
             if isinstance(agent, LegacyAgentGenerationPort)
             else LegacyAgentGenerationPort(agent)
         )
-        self._architecture: Dict[str, Any] = {}
+        self._architecture: dict[str, Any] = {}
         self._requirement = ""
-        self._project_context: Dict[str, Any] = {}
-        self._plan: Optional[GenerationPlan] = None
+        self._project_context: dict[str, Any] = {}
+        self._plan: GenerationPlan | None = None
         self._shared_context: Any = None
         self._started_at = 0.0
-        self._generated_contents: Dict[str, str] = {}
-        self.project_plan: Optional[ProjectGenerationPlan] = None
+        self._generated_contents: dict[str, str] = {}
+        self.project_plan: ProjectGenerationPlan | None = None
         self.contract_index = ContractIndex.build(())
 
     async def create_plan(self, request: GenerationRequest) -> GenerationPlan:
@@ -428,20 +429,20 @@ class _PlannedAgentAdapter:
             else LegacyAgentGenerationPort(agent)
         )
         self.output_dir = Path(self.agent.output_dir)
-        self.project_plan: Optional[ProjectGenerationPlan] = None
+        self.project_plan: ProjectGenerationPlan | None = None
         self.contract_index = ContractIndex.build(())
-        self._plan: Optional[GenerationPlan] = None
+        self._plan: GenerationPlan | None = None
         self._requirement = ""
-        self._project_context: Dict[str, Any] = {}
-        self._file_entries: Dict[str, Dict[str, Any]] = {}
-        self._generated_contents: Dict[str, str] = {}
+        self._project_context: dict[str, Any] = {}
+        self._file_entries: dict[str, dict[str, Any]] = {}
+        self._generated_contents: dict[str, str] = {}
         self._repair_evidence: list[dict[str, str]] = []
         self._repair_strategies = StackRepairStrategyRegistry()
         self._dependency_graph: Any = None
         self._spec_generator: Any = None
         self._shared_context: Any = None
         self._started_at = 0.0
-        self.preserved_paths: Tuple[str, ...] = ()
+        self.preserved_paths: tuple[str, ...] = ()
 
     def bind_shared_context(self, context: Any) -> None:
         self._shared_context = context
@@ -454,7 +455,7 @@ class _PlannedAgentAdapter:
             self._shared_context = SharedContext(self._requirement, self.output_dir)
         return self._shared_context
 
-    def _complexity_payload(self) -> Dict[str, Any]:
+    def _complexity_payload(self) -> dict[str, Any]:
         complexity = self.agent.complexity
         if complexity is None:
             return {"level": "small", "estimated_files": 1}
@@ -468,7 +469,7 @@ class _PlannedAgentAdapter:
             "key_technologies": list(getattr(complexity, "key_technologies", ())),
         }
 
-    def _model_assignment_payload(self) -> Dict[str, str]:
+    def _model_assignment_payload(self) -> dict[str, str]:
         assignment = self.agent.model_assignment
         if assignment is None:
             return {}
@@ -535,7 +536,7 @@ class _PlannedAgentAdapter:
         )
         return self._plan
 
-    def _validate_local_imports(self, file_path: str, content: str) -> Tuple[str, ...]:
+    def _validate_local_imports(self, file_path: str, content: str) -> tuple[str, ...]:
         """Reject Python imports that escape the frozen project file set."""
         if not file_path.endswith(".py"):
             return ()
@@ -570,7 +571,7 @@ class _PlannedAgentAdapter:
         content: str,
         *,
         language: str = "",
-    ) -> tuple[Any, Tuple[str, ...]]:
+    ) -> tuple[Any, tuple[str, ...]]:
         file_info = self._file_entries.get(file_path, {})
         selected_language = str(
             language or
@@ -1025,7 +1026,7 @@ class SpecFirstAdapter(_PlannedAgentAdapter):
     @staticmethod
     def _build_allowed_file_plan(
         paths: Sequence[str], requirement: str = ""
-    ) -> Tuple[Dict[str, Any], ...]:
+    ) -> tuple[dict[str, Any], ...]:
         """Create a stable plan when the caller supplies a frozen file set."""
         manifests = {
             path
@@ -1073,7 +1074,7 @@ class SpecFirstAdapter(_PlannedAgentAdapter):
 
         entries = []
         for path in paths:
-            dependencies: Tuple[str, ...] = tuple(
+            dependencies: tuple[str, ...] = tuple(
                 candidate
                 for candidate in paths
                 if candidate != path
@@ -1109,7 +1110,7 @@ class IncrementalAdapter(_PlannedAgentAdapter):
 
     engine_version = "incremental-adapter-v1"
 
-    change_plan: Optional[ChangePlan] = None
+    change_plan: ChangePlan | None = None
 
     async def create_plan(self, request: GenerationRequest) -> GenerationPlan:
         self._started_at = time.monotonic()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def _utc_now() -> str:
@@ -15,9 +15,9 @@ def _utc_now() -> str:
 @dataclass(frozen=True)
 class RetrievalRequest:
     query: str
-    project_scope: Optional[str] = None
-    session_scope: Optional[str] = None
-    source_filters: List[str] = field(default_factory=list)
+    project_scope: str | None = None
+    session_scope: str | None = None
+    source_filters: list[str] = field(default_factory=list)
     limit: int = 5
 
     def __post_init__(self) -> None:
@@ -34,7 +34,7 @@ class RetrievalChunk:
     source_id: str
     score: float = 0.0
     content_hash: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     retrieved_at: str = field(default_factory=_utc_now)
 
     def __post_init__(self) -> None:
@@ -45,18 +45,18 @@ class RetrievalChunk:
                 hashlib.sha256(self.content.encode("utf-8")).hexdigest(),
             )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass
 class RetrievalResult:
-    chunks: List[RetrievalChunk] = field(default_factory=list)
+    chunks: list[RetrievalChunk] = field(default_factory=list)
     degraded: bool = False
-    fallback_mode: Optional[str] = None
-    errors: List[Dict[str, Any]] = field(default_factory=list)
+    fallback_mode: str | None = None
+    errors: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "chunks": [chunk.to_dict() for chunk in self.chunks],
             "degraded": self.degraded,

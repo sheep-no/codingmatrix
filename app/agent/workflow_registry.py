@@ -6,7 +6,8 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+from typing import Any
+from collections.abc import Awaitable, Callable, Iterable
 
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.host_action_dispatch import dispatch_state_actions
@@ -21,11 +22,11 @@ from app.agent.state import (
 )
 from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 
-_active_workflows: Dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
+_active_workflows: dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
 _checkpoint_store = CheckpointStore(
     Path(os.getenv("AGENT_STATE_CHECKPOINT_DIR", "data/agent_state_checkpoints"))
 )
-_recoverable_workflow_factories: Dict[str, Callable[[], WorkflowDefinition]] = {}
+_recoverable_workflow_factories: dict[str, Callable[[], WorkflowDefinition]] = {}
 logger = logging.getLogger(__name__)
 
 
@@ -68,12 +69,12 @@ class WorkflowDefinition:
     entry_node: str
     graph: StateGraph
     legacy_endpoint: str
-    core_handler: Optional[LegacyHandler] = None
+    core_handler: LegacyHandler | None = None
 
 
 class WorkflowRegistry:
     def __init__(self, definitions: Iterable[WorkflowDefinition] = ()) -> None:
-        self._definitions: Dict[str, WorkflowDefinition] = {}
+        self._definitions: dict[str, WorkflowDefinition] = {}
         for definition in definitions:
             self.register(definition)
 
@@ -82,7 +83,7 @@ class WorkflowRegistry:
             raise ValueError(f"invalid or duplicate workflow: {definition.name!r}")
         self._definitions[definition.name] = definition
 
-    def get(self, name: str) -> Optional[WorkflowDefinition]:
+    def get(self, name: str) -> WorkflowDefinition | None:
         return self._definitions.get(name)
 
     def names(self) -> list[str]:
@@ -92,7 +93,7 @@ class WorkflowRegistry:
 LegacyHandler = Callable[[State], Any | Awaitable[Any]]
 
 
-def get_legacy_result(state: State) -> Dict[str, Any]:
+def get_legacy_result(state: State) -> dict[str, Any]:
     """Return a wrapped endpoint result or raise the graph's original error."""
     result = state.metadata.get("legacy_result")
     if isinstance(result, dict):
@@ -116,7 +117,7 @@ def build_legacy_workflow(
     handler: LegacyHandler,
     *,
     node_name: str = "legacy_agent",
-    core_handler: Optional[LegacyHandler] = None,
+    core_handler: LegacyHandler | None = None,
 ) -> WorkflowDefinition:
     """Wrap an endpoint with an explicit legacy/core handler boundary."""
 
@@ -148,9 +149,9 @@ async def run_workflow(
     *,
     session_id: str,
     task_id: str,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
     db: Any = None,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ) -> State:
     """Execute a workflow and persist the result when database context is provided."""
 
@@ -203,7 +204,7 @@ async def resume_workflow_from_local_result(
     *,
     session_id: str,
     task_id: str,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> State:
     """Merge a local Host result and continue the active workflow state."""
     execution = _active_workflows.get((session_id, task_id))
@@ -238,7 +239,7 @@ async def cancel_workflows_for_session(
     *,
     reason: str = "用户停止",
     db: Any = None,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ) -> int:
     """Persist cancellation for every active graph belonging to a session."""
     cancelled = 0

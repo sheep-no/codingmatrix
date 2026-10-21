@@ -1,6 +1,6 @@
 """Versioned framework profiles used by planning and validation."""
 
-from typing import Dict, Iterable, Tuple
+from collections.abc import Iterable
 
 from app.agent.capabilities import Capability, CapabilitySet
 
@@ -20,8 +20,8 @@ class ProfileRegistry:
     """Resolve profiles by language, framework name, and version."""
 
     def __init__(self, profiles: Iterable[FrameworkProfile] = ()) -> None:
-        self._profiles: Dict[tuple[str, str, str], FrameworkProfile] = {}
-        self._workspace_profiles: Dict[tuple[str, str, str, str, str], FrameworkProfile] = {}
+        self._profiles: dict[tuple[str, str, str], FrameworkProfile] = {}
+        self._workspace_profiles: dict[tuple[str, str, str, str, str], FrameworkProfile] = {}
         for profile in profiles:
             self.register(profile)
 
@@ -50,7 +50,7 @@ class ProfileRegistry:
             raise ValueError("workspace profile owner does not match registration scope")
         self.register(profile)
 
-    def validate_workspace_command(self, profile: FrameworkProfile, command: Tuple[str, ...]) -> bool:
+    def validate_workspace_command(self, profile: FrameworkProfile, command: tuple[str, ...]) -> bool:
         if profile.scope is not ProfileScope.WORKSPACE:
             return False
         return command in profile.command_allowlist
@@ -113,7 +113,7 @@ class ProfileRegistry:
             return defaults[0]
         return candidates[0] if len(candidates) == 1 else None
 
-    def all(self) -> Tuple[FrameworkProfile, ...]:
+    def all(self) -> tuple[FrameworkProfile, ...]:
         return tuple((*self._profiles.values(), *self._workspace_profiles.values()))
 
 

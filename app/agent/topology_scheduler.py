@@ -17,7 +17,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
+from typing import Any, Optional
+from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ class ScheduleNode:
     file_path: str
     dependency_count: int
     status: FileStatus = FileStatus.PENDING
-    generated_at: Optional[float] = None
-    error: Optional[str] = None
+    generated_at: float | None = None
+    error: str | None = None
     retry_count: int = 0
 
 
@@ -78,7 +79,7 @@ class ScheduleStats:
     avg_parallelism: float = 0.0
     total_wait_time: float = 0.0
     interface_errors: int = 0
-    schedule_log: List[Dict[str, Any]] = field(default_factory=list)
+    schedule_log: list[dict[str, Any]] = field(default_factory=list)
 
 
 class TopologyScheduler:
@@ -96,8 +97,8 @@ class TopologyScheduler:
         max_retries: int = 2,
         timeout_per_file: float = 180.0,
         heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为僵尸（推理模型需要更长时间）
-        cancel_event: Optional[asyncio.Event] = None,
-        output_dir: Optional[str] = None  # 输出目录，用于文件写入
+        cancel_event: asyncio.Event | None = None,
+        output_dir: str | None = None  # 输出目录，用于文件写入
     ):
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
@@ -106,15 +107,15 @@ class TopologyScheduler:
         self._external_cancel_event = cancel_event
         self.output_dir = output_dir
 
-        self.nodes: Dict[str, ScheduleNode] = {}
-        self.adjacency: Dict[str, Set[str]] = {}  # file -> files it depends on
-        self.reverse_adjacency: Dict[str, Set[str]] = {}  # file -> files that depend on it
+        self.nodes: dict[str, ScheduleNode] = {}
+        self.adjacency: dict[str, set[str]] = {}  # file -> files it depends on
+        self.reverse_adjacency: dict[str, set[str]] = {}  # file -> files that depend on it
 
         self.ready_queue: asyncio.Queue = asyncio.Queue()
-        self.completed_files: Dict[str, str] = {}  # path -> content
+        self.completed_files: dict[str, str] = {}  # path -> content
         self.stats = ScheduleStats()
 
-        self._running_tasks: Set[asyncio.Task] = set()
+        self._running_tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
 
@@ -160,7 +161,7 @@ class TopologyScheduler:
         self.stats.total_files = len(self.nodes)
         logger.info("TopologyScheduler 从冻结 GenerationPlan 构建完成: %s 个文件节点", self.stats.total_files)
 
-    async def initialize_ready_queue(self) -> List[str]:
+    async def initialize_ready_queue(self) -> list[str]:
         """初始化就绪队列，返回初始就绪文件列表"""
         ready_files = []
         for path, node in self.nodes.items():
@@ -175,10 +176,10 @@ class TopologyScheduler:
 
     async def run(
         self,
-        generator: Callable[[str, Dict[str, str], Optional["HeartbeatTracker"]], Awaitable[str]],
-        progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
+        generator: Callable[[str, dict[str, str], Optional["HeartbeatTracker"]], Awaitable[str]],
+        progress_callback: Callable[[str, str, int, int], None] | None = None,
         global_timeout: float = 7200.0  # 全局超时 120 分钟（免费模型慢）
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         执行动态拓扑调度
 
@@ -321,7 +322,7 @@ class TopologyScheduler:
         self,
         file_path: str,
         generator: Callable,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Callable | None = None
     ) -> None:
         """带重试的单文件生成（心跳监控）"""
         node = self.nodes[file_path]
@@ -384,7 +385,7 @@ class TopologyScheduler:
         if progress_callback:
             progress_callback("failed", file_path, self.stats.completed_files, self.stats.total_files)
 
-    async def _run_with_heartbeat(self, coro, file_path: str, tracker: Optional[HeartbeatTracker] = None) -> str:
+    async def _run_with_heartbeat(self, coro, file_path: str, tracker: HeartbeatTracker | None = None) -> str:
         """带心跳监控的协程执行
 
         监控 LLM 调用活动，如果 heartbeat_timeout 秒内没有 LLM 调用，
@@ -485,7 +486,7 @@ class TopologyScheduler:
             self._log_schedule("blocked", blocked, source=failed_file)
             logger.warning(f"文件 {failed_file} 失败，阻塞下游: {blocked}")
 
-    def _build_upstream_context(self, file_path: str) -> Dict[str, str]:
+    def _build_upstream_context(self, file_path: str) -> dict[str, str]:
         """构建上游文件上下文"""
         upstream_deps = self.adjacency.get(file_path, set())
         context = {}
@@ -522,7 +523,7 @@ class TopologyScheduler:
         for task in self._running_tasks:
             task.cancel()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取调度统计"""
         return {
             "total_files": self.stats.total_files,
@@ -534,7 +535,7 @@ class TopologyScheduler:
             "interface_errors": self.stats.interface_errors,
         }
 
-    def get_file_status(self, file_path: str) -> Optional[FileStatus]:
+    def get_file_status(self, file_path: str) -> FileStatus | None:
         """获取单个文件状态"""
         node = self.nodes.get(file_path)
         return node.status if node else None
@@ -546,9 +547,9 @@ class TopologyScheduler:
     def _log_schedule(
         self,
         event: str,
-        files: List[str],
-        source: Optional[str] = None,
-        error: Optional[str] = None
+        files: list[str],
+        source: str | None = None,
+        error: str | None = None
     ) -> None:
         """记录调度日志"""
         entry = {

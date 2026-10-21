@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 from html.parser import HTMLParser
-from typing import Dict, List
 
 _STRUCTURE_TAGS = ("html", "head", "body")
 _RAW_TEXT_TAGS = ("script", "style")
@@ -26,8 +25,8 @@ class RawTextTagBalance(HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.starts: Dict[str, int] = {}
-        self.ends: Dict[str, int] = {}
+        self.starts: dict[str, int] = {}
+        self.ends: dict[str, int] = {}
 
     def handle_starttag(self, tag, attrs):
         self.starts[tag] = self.starts.get(tag, 0) + 1
@@ -40,14 +39,14 @@ class RawTextTagBalance(HTMLParser):
         self.ends[tag] = self.ends.get(tag, 0) + 1
 
 
-def html_structure_errors(content: str) -> List[str]:
+def html_structure_errors(content: str) -> list[str]:
     """返回 HTML 结构问题列表（空列表表示通过）。
 
     HTML5 允许省略 ``</head>``、``</body>``、``</html>``。只要文档以
     ``</html>`` 正常结束，前面省略的闭合标签就是合法的；不含这些标签的
     HTML 片段同样不做要求。
     """
-    errors: List[str] = []
+    errors: list[str] = []
     document_closed = bool(re.search(r"</html\s*>", content, re.IGNORECASE))
 
     parser = RawTextTagBalance()
@@ -68,14 +67,14 @@ def html_structure_errors(content: str) -> List[str]:
     return errors
 
 
-def css_structure_errors(content: str, *, check_parentheses: bool = False) -> List[str]:
+def css_structure_errors(content: str, *, check_parentheses: bool = False) -> list[str]:
     """返回 CSS 结构问题列表（空列表表示通过）。
 
     注释和字符串里的 ``{ } ( )`` 不是结构字符（如 ``content: "}"`` 或
     ``/* } */``），先剥离再做配对检查。空声明（连续或孤立的分号）在 CSS 中
     合法，不作为错误。
     """
-    errors: List[str] = []
+    errors: list[str] = []
     sanitized = strip_css_noise(content)
 
     open_braces = sanitized.count("{")

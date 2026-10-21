@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from ..code_synthesis_contracts import ProjectModel, ValidationProfile
 from ..framework_profiles import FrameworkProfile, ValidationStage

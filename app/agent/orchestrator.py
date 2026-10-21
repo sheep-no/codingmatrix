@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher
@@ -53,19 +53,19 @@ class OrchestratorAgent(
         spec_first: bool = True,
         dependency_graph: bool = True,
         use_dynamic_topology: bool = True,
-        callback: Optional[Callable] = None,
-        session_manager: Optional[SessionManager] = None,
-        session_id: Optional[str] = None,
+        callback: Callable | None = None,
+        session_manager: SessionManager | None = None,
+        session_id: str | None = None,
         incremental: bool = False,
-        spec_cache: Optional[SpecCache] = None,
+        spec_cache: SpecCache | None = None,
         require_approval: bool = False,
-        approval_callback: Optional[Callable] = None,
-        feedback_learner: Optional[FeedbackLearner] = None,
+        approval_callback: Callable | None = None,
+        feedback_learner: FeedbackLearner | None = None,
         evaluation_only: bool = False,
-        api_key_token: Optional[str] = None,
-        provider_id: Optional[str] = None,
-        cancel_event: Optional[asyncio.Event] = None,
-        decision_callback: Optional[Callable] = None,
+        api_key_token: str | None = None,
+        provider_id: str | None = None,
+        cancel_event: asyncio.Event | None = None,
+        decision_callback: Callable | None = None,
         cross_validation_fallback: bool = False
     ):
         # 保存原始相对路径（给 LLM 看的，存到 progress 事件中）
@@ -112,27 +112,27 @@ class OrchestratorAgent(
             self.conversation_memory = ConversationMemory()
             self.knowledge_memory = KnowledgeMemory()
 
-        self.analyzer: Optional[ComplexityAnalyzer] = None
-        self.model_router: Optional[LayeredModelRouter] = None
-        self.architect: Optional[Architect] = None
-        self.frontend_engineer: Optional[FrontendEngineer] = None
-        self.backend_engineer: Optional[BackendEngineer] = None
-        self.reviewer: Optional[CodeReviewer] = None
-        self.validator: Optional[CodeValidator] = None
-        self.error_recovery: Optional[ErrorRecoveryLoop] = None
-        self.api_contract_checker: Optional[APIContractChecker] = None
-        self.code_patcher: Optional[CodePatcher] = None
-        self.cross_file_patcher: Optional[CrossFilePatcher] = None
-        self.dependency_graph_obj: Optional[DependencyGraph] = None
+        self.analyzer: ComplexityAnalyzer | None = None
+        self.model_router: LayeredModelRouter | None = None
+        self.architect: Architect | None = None
+        self.frontend_engineer: FrontendEngineer | None = None
+        self.backend_engineer: BackendEngineer | None = None
+        self.reviewer: CodeReviewer | None = None
+        self.validator: CodeValidator | None = None
+        self.error_recovery: ErrorRecoveryLoop | None = None
+        self.api_contract_checker: APIContractChecker | None = None
+        self.code_patcher: CodePatcher | None = None
+        self.cross_file_patcher: CrossFilePatcher | None = None
+        self.dependency_graph_obj: DependencyGraph | None = None
 
-        self.complexity: Optional[ComplexityAnalysis] = None
-        self.model_assignment: Optional[ModelAssignment] = None
-        self.generated_files: List[Dict] = []
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
-        self._start_time: Optional[float] = None
+        self.complexity: ComplexityAnalysis | None = None
+        self.model_assignment: ModelAssignment | None = None
+        self.generated_files: list[dict] = []
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
+        self._start_time: float | None = None
         self._current_phase: str = "initializing"
-        self._generated_contents: Dict[str, str] = {}
+        self._generated_contents: dict[str, str] = {}
         self.shared_context = None
         self.artifact_committer = None
         self.artifact_completion_events = []

@@ -86,7 +86,7 @@ class FrameworkDetector:
         logger.warning("未检测到测试框架，使用默认 pytest")
         return get_default_config()
 
-    def _check_explicit_config(self, project_path: Path) -> Optional[TestFrameworkConfig]:
+    def _check_explicit_config(self, project_path: Path) -> TestFrameworkConfig | None:
         """检查显式配置文件"""
         for file_name in ("tox.ini", "setup.cfg"):
             file_path = project_path / file_name
@@ -125,7 +125,7 @@ class FrameworkDetector:
         tool = data.get("tool", {})
         return isinstance(tool, dict) and "pytest" in tool
 
-    def _check_package_manifests(self, project_path: Path) -> Optional[TestFrameworkConfig]:
+    def _check_package_manifests(self, project_path: Path) -> TestFrameworkConfig | None:
         """检查包清单文件"""
         package_json = project_path / "package.json"
         if package_json.exists():
@@ -213,7 +213,7 @@ class FrameworkDetector:
     @staticmethod
     def _detect_js_runner(
         all_deps: dict, test_script: str
-    ) -> Optional[TestFrameworkConfig]:
+    ) -> TestFrameworkConfig | None:
         """按依赖与 test script 识别 jest 之外的 JS 测试运行器（FD2）。"""
         docker_image = FRAMEWORK_PRESETS["javascript_jest"].docker_image
 
@@ -235,7 +235,7 @@ class FrameworkDetector:
             return build("node_test", "node --test")
         return None
 
-    def _check_source_patterns(self, project_path: Path) -> Optional[TestFrameworkConfig]:
+    def _check_source_patterns(self, project_path: Path) -> TestFrameworkConfig | None:
         """按源文件测试数量检测，数量最多的语言获胜。
 
         原实现按 go→java→py→rust 固定顺序返回首个命中，且 rglob 会扫到
@@ -264,7 +264,7 @@ class FrameworkDetector:
             for filename in filenames:
                 yield Path(dirpath) / filename
 
-    def _parse_ci_config(self, content: str) -> Optional[TestFrameworkConfig]:
+    def _parse_ci_config(self, content: str) -> TestFrameworkConfig | None:
         """从 CI 配置内容解析测试框架。
 
         原实现按固定顺序返回首个命中的关键词，monorepo 多语言 CI（同一文件含

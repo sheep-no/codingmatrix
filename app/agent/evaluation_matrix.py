@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from statistics import mean, quantiles
-from typing import Callable, Iterable, Tuple
+from collections.abc import Callable, Iterable
 
 from .code_synthesis_contracts import HttpContract
 
@@ -26,14 +26,14 @@ class EvaluationCase:
     language: str
     framework: str
     request: str
-    required_files: Tuple[str, ...]
+    required_files: tuple[str, ...]
     domain: ApplicationDomain = ApplicationDomain.WEB
     database: str = "sqlite"
     file_scale: str = "small"
     strategy: str = "baseline"
     contract_version: int = 1
-    contract_instructions: Tuple[str, ...] = ()
-    http_contracts: Tuple[HttpContract, ...] = ()
+    contract_instructions: tuple[str, ...] = ()
+    http_contracts: tuple[HttpContract, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class EvaluationRecord:
     token_count: int
     elapsed_seconds: float
     database_status: str = "supported"
-    database_diagnostics: Tuple[str, ...] = ()
+    database_diagnostics: tuple[str, ...] = ()
     model_call_count: int = 0
     strategy: str = "baseline"
     file_scale: str = "small"
@@ -125,19 +125,19 @@ class StrategySummary:
 @dataclass(frozen=True)
 class EvaluationReport:
     summary: EvaluationSummary
-    missing_case_ids: Tuple[str, ...]
-    invalid_case_ids: Tuple[str, ...]
-    failure_categories: Tuple[Tuple[str, int], ...]
+    missing_case_ids: tuple[str, ...]
+    invalid_case_ids: tuple[str, ...]
+    failure_categories: tuple[tuple[str, int], ...]
     matrix_complete: bool
     target_success_rate: float
     target_met: bool
-    strategy_summaries: Tuple[StrategySummary, ...] = ()
+    strategy_summaries: tuple[StrategySummary, ...] = ()
     core_summary: LayerSummary | None = None
     engineering_summary: LayerSummary | None = None
     quality_summary: LayerSummary | None = None
 
 
-_FIXTURE_CONTRACTS: dict[tuple[str, str], Tuple[str, ...]] = {
+_FIXTURE_CONTRACTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("python", "fastapi"): (
         "Bind SQLAlchemy metadata to a real SQLite engine before serving requests.",
         "Every FastAPI database dependency must yield a usable session and close it after the request.",
@@ -147,7 +147,7 @@ _FIXTURE_CONTRACTS: dict[tuple[str, str], Tuple[str, ...]] = {
 }
 
 
-FIXED_CRUD_CASES: Tuple[EvaluationCase, ...] = (
+FIXED_CRUD_CASES: tuple[EvaluationCase, ...] = (
     EvaluationCase("python-fastapi-crud", "python", "fastapi", "Create a CRUD todo API with SQLite persistence.", ("app/main.py", "app/models.py", "app/schemas.py", "app/crud.py", "tests/test_crud.py"), contract_instructions=_FIXTURE_CONTRACTS[("python", "fastapi")]),
     EvaluationCase("python-flask-crud", "python", "flask", "Create a CRUD todo API with SQLite persistence.", ("app.py", "models.py", "crud.py", "tests/test_crud.py")),
     EvaluationCase("typescript-express-crud", "typescript", "express", "Create a CRUD todo API with SQLite persistence.", ("src/app.ts", "src/routes/todos.ts", "src/db.ts", "tests/todos.test.ts")),
@@ -181,7 +181,7 @@ _SCALE_FILES = {
 _FRAMEWORKS = {"python": "fastapi", "typescript": "express", "go": "net/http", "java": "spring-boot"}
 
 
-FIXED_EVALUATION_MATRIX: Tuple[EvaluationCase, ...] = tuple(
+FIXED_EVALUATION_MATRIX: tuple[EvaluationCase, ...] = tuple(
     EvaluationCase(
         case_id=f"{language}-{scale}-{strategy}",
         language=language,
@@ -213,7 +213,7 @@ class EvaluationRegistry:
         self._cases[case.case_id] = case
 
     @property
-    def cases(self) -> Tuple[EvaluationCase, ...]:
+    def cases(self) -> tuple[EvaluationCase, ...]:
         return tuple(self._cases.values())
 
     def build_report(self, records: Iterable[EvaluationRecord]) -> EvaluationReport:

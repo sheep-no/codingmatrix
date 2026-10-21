@@ -14,7 +14,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 try:
     import json_repair
@@ -34,7 +34,7 @@ def _get_parser():
     return _parser_instance
 
 
-def safe_parse_json(text: str) -> Union[Dict, list]:
+def safe_parse_json(text: str) -> dict | list:
     """安全解析 JSON，5 层解析链
 
     Args:
@@ -49,7 +49,7 @@ def safe_parse_json(text: str) -> Union[Dict, list]:
     return _get_parser().safe_parse_json(text)
 
 
-def parse_tool_call(content: str, known_tools: Optional[set] = None) -> Optional[Dict]:
+def parse_tool_call(content: str, known_tools: set | None = None) -> dict | None:
     """从 LLM 回复中解析工具调用
 
     支持标准 JSON ``{"tool": "...", "params": {...}}``，以及 GLM Flash
@@ -81,7 +81,7 @@ def extract_json_field(text: str, field: str, default=None):
     return default
 
 
-def extract_first_json_object(text: str) -> Optional[Dict]:
+def extract_first_json_object(text: str) -> dict | None:
     """提取文本中的首个 JSON 对象。
 
     逐「{」位置用 ``JSONDecoder.raw_decode`` 尝试解析，命中即返回。相比贪婪
@@ -107,7 +107,7 @@ def extract_first_json_object(text: str) -> Optional[Dict]:
 class _JsonParser:
     """JSON 解析器（内部实现）"""
 
-    def safe_parse_json(self, text: str) -> Union[Dict, list]:
+    def safe_parse_json(self, text: str) -> dict | list:
         text = text.strip()
         if not text:
             raise ValueError("空文本无法解析")
@@ -158,7 +158,7 @@ class _JsonParser:
         raise ValueError(f"无法解析 JSON: {text[:200]}...")
 
     @staticmethod
-    def _ensure_container(result: Any) -> Union[Dict, list]:
+    def _ensure_container(result: Any) -> dict | list:
         """契约收口：只接受 dict/list，顶层标量（null/数字/布尔/字符串）视为解析失败。"""
         if isinstance(result, (dict, list)):
             return result
@@ -166,7 +166,7 @@ class _JsonParser:
             f"JSON 顶层必须是对象或数组，实际为 {type(result).__name__}"
         )
 
-    def parse_tool_call(self, content: str, known_tools: Optional[set] = None) -> Optional[Dict]:
+    def parse_tool_call(self, content: str, known_tools: set | None = None) -> dict | None:
         """解析工具调用 JSON"""
         if not content:
             return None
@@ -227,8 +227,8 @@ class _JsonParser:
         return self._parse_split_tool_call(cleaned, known_tools)
 
     def _parse_split_tool_call(
-        self, cleaned: str, known_tools: Optional[set] = None
-    ) -> Optional[Dict]:
+        self, cleaned: str, known_tools: set | None = None
+    ) -> dict | None:
         """Parse GLM-style read_file + params JSON, or read_file({...})."""
         allowed = known_tools
         if allowed is None:
@@ -378,7 +378,7 @@ class _JsonParser:
             i += 1
         return ''.join(result)
 
-    def _fix_truncation(self, text: str) -> Optional[Any]:
+    def _fix_truncation(self, text: str) -> Any | None:
         """状态机截断修复"""
         try:
             text = self._remove_line_comments(text).rstrip()
@@ -422,7 +422,7 @@ class _JsonParser:
             return None
 
     @staticmethod
-    def _fix_json_repair(text: str) -> Optional[Any]:
+    def _fix_json_repair(text: str) -> Any | None:
         """json_repair 库兜底"""
         try:
             result = json_repair.loads(text)

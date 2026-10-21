@@ -7,7 +7,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -27,18 +27,18 @@ class TaskPlanner:
     - ReAct 探索：有 project_path + tools 时，先用工具了解项目再拆解
     """
 
-    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: Optional[str] = None):
+    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: str | None = None):
         self.model = ModelRegistry.get(model_key)
         self.api_key_token = api_key_token
 
     async def decompose(
         self,
         task: str,
-        context: Dict[str, Any] = None,
-        dependency_hints: Optional[str] = None,
-        project_path: Optional[str] = None,
-        tools: Optional[Dict[str, Dict]] = None,
-    ) -> List[Dict]:
+        context: dict[str, Any] = None,
+        dependency_hints: str | None = None,
+        project_path: str | None = None,
+        tools: dict[str, dict] | None = None,
+    ) -> list[dict]:
         """
         分解任务
 
@@ -128,7 +128,7 @@ class TaskPlanner:
         self,
         task: str,
         project_path: str,
-        tools: Dict[str, Dict],
+        tools: dict[str, dict],
     ) -> str:
         """用 ReAct 工具探索项目结构，返回项目信息摘要
 

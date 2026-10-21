@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher
@@ -117,7 +117,7 @@ class GenerationMixin(
             logger.debug(f"MCP 初始化跳过（未配置或加载失败）: {e}")
 
     @traced("orchestrator.generate", attributes={"component": "orchestrator"})
-    async def generate(self, requirement: str) -> Dict[str, Any]:
+    async def generate(self, requirement: str) -> dict[str, Any]:
         if self.evaluation_only:
             return await self.evaluate(requirement)
 
@@ -138,17 +138,17 @@ class GenerationMixin(
 
     def _check_requirement_coverage(
         self, requirement: str,
-        architecture: Dict, file_plan: List[Dict]
-    ) -> Dict[str, Any]:
+        architecture: dict, file_plan: list[dict]
+    ) -> dict[str, Any]:
         return check_requirement_coverage(
             requirement, architecture, file_plan, self._association_result
         )
 
     async def _extract_and_save_feature_list(
         self, requirement: str,
-        generated_files: Dict[str, str],
+        generated_files: dict[str, str],
         domain: str = ""
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         return await extract_and_save_feature_list(
             requirement, generated_files, domain
         )

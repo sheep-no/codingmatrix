@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -104,15 +104,15 @@ def strip_leading_file_label(content: str, file_path: str) -> str:
 
 
 async def extract_engineer_content(
-    content: Optional[str],
+    content: str | None,
     engineer,
     output_dir: Path,
     file_path: str,
     fix_imports_fn=None,
     all_files=None,
-    expected_language: Optional[str] = None,
+    expected_language: str | None = None,
     llm_caller=None,
-) -> Optional[str]:
+) -> str | None:
     """从工程师输出中提取最终文件内容
 
     统一处理三种情况：
@@ -274,7 +274,7 @@ def _is_edit_marker(content: str, file_path: str = "") -> bool:
         return False
 
 
-def try_extract_from_metadata(file_path: str, content: str) -> Optional[str]:
+def try_extract_from_metadata(file_path: str, content: str) -> str | None:
     """尝试从 JSON 元数据中提取实际代码内容
 
     LLM 有时返回 JSON 格式的"生成摘要"而非实际代码，如：
@@ -1125,14 +1125,14 @@ def reusable_existing_file_content(file_path: str, content: str) -> tuple:
     return True, ""
 
 
-def compact_project_context_for_file(file_path: str, project_context: Dict[str, Any]) -> str:
+def compact_project_context_for_file(file_path: str, project_context: dict[str, Any]) -> str:
     """Build a per-file generation context without dumping the full architecture."""
     architecture = project_context.get("architecture") or {}
     if not isinstance(architecture, dict):
         architecture = {}
     file_plan = architecture.get("file_plan") or []
     normalized = (file_path or "").replace("\\", "/")
-    this_file: Dict[str, Any] = {}
+    this_file: dict[str, Any] = {}
     for item in file_plan:
         if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == normalized:
             this_file = item
@@ -1140,7 +1140,7 @@ def compact_project_context_for_file(file_path: str, project_context: Dict[str, 
     contract = this_file.get("contract") or {}
     if not isinstance(contract, dict):
         contract = {}
-    compact: Dict[str, Any] = {
+    compact: dict[str, Any] = {
         "requirement": (project_context.get("requirement") or "")[:2000],
         "language": architecture.get("language"),
         "tech_stack": (architecture.get("tech_stack") or [])[:10],

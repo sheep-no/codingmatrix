@@ -8,7 +8,8 @@ ReAct Agent - 基于 ReActEngine 的薄封装
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from app.agent.executor import EnhancedExecutor
 from app.agent.memory import AgentMemory
@@ -34,8 +35,8 @@ class ReActStep:
     """ReAct 步骤（向后兼容）"""
     step_type: str
     content: str
-    tool_name: Optional[str] = None
-    tool_result: Optional[Any] = None
+    tool_name: str | None = None
+    tool_result: Any | None = None
     timestamp: float = field(default_factory=time.time)
     success: bool = True
 
@@ -45,7 +46,7 @@ class ReActResult:
     """ReAct 执行结果（向后兼容）"""
     success: bool
     final_answer: str
-    steps: List[ReActStep]
+    steps: list[ReActStep]
     total_steps: int
     execution_time: float
     reflection_summary: str = ""
@@ -71,9 +72,9 @@ class ReActAgent:
         model_key: str = "glm-z1-9b",
         max_iterations: int = 10,
         enable_streaming: bool = False,
-        stage_models: Optional[Dict[str, str]] = None,
-        model_name: Optional[str] = None,
-        api_key_token: Optional[str] = None,
+        stage_models: dict[str, str] | None = None,
+        model_name: str | None = None,
+        api_key_token: str | None = None,
     ):
         if model_name:
             from app.agent.models import ModelCapability, ModelInfo
@@ -97,9 +98,9 @@ class ReActAgent:
         self.memory = AgentMemory()
         self.executor = EnhancedExecutor()
 
-        self._stream_callback: Optional[Callable[[str], None]] = None
-        self._steps: List[ReActStep] = []
-        self._current_state: Dict[str, Any] = {}
+        self._stream_callback: Callable[[str], None] | None = None
+        self._steps: list[ReActStep] = []
+        self._current_state: dict[str, Any] = {}
 
     @property
     def model(self):
@@ -113,7 +114,7 @@ class ReActAgent:
     async def process(
         self,
         task: str,
-        context: Dict[str, Any] = None
+        context: dict[str, Any] = None
     ) -> ReActResult:
         """
         处理任务 - 委托给 ReActEngine(full 模式)

@@ -12,7 +12,6 @@ LanguageDetector - 从需求文本自动推断目标编程语言
 import logging
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 from app.agent.requirement_signals import first_positive_span, is_span_negated
 
@@ -24,12 +23,12 @@ class LanguageDetectionResult:
     """语言检测结果"""
     language: str                    # 检测到的语言（主要语言，通常是后端）
     confidence: float                # 置信度 0-1
-    evidence: List[str]              # 检测依据
+    evidence: list[str]              # 检测依据
     adapter_name: str                # 对应的适配器名
     needs_clarification: bool = False  # 是否需要用户澄清（如未知语言的文件扩展名）
-    frontend_language: Optional[str] = None  # 前端语言（如果检测到）
-    backend_language: Optional[str] = None   # 后端语言（如果检测到）
-    all_languages: Optional[List[str]] = None  # 项目中所有检测到的语言
+    frontend_language: str | None = None  # 前端语言（如果检测到）
+    backend_language: str | None = None   # 后端语言（如果检测到）
+    all_languages: list[str] | None = None  # 项目中所有检测到的语言
     detection_method: str = "rule"   # 检测方法：rule（规则）或 llm（LLM 辅助）
 
 
@@ -37,7 +36,7 @@ class LanguageDetector:
     """语言检测器"""
 
     # 语言关键词映射
-    LANGUAGE_KEYWORDS: Dict[str, List[str]] = {
+    LANGUAGE_KEYWORDS: dict[str, list[str]] = {
         "python": [
             "python", "py", "django", "flask", "fastapi", "uvicorn",
             "sqlalchemy", "pydantic", "pandas", "numpy", "scrapy",
@@ -121,7 +120,7 @@ class LanguageDetector:
     }
 
     # 通用语言扩展名映射（不常见但已知的语言）
-    LANGUAGE_EXTENSION_MAP: Dict[str, str] = {
+    LANGUAGE_EXTENSION_MAP: dict[str, str] = {
         "renpy": ".rpy",
         "lua": ".lua",
         "perl": ".pl",
@@ -150,7 +149,7 @@ class LanguageDetector:
     }
 
     # 框架 → 语言的强映射
-    FRAMEWORK_LANGUAGE: Dict[str, str] = {
+    FRAMEWORK_LANGUAGE: dict[str, str] = {
         "django": "python",
         "flask": "python",
         "fastapi": "python",
@@ -177,7 +176,7 @@ class LanguageDetector:
     }
 
     # 项目类型 → 默认语言
-    PROJECT_TYPE_DEFAULTS: Dict[str, str] = {
+    PROJECT_TYPE_DEFAULTS: dict[str, str] = {
         "web_frontend": "javascript",
         "web_backend": "python",
         "api": "python",
@@ -192,7 +191,7 @@ class LanguageDetector:
     }
 
     # 前端专用关键词（用于区分前端和后端技术栈）
-    FRONTEND_KEYWORDS: List[str] = [
+    FRONTEND_KEYWORDS: list[str] = [
         "react", "vue", "angular", "svelte", "next", "nuxt",
         "webpack", "vite", "rollup", "esbuild",
         "html", "css", "dom", "browser",
@@ -201,7 +200,7 @@ class LanguageDetector:
     ]
 
     # 后端专用关键词（用于区分前端和后端技术栈）
-    BACKEND_KEYWORDS: List[str] = [
+    BACKEND_KEYWORDS: list[str] = [
         "django", "flask", "fastapi", "uvicorn",
         "express", "koa", "fastify", "nestjs",
         "spring", "springboot", "hibernate",
@@ -226,7 +225,7 @@ class LanguageDetector:
         return first_positive_span(text, keyword) is not None
 
     @classmethod
-    def detect(cls, requirement: str, project_type: Optional[str] = None) -> LanguageDetectionResult:
+    def detect(cls, requirement: str, project_type: str | None = None) -> LanguageDetectionResult:
         """
         从需求文本检测目标语言
 
@@ -436,7 +435,7 @@ class LanguageDetector:
         )
 
     @classmethod
-    def _detect_fullstack_languages(cls, requirement_lower: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    def _detect_fullstack_languages(cls, requirement_lower: str) -> tuple[bool, str | None, str | None]:
         """
         检测是否是全栈项目（前端 + 后端使用不同语言）
 
@@ -480,7 +479,7 @@ class LanguageDetector:
         return False, frontend_lang, backend_lang
 
     @classmethod
-    def _detect_all_languages(cls, requirement_lower: str) -> List[str]:
+    def _detect_all_languages(cls, requirement_lower: str) -> list[str]:
         """
         检测需求中提到的所有编程语言（用于多语言项目）
 
@@ -510,7 +509,7 @@ class LanguageDetector:
         return detected
 
     @classmethod
-    def _check_language_conflict(cls, requirement_lower: str, detected_lang: str) -> Optional[str]:
+    def _check_language_conflict(cls, requirement_lower: str, detected_lang: str) -> str | None:
         """
         检查是否存在语言冲突（需求中提到了其他语言的框架）
 
@@ -538,7 +537,7 @@ class LanguageDetector:
         return None
 
     @classmethod
-    def _detect_with_llm_sync(cls, requirement: str, evidence: List[str]) -> Optional[LanguageDetectionResult]:
+    def _detect_with_llm_sync(cls, requirement: str, evidence: list[str]) -> LanguageDetectionResult | None:
         """
         使用 LLM 进行上下文感知的语言检测（同步版本）
 
@@ -569,7 +568,7 @@ class LanguageDetector:
             return None
 
     @classmethod
-    async def _detect_with_llm(cls, requirement: str, evidence: List[str]) -> Optional[LanguageDetectionResult]:
+    async def _detect_with_llm(cls, requirement: str, evidence: list[str]) -> LanguageDetectionResult | None:
         """
         使用 LLM 进行上下文感知的语言检测
 
@@ -690,7 +689,7 @@ class LanguageDetector:
         return adapter_map.get(language, "generic")
 
     @classmethod
-    def get_language_specific_rules(cls, language: str) -> Dict:
+    def get_language_specific_rules(cls, language: str) -> dict:
         """获取语言特定的规则（用于 Architect prompt）"""
         rules = {
             "python": {

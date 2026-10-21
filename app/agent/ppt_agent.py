@@ -12,7 +12,8 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
+from collections.abc import AsyncIterator
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.utils import call_llm
@@ -36,7 +37,7 @@ def _is_api_key_error(exc: Exception) -> bool:
     return getattr(exc, "status_code", None) == 401
 
 
-def extract_completed_slide_objects(buffer: str) -> List[Dict[str, Any]]:
+def extract_completed_slide_objects(buffer: str) -> list[dict[str, Any]]:
     """Return fully closed objects from a partial JSON `slides` array."""
     if not buffer:
         return []
@@ -47,7 +48,7 @@ def extract_completed_slide_objects(buffer: str) -> List[Dict[str, Any]]:
     if bracket < 0:
         return []
     fragment = buffer[bracket + 1:]
-    objects: List[Dict[str, Any]] = []
+    objects: list[dict[str, Any]] = []
     index = 0
     length = len(fragment)
     while index < length:
@@ -138,13 +139,13 @@ class SlideOutline:
     type: str
     title: str
     key_message: str = ""
-    bullets: List[str] = field(default_factory=list)
-    image_keywords: List[str] = field(default_factory=list)
+    bullets: list[str] = field(default_factory=list)
+    image_keywords: list[str] = field(default_factory=list)
     notes: str = ""
     narrative_role: str = ""
-    content_blocks: List[Dict[str, Any]] = field(default_factory=list)
+    content_blocks: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -152,9 +153,9 @@ class SlideOutline:
 class PresentationOutline:
     """完整演示文稿大纲"""
     title: str
-    slides: List[SlideOutline] = field(default_factory=list)
+    slides: list[SlideOutline] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "slides": [s.to_dict() for s in self.slides],
@@ -170,7 +171,7 @@ class PPTAgent:
     DEFAULT_MODEL = PPT_DEFAULT_MODEL
     MAX_RETRIES = 3
 
-    def __init__(self, model: Optional[str] = None, quality: str = "balanced"):
+    def __init__(self, model: str | None = None, quality: str = "balanced"):
         """
         初始化 PPT Agent
 
@@ -184,8 +185,8 @@ class PPTAgent:
         self,
         topic: str,
         description: str = "",
-        num_slides: Optional[int] = None,
-        api_key_token: Optional[str] = None,
+        num_slides: int | None = None,
+        api_key_token: str | None = None,
     ) -> PresentationOutline:
         """根据自然语言输入生成 PPT 大纲"""
         prompt = self._build_prompt(topic, description, num_slides)
@@ -250,9 +251,9 @@ class PPTAgent:
         self,
         topic: str,
         description: str = "",
-        num_slides: Optional[int] = None,
-        api_key_token: Optional[str] = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
+        num_slides: int | None = None,
+        api_key_token: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream slide objects as the model writes JSON, then yield the validated outline."""
         prompt = self._build_prompt(topic, description, num_slides)
         system_prompt = self._outline_system_prompt()
@@ -308,7 +309,7 @@ class PPTAgent:
 
         yield {"type": "complete", "outline": self._fallback_outline(topic, num_slides)}
 
-    def _build_prompt(self, topic: str, description: str, num_slides: Optional[int]) -> str:
+    def _build_prompt(self, topic: str, description: str, num_slides: int | None) -> str:
         if not num_slides:
             page_rule = "总页数由主题复杂度决定，建议 8 到 16 页（含封面和结束页），内容够用即可，不要凑页也不要过短"
             page_line = "页数: 自动"
@@ -357,9 +358,9 @@ JSON Schema:
         self,
         raw: str,
         topic: str,
-        num_slides: Optional[int],
-        api_key_token: Optional[str] = None
-    ) -> Optional[PresentationOutline]:
+        num_slides: int | None,
+        api_key_token: str | None = None
+    ) -> PresentationOutline | None:
         """
         尝试解析 JSON，失败时使用 LLM 辅助提取
 
@@ -391,8 +392,8 @@ JSON Schema:
     async def _extract_json_with_llm(
         self,
         raw_text: str,
-        api_key_token: Optional[str] = None
-    ) -> Optional[Dict]:
+        api_key_token: str | None = None
+    ) -> dict | None:
         """
         使用 LLM 从非标准输出中提取 JSON
 
@@ -462,7 +463,7 @@ JSON Schema：
             logger.error(f"LLM 辅助提取 JSON 失败: {e}")
             return None
 
-    def _validate_outline(self, data: Dict, topic: str, num_slides: Optional[int]) -> Optional[PresentationOutline]:
+    def _validate_outline(self, data: dict, topic: str, num_slides: int | None) -> PresentationOutline | None:
         """验证并转换 JSON 数据为 PresentationOutline"""
         if data is None:
             return None
@@ -547,7 +548,7 @@ JSON Schema：
             logger.warning(f"大纲验证失败: {e}")
             return None
 
-    def _fallback_outline(self, topic: str, num_slides: Optional[int]) -> PresentationOutline:
+    def _fallback_outline(self, topic: str, num_slides: int | None) -> PresentationOutline:
         if not num_slides:
             num_slides = len(build_commercial_page_blueprint(topic)) + 2
         blueprint = build_expanded_commercial_page_blueprint(
@@ -578,7 +579,7 @@ JSON Schema：
         return PresentationOutline(title=topic, slides=slides)
 
     @staticmethod
-    def adapt_for_pptx_engine(outline: PresentationOutline) -> Dict[str, Any]:
+    def adapt_for_pptx_engine(outline: PresentationOutline) -> dict[str, Any]:
         """将 PPTAgent 输出适配为 pptx 引擎格式"""
         slides = []
         for slide in outline.slides:
@@ -597,9 +598,9 @@ JSON Schema：
 
     async def modify_outline(
         self,
-        existing_outline: Dict[str, Any],
+        existing_outline: dict[str, Any],
         modification_request: str,
-        api_key_token: Optional[str] = None,
+        api_key_token: str | None = None,
     ) -> PresentationOutline:
         """
         根据修改请求修改已有大纲
@@ -684,7 +685,7 @@ JSON Schema:
         # 降级：返回原大纲
         return self._dict_to_outline(existing_outline)
 
-    def _dict_to_outline(self, data: Dict[str, Any]) -> PresentationOutline:
+    def _dict_to_outline(self, data: dict[str, Any]) -> PresentationOutline:
         """将字典转换为 PresentationOutline"""
         slides = []
         for s in data.get("slides", []):

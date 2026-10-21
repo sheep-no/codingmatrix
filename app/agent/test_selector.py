@@ -6,7 +6,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 from app.utils.performance_metrics import metrics_collector
 
@@ -77,14 +77,14 @@ class TestSelector:
     def __init__(
         self,
         project_root: str,
-        smoke_keywords: Optional[Sequence[str]] = None,
+        smoke_keywords: Sequence[str] | None = None,
     ):
         self.project_root = Path(project_root)
         self.smoke_keywords = tuple(
             kw.lower() for kw in (smoke_keywords or self.DEFAULT_SMOKE_KEYWORDS)
         )
 
-    def select_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> List[str]:
+    def select_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> list[str]:
         """
         选择相关测试用例
 
@@ -134,7 +134,7 @@ class TestSelector:
 
         return unique_tests
 
-    def _select_same_directory_tests(self, modified_files: List[str], profile: ProjectProfile) -> List[str]:
+    def _select_same_directory_tests(self, modified_files: list[str], profile: ProjectProfile) -> list[str]:
         """
         选择与修改文件关联的测试
 
@@ -181,7 +181,7 @@ class TestSelector:
 
         return list(dict.fromkeys(tests))
 
-    def _select_high_dependency_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> List[str]:
+    def _select_high_dependency_tests(self, changes: ChangeSummary, profile: ProjectProfile) -> list[str]:
         """
         选择与高风险模块相关的测试
 
@@ -217,7 +217,7 @@ class TestSelector:
 
         return list(dict.fromkeys(tests))
 
-    def _select_smoke_tests(self, profile: ProjectProfile) -> List[str]:
+    def _select_smoke_tests(self, profile: ProjectProfile) -> list[str]:
         """
         选择冒烟测试
 
@@ -238,12 +238,12 @@ class TestSelector:
 
         return tests[:10]
 
-    def _iter_all_tests(self, profile: ProjectProfile) -> List[Path]:
+    def _iter_all_tests(self, profile: ProjectProfile) -> list[Path]:
         """遍历测试根目录下所有测试文件（按语言 glob）。"""
         test_root = self.project_root / profile.test_patterns.test_location
         return self._iter_dir_tests(test_root, profile)
 
-    def _iter_dir_tests(self, directory: Path, profile: ProjectProfile) -> List[Path]:
+    def _iter_dir_tests(self, directory: Path, profile: ProjectProfile) -> list[Path]:
         """遍历指定目录下所有测试文件（按语言 glob）。"""
         if not directory.exists() or not directory.is_dir():
             return []
@@ -259,7 +259,7 @@ class TestSelector:
             return globs
         return (profile.test_patterns.naming_convention,)
 
-    def _mirrored_test_dir(self, file_path: str, profile: ProjectProfile) -> Optional[Path]:
+    def _mirrored_test_dir(self, file_path: str, profile: ProjectProfile) -> Path | None:
         """源码目录映射到测试目录；目录不存在时返回 None。"""
         parts = list(Path(file_path.replace("\\", "/")).parts[:-1])
         while parts and parts[0] in _SOURCE_ROOT_NAMES:
@@ -276,7 +276,7 @@ class TestSelector:
     def _to_rel(self, path: Path) -> str:
         return str(path.relative_to(self.project_root))
 
-    def _select_all_tests(self, profile: ProjectProfile) -> List[str]:
+    def _select_all_tests(self, profile: ProjectProfile) -> list[str]:
         """选择所有测试（兼容旧接口，内部走 _iter_all_tests）。"""
         tests = []
         for tf in self._iter_all_tests(profile):

@@ -6,7 +6,8 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any
+from collections.abc import AsyncGenerator
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import and_, select
@@ -31,12 +32,12 @@ from .project_config import (
 
 logger = logging.getLogger(__name__)
 
-_dependency_graph_cache: Optional[Dict] = None
-_guard_contracts_cache: Optional[Dict] = None
+_dependency_graph_cache: dict | None = None
+_guard_contracts_cache: dict | None = None
 
 _session_manager = None
 _session_manager_lock = asyncio.Lock()
-_approval_queues: Dict[str, asyncio.Queue] = {}
+_approval_queues: dict[str, asyncio.Queue] = {}
 
 _spec_cache = None
 _spec_cache_lock = asyncio.Lock()
@@ -93,7 +94,7 @@ _IMPORT_SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 _IMPORT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def _sanitize_imported_relpath(raw: str) -> Optional[str]:
+def _sanitize_imported_relpath(raw: str) -> str | None:
     if not raw or not isinstance(raw, str):
         return None
     path = raw.replace("\\", "/").strip().lstrip("/")
@@ -110,9 +111,9 @@ def _sanitize_imported_relpath(raw: str) -> Optional[str]:
 
 def materialize_imported_project(
     user_id: str,
-    files: List[Dict[str, str]],
-    project_name: Optional[str] = None,
-) -> Dict[str, Any]:
+    files: list[dict[str, str]],
+    project_name: str | None = None,
+) -> dict[str, Any]:
     """Write imported text files under projects/{user_id}/{name}/ and return the relative path."""
     if not user_id or user_id == "anonymous":
         raise ValueError("无效的用户身份")
@@ -134,7 +135,7 @@ def materialize_imported_project(
     dest.mkdir(parents=True, exist_ok=True)
     dest_resolved = dest.resolve()
 
-    written: List[str] = []
+    written: list[str] = []
     total_bytes = 0
     for item in files:
         rel_path = _sanitize_imported_relpath((item or {}).get("path", ""))
@@ -190,13 +191,13 @@ def cleanup_session_files(output_dir: str) -> bool:
         return False
 
 
-def _collect_files_sync(project_dir: Path) -> List[dict]:
+def _collect_files_sync(project_dir: Path) -> list[dict]:
     """同步扫描目录并收集文件元信息。
 
     该过程包含 `rglob`/`stat`/`open` 等阻塞文件系统调用，因此被放在线程池中
     执行，避免阻塞事件循环（见 `_collect_files`）。
     """
-    entries: List[dict] = []
+    entries: list[dict] = []
     try:
         for file_path in project_dir.rglob("*"):
             try:
@@ -253,7 +254,7 @@ def _build_agent_config(req: GenerateRequest, stream: bool = False) -> AgentConf
     )
 
 
-def load_dependency_graph() -> Optional[Dict]:
+def load_dependency_graph() -> dict | None:
     global _dependency_graph_cache
     if _dependency_graph_cache is not None:
         return _dependency_graph_cache
@@ -271,7 +272,7 @@ def load_dependency_graph() -> Optional[Dict]:
     return None
 
 
-def load_guard_contracts() -> Optional[Dict]:
+def load_guard_contracts() -> dict | None:
     global _guard_contracts_cache
     if _guard_contracts_cache is not None:
         return _guard_contracts_cache
@@ -285,7 +286,7 @@ def load_guard_contracts() -> Optional[Dict]:
     return None
 
 
-def get_agent_knowledge_base() -> Dict[str, Any]:
+def get_agent_knowledge_base() -> dict[str, Any]:
     return {
         "dependency_graph": load_dependency_graph(),
         "guard_contracts": load_guard_contracts(),
@@ -401,7 +402,7 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
         logger.info(f"已清理用户 {user_id} 的 {len(sessions_to_cleanup)} 个旧会话资源（保留最新 {max_sessions} 个）")
 
 
-def _delete_session_files(session_file: Path, output_dir: Optional[str]) -> None:
+def _delete_session_files(session_file: Path, output_dir: str | None) -> None:
     """同步删除单个会话文件与项目目录，供 asyncio.to_thread 在工作线程调用。"""
     if session_file.exists():
         try:
@@ -528,7 +529,7 @@ async def _update_session_activity(db: AsyncSession, session_id: str):
         logger.warning(f"更新会话活动时间失败: {session_id} - {e}")
 
 
-async def _update_project_session_status(db: Optional[AsyncSession], session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
+async def _update_project_session_status(db: AsyncSession | None, session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: str | None = None):
     """更新会话状态（DB + 内存同步）"""
     if db is None:
         logger.warning(f"更新会话状态失败：db 为 None | session_id={session_id} | status={status}")
@@ -619,7 +620,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> Dict[str, Any]:
+async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -715,7 +716,7 @@ async def resolve_resume_session(
      requirement: str,
      model: str = DEFAULT_FAST_MODEL,
      limit: int = 20
-) -> Optional[ProjectSession]:
+) -> ProjectSession | None:
     """
     方案 2：智能解析要恢复的 session
     
@@ -799,9 +800,9 @@ async def resolve_resume_session(
 async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
-     generated_files: List[str],
+     generated_files: list[str],
      model: str = DEFAULT_FAST_MODEL
-) -> List[str]:
+) -> list[str]:
     """
     分析哪些文件需要重新生成
     
@@ -854,7 +855,7 @@ async def analyze_files_to_regenerate(
     return []
 
 
-async def get_user_recent_session(db: AsyncSession, user_id: str, status_filter: Optional[str] = None) -> Optional[ProjectSession]:
+async def get_user_recent_session(db: AsyncSession, user_id: str, status_filter: str | None = None) -> ProjectSession | None:
     """
     获取用户最近的会话
     

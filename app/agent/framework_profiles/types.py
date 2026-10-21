@@ -8,7 +8,8 @@ without importing each other during initialization.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Mapping, Tuple
+from typing import Any
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -43,28 +44,28 @@ class FrameworkProfile(BaseModel):
     version: str = Field(min_length=1)
     status: ProfileStatus
     capabilities: CapabilitySet
-    dependencies: Tuple[str, ...] = ()
-    install_command: Tuple[str, ...] = ()
-    lint_command: Tuple[str, ...] = ()
-    typecheck_command: Tuple[str, ...] = ()
-    build_command: Tuple[str, ...] = ()
-    test_command: Tuple[str, ...] = ()
-    smoke_command: Tuple[str, ...] = ()
-    start_command: Tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    install_command: tuple[str, ...] = ()
+    lint_command: tuple[str, ...] = ()
+    typecheck_command: tuple[str, ...] = ()
+    build_command: tuple[str, ...] = ()
+    test_command: tuple[str, ...] = ()
+    smoke_command: tuple[str, ...] = ()
+    start_command: tuple[str, ...] = ()
     health_path: str = "/health"
     scope: ProfileScope = ProfileScope.SYSTEM
     owner_id: str | None = None
     workspace_id: str | None = None
-    command_allowlist: Tuple[Tuple[str, ...], ...] = ()
-    dependency_allowlist: Tuple[str, ...] = ()
-    probe_commands: Mapping[str, Tuple[str, ...]] = Field(default_factory=dict)
-    file_role_patterns: Mapping[str, Tuple[str, ...]] = Field(default_factory=dict)
+    command_allowlist: tuple[tuple[str, ...], ...] = ()
+    dependency_allowlist: tuple[str, ...] = ()
+    probe_commands: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
+    file_role_patterns: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     contract_rules: Mapping[str, Any] = Field(default_factory=dict)
-    validation_steps: Tuple[str, ...] = ()
+    validation_steps: tuple[str, ...] = ()
     default_for_language: bool = False
 
     @model_validator(mode="after")
-    def validate_workspace_contract(self) -> "FrameworkProfile":
+    def validate_workspace_contract(self) -> FrameworkProfile:
         command_fields = (
             self.install_command, self.lint_command, self.typecheck_command,
             self.build_command, self.test_command, self.smoke_command,
@@ -103,7 +104,7 @@ class FrameworkProfile(BaseModel):
                 _validate_workspace_command(command)
         return self
 
-    def command_for_stage(self, stage: str | ValidationStage) -> Tuple[str, ...]:
+    def command_for_stage(self, stage: str | ValidationStage) -> tuple[str, ...]:
         name = ValidationStage(stage)
         return {
             ValidationStage.INSTALL: self.install_command,
@@ -118,7 +119,7 @@ class FrameworkProfile(BaseModel):
     def custom_pending(
         cls, *, name: str, language: str, owner_id: str,
         workspace_id: str | None = None, version: str = "1"
-    ) -> "FrameworkProfile":
+    ) -> FrameworkProfile:
         if not owner_id.strip():
             raise ValueError("custom profile requires owner_id")
         return cls(
@@ -135,7 +136,7 @@ class FrameworkProfile(BaseModel):
         )
 
 
-def _validate_workspace_command(command: Tuple[str, ...]) -> None:
+def _validate_workspace_command(command: tuple[str, ...]) -> None:
     from pathlib import PurePosixPath
 
     from app.agent.toolchain import DEFAULT_ALLOWED_EXECUTABLES

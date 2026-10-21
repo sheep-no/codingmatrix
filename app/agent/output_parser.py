@@ -12,7 +12,6 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +31,8 @@ class ParsedTestResult:
     passed: int = 0
     failed: int = 0
     skipped: int = 0
-    errors: List[str] = field(default_factory=list)
-    test_cases: List[TestCaseResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    test_cases: list[TestCaseResult] = field(default_factory=list)
     duration: float = 0.0
 
 

@@ -6,7 +6,6 @@ execute_analysis 使用 ReActEngine（simple 模式），不再维护独立的 R
 """
 
 import logging
-from typing import Dict
 
 from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.tools import (
@@ -75,7 +74,7 @@ class AgentExecutor:
     def __init__(self, file_operator: FileOperator):
         self.file_operator = file_operator
 
-    async def execute_file_operation(self, params: Dict) -> Dict:
+    async def execute_file_operation(self, params: dict) -> dict:
         """执行文件操作"""
         operation = params.get("operation")
         path = params.get("path")
@@ -96,7 +95,7 @@ class AgentExecutor:
 
         return {"error": f"未知操作: {operation}"}
 
-    async def execute(self, step: Dict) -> Dict:
+    async def execute(self, step: dict) -> dict:
         """执行单个步骤"""
         step_type = step.get("type")
         params = step.get("params", {})
@@ -115,7 +114,7 @@ class AgentExecutor:
         model_name: str = DEFAULT_FAST_MODEL,
         max_rounds: int = 10,
         api_key_token: str = None,
-    ) -> Dict:
+    ) -> dict:
         """执行分析任务（ReAct 工具调用循环）
 
         只读操作，不修改文件。使用 ANALYSIS_TOOLS 搜索和读取项目文件。

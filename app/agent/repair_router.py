@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict
 
 
 @dataclass(frozen=True)
@@ -21,7 +20,7 @@ class RepairBudget:
 
     per_category_limit: int = 3
     total_limit: int = 5
-    used_by_category: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    used_by_category: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     total_used: int = 0
 
     def consume(self, category: str) -> bool:

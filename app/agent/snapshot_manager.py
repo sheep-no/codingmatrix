@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.agent.git_operations import MAINLINE_BRANCHES, GitOperations, SnapshotInfo
 
@@ -24,7 +23,7 @@ class RollbackResult:
     success: bool
     previous_tag: str
     current_tag: str
-    files_restored: List[str] = field(default_factory=list)
+    files_restored: list[str] = field(default_factory=list)
     branch_deleted: bool = False
 
 
@@ -46,18 +45,18 @@ class SnapshotManager:
 
     def __init__(self, git_ops: GitOperations):
         self.git_ops = git_ops
-        self.snapshots: Dict[str, SnapshotInfo] = {}
+        self.snapshots: dict[str, SnapshotInfo] = {}
 
     async def save_snapshot(
         self,
         project_path: Path,
         session_id: str,
         description: str,
-        files_changed: List[str],
+        files_changed: list[str],
         model_used: str = "",
         duration: float = 0.0,
-        branch_name: Optional[str] = None,
-    ) -> Optional[SnapshotInfo]:
+        branch_name: str | None = None,
+    ) -> SnapshotInfo | None:
         """
         保存项目快照
 
@@ -127,7 +126,7 @@ class SnapshotManager:
         project_path: Path,
         snapshot_tag: str,
         delete_branch: bool = True,
-    ) -> Optional[RollbackResult]:
+    ) -> RollbackResult | None:
         """
         回滚到指定快照
 
@@ -168,7 +167,7 @@ class SnapshotManager:
             project_path, snapshot.commit_hash
         )
 
-        files_restored: List[str] = []
+        files_restored: list[str] = []
         if success and pre_head:
             files_restored = await self.git_ops.diff_files_between_commits(
                 project_path, pre_head, snapshot.commit_hash
@@ -196,7 +195,7 @@ class SnapshotManager:
         project_path: Path,
         session_id: str,
         success: bool,
-        branch_name: Optional[str] = None,
+        branch_name: str | None = None,
     ) -> FinalizeResult:
         """
         结束会话

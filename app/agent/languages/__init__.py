@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 from app.agent.adapters import LanguageAdapter, LanguageAdapterRegistry
 
@@ -11,7 +10,7 @@ from app.agent.adapters import LanguageAdapter, LanguageAdapterRegistry
 @dataclass(frozen=True)
 class LanguageCapabilities:
     language: str
-    extensions: Tuple[str, ...]
+    extensions: tuple[str, ...]
     supports_ast: bool = True
     supports_module_resolution: bool = True
     supports_signatures: bool = True
@@ -19,7 +18,7 @@ class LanguageCapabilities:
     supports_tests: bool = False
 
 
-_CAPABILITIES: Dict[str, LanguageCapabilities] = {
+_CAPABILITIES: dict[str, LanguageCapabilities] = {
     "python": LanguageCapabilities("python", (".py",), supports_compile=True, supports_tests=True),
     "javascript": LanguageCapabilities("javascript", (".js", ".jsx",), supports_compile=True, supports_tests=True),
     "typescript": LanguageCapabilities("typescript", (".ts", ".tsx"), supports_compile=True, supports_tests=True),

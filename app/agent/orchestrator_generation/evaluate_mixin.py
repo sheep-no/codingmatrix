@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict
+from typing import Any
 
 from app.agent.complexity import ComplexityAnalyzer
 from app.agent.dynamic_model_router import LayeredModelRouter
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class EvaluationMixin:
 
     @traced("orchestrator.evaluate", attributes={"component": "orchestrator", "mode": "evaluation_only"})
-    async def evaluate(self, requirement: str) -> Dict[str, Any]:
+    async def evaluate(self, requirement: str) -> dict[str, Any]:
         start_time = time.time()
         self._update_phase("evaluation")
 
@@ -110,8 +110,8 @@ class EvaluationMixin:
         }
 
     async def _evaluate_requirement(
-        self, requirement: str, architecture: Dict
-    ) -> Dict[str, Any]:
+        self, requirement: str, architecture: dict
+    ) -> dict[str, Any]:
         prompt = (
             "你是一位资深需求分析专家。请对以下需求进行全面评价，只评价不修改。\n\n"
             f"需求描述：\n{requirement}\n\n"
@@ -160,8 +160,8 @@ class EvaluationMixin:
             raise RuntimeError(f"requirement evaluation failed: {e}") from e
 
     async def _evaluate_architecture(
-        self, requirement: str, architecture: Dict
-    ) -> Dict[str, Any]:
+        self, requirement: str, architecture: dict
+    ) -> dict[str, Any]:
         tech_stack = architecture.get("tech_stack", [])
         file_plan = architecture.get("file_plan", [])
         project_type = architecture.get("project_type", "unknown")
@@ -228,9 +228,9 @@ class EvaluationMixin:
 
     def _evaluate_risks(
         self, requirement: str,
-        architecture: Dict,
+        architecture: dict,
         association_result: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         risks = []
 
         tech_stack = architecture.get("tech_stack", [])
@@ -294,10 +294,10 @@ class EvaluationMixin:
 
     def _build_overall_assessment(
         self,
-        requirement_evaluation: Dict,
-        architecture_evaluation: Dict,
-        risk_evaluation: Dict,
-    ) -> Dict[str, Any]:
+        requirement_evaluation: dict,
+        architecture_evaluation: dict,
+        risk_evaluation: dict,
+    ) -> dict[str, Any]:
         req_score = requirement_evaluation.get("completeness", {}).get("score", 0)
         arch_score = architecture_evaluation.get("architecture_quality", {}).get("score", 0)
 
@@ -328,7 +328,7 @@ class EvaluationMixin:
             "recommendations": all_recommendations[:10],
         }
 
-    def _parse_evaluation_json(self, response: str, eval_type: str) -> Dict[str, Any]:
+    def _parse_evaluation_json(self, response: str, eval_type: str) -> dict[str, Any]:
         try:
             json_match = re.search(r'\{[\s\S]*\}', response)
             if not json_match:
@@ -360,5 +360,5 @@ class EvaluationMixin:
             raise RuntimeError("model assignment is required for evaluation")
         return value
 
-    def _fallback_evaluation(self, eval_type: str, reason: str) -> Dict[str, Any]:
+    def _fallback_evaluation(self, eval_type: str, reason: str) -> dict[str, Any]:
         raise RuntimeError(f"{eval_type} evaluation failed: {reason}")

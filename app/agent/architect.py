@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.agent.complexity import ComplexityAnalysis
@@ -79,9 +79,9 @@ class Architect(Specialist):
     def _build_language_rules_text(
         self,
         target_language: str,
-        frontend_language: Optional[str],
-        backend_language: Optional[str],
-        all_languages: List[str],
+        frontend_language: str | None,
+        backend_language: str | None,
+        all_languages: list[str],
         lang_detection: 'LanguageDetectionResult',
         has_backend: bool = True,
     ) -> str:
@@ -144,7 +144,7 @@ class Architect(Specialist):
         return base_text
 
     @traced("architect.design", attributes={"component": "specialist", "role": "architect"})
-    async def design_architecture(self, requirement: str, complexity: ComplexityAnalysis, feedback: str = "", callback: callable = None) -> Dict:
+    async def design_architecture(self, requirement: str, complexity: ComplexityAnalysis, feedback: str = "", callback: callable = None) -> dict:
         """设计项目架构
 
         Args:
@@ -160,7 +160,7 @@ class Architect(Specialist):
         backend_language = lang_detection.backend_language
         all_languages = lang_detection.all_languages or [target_language]
 
-        def finalize(architecture: Dict) -> Dict:
+        def finalize(architecture: dict) -> dict:
             return self._canonicalize_architecture(
                 architecture, requirement, complexity, target_language, frontend_language
             )
@@ -393,7 +393,7 @@ language 字段要求：
         else:
             raise ValueError("architect architecture was empty")
 
-    async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> Optional[Dict]:
+    async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> dict | None:
         """使用 LLM 从非标准输出中提取 JSON"""
         extract_prompt = f"""请将以下文本转换为标准 JSON 格式：
 
@@ -420,7 +420,7 @@ language 字段要求：
             logger.error(f"LLM 辅助提取 JSON 失败: {e}")
             return None
 
-    def _validate_and_enhance_api_spec(self, architecture: Dict, complexity: ComplexityAnalysis) -> Dict:
+    def _validate_and_enhance_api_spec(self, architecture: dict, complexity: ComplexityAnalysis) -> dict:
         """只修 JSON 形状：缺字段补空对象，路径补前导斜杠。不发明接口。"""
         api_spec = architecture.get("api_spec", {})
         if not isinstance(api_spec, dict):
@@ -433,13 +433,13 @@ language 字段要求：
         architecture["api_spec"] = api_spec
         return architecture
 
-    def _validate_and_enhance_db_schema(self, architecture: Dict, complexity: ComplexityAnalysis) -> Dict:
+    def _validate_and_enhance_db_schema(self, architecture: dict, complexity: ComplexityAnalysis) -> dict:
         """只修 JSON 形状：缺字段补空对象。不发明表或列。"""
         db_schema = architecture.get("db_schema", {})
         architecture["db_schema"] = db_schema if isinstance(db_schema, dict) else {}
         return architecture
 
-    def _safe_parse_json(self, text: str) -> Dict:
+    def _safe_parse_json(self, text: str) -> dict:
         """安全解析 JSON，处理各种格式问题"""
         return self.json_parser.safe_parse_json(text)
 
@@ -453,7 +453,7 @@ language 字段要求：
     )
 
     @classmethod
-    def _normalize_file_plan_item(cls, item: Any, language: str) -> Optional[Dict]:
+    def _normalize_file_plan_item(cls, item: Any, language: str) -> dict | None:
         if isinstance(item, str) and item.strip():
             path = item.strip().replace("\\", "/")
             return {
@@ -491,11 +491,11 @@ language 字段要求：
         return normalized
 
     @classmethod
-    def _normalize_file_plan(cls, items: Any, language: str) -> List[Dict]:
+    def _normalize_file_plan(cls, items: Any, language: str) -> list[dict]:
         if not isinstance(items, list):
             return []
         normalized = []
-        seen: Set[str] = set()
+        seen: set[str] = set()
         for item in items:
             entry = cls._normalize_file_plan_item(item, language)
             if not entry or entry["path"] in seen:
@@ -505,7 +505,7 @@ language 字段要求：
         return normalized
 
     @classmethod
-    def _harvest_file_plan(cls, obj: Any, language: str, depth: int = 0, seen: Optional[Set[int]] = None) -> List[Dict]:
+    def _harvest_file_plan(cls, obj: Any, language: str, depth: int = 0, seen: set[int] | None = None) -> list[dict]:
         if depth > 5 or obj is None:
             return []
         seen = seen if seen is not None else set()
@@ -538,12 +538,12 @@ language 字段要求：
 
     def _ensure_architecture_file_plan(
         self,
-        architecture: Dict,
+        architecture: dict,
         requirement: str,
         complexity: ComplexityAnalysis,
         target_language: str,
-        frontend_language: Optional[str],
-    ) -> Dict:
+        frontend_language: str | None,
+    ) -> dict:
         if isinstance(architecture.get("file_plan"), str):
             architecture["file_plan"] = self._parse_jsonish(architecture["file_plan"])
         harvested = self._harvest_file_plan(architecture, target_language)
@@ -630,7 +630,7 @@ language 字段要求：
             ]
         return normalized
 
-    def _coerce_architecture_fields(self, architecture: Any) -> Dict:
+    def _coerce_architecture_fields(self, architecture: Any) -> dict:
         """Turn GLM string-shaped objects into dict/list before downstream .get()."""
         if not isinstance(architecture, dict):
             return {}
@@ -683,8 +683,8 @@ language 字段要求：
         requirement: str,
         complexity: ComplexityAnalysis,
         target_language: str,
-        frontend_language: Optional[str],
-    ) -> Dict:
+        frontend_language: str | None,
+    ) -> dict:
         """Single export shape for design_architecture: objects, not JSON strings."""
         if not isinstance(architecture, dict) or not architecture:
             raise ValueError("architect architecture was empty")
@@ -710,7 +710,7 @@ language 字段要求：
         )
 
     @classmethod
-    def _drop_stale_file_plan_aliases(cls, architecture: Dict) -> None:
+    def _drop_stale_file_plan_aliases(cls, architecture: dict) -> None:
         """Keep a single canonical file_plan so scaffolds cannot read leftover nested files."""
         for key in cls._FILE_PLAN_KEYS:
             if key != "file_plan":
@@ -721,7 +721,7 @@ language 字段要求：
                 for key in cls._FILE_PLAN_KEYS:
                     nested.pop(key, None)
 
-    def _get_default_architecture(self, complexity: ComplexityAnalysis, language: str = "python", frontend_language: Optional[str] = None) -> Dict:
+    def _get_default_architecture(self, complexity: ComplexityAnalysis, language: str = "python", frontend_language: str | None = None) -> dict:
         """返回默认架构（根据语言生成）"""
         from app.agent.language_detector import LanguageDetector
         lang_rules = LanguageDetector.get_language_specific_rules(language)
@@ -775,8 +775,8 @@ language 字段要求：
         requirement: str,
         complexity: ComplexityAnalysis,
         language: str = "python",
-        frontend_language: Optional[str] = None,
-    ) -> Dict:
+        frontend_language: str | None = None,
+    ) -> dict:
         """实测用精简 8 文件架构，跳过 LLM 架构师与分批扩展。"""
         architecture = self._get_default_architecture(complexity, language, frontend_language)
         architecture["requirement"] = requirement
@@ -873,7 +873,7 @@ language 字段要求：
         freeze_symbol_table(architecture)
         return architecture
 
-    def _domain_file_plan(self, language: str, domain: str) -> List[Dict]:
+    def _domain_file_plan(self, language: str, domain: str) -> list[dict]:
         """默认架构中按领域补充分层文件。"""
         extensions = {
             "python": "py",
@@ -916,8 +916,8 @@ language 字段要求：
         requirement: str,
         complexity: ComplexityAnalysis,
         language: str = "python",
-        frontend_language: Optional[str] = None,
-    ) -> Dict:
+        frontend_language: str | None = None,
+    ) -> dict:
         """架构输出异常时保留需求中明确列出的项目文件。"""
         architecture = self._get_default_architecture(complexity, language, frontend_language)
         architecture["requirement"] = requirement
@@ -967,12 +967,12 @@ language 字段要求：
             complexity=complexity,
         )
 
-    def _build_default_project_spec(self, language: str, frontend_language: Optional[str], complexity: ComplexityAnalysis) -> Dict:
+    def _build_default_project_spec(self, language: str, frontend_language: str | None, complexity: ComplexityAnalysis) -> dict:
         """解析失败时的空 project_spec，不发明框架或存储。"""
         return {"default": {"terminology": {}}}
 
     @staticmethod
-    def _parse_import_to_module(import_str: str) -> Optional[str]:
+    def _parse_import_to_module(import_str: str) -> str | None:
         """解析 import 语句，提取模块路径
 
         支持格式：
@@ -1007,9 +1007,9 @@ language 字段要求：
 
     @staticmethod
     def _planned_covers_module(
-        planned_paths: Set[str],
+        planned_paths: set[str],
         module: str,
-        candidates: List[str],
+        candidates: list[str],
     ) -> bool:
         """A planned file already implements this import target."""
         if any(candidate in planned_paths for candidate in candidates):
@@ -1045,7 +1045,7 @@ language 字段要求：
         return bool(checker and checker(name))
 
     @staticmethod
-    def _extract_strict_file_paths(requirement: str) -> Optional[set]:
+    def _extract_strict_file_paths(requirement: str) -> set | None:
         """识别需求中明确限定的文件集合。"""
         if not requirement:
             return None
@@ -1124,7 +1124,7 @@ language 字段要求：
                 cleaned.add(clean)
 
         ordered = sorted(cleaned, key=lambda item: (-item.count("/"), -len(item), item))
-        kept: List[str] = []
+        kept: list[str] = []
         for candidate in ordered:
             if any(kept_path.endswith("/" + candidate) for kept_path in kept):
                 continue
@@ -1132,7 +1132,7 @@ language 字段要求：
         return set(kept)
 
     @staticmethod
-    def _skip_boilerplate_files(complexity: Optional[Any]) -> bool:
+    def _skip_boilerplate_files(complexity: Any | None) -> bool:
         if not complexity:
             return False
         if isinstance(complexity, dict):
@@ -1150,7 +1150,7 @@ language 字段要求：
         return str(level).lower() == "simple" and estimated <= 1
 
     @staticmethod
-    def _path_module_forms(path: str, language: Optional[str]) -> List[str]:
+    def _path_module_forms(path: str, language: str | None) -> list[str]:
         """Equivalent module strings for a planned path, in decreasing specificity."""
         posix = path.replace("\\", "/").lstrip("./")
         if not posix:
@@ -1173,15 +1173,15 @@ language 字段要求：
         cls,
         source_path: str,
         strict_path: str,
-        language: Optional[str],
-    ) -> List[tuple]:
+        language: str | None,
+    ) -> list[tuple]:
         """Pairs rewriting a collapsed file's old module references to its strict path."""
         if not source_path or source_path == strict_path:
             return []
         old_forms = cls._path_module_forms(source_path, language)
         new_forms = cls._path_module_forms(strict_path, language)
-        pairs: List[tuple] = []
-        seen: Set[str] = set()
+        pairs: list[tuple] = []
+        seen: set[str] = set()
         # 两个列表由同一 language 生成、结构一一对应，长度必然相等；
         # strict=True 保证后续若加入语言相关的非对称形态时立即暴露错配。
         for old, new in zip(old_forms, new_forms, strict=True):
@@ -1192,7 +1192,7 @@ language 字段要求：
         return pairs
 
     @classmethod
-    def _rewrite_collapsed_imports(cls, item: Dict, remaps: List[tuple]) -> None:
+    def _rewrite_collapsed_imports(cls, item: dict, remaps: list[tuple]) -> None:
         """Update a file plan entry's dependency declarations after a path collapse."""
         if not remaps:
             return
@@ -1220,11 +1220,11 @@ language 字段要求：
 
     def _ensure_file_plan_completeness(
         self,
-        architecture: Dict,
-        target_language: Optional[str] = None,
-        strict_paths: Optional[set] = None,
-        complexity: Optional[Any] = None,
-    ) -> Dict:
+        architecture: dict,
+        target_language: str | None = None,
+        strict_paths: set | None = None,
+        complexity: Any | None = None,
+    ) -> dict:
         """确保 file_plan 完整性：补充 imports 中明确引用但 file_plan 中缺失的文件，以及缺失的前端文件
 
         注意：不再补充 index.js barrel export，不再遍历目录。
@@ -1250,7 +1250,7 @@ language 字段要求：
         if strict_paths:
             original_count = len(file_plan)
             strict_file_plan = []
-            remaps: List[tuple] = []
+            remaps: list[tuple] = []
             for strict_path in sorted(strict_paths):
                 exact_match = next(
                     (f for f in file_plan if f.get("path") == strict_path),
@@ -1383,11 +1383,11 @@ language 字段要求：
 
     async def expand_file_plan(
         self,
-        architecture: Dict,
+        architecture: dict,
         complexity: ComplexityAnalysis,
         target_file_count: int,
-        target_language: Optional[str] = None,
-    ) -> Dict:
+        target_language: str | None = None,
+    ) -> dict:
         """依赖驱动扩展 file_plan
 
         基于 DependencyGraph 分析缺失模块，让 LLM 补充。
@@ -1468,7 +1468,7 @@ language 字段要求：
 
     async def _generate_batch_files(
         self,
-        architecture: Dict,
+        architecture: dict,
         complexity: ComplexityAnalysis,
         max_files: int
     ) -> list:

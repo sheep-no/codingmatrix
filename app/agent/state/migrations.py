@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
-def migrate_state_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def migrate_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the canonical State dictionary without mutating the input."""
     data = dict(payload)
     schema_version = data.pop("schema_version", 0)
@@ -42,13 +42,13 @@ def migrate_state_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in state.items() if key in allowed}
 
 
-def _legacy_generated_files(file_statuses: Dict[str, Any]) -> list[Dict[str, Any]]:
+def _legacy_generated_files(file_statuses: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"path": path, **details} if isinstance(details, dict) else {"path": path, "status": details}
         for path, details in file_statuses.items()
     ]
 
 
-def _legacy_errors(warnings: list[Any]) -> list[Dict[str, Any]]:
+def _legacy_errors(warnings: list[Any]) -> list[dict[str, Any]]:
     return [{"code": "legacy.warning", "message": str(item), "retryable": False, "details": {}}
             for item in warnings]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from app.agent.nodes.validation import LOCAL_SCOPES, derive_validation_status
 from app.agent.state import State, StateDelta
@@ -19,7 +19,7 @@ RESULT_STATUSES = {
 }
 
 
-def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
+def local_result_to_delta(state: State, result: dict[str, Any]) -> StateDelta:
     if not isinstance(result, dict):
         raise TypeError("local validation result must be a dictionary")
     if result.get("task_id") != state.task_id:

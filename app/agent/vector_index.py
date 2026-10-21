@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -28,7 +27,7 @@ class VectorIndexManager:
     def __init__(self):
         VECTOR_INDEX_DIR.mkdir(parents=True, exist_ok=True)
         self._index = None
-        self._id_map: Dict[int, Dict] = {}
+        self._id_map: dict[int, dict] = {}
         self._next_id = 0
         self._loaded = False
 
@@ -100,7 +99,7 @@ class VectorIndexManager:
         logger.info(f"FAISS 索引构建完成: {count} 条向量")
         return count
 
-    async def add_project(self, project: Dict) -> bool:
+    async def add_project(self, project: dict) -> bool:
         from app.utils.AiCodeUtil import get_embedding
 
         if not project.get("feature_list") or not self._should_index(project):
@@ -130,7 +129,7 @@ class VectorIndexManager:
 
     async def search(
         self, query: str, top_k: int = MAX_RESULTS
-    ) -> List[Tuple[Dict, float]]:
+    ) -> list[tuple[dict, float]]:
         from app.utils.AiCodeUtil import get_embedding
 
         if not self._loaded:
@@ -164,7 +163,7 @@ class VectorIndexManager:
             return 0
         return self._index.ntotal
 
-    def _project_to_text(self, project: Dict) -> str:
+    def _project_to_text(self, project: dict) -> str:
         parts = []
         if project.get("requirement"):
             parts.append(project["requirement"])
@@ -175,7 +174,7 @@ class VectorIndexManager:
         return " ".join(parts)
 
     @staticmethod
-    def _should_index(project: Dict) -> bool:
+    def _should_index(project: dict) -> bool:
         """file_fallback 是文件名生成的伪功能，索引后会被语义检索当真实历史匹配命中。"""
         return project.get("feature_source") != "file_fallback"
 
