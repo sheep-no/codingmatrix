@@ -477,7 +477,6 @@ _learner_lock = asyncio.Lock()
 
 async def get_user_preference_learner(user_id: str = "default") -> UserPreferenceLearner:
     """获取 UserPreferenceLearner 单例（支持多用户）"""
-    global _user_preference_learners
 
     if user_id not in _user_preference_learners:
         async with _learner_lock:

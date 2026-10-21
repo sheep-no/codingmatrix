@@ -216,9 +216,8 @@ class LLMClient:
                 # 先按模型后全局：等待模型额度时不占用全局槽，否则某模型队列的
                 # 等待者会占满全局额度，令其它模型即使额度空闲也全部饿死（LC2）。
                 # 嵌套上下文保证在等待内层额度时被取消也会释放外层额度（LC5）。
-                async with self._model_semaphore:
-                    async with self._semaphore:
-                        full_content, _full_reasoning, response = await self._consume_stream(
+                async with self._model_semaphore, self._semaphore:
+                    full_content, _full_reasoning, response = await self._consume_stream(
                             prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
                         )
             else:
@@ -451,9 +450,8 @@ class LLMClient:
                 # 先按模型后全局：等待模型额度时不占用全局槽，否则某模型队列的
                 # 等待者会占满全局额度，令其它模型即使额度空闲也全部饿死（LC2）。
                 # 嵌套上下文保证在等待内层额度时被取消也会释放外层额度（LC5）。
-                async with self._model_semaphore:
-                    async with self._semaphore:
-                        response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
+                async with self._model_semaphore, self._semaphore:
+                    response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
             else:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
 

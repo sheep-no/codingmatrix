@@ -246,7 +246,7 @@ class CodePatcher:
 
         except Exception as e:
             result.errors.append(f"应用 patch 异常: {e!s}")
-            logger.error(f"应用 patch 异常: {e}", exc_info=True)
+            logger.exception(f"应用 patch 异常: {e}")
 
         return result
 
