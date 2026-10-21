@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from enum import Enum
 from collections.abc import Iterable, Mapping
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

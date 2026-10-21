@@ -23,6 +23,7 @@ import tempfile
 import venv as venv_mod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,7 @@ class IsolatedTestRunner:
 
     # ==================== 服务容器集成 ====================
 
-    LOCAL_SERVICE_PORTS = {
+    LOCAL_SERVICE_PORTS: ClassVar[dict] = {
         'redis': 6379,
         'postgresql': 5432,
         'mysql': 3306,
@@ -293,7 +294,7 @@ class IsolatedTestRunner:
         'elasticsearch': 9200,
     }
 
-    LOCAL_SERVICE_START_COMMANDS = {
+    LOCAL_SERVICE_START_COMMANDS: ClassVar[dict] = {
         'redis': 'redis-server 或 docker run -d -p 6379:6379 redis:7-alpine',
         'postgresql': 'systemctl start postgresql 或 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pass postgres:16-alpine',
         'mysql': 'systemctl start mysql 或 docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=pass mysql:8.0',
@@ -302,7 +303,7 @@ class IsolatedTestRunner:
         'elasticsearch': 'systemctl start elasticsearch 或 docker run -d -p 9200:9200 -e discovery.type=single-node elasticsearch:8.12.0',
     }
 
-    LOCAL_SERVICE_ENV_VARS = {
+    LOCAL_SERVICE_ENV_VARS: ClassVar[dict] = {
         'redis': {'REDIS_URL': 'redis://127.0.0.1:6379'},
         'postgresql': {
             'DATABASE_URL': 'postgresql://appuser:apppass@127.0.0.1:5432/testdb',

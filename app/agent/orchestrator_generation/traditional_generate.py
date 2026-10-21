@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
 from app.agent.dependency_graph import DependencyGraph

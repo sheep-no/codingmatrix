@@ -10,10 +10,10 @@ PPT Agent - 自然语言到 PPT 大纲
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
-from collections.abc import AsyncIterator
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.utils import call_llm

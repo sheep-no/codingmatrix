@@ -16,6 +16,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class IntegrityValidator:
     """
 
     # Python 内置模块（不需要项目内文件）
-    PYTHON_BUILTINS = {
+    PYTHON_BUILTINS: ClassVar[set] = {
         'os', 'sys', 'json', 're', 'time', 'datetime', 'logging',
         'typing', 'pathlib', 'collections', 'asyncio', 'functools',
         'itertools', 'abc', 'copy', 'hashlib', 'hmac', 'secrets',
@@ -86,7 +87,7 @@ class IntegrityValidator:
     }
 
     # 常见第三方库（不需要项目内文件）
-    COMMON_THIRD_PARTY = {
+    COMMON_THIRD_PARTY: ClassVar[set] = {
         'fastapi', 'flask', 'django', 'sqlalchemy', 'pydantic',
         'uvicorn', 'gunicorn', 'requests', 'httpx', 'aiohttp',
         'numpy', 'pandas', 'scipy', 'matplotlib', 'sklearn',

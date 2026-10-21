@@ -7,6 +7,7 @@
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 from app.agent.requirement_signals import has_positive_keyword
 
@@ -47,11 +48,11 @@ class ComplexityAnalyzer:
     """项目复杂度分析器"""
 
     # 关键词映射
-    FRONTEND_KEYWORDS = ['前端', '页面', 'ui', '界面', 'vue', 'react', 'angular', 'html', 'css', '样式', '组件', '组件库', '小程序', 'h5', '移动端']
-    BACKEND_KEYWORDS = ['后端', 'api', '接口', '服务器', 'server', 'fastapi', 'django', 'flask', 'spring', 'express', 'graphql', 'grpc', 'websocket', 'rpc']
-    DATABASE_KEYWORDS = ['数据库', 'database', 'mysql', 'postgres', 'sqlite', 'mongo', 'redis', '存储', '数据表', 'elasticsearch', 'cassandra', 'clickhouse', 'tidb']
-    AUTH_KEYWORDS = ['登录', '注册', '认证', 'auth', 'jwt', 'oauth', '权限', '角色', '用户管理', 'rbac', '访问控制', '单点登录', 'sso']
-    COMPLEX_KEYWORDS = ['微服务', '分布式', '缓存', '消息队列', 'kafka', 'rabbitmq', 'docker', 'k8s', '部署',
+    FRONTEND_KEYWORDS: ClassVar[list] = ['前端', '页面', 'ui', '界面', 'vue', 'react', 'angular', 'html', 'css', '样式', '组件', '组件库', '小程序', 'h5', '移动端']
+    BACKEND_KEYWORDS: ClassVar[list] = ['后端', 'api', '接口', '服务器', 'server', 'fastapi', 'django', 'flask', 'spring', 'express', 'graphql', 'grpc', 'websocket', 'rpc']
+    DATABASE_KEYWORDS: ClassVar[list] = ['数据库', 'database', 'mysql', 'postgres', 'sqlite', 'mongo', 'redis', '存储', '数据表', 'elasticsearch', 'cassandra', 'clickhouse', 'tidb']
+    AUTH_KEYWORDS: ClassVar[list] = ['登录', '注册', '认证', 'auth', 'jwt', 'oauth', '权限', '角色', '用户管理', 'rbac', '访问控制', '单点登录', 'sso']
+    COMPLEX_KEYWORDS: ClassVar[list] = ['微服务', '分布式', '缓存', '消息队列', 'kafka', 'rabbitmq', 'docker', 'k8s', '部署',
                         '支付', '电商', '集成', '第三方', '网关', '调度', '任务队列', '定时任务', 'cron',
                         '通知', '推送', '短信', '邮件', '上传', '下载', '文件系统', 'cdn', 'oss',
                         '监控', '日志', '链路追踪', '熔断', '限流', '负载均衡', '集群', '高可用']

@@ -7,6 +7,7 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from app.utils.performance_metrics import metrics_collector
 
@@ -28,7 +29,7 @@ class FailureClusterer:
     """测试失败聚类器"""
 
     # 错误类型提示映射
-    ERROR_HINTS = {
+    ERROR_HINTS: ClassVar[dict] = {
         'TypeError': '类型不匹配，检查参数类型和返回值类型',
         'ValueError': '值无效，检查输入值的范围和格式',
         'AssertionError': '断言失败，检查预期值和实际值',

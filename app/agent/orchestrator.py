@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher

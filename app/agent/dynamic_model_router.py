@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from app.agent.models import (
     DEFAULT_ARCHITECT_MODEL,
@@ -533,7 +533,7 @@ class DynamicModelRouter:
     """
 
     # 默认降级链（硬编码兜底）
-    DEFAULT_FALLBACK_ORDER = [
+    DEFAULT_FALLBACK_ORDER: ClassVar[list] = [
         DEFAULT_FAST_MODEL,
         "THUDM/GLM-4-9B-0414",
         DEFAULT_ARCHITECT_MODEL,

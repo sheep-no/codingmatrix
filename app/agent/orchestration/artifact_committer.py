@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable, Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

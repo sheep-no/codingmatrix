@@ -7,10 +7,10 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 from app.agent.code_validator import CodeValidator
 from app.agent.dynamic_model_router import LayeredModelRouter

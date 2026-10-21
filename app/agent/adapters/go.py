@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from .generic import GenericLanguageAdapter
 from .language_adapter import ImportInfo, LanguageAdapterRegistry, SymbolDefinition
@@ -11,7 +12,7 @@ from .language_adapter import ImportInfo, LanguageAdapterRegistry, SymbolDefinit
 
 class GoLanguageAdapter(GenericLanguageAdapter):
     language = "go"
-    extensions = [".go"]
+    extensions: ClassVar[list] = [".go"]
     package_init_filename = ""
     supports_cross_file_symbol_validation = False
 

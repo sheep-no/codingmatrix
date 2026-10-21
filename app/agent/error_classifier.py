@@ -5,7 +5,7 @@ import logging
 import re
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
+from typing import ClassVar, Optional
 
 from app.agent.json_parser import extract_first_json_object
 from app.agent.models import DEFAULT_CODE_MODEL
@@ -28,7 +28,7 @@ class ErrorClassifier:
     """错误分类器 - 使用轻量级模型进行错误类型识别"""
 
     # 错误模式匹配规则
-    ERROR_PATTERNS = {
+    ERROR_PATTERNS: ClassVar[dict] = {
         "NameError": {
             "patterns": [
                 r"NameError: name '(\w+)' is not defined",

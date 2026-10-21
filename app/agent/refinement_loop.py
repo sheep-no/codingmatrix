@@ -19,9 +19,9 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 
 from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors

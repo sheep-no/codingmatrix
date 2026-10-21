@@ -7,8 +7,8 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from collections import Counter
-from pathlib import Path, PurePosixPath
 from collections.abc import Mapping
+from pathlib import Path, PurePosixPath
 
 import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator

@@ -12,6 +12,7 @@ LanguageDetector - 从需求文本自动推断目标编程语言
 import logging
 import re
 from dataclasses import dataclass
+from typing import ClassVar
 
 from app.agent.requirement_signals import first_positive_span, is_span_negated
 
@@ -36,7 +37,7 @@ class LanguageDetector:
     """语言检测器"""
 
     # 语言关键词映射
-    LANGUAGE_KEYWORDS: dict[str, list[str]] = {
+    LANGUAGE_KEYWORDS: ClassVar[dict[str, list[str]]] = {
         "python": [
             "python", "py", "django", "flask", "fastapi", "uvicorn",
             "sqlalchemy", "pydantic", "pandas", "numpy", "scrapy",
@@ -120,7 +121,7 @@ class LanguageDetector:
     }
 
     # 通用语言扩展名映射（不常见但已知的语言）
-    LANGUAGE_EXTENSION_MAP: dict[str, str] = {
+    LANGUAGE_EXTENSION_MAP: ClassVar[dict[str, str]] = {
         "renpy": ".rpy",
         "lua": ".lua",
         "perl": ".pl",
@@ -149,7 +150,7 @@ class LanguageDetector:
     }
 
     # 框架 → 语言的强映射
-    FRAMEWORK_LANGUAGE: dict[str, str] = {
+    FRAMEWORK_LANGUAGE: ClassVar[dict[str, str]] = {
         "django": "python",
         "flask": "python",
         "fastapi": "python",
@@ -176,7 +177,7 @@ class LanguageDetector:
     }
 
     # 项目类型 → 默认语言
-    PROJECT_TYPE_DEFAULTS: dict[str, str] = {
+    PROJECT_TYPE_DEFAULTS: ClassVar[dict[str, str]] = {
         "web_frontend": "javascript",
         "web_backend": "python",
         "api": "python",
@@ -191,7 +192,7 @@ class LanguageDetector:
     }
 
     # 前端专用关键词（用于区分前端和后端技术栈）
-    FRONTEND_KEYWORDS: list[str] = [
+    FRONTEND_KEYWORDS: ClassVar[list[str]] = [
         "react", "vue", "angular", "svelte", "next", "nuxt",
         "webpack", "vite", "rollup", "esbuild",
         "html", "css", "dom", "browser",
@@ -200,7 +201,7 @@ class LanguageDetector:
     ]
 
     # 后端专用关键词（用于区分前端和后端技术栈）
-    BACKEND_KEYWORDS: list[str] = [
+    BACKEND_KEYWORDS: ClassVar[list[str]] = [
         "django", "flask", "fastapi", "uvicorn",
         "express", "koa", "fastify", "nestjs",
         "spring", "springboot", "hibernate",

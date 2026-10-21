@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from statistics import mean, quantiles
-from collections.abc import Callable, Iterable
 
 from .code_synthesis_contracts import HttpContract
 

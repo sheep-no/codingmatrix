@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import copy
 import inspect
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 
 from .models import State, StateDelta
 from .reducer import StateReducer

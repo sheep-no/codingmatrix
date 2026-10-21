@@ -10,9 +10,9 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-from collections.abc import Callable
 
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.agent.topology_scheduler import HeartbeatTracker

@@ -5,8 +5,8 @@
 """
 import logging
 import re
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 from app.utils.performance_metrics import metrics_collector
 

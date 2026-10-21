@@ -10,9 +10,9 @@ import re
 import sys
 import time
 from collections import OrderedDict
-from pathlib import Path
-from typing import Any
 from collections.abc import Iterable, Iterator
+from pathlib import Path
+from typing import Any, ClassVar
 
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
@@ -118,7 +118,7 @@ class CodeValidator:
     FAILURE_CACHE_TTL = 300
 
     # 常见 API 兼容性规则
-    API_COMPATIBILITY_RULES = {
+    API_COMPATIBILITY_RULES: ClassVar[dict] = {
         "fastapi": {
             "OAuth2PasswordBearer": {"token_url": "tokenUrl"},
         },
@@ -128,7 +128,7 @@ class CodeValidator:
     }
 
     # passlib 导入正确形式
-    PASSLIB_IMPORT_MAP = {
+    PASSLIB_IMPORT_MAP: ClassVar[dict] = {
         "import passlib.hash.bcrypt": "from passlib.hash import bcrypt",
         "import passlib.hash": "from passlib.hash import bcrypt",
     }

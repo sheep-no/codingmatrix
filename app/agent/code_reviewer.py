@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from typing import ClassVar
 
 from app.agent.specialist_base import Specialist
 from app.agent.tracing import traced
@@ -37,7 +38,7 @@ class CodeReviewer(Specialist):
 输出格式：JSON，包含 approved、risk_level、issues、suggestions、needs_fix、version_issues。"""
 
     # 常见库的版本兼容性规则
-    VERSION_RULES = {
+    VERSION_RULES: ClassVar[dict] = {
         "fastapi": {
             "0.100.0": {"removed": ["Middleware"], "changed": {"OAuth2PasswordBearer": "tokenUrl -> token_url"}},
             "0.90.0": {"added": ["APIRouter.include_router"]},

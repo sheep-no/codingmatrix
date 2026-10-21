@@ -7,9 +7,9 @@ without importing each other during initialization.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import Enum
 from typing import Any
-from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

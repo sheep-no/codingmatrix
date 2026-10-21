@@ -6,10 +6,10 @@ import ast
 import hashlib
 import re
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-from collections.abc import Mapping, Sequence
 
 from app.agent.change_plan import (
     ChangePlan,

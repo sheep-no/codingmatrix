@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +493,7 @@ class SandboxValidator:
     """
 
     # 子类覆盖：支持的文件扩展名
-    extensions: list = []
+    extensions: ClassVar[list] = []
 
     def filter_files(self, files: dict) -> dict:
         """过滤出本验证器支持的文件"""
@@ -518,7 +518,7 @@ class SandboxValidator:
 
 class GoSandboxValidator(SandboxValidator):
     """Go 沙箱验证器"""
-    extensions = ['.go']
+    extensions: ClassVar[list] = ['.go']
 
     def build_validation_script(self, files: dict, level: str = "import") -> str:
         go_files = self.filter_files(files)
@@ -569,7 +569,7 @@ else:
 
 class RustSandboxValidator(SandboxValidator):
     """Rust 沙箱验证器"""
-    extensions = ['.rs']
+    extensions: ClassVar[list] = ['.rs']
 
     def build_validation_script(self, files: dict, level: str = "import") -> str:
         rs_files = self.filter_files(files)

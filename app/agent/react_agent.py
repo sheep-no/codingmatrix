@@ -7,9 +7,9 @@ ReAct Agent - 基于 ReActEngine 的薄封装
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
 from app.agent.executor import EnhancedExecutor
 from app.agent.memory import AgentMemory
@@ -59,7 +59,7 @@ class ReActAgent:
     内部委托给 ReActEngine(full 模式)，保留原有接口以维持向后兼容。
     """
 
-    DEFAULT_STAGE_MODELS = {
+    DEFAULT_STAGE_MODELS: ClassVar[dict] = {
         ReActStepType.THOUGHT: "glm-z1-9b",
         ReActStepType.ACTION: "qwen3-8b",
         ReActStepType.OBSERVATION: "qwen3.5-4b",

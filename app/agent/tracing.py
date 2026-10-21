@@ -31,9 +31,9 @@ import functools
 import logging
 import math
 import os
+from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any, Optional
-from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
