@@ -8,11 +8,11 @@ v4.8.0 新增：
 """
 
 import json
-import re
 import logging
+import re
 import xml.etree.ElementTree as ET
-from typing import List
 from dataclasses import dataclass, field
+from typing import List
 
 logger = logging.getLogger(__name__)
 

@@ -13,11 +13,11 @@ APIContractChecker - API 契约一致性检查器
 - 增量更新时检查契约变更
 """
 
-import re
 import logging
-from typing import Dict, List, Optional, Tuple
+import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

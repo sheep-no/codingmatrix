@@ -1,21 +1,24 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict, List, Any
-import asyncio
+from typing import Any, Dict, List, Optional
 
 from app.agent.dynamic_model_router import LayeredModelRouter
-from app.agent.tracing import traced
-from app.agent.react_engine import ReActEngine
-from app.agent.llm_client import LLMClient, LLMClientError
+from app.agent.json_parser import parse_tool_call
 from app.agent.llm_client import (  # noqa: F401  (re-exported for specialists.py)
     MAX_CONCURRENT_LLM_CALLS,
+    LLMClient,
+    LLMClientError,
+)
+from app.agent.llm_client import (  # noqa: F401  (re-exported for specialists.py)
     get_global_semaphore as get_global_llm_semaphore,
 )
-from app.agent.json_parser import parse_tool_call
+from app.agent.react_engine import ReActEngine
 
 # 工具注册表（从 tools.py 导入）
 from app.agent.tools import SPECIALIST_TOOLS
+from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 

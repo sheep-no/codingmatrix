@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.utils.aicloud.llm_caller import call_llm
 
-from .budget import ExecutionBudget
-from .models import utc_now
 from ..code_synthesis_contracts import ModelCapabilityProfile
 from ..synthesis_protocol import select_response_protocol
+from .budget import ExecutionBudget
+from .models import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -295,8 +295,7 @@ class ModelGateway:
         if not isinstance(chunk, str):
             return
         payload = chunk.strip()
-        if payload.startswith("data: "):
-            payload = payload[6:]
+        payload = payload.removeprefix("data: ")
         try:
             parsed = json.loads(payload)
         except (json.JSONDecodeError, TypeError):
@@ -397,8 +396,7 @@ class ModelGateway:
             "[keepalive]",
         }:
             return ModelStreamDataKind.KEEPALIVE
-        if stripped.startswith("data: "):
-            stripped = stripped[6:]
+        stripped = stripped.removeprefix("data: ")
         try:
             payload = json.loads(stripped)
         except (json.JSONDecodeError, TypeError):

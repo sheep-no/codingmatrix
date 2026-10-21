@@ -4,11 +4,11 @@
 通过轻量级符号提取和文件级变更对比，准确识别受代码修改影响的文件范围。
 """
 import ast
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from app.agent.adapters import LanguageAdapterRegistry
 from app.utils.performance_metrics import metrics_collector

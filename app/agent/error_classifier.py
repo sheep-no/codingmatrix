@@ -7,9 +7,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
-from app.utils import call_llm
-from app.agent.models import DEFAULT_CODE_MODEL
 from app.agent.json_parser import extract_first_json_object
+from app.agent.models import DEFAULT_CODE_MODEL
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 

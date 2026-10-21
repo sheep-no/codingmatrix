@@ -1,10 +1,11 @@
 import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.utils.security import verify_token
 from app.db.database import get_db
 from app.services.agent_memory_service import AgentMemoryService
+from app.utils.security import verify_token
 
 from .schemas import KnowledgeRequest, KnowledgeResponse
 

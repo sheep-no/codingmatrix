@@ -11,15 +11,16 @@
     result = await client.call("你好", system_prompt="你是一个助手")
 """
 
-import time
 import asyncio
 import json
 import logging
-from typing import Optional, Dict, Any, Callable, Awaitable
+import time
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import httpx
+
+from app.agent.dynamic_model_router import LayeredModelRouter, get_dynamic_router
 from app.utils import call_llm
-from app.agent.dynamic_model_router import get_dynamic_router, LayeredModelRouter
 
 logger = logging.getLogger(__name__)
 
@@ -327,8 +328,7 @@ class LLMClient:
             chunk_str = chunk_str.strip()
             if not chunk_str or chunk_str == "[DONE]":
                 continue
-            if chunk_str.startswith("data: "):
-                chunk_str = chunk_str[6:]
+            chunk_str = chunk_str.removeprefix("data: ")
 
             try:
                 chunk = json.loads(chunk_str)

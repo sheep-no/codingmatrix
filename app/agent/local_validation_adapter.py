@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.agent.state import State, StateDelta
 from app.agent.nodes.validation import LOCAL_SCOPES, derive_validation_status
+from app.agent.state import State, StateDelta
 
 RESULT_STATUSES = {
     "passed",

@@ -1,10 +1,10 @@
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
-from app.agent.orchestrator_requirements import DOMAIN_TEMPLATES_DIR
-from app.agent.models import DEFAULT_REASONING_MODEL
 from app.agent.json_parser import extract_first_json_object
+from app.agent.models import DEFAULT_REASONING_MODEL
+from app.agent.orchestrator_requirements import DOMAIN_TEMPLATES_DIR
 
 logger = logging.getLogger(__name__)
 

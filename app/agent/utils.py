@@ -3,10 +3,10 @@ Agent 公共工具函数
 """
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
-import json
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -834,7 +834,7 @@ def validate_in_sandbox(
         # 注入临时目录
         script_with_env = f'''
 import os
-os.environ["SANDBOX_TMP_DIR"] = {repr(tmp_dir)}
+os.environ["SANDBOX_TMP_DIR"] = {tmp_dir!r}
 ''' + combined_script
 
         try:

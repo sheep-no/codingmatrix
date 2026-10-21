@@ -21,15 +21,15 @@ import signal
 import sys
 import tempfile
 import venv as venv_mod
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-from app.agent.tracing import traced
 from app.agent.framework_detector import FrameworkDetector
 from app.agent.output_parser import OutputParser
+from app.agent.tracing import traced
 
 FORBIDDEN_PATTERNS = [
     r'os\.system\s*\(',
@@ -266,7 +266,7 @@ class IsolatedTestRunner:
 
             except Exception as e:
                 logger.error(f"测试执行异常: {e}", exc_info=True)
-                result.logs = f"执行异常: {str(e)}"
+                result.logs = f"执行异常: {e!s}"
                 result.errors = 1
 
             finally:

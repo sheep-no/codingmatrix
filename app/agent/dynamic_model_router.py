@@ -1,26 +1,26 @@
 """动态模型路由器 - 基于延迟、成功率、队列深度的智能路由（支持全局健康感知）"""
 
 import asyncio
+import logging
 import os
 import random
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
 from collections import deque
-import logging
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from app.utils.system_load import system_load_monitor
-from app.utils.model_config_io import load_model_config, save_model_config
-from app.utils.aicloud.provider_router import ModelProvider
 from app.agent.models import (
     DEFAULT_ARCHITECT_MODEL,
     DEFAULT_CODE_MODEL,
     DEFAULT_FAST_MODEL,
     DEFAULT_REASONING_MODEL,
 )
+from app.utils.aicloud.provider_router import ModelProvider
+from app.utils.model_config_io import load_model_config, save_model_config
+from app.utils.system_load import system_load_monitor
 
 logger = logging.getLogger(__name__)
 

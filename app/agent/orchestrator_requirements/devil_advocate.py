@@ -1,8 +1,11 @@
 import json
 import logging
-from typing import List, Dict
+from typing import Dict, List
 
-from app.agent.orchestrator_requirements.constants import DEVILS_ADVOCATE_MODEL, CONFIDENCE_DEFAULT_SHOW
+from app.agent.orchestrator_requirements.constants import (
+    CONFIDENCE_DEFAULT_SHOW,
+    DEVILS_ADVOCATE_MODEL,
+)
 from app.agent.orchestrator_requirements.data_models import AssociationItem
 
 logger = logging.getLogger(__name__)

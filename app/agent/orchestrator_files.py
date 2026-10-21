@@ -1,27 +1,30 @@
 import ast
-import builtins
-import importlib.util
-import re
-import symtable
-import json
 import asyncio
+import builtins
 import hashlib
+import importlib.util
+import json
 import logging
+import re
 import subprocess
-from typing import Optional, Dict, List, Tuple
+import symtable
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-from app.utils import call_llm
-from app.agent.specialists import Specialist
 from app.agent.code_patcher import apply_incremental_change
 from app.agent.code_validator import CodeValidator
-from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL
-from app.agent.dynamic_model_router import get_context_length
-from app.agent.utils import extract_engineer_content, is_documentation_file, write_file_atomic
 from app.agent.dependency_graph import summarize_dependency_context
+from app.agent.dynamic_model_router import get_context_length
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL
+from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.specialists import Specialist
 from app.agent.topology_scheduler import HeartbeatTracker
-
+from app.agent.utils import (
+    extract_engineer_content,
+    is_documentation_file,
+    write_file_atomic,
+)
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +34,7 @@ _WRITE_TOOLS = {"partial_update", "insert_content", "regex_replace"}
 
 def _python_module_name(file_path: str) -> str:
     normalized = file_path.replace('\\', '/').removesuffix('.py')
-    if normalized.endswith('/__init__'):
-        normalized = normalized[:-len('/__init__')]
+    normalized = normalized.removesuffix('/__init__')
     return normalized.replace('/', '.')
 
 

@@ -6,9 +6,14 @@ import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, Mapping, Any
+from typing import Any, Iterable, Mapping
 
-from .evaluation_matrix import EvaluationRecord, EvaluationReport, FIXED_EVALUATION_MATRIX, build_report
+from .evaluation_matrix import (
+    FIXED_EVALUATION_MATRIX,
+    EvaluationRecord,
+    EvaluationReport,
+    build_report,
+)
 
 
 def load_records(payload: Iterable[Mapping[str, Any]]) -> list[EvaluationRecord]:

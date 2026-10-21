@@ -4,9 +4,11 @@
 提供性能指标查询和导出接口
 """
 import logging
+
 from fastapi import APIRouter, Depends
-from app.utils.security import verify_token
+
 from app.utils.performance_metrics import metrics_collector
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/performance", tags=["性能监控"])
@@ -74,5 +76,5 @@ async def export_performance_metrics(token: dict = Depends(verify_token)):
         logger.error(f"性能指标导出失败：{e}")
         return {
             "success": False,
-            "message": f"导出失败：{str(e)}",
+            "message": f"导出失败：{e!s}",
         }

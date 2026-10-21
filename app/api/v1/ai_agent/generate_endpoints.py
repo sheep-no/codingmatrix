@@ -1,40 +1,49 @@
 import asyncio
-import logging
 import json
-import time
-import uuid
+import logging
 import shutil
 import tempfile
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func, and_
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
-from app.utils.security import verify_token
-from app.db.database import get_db
-from app.schema.codeRequest import GenerateRequest, GenerateResponse
-from app.models.saved_project import SavedProject
-from app.utils.agent_core import ProjectGeneratorAgent
-from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
-
-from .schemas import (
-    SaveProjectRequest, SaveProjectResponse,
-    ProjectListResponse, LoadProjectResponse,
-    ImportProjectFilesRequest,
+from app.agent.workflow_registry import (
+    build_legacy_workflow,
+    get_legacy_result,
+    run_workflow,
 )
+from app.db.database import get_db
+from app.models.saved_project import SavedProject
+from app.schema.codeRequest import GenerateRequest, GenerateResponse
+from app.utils.agent_core import ProjectGeneratorAgent
+from app.utils.security import verify_token
+
 from .helpers import (
-    _build_agent_config, _validate_project_path, _collect_files,
-    _create_zip_archive_safe, _cleanup_temp_dir,
+    _build_agent_config,
+    _cleanup_temp_dir,
+    _collect_files,
+    _create_zip_archive_safe,
+    _validate_project_path,
     materialize_imported_project,
 )
 from .project_config import (
-    PROJECT_MIME_TYPES,
     MAX_SAVED_PROJECTS_PER_USER,
+    PROJECT_MIME_TYPES,
+)
+from .schemas import (
+    ImportProjectFilesRequest,
+    LoadProjectResponse,
+    ProjectListResponse,
+    SaveProjectRequest,
+    SaveProjectResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -263,8 +272,8 @@ async def read_project_file(
     except UnicodeDecodeError:
         content = "[二进制文件，无法显示]"
     except Exception as e:
-        logger.error(f"读取文件失败 | 文件：{target_file} | 错误：{str(e)}")
-        raise HTTPException(status_code=500, detail=f"读取文件失败：{str(e)}") from e
+        logger.error(f"读取文件失败 | 文件：{target_file} | 错误：{e!s}")
+        raise HTTPException(status_code=500, detail=f"读取文件失败：{e!s}") from e
 
     stat = target_file.stat()
 
@@ -306,8 +315,8 @@ async def delete_project_file(
         logger.info(f"文件已删除 | 文件：{target_file}")
         return {'status': 'deleted', 'file_path': file_path}
     except Exception as e:
-        logger.error(f"删除文件失败 | 文件：{target_file} | 错误：{str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除文件失败：{str(e)}") from e
+        logger.error(f"删除文件失败 | 文件：{target_file} | 错误：{e!s}")
+        raise HTTPException(status_code=500, detail=f"删除文件失败：{e!s}") from e
 
 
 @router.post("/import-files")
@@ -344,7 +353,7 @@ async def save_project(
         try:
             json.loads(request.project_data)
         except (json.JSONDecodeError, ValueError) as e:
-            raise HTTPException(status_code=400, detail=f"project_data 必须是有效的 JSON 格式：{str(e)}") from e
+            raise HTTPException(status_code=400, detail=f"project_data 必须是有效的 JSON 格式：{e!s}") from e
 
         count_result = await db.execute(
             select(func.count()).select_from(SavedProject).where(
@@ -384,7 +393,7 @@ async def save_project(
     except HTTPException:
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"保存项目异常 | user_id={user_id} | error={str(e)}", exc_info=True)
+        logger.error(f"保存项目异常 | user_id={user_id} | error={e!s}", exc_info=True)
         raise HTTPException(status_code=500, detail="保存项目失败") from e
 
 @router.get("/saved", response_model=ProjectListResponse)
@@ -436,7 +445,7 @@ async def list_saved_projects(
         )
 
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"获取项目列表异常 | user_id={user_id} | error={str(e)}", exc_info=True)
+        logger.error(f"获取项目列表异常 | user_id={user_id} | error={e!s}", exc_info=True)
         raise HTTPException(status_code=500, detail="获取项目列表失败") from e
 
 @router.get("/saved/{project_id}", response_model=LoadProjectResponse)
@@ -478,7 +487,7 @@ async def load_saved_project(
     except HTTPException:
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"加载项目异常 | user_id={user_id} | error={str(e)}", exc_info=True)
+        logger.error(f"加载项目异常 | user_id={user_id} | error={e!s}", exc_info=True)
         raise HTTPException(status_code=500, detail="加载项目失败") from e
 
 @router.delete("/saved/{project_id}")
@@ -512,5 +521,5 @@ async def delete_saved_project(
     except HTTPException:
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"删除项目异常 | user_id={user_id} | error={str(e)}", exc_info=True)
+        logger.error(f"删除项目异常 | user_id={user_id} | error={e!s}", exc_info=True)
         raise HTTPException(status_code=500, detail="删除项目失败") from e

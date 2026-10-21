@@ -6,14 +6,14 @@ AI 审查器
 
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from pydantic import ValidationError
 
-from app.utils import call_llm
+from app.agent.file_contract import FileContract, ReviewResult
 from app.agent.json_parser import safe_parse_json
 from app.agent.models import ModelRegistry
-from app.agent.file_contract import FileContract, ReviewResult
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ class AIReviewer:
             logger.error(f"代码审查失败: {e}")
             return ReviewResult(
                 approved=False,
-                issues=[f"审查过程出错: {str(e)}"],
+                issues=[f"审查过程出错: {e!s}"],
                 risk_level="medium"
             )
 
@@ -218,6 +218,6 @@ class AIReviewer:
             logger.error(f"计划审查失败: {e}")
             return ReviewResult(
                 approved=False,
-                issues=[f"审查异常: {str(e)}"],
+                issues=[f"审查异常: {e!s}"],
                 risk_level="high"
             )

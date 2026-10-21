@@ -2,13 +2,13 @@ import asyncio
 import json
 import logging
 import re
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
-from app.agent.specialist_base import Specialist
-from app.utils.prompt_loader import load_backend_engineer_prompt
-from app.agent.tracing import traced
 from app.agent.language_detector import LanguageDetector
+from app.agent.specialist_base import Specialist
+from app.agent.tracing import traced
 from app.agent.utils import compact_project_context_for_file
+from app.utils.prompt_loader import load_backend_engineer_prompt
 
 logger = logging.getLogger(__name__)
 

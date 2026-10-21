@@ -143,9 +143,10 @@ class ConversationStore:
     async def _load_from_db_async(self, session_id: str, user_id: str) -> List[Dict[str, str]]:
         """异步方式从数据库加载历史消息"""
         try:
+            from sqlalchemy import select
+
             from app.db.database import async_session
             from app.db.models import ConversationMessage
-            from sqlalchemy import select
 
             async with async_session() as session:
                 result = await session.execute(
@@ -233,9 +234,10 @@ class ConversationStore:
     async def _save_message_to_db(self, session_id: str, user_id: str, role: str, content: str, timestamp: int) -> bool:
         """保存单条消息到数据库"""
         try:
+            from datetime import datetime, timezone
+
             from app.db.database import async_session
             from app.db.models import ConversationMessage
-            from datetime import datetime, timezone
 
             async with async_session() as db:
                 msg = ConversationMessage(
@@ -257,9 +259,10 @@ class ConversationStore:
         # 1. 清数据库
         if user_id:
             try:
+                from sqlalchemy import delete as sql_delete
+
                 from app.db.database import async_session
                 from app.db.models import ConversationMessage
-                from sqlalchemy import delete as sql_delete
 
                 async with async_session() as db:
                     await db.execute(

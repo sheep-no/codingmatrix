@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
-import logging
 
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.host_action_dispatch import dispatch_state_actions
-from app.agent.state import CheckpointStore, State, StateDelta, StateGraph, StateGraphBuilder, StateReducer
-from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 from app.agent.orchestration.routing import engine_metadata
-
+from app.agent.state import (
+    CheckpointStore,
+    State,
+    StateDelta,
+    StateGraph,
+    StateGraphBuilder,
+    StateReducer,
+)
+from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 
 _active_workflows: Dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
 _checkpoint_store = CheckpointStore(

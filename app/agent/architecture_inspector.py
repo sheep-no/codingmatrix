@@ -14,8 +14,8 @@ ArchitectureInspector - 架构检查器
 import ast
 import logging
 import re
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

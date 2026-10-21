@@ -2,8 +2,12 @@ import asyncio
 import logging
 from typing import Dict, List
 
+from app.agent.orchestrator_files import (
+    _git_stash_drop,
+    _git_stash_pop,
+    _git_stash_push,
+)
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.orchestrator_files import _git_stash_push, _git_stash_pop, _git_stash_drop
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ class IncrementalGenerateMixin:
         applied_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                self.errors.append(f"文件生成异常：{str(result)}")
+                self.errors.append(f"文件生成异常：{result!s}")
                 has_failure = True
             elif result is None:
                 file_path = incremental_plan[i].get("path", "unknown") if i < len(incremental_plan) else "unknown"

@@ -23,15 +23,16 @@ async def _generate_ppt(
 ) -> dict[str, Any]:
     """Run the PPT pipeline through the recoverable stage orchestrator."""
     from app.api.v1.aiGeneratorPptx import (
+        PPT_OUTPUT_DIR,
         OutputFormat,
         PPTGenerationRequest,
-        PPT_OUTPUT_DIR,
+        _convert_pptx_to_pdf,
         generate_html_ppt,
         generate_markdown_ppt,
         generate_ppt_outline,
         generate_pptx_file_enhanced,
-        _convert_pptx_to_pdf,
     )
+    from app.db.database import async_session
     from app.services.ppt_generation_orchestrator import PPTGenerationOrchestrator
     from app.services.ppt_generation_persistence import (
         build_ppt_trace_context,
@@ -39,10 +40,12 @@ async def _generate_ppt(
         save_ppt_stage_checkpoint,
         serialize_quality_report,
     )
-    from app.services.ppt_quality_orchestrator import run_quality_pipeline, review_rendered_deck
-    from app.utils.pptx.semantic_renderer import build_render_metadata
+    from app.services.ppt_quality_orchestrator import (
+        review_rendered_deck,
+        run_quality_pipeline,
+    )
     from app.utils.pptx.semantic_planner import slide_capacity
-    from app.db.database import async_session
+    from app.utils.pptx.semantic_renderer import build_render_metadata
 
     request = PPTGenerationRequest.model_validate(request_data)
     output_dir = Path(PPT_OUTPUT_DIR)

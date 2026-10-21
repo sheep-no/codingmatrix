@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ class ErrorRecoveryMixin:
         model_name = getattr(assignment, "backend_model", None) if assignment else None
         if not model_name:
             raise RuntimeError("model assignment is required for ReAct auto-fix")
-        from app.agent.test_runner import IsolatedTestRunner
         from app.agent.react_agent import ReActAgent, ReActResult
+        from app.agent.test_runner import IsolatedTestRunner
         react_agent = ReActAgent(
             model_name=model_name,
             max_iterations=5,

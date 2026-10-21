@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, Iterable, Set
 
 from app.agent.state import State, StateDelta
 
-
 LOCAL_SCOPES = {"local_runtime", "local_e2e"}
 UNSUPPORTED_STATUS = "unsupported"
 

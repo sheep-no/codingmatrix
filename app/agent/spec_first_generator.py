@@ -11,13 +11,13 @@ SpecFirstGenerator - 规范先行生成器
 4. 规范可以作为验证标准
 """
 
-import json
 import asyncio
+import json
 import logging
-from typing import Optional, Dict, Any, Callable
+from typing import Any, Callable, Dict, Optional
 
-from app.utils import call_llm
 from app.agent.shared_context import SharedContext
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 

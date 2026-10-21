@@ -10,16 +10,19 @@ PythonLanguageAdapter - Python 语言适配器
 
 import ast
 import builtins
-from functools import lru_cache
 import re
 import symtable
 import sysconfig
-from typing import Dict, List, Mapping, Tuple
+from functools import lru_cache
 from pathlib import Path
+from typing import Dict, List, Mapping, Tuple
 
 from .language_adapter import (
-    LanguageAdapter, LanguageAdapterRegistry,
-    ImportInfo, SymbolDefinition, iter_logical_lines
+    ImportInfo,
+    LanguageAdapter,
+    LanguageAdapterRegistry,
+    SymbolDefinition,
+    iter_logical_lines,
 )
 
 

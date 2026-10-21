@@ -12,9 +12,9 @@
 """
 
 import json
-import re
 import logging
-from typing import Dict, Optional, Any, Union
+import re
+from typing import Any, Dict, Optional, Union
 
 try:
     import json_repair
@@ -382,8 +382,7 @@ class _JsonParser:
         """状态机截断修复"""
         try:
             text = self._remove_line_comments(text).rstrip()
-            if text.endswith(','):
-                text = text[:-1]
+            text = text.removesuffix(',')
 
             stack = []
             in_string = False

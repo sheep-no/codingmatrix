@@ -10,9 +10,8 @@ LanguageAdapter - 语言适配层
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Tuple
 from pathlib import Path
-
+from typing import Dict, List, Mapping, Optional, Tuple
 
 _EXTERNAL_SOURCE_SUFFIXES = {
     ".py", ".pyw", ".pyi",

@@ -14,14 +14,14 @@ UserPreferenceLearner - 用户偏好建模
 - 偏好注入到生成 Prompt
 """
 
+import asyncio
 import json
 import logging
-import asyncio
 import re
-from typing import Optional, Dict, Any, List
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

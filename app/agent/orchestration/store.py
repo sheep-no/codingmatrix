@@ -10,7 +10,6 @@ from typing import Optional, Protocol
 
 from .models import OrchestrationState
 
-
 CURRENT_ORCHESTRATION_SCHEMA_VERSION = 1
 
 

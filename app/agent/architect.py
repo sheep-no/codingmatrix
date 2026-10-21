@@ -1,16 +1,16 @@
+import json
 import logging
 import re
-import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from app.agent.complexity import ComplexityAnalysis
-from app.agent.specialist_base import Specialist
-from app.utils.prompt_loader import load_architect_prompt
-from app.agent.tracing import traced
-from app.agent.language_detector import LanguageDetector, LanguageDetectionResult
 from app.agent.architect_json_parser import ArchitectJsonParser
+from app.agent.complexity import ComplexityAnalysis
 from app.agent.dependency_graph import _EXTENSIONLESS_PROJECT_FILES
+from app.agent.language_detector import LanguageDetectionResult, LanguageDetector
+from app.agent.specialist_base import Specialist
+from app.agent.tracing import traced
+from app.utils.prompt_loader import load_architect_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -1413,8 +1413,8 @@ language 字段要求：
             return architecture
 
         # 构建依赖图，分析缺失模块
-        from app.agent.dependency_graph import DependencyGraph
         from app.agent.adapters import LanguageAdapterRegistry
+        from app.agent.dependency_graph import DependencyGraph
         detected_language = target_language or architecture.get("language", "python")
         adapter = LanguageAdapterRegistry.get_adapter(detected_language)
         dep_graph = DependencyGraph(language_adapter=adapter)

@@ -1,6 +1,34 @@
 """Strict lifecycle primitives for the next-generation orchestrator."""
 
-from .core import OrchestratorCore
+from app.agent.dependency_manifest import Dependency, DependencyKind, DependencyManifest
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
+from app.agent.generation_plan import PlanFile
+from app.agent.interface_registry import (
+    InterfaceEntry,
+    InterfaceRegistry,
+    InterfaceSymbol,
+    InterfaceVisibility,
+)
+from app.agent.workflow_ir import (
+    ContextPolicy,
+    ModelPolicy,
+    ScopeRef,
+    TechnologyProfile,
+    ToolGrant,
+    WorkflowIR,
+    WorkflowNode,
+    WorkflowNodeKind,
+)
+
+from .adapters import (
+    AdapterResult,
+    GenerationModeAdapter,
+    GenerationRequest,
+    IncrementalAdapter,
+    SpecFirstAdapter,
+    StackRepairCandidate,
+    TraditionalAdapter,
+)
 from .artifact_committer import (
     ARTIFACT_COMMIT_FAILED,
     ARTIFACT_CONSISTENCY_FAILED,
@@ -12,6 +40,19 @@ from .artifact_committer import (
     check_artifact_success_gate,
 )
 from .budget import ExecutionBudget, ExecutionBudgetExhausted
+from .core import OrchestratorCore
+from .engine_router import EngineRouteResult, compare_shadow_results, route_generation
+from .generation_scheduler import (
+    FileGenerationContext,
+    GeneratedContent,
+    GenerationNodeResult,
+    GenerationNodeStatus,
+    GenerationScheduler,
+    GenerationScheduleResult,
+    GenerationScheduleStats,
+    GenerationScheduleStatus,
+    TestGenerationContract,
+)
 from .model_gateway import (
     ModelCallActivity,
     ModelCallCancelled,
@@ -21,17 +62,6 @@ from .model_gateway import (
     ModelGateway,
     ModelGatewayError,
     ModelStreamDataKind,
-)
-from .generation_scheduler import (
-    FileGenerationContext,
-    GeneratedContent,
-    GenerationNodeResult,
-    GenerationNodeStatus,
-    GenerationScheduleResult,
-    GenerationScheduleStats,
-    GenerationScheduleStatus,
-    GenerationScheduler,
-    TestGenerationContract,
 )
 from .models import (
     OrchestrationCommand,
@@ -46,29 +76,10 @@ from .plan import (
     GenerationPlan,
     PlanFileOrigin,
     PlanIssue,
-    PlanPolicy,
     PlannedFile,
+    PlanPolicy,
     build_file_plan,
     normalize_plan_path,
-)
-from app.agent.dependency_manifest import Dependency, DependencyKind, DependencyManifest
-from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, PlanFile
-from app.agent.interface_registry import InterfaceEntry, InterfaceRegistry, InterfaceSymbol, InterfaceVisibility
-from .state_machine import (
-    InvalidOrchestrationTransition,
-    OrchestrationRevisionConflict,
-    advance_state,
-    terminate_state,
-)
-from .store import OrchestrationCheckpointStore, OrchestrationStore
-from .adapters import (
-    AdapterResult,
-    GenerationModeAdapter,
-    GenerationRequest,
-    IncrementalAdapter,
-    SpecFirstAdapter,
-    StackRepairCandidate,
-    TraditionalAdapter,
 )
 from .routing import (
     CORE_ENGINE,
@@ -79,18 +90,14 @@ from .routing import (
     engine_metadata,
     select_engine,
 )
-from .engine_router import EngineRouteResult, compare_shadow_results, route_generation
 from .runtime import execute_core_generation
-from app.agent.workflow_ir import (
-    ContextPolicy,
-    ModelPolicy,
-    ScopeRef,
-    TechnologyProfile,
-    ToolGrant,
-    WorkflowIR,
-    WorkflowNode,
-    WorkflowNodeKind,
+from .state_machine import (
+    InvalidOrchestrationTransition,
+    OrchestrationRevisionConflict,
+    advance_state,
+    terminate_state,
 )
+from .store import OrchestrationCheckpointStore, OrchestrationStore
 
 __all__ = [
     "ARTIFACT_COMMIT_FAILED",

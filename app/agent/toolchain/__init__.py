@@ -4,13 +4,12 @@ import asyncio
 import json
 import os
 import signal
-import tomllib
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Mapping, Tuple
 
+import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 DEFAULT_ALLOWED_EXECUTABLES = (
     "python", "python3", "node", "npx", "npm", "go", "cargo", "gofmt",

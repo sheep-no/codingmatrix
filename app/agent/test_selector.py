@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from app.utils.performance_metrics import metrics_collector
+
 from .impact_analyzer import ChangeSummary
 from .project_profiler import ProjectProfile
 

@@ -5,15 +5,15 @@ Memory 模块 - Agent 记忆系统
 支持语义搜索（基于 embedding 余弦相似度）
 """
 
-import json
-import time
 import asyncio
+import json
+import logging
 import math
 import threading
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field
+import time
 from collections import defaultdict
-import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from app.utils.AiCodeUtil import get_embedding
 

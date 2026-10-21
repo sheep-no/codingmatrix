@@ -8,9 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from .models import State
 from .migrations import migrate_state_payload
-
+from .models import State
 
 CURRENT_SCHEMA_VERSION = 1
 

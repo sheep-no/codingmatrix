@@ -5,17 +5,17 @@ ReAct Agent - 基于 ReActEngine 的薄封装
 内部委托给 ReActEngine(full 模式) 执行。
 """
 
-import time
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass, field
 import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
-from app.agent.memory import AgentMemory
 from app.agent.executor import EnhancedExecutor
-from app.agent.react_engine import ReActEngine
-from app.utils import call_llm
+from app.agent.memory import AgentMemory
 from app.agent.multi_model_agent import ModelRegistry
+from app.agent.react_engine import ReActEngine
 from app.agent.specialist_base import SPECIALIST_TOOLS
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class ReActAgent:
         api_key_token: Optional[str] = None,
     ):
         if model_name:
-            from app.agent.models import ModelInfo, ModelCapability
+            from app.agent.models import ModelCapability, ModelInfo
             self.default_model = ModelInfo(
                 key="custom",
                 name=model_name,

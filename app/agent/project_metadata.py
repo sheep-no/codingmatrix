@@ -1,16 +1,16 @@
 import asyncio
 import json
+import logging
 import os
 import tempfile
 import threading
 import time
 import uuid
-import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL
 from app.agent.vector_index import METADATA_PATH
-from app.agent.models import DEFAULT_REASONING_MODEL, DEFAULT_CODE_MODEL
 
 logger = logging.getLogger(__name__)
 
