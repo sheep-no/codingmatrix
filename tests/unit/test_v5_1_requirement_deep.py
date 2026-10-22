@@ -340,7 +340,67 @@ class TestRequirementCoverageCheck:
         from app.agent.orchestrator_generation.coverage_checker import check_requirement_coverage
         result = check_requirement_coverage("req", {}, [], None)
         assert result["checked"] == False
+        # 未检查与真实满分必须可区分（coverage_rate=None），且结构键完整
+        assert result["coverage_rate"] is None
+        assert result["total_items"] == 0
+        assert result["uncovered"] == []
+
+    def test_chinese_paraphrase_coverage(self):
+        """中文需求改述场景：语料无整句复述也能按词粒度命中（\w+ 整句 token 的主场景回归）。"""
+        from app.agent.orchestrator_generation.coverage_checker import check_requirement_coverage
+        from app.agent.orchestrator_requirements import AssociationResult, AssociationItem
+        association_result = AssociationResult(
+            items=[
+                AssociationItem(content="用户需要登录功能和数据导出", category="functional", source="template", confidence=0.8),
+            ],
+            skipped=False
+        )
+        result = check_requirement_coverage(
+            "req",
+            {"tech_stack": ["python"]},
+            [{"path": "app/auth.py", "description": "提供账号登录与数据导出能力"}],
+            association_result
+        )
+        assert result["checked"] == True
+        assert result["uncovered"] == []
         assert result["coverage_rate"] == 1.0
+
+    def test_english_stopwords_not_in_denominator(self):
+        """len<=2 停用词从分母剔除：短词密集条目不应被系统性误判 uncovered。"""
+        from app.agent.orchestrator_generation.coverage_checker import check_requirement_coverage
+        from app.agent.orchestrator_requirements import AssociationResult, AssociationItem
+        association_result = AssociationResult(
+            items=[
+                AssociationItem(content="to a of in on api", category="functional", source="template", confidence=0.8),
+            ],
+            skipped=False
+        )
+        result = check_requirement_coverage(
+            "req",
+            {"tech_stack": ["api gateway"]},
+            [],
+            association_result
+        )
+        assert result["uncovered"] == []
+
+    def test_substring_no_false_positive(self):
+        """词级集合求交：'log' 不应因子串包含命中 'login'，虚增覆盖被修正。"""
+        from app.agent.orchestrator_generation.coverage_checker import check_requirement_coverage
+        from app.agent.orchestrator_requirements import AssociationResult, AssociationItem
+        association_result = AssociationResult(
+            items=[
+                AssociationItem(content="log parsing utility", category="functional", source="template", confidence=0.8),
+            ],
+            skipped=False
+        )
+        result = check_requirement_coverage(
+            "req",
+            {"tech_stack": ["login page"]},
+            [],
+            association_result
+        )
+        assert result["coverage_rate"] == 0.0
+        assert len(result["uncovered"]) == 1
 
     def test_good_coverage(self):
         from app.agent.orchestrator_generation.coverage_checker import check_requirement_coverage
