@@ -301,6 +301,7 @@ class IncrementalModifyMixin:
             project_context, generated_contents, file_plan, callback, language_adapter
         )
 
+        errors_baseline = len(self.errors)
         files_generated = result.get("files_generated", 0)
         files_failed = result.get("files_failed", 0)
         self.generated_files = result.get("generated_files", [])
@@ -308,10 +309,12 @@ class IncrementalModifyMixin:
         self.warnings.extend(result.get("warnings", []))
 
         if files_failed:
-            failed = [err for err in self.errors if "文件生成失败" in err]
+            # 只聚合本轮新增错误，避免评价/检测等前阶段遗留错误被误认为来自增量阶段
+            new_errors = self.errors[errors_baseline:]
+            failed = [err for err in new_errors if "文件生成失败" in err]
             raise RuntimeError(
                 f"incremental file generation failed for {files_failed} file(s): "
-                + "; ".join(failed or self.errors[-files_failed:])
+                + "; ".join(failed or new_errors[-files_failed:])
             )
 
         # ========== Step 5: P6 增量依赖图更新 ==========

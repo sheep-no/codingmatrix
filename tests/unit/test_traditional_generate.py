@@ -116,6 +116,7 @@ async def test_incremental_generate_failure_raises_after_rollback(tmp_path):
             self.generated_files = []
             self.errors = []
             self.cancel_event = None
+            self.warnings = []
 
         async def _detect(self, *_args, **_kwargs):
             return {
@@ -175,6 +176,7 @@ class _IncrementalOrchestrator:
         self.generated_files = []
         self.errors = []
         self.cancel_event = None
+        self.warnings = []
         self.session_id = "s1"
         self._plan = plan
         self._failing = set(failing)
@@ -239,3 +241,69 @@ async def test_incremental_success_keeps_entries_and_drops_stash(tmp_path, monke
 
     assert calls == {"push": 1, "pop": 0, "drop": 1}
     assert [f["path"] for f in orchestrator.generated_files] == ["a.py", "b.py"]
+
+
+@pytest.mark.asyncio
+async def test_incremental_stash_failure_keeps_atomicity_gap_visible(tmp_path, monkeypatch):
+    """stash 失败时原子性缺口必须进 warnings 报告，且失败分支不调用 pop/drop。"""
+    from app.agent.orchestrator_generation import incremental_generate as ig
+
+    calls = {"push": 0, "pop": 0, "drop": 0}
+    monkeypatch.setattr(ig, "_git_stash_push", lambda *a, **k: calls.__setitem__("push", calls["push"] + 1) or False)
+    monkeypatch.setattr(ig, "_git_stash_pop", lambda *a, **k: calls.__setitem__("pop", calls["pop"] + 1))
+    monkeypatch.setattr(ig, "_git_stash_drop", lambda *a, **k: calls.__setitem__("drop", calls["drop"] + 1))
+
+    plan = [{"path": "a.py"}, {"path": "b.py"}]
+    orchestrator = _IncrementalOrchestrator(tmp_path, plan, failing={"b.py"})
+
+    with pytest.raises(RuntimeError, match="incremental file generation failed"):
+        await ig.IncrementalGenerateMixin._handle_incremental_generation(
+            orchestrator, "req", plan, {}, 2
+        )
+
+    assert any("增量备份不可用" in w for w in orchestrator.warnings)
+    assert calls == {"push": 1, "pop": 0, "drop": 0}
+
+
+@pytest.mark.asyncio
+async def test_incremental_cancellation_reported_and_rolled_back(tmp_path, monkeypatch):
+    """取消以 CancelledError 冒出时须分诊为取消并走回滚，消息区分 cancelled。"""
+    import asyncio as _asyncio
+
+    ig, calls = _patch_stash(monkeypatch)
+
+    class _CancelOrchestrator(_IncrementalOrchestrator):
+        async def _generate_single_file(self, file_info, *_args, **_kwargs):
+            if file_info["path"] == "b.py":
+                raise _asyncio.CancelledError("检测到取消信号")
+            return {"path": file_info["path"], "description": "ok", "success": True}
+
+    plan = [{"path": "a.py"}, {"path": "b.py"}]
+    orchestrator = _CancelOrchestrator(tmp_path, plan, failing=set())
+
+    with pytest.raises(RuntimeError, match="incremental file generation cancelled"):
+        await ig.IncrementalGenerateMixin._handle_incremental_generation(
+            orchestrator, "req", plan, {}, 2
+        )
+
+    assert any("文件生成被取消: b.py" in e for e in orchestrator.errors)
+    assert calls["pop"] == 1
+    assert [f["path"] for f in orchestrator.generated_files] == []
+
+
+@pytest.mark.asyncio
+async def test_incremental_failure_error_excludes_history_noise(tmp_path, monkeypatch):
+    """失败聚合只含本轮新增错误，前阶段遗留错误不重复出现。"""
+    ig, calls = _patch_stash(monkeypatch)
+    plan = [{"path": "a.py"}]
+    orchestrator = _IncrementalOrchestrator(tmp_path, plan, failing={"a.py"})
+    orchestrator.errors.append("评价阶段遗留错误：旧问题")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await ig.IncrementalGenerateMixin._handle_incremental_generation(
+            orchestrator, "req", plan, {}, 1
+        )
+
+    message = str(exc_info.value)
+    assert "评价阶段遗留错误" not in message
+    assert "文件生成失败: a.py" in message
