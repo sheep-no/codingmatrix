@@ -1923,7 +1923,12 @@ class FilesMixin:
                 new_files.append(fp)
 
         # git stash 备份已有文件
+        errors_baseline = len(self.errors)
         stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
+        if not stashed:
+            self.warnings.append(
+                "增量备份不可用（git stash 失败），生成失败时无法回滚已修改文件"
+            )
 
         # 分批并发生成，避免大量协程同时存在
         if self.cancel_event and self.cancel_event.is_set():
@@ -1945,7 +1950,13 @@ class FilesMixin:
         # 检查是否全部成功
         all_success = True
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, asyncio.CancelledError):
+                # 取消从 LLM 流内以 BaseException 冒出，须显式分诊，
+                # 否则 truthy 分支对其调 .get() 会 AttributeError 绕过回滚
+                file_path = file_plan[i].get("path", "unknown") if i < len(file_plan) else "unknown"
+                self.errors.append(f"文件生成被取消: {file_path}")
+                all_success = False
+            elif isinstance(result, Exception):
                 self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
                 all_success = False
             elif result is None:
@@ -1967,14 +1978,15 @@ class FilesMixin:
                     logger.info(f"删除失败的新文件: {fp}")
             self.warnings.append("小项目生成失败，已回滚")
             raise RuntimeError(
-                "small project file generation failed: " + "; ".join(self.errors)
+                "small project file generation failed: "
+                + "; ".join(self.errors[errors_baseline:])
             )
         else:
             # 成功：丢弃 stash
             if stashed:
                 _git_stash_drop(str(self.output_dir))
             for result in results:
-                if result and not isinstance(result, Exception):
+                if result and not isinstance(result, BaseException):
                     self.generated_files.append(result)
 
     async def _generate_files_by_dep_layers(
@@ -2016,7 +2028,12 @@ class FilesMixin:
                     new_files.append(fp)
 
             # git stash 备份已有文件
+            errors_baseline = len(self.errors)
             stashed = _git_stash_push(str(self.output_dir), existing_files, f"agent-backup-layer-{layer_idx}")
+            if not stashed:
+                self.warnings.append(
+                    f"第 {layer_idx + 1} 层增量备份不可用（git stash 失败），失败时无法回滚该层已修改文件"
+                )
 
             # 直接并发生成，由 LLMClient 内部信号量控制并发度
             async def generate_file(file_path: str) -> dict:
@@ -2029,7 +2046,13 @@ class FilesMixin:
             # 检查本层是否全部成功
             layer_success = True
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, asyncio.CancelledError):
+                    # 取消从 LLM 流内以 BaseException 冒出，须显式分诊，
+                    # 否则 truthy 分支对其调 .get() 会 AttributeError 绕过回滚
+                    file_path = layer_files[i] if i < len(layer_files) else "unknown"
+                    self.errors.append(f"文件生成被取消: {file_path}")
+                    layer_success = False
+                elif isinstance(result, Exception):
                     self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
                     layer_success = False
                 elif result is None:
@@ -2052,14 +2075,14 @@ class FilesMixin:
                 self.warnings.append(f"第 {layer_idx+1} 层生成失败，已回滚")
                 raise RuntimeError(
                     f"dependency layer {layer_idx + 1} file generation failed: "
-                    + "; ".join(self.errors)
+                    + "; ".join(self.errors[errors_baseline:])
                 )
             else:
                 # 成功：丢弃 stash
                 if stashed:
                     _git_stash_drop(str(self.output_dir))
                 for result in results:
-                    if result and not isinstance(result, Exception):
+                    if result and not isinstance(result, BaseException):
                         self.generated_files.append(result)
                         try:
                             full_path = self.output_dir / result["path"]

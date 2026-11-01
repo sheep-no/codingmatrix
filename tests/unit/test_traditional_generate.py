@@ -307,3 +307,36 @@ async def test_incremental_failure_error_excludes_history_noise(tmp_path, monkey
     message = str(exc_info.value)
     assert "评价阶段遗留错误" not in message
     assert "文件生成失败: a.py" in message
+
+
+@pytest.mark.asyncio
+async def test_small_project_cancelled_error_diagnostics_and_rollback(tmp_path):
+    """小项目路径：CancelledError（BaseException）须分诊为取消，不落 truthy 分支调 .get()。"""
+    import asyncio as _asyncio
+
+    from app.agent.orchestrator_files import FilesMixin
+
+    mixin = object.__new__(FilesMixin)
+    mixin.output_dir = tmp_path
+    mixin.errors = []
+    mixin.warnings = []
+    mixin.generated_files = []
+    mixin.cancel_event = None
+
+    async def _gen(file_info, *_args, **_kwargs):
+        if file_info["path"] == "b.py":
+            raise _asyncio.CancelledError("检测到取消信号")
+        return {"path": file_info["path"], "description": "ok", "success": True}
+
+    mixin._generate_single_file = _gen
+    mixin._friendly_error = lambda s: s
+
+    plan = [{"path": "a.py"}, {"path": "b.py"}]
+    (tmp_path / "a.py").write_text("old", encoding="utf-8")
+    with pytest.raises(RuntimeError) as exc_info:
+        await mixin._generate_files_small_project(plan, {}, 2)
+
+    message = str(exc_info.value)
+    assert "文件生成被取消: b.py" in message
+    assert any("增量备份不可用" in w for w in mixin.warnings)
+    assert mixin.generated_files == []

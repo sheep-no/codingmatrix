@@ -914,6 +914,14 @@ class SpecFirstGenerateMixin:
 
                 for i, result in enumerate(results):
                     file_path = layer[i]
+                    if isinstance(result, asyncio.CancelledError):
+                        # 取消从 LLM 流内以 BaseException 冒出，须显式分诊，
+                        # 否则 truthy 分支调 result.get() 会 AttributeError
+                        self.errors.append(f"文件生成被取消: {file_path}")
+                        ctx.add_error(f"文件生成被取消: {file_path}")
+                        files_failed += 1
+                        continue
+
                     if isinstance(result, Exception):
                         self.errors.append(f"文件生成失败: {file_path}（{result}）")
                         ctx.add_error(f"文件生成失败: {file_path}")
