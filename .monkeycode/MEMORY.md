@@ -72,6 +72,18 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `tests/unit/test_aicloud_execution_regressions.py::test_auto_loop_records_iteration_history` 用 `caplog.text` 断言「自动执行轮次记录」，在导入过 `app.main` 的进程里必然捕获为空而失败。根因是 `app/main.py` 导入期调用 `setup_logging()`，`app/core/logging_config.py` 把 `app` logger 设 `propagate=False`，caplog 默认挂 root 收不到 `app.utils.aicloud.auto_executor` 日志；只要同进程有任一用例先 `import app.main`（`test_v2_api_hardening`/`test_ppt_endpoints`/`test_rate_limiter` 等数十处）就会触发。这是确定性测试隔离缺陷，不是环境性偶发，也不是业务回归。修复方式：把 `caplog.handler` 直接挂到目标 logger 并在 `finally` 移除，配 `caplog.at_level(logging.INFO, logger=<目标 logger 名>)`（勿依赖 root propagate）。新增断言日志的测试一律按此模式，不要用 `caplog.text`。
   - 架构师输出缺 `project_spec` 时 `architect.py` 硬抛是被测试固定的契约（`test_canonicalize_missing_project_spec_raises`、`test_design_architecture_missing_project_spec_raises`），不要当误报门禁改掉；`_build_default_project_spec` 只服务「架构完全失败」的默认路径。
 
+### E2E 门禁降级为非阻塞监测（GH runner 时钟偏差）
+- Date: 2026-11-02
+- Context: 2026-10-23 起 GH runner 底层 VM 更新后 chromium 渲染进程随机崩溃，PR #437 系统性排查后降级
+- Category: Environment Configuration
+- Instructions:
+  - 崩溃根因：Blink `window_performance.cc` EventTiming 帧聚合的 `CHECK(info.processing_start_time >= render_start_time)` fatal（SIGABRT → page crashed）。runner VM 的 kvm-clock/TSC 混用使 viz（GPU 进程）与 renderer 跨进程 TimeTicks 采样偶发倒挂；dmesg 无 OOM/segfault、内存充裕，纯时钟偏差
+  - 崩溃随机命中 popup 与主 tab `page.goto` 双路径，偏好重页面（admin-panel/chart-editor），单轮全量失败概率约 0.7；test 级 retry 能救部分（flaky），job 级重跑一次不足以兜住
+  - 已系统排除并缓解（PR #437）：chromium 1234/1248 双版本、22.04/latest 双镜像 pin、headless/headful(xvfb)、--no-shell 完整 chromium、hpet clocksource 切换（写入成功但无效）、--disable-features/--disable-blink-features=PerformanceEventTiming（无效，CHECK 不受 runtime feature 控制）均无用；--disable-gpu-compositing + popup try/catch fallback + job 级重跑循环为残余缓解
+  - 当前状态：`e2e.yml` 的 e2e job 有 `continue-on-error: true`（非阻塞监测，红不挡合并），Run E2E 步骤内含 2 轮整跑循环。诊断结论：本地（2C/7.9G）同 lockfile 全量门禁 spec 111 测试全绿，runner 特有
+  - 恢复条件：GH runner 镜像修复时钟行为或上游 chromium 移除该 CHECK（main 分支已删，npm latest 1.64.1=chromium 156 仍有）。恢复时移除 continue-on-error 与重跑循环，恢复阻塞门禁
+  - 排查方法论沉淀：page crashed 类问题先用 `DEBUG=pw:browser` 抓 browser 进程 stderr 的 FATAL 消息（内核 dmesg 对 chromium 主动 abort 无记录）；error-context.md 在崩溃场景无页面快照；trace.zip 可看最后动作序列
+
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26
 - Context: 深扫 app/api/v1/AiProjectCode.py 时用户纠正——该文件实际已废弃；随后用户明确每次扫描前须先确定文件作用
