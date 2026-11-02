@@ -82,8 +82,10 @@ jobs:
       - name: Install E2E dependencies
         run: npm ci
 
+      # --no-shell：避开精简的 chrome-headless-shell 构建，用完整 chromium
+      # 的 headless=new 模式；shell 构建在新 runner 系统栈上渲染进程随机崩溃
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps --no-shell chromium
 
       - name: Install backend dependencies
         run: |
@@ -147,6 +149,13 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
+
+      # 渲染进程崩溃（page crashed）的 OS 级证据：OOM killer / segfault 记录
+      - name: Dump kernel crash traces
+        if: failure()
+        run: |
+          sudo dmesg | grep -iE "oom|killed process|segfault|chrome|chromium" | tail -40 || true
+          free -m || true
 
       - name: Upload test recordings
         if: always()
