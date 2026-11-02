@@ -15,7 +15,11 @@ on:
 jobs:
   e2e:
     name: Playwright E2E Tests
-    runs-on: ubuntu-latest
+    # 固定旧版 runner 镜像：ubuntu-latest 于 2026-10 底滚动更新后，chromium popup
+    # 渲染进程在 waitForLoadState 阶段稳定崩溃（admin-panel-scenarios:108，
+    # page crashed 三连复现，master 同 commit 10-23 绿 11-01 红）。
+    # 同 lockfile 同代码仅镜像变化，锁定旧镜像绕开漂移。
+    runs-on: ubuntu-22.04
     services:
       redis:
         image: redis:7-alpine
