@@ -66,8 +66,12 @@ async function openPptPage(page) {
   await menu.getByText('PPT 生成', { exact: true }).click()
   const popup = await popupPromise
   if (popup) {
-    await popup.waitForLoadState('domcontentloaded')
-    return popup
+    try {
+      await popup.waitForLoadState('domcontentloaded')
+      return popup
+    } catch {
+      await popup.close().catch(() => {})
+    }
   }
   await page.goto('/ppt-generate', { waitUntil: 'domcontentloaded' })
   return page

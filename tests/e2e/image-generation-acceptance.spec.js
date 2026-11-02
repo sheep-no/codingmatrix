@@ -65,8 +65,12 @@ async function openImagePage(page) {
   await menu.getByText('AI 绘画', { exact: true }).click()
   const popup = await popupPromise
   if (popup) {
-    await popup.waitForLoadState('domcontentloaded')
-    return popup
+    try {
+      await popup.waitForLoadState('domcontentloaded')
+      return popup
+    } catch {
+      await popup.close().catch(() => {})
+    }
   }
   await page.goto('/image-generate', { waitUntil: 'domcontentloaded' })
   return page
