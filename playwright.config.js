@@ -24,13 +24,14 @@ module.exports = defineConfig({
           ),
           // 2026-11 起 GH runner 底层 VM 时钟（bogo-microseconds 计数）在
           // EventTiming 采样间回退，触发 Blink window_performance.cc:1051 的
-          // CHECK fatal（SIGABRT -> page crashed，见诊断轮 pw:browser 日志）。
-          // 禁用 PerformanceEventTiming 绕开该断言；headful 同为软件渲染栈
-          // 也崩，故保留 headless 默认即可
+          // CHECK fatal（SIGABRT -> page crashed，见 pw:browser 日志）。
+          // PerformanceEventTiming 是 blink runtime feature，须用
+          // --disable-blink-features（--disable-features 仅作用于 browser 侧）
           args: [
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-features=PerformanceEventTiming',
+            '--disable-blink-features=PerformanceEventTiming',
           ],
         },
       },
