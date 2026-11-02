@@ -87,16 +87,6 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps --no-shell chromium
 
-      # 崩溃根因：runner VM 的 TSC 时钟在 EventTiming 采样间回退，触发 Blink
-      # window_performance.cc 的 CHECK fatal（bogo-microseconds 计数倒挂，
-      # 见 pw:browser 日志）。切稳定时钟源消除单调性破坏
-      - name: Stabilize clocksource
-        run: |
-          echo "current: $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)"
-          echo "available: $(cat /sys/devices/system/clocksource/clocksource0/available_clocksource)"
-          echo hpet | sudo tee /sys/devices/system/clocksource/clocksource0/current_clocksource || \
-            echo "hpet unavailable, keeping current clocksource"
-
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
@@ -160,9 +150,6 @@ jobs:
         env:
           BASE_URL: http://127.0.0.1:3000
           BACKEND_URL: http://127.0.0.1:8000
-          # 渲染进程 page crashed 且内核无 OOM/segfault 记录：
-          # 倾向 chromium 内部 CHECK fatal，抓 browser 进程 stderr 定位
-          DEBUG: pw:browser
 
       - name: Upload test results
         if: always()
