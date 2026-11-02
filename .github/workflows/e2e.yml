@@ -141,6 +141,9 @@ jobs:
         env:
           BASE_URL: http://127.0.0.1:3000
           BACKEND_URL: http://127.0.0.1:8000
+          # 渲染进程 page crashed 且内核无 OOM/segfault 记录：
+          # 倾向 chromium 内部 CHECK fatal，抓 browser 进程 stderr 定位
+          DEBUG: pw:browser
 
       - name: Upload test results
         if: always()
