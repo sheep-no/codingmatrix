@@ -613,7 +613,12 @@ class IncrementalModifyMixin:
             failed_files = []
             for i, result in enumerate(results):
                 file_path = layer_files[i]
-                if isinstance(result, Exception) or not result:
+                if isinstance(result, asyncio.CancelledError):
+                    # 取消从 LLM 流内以 BaseException 冒出，须显式分诊，
+                    # 否则 truthy 分支切片 result[:8000] 会 TypeError
+                    logger.error(f"文件生成被取消: {file_path}")
+                    failed_files.append(file_path)
+                elif isinstance(result, Exception) or not result:
                     logger.error(f"文件生成失败: {file_path} - {result}")
                     failed_files.append(file_path)
                 else:
