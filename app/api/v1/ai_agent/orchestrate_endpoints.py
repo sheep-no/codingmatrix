@@ -563,14 +563,26 @@ def _resolve_project_dir(project_path: str) -> tuple[Path | None, str | None]:
     return project_dir, None
 
 
-def _locate_snapshot_project_dir(session_id: str) -> Path | None:
-    """同步定位快照所属项目目录（供线程池调用）；两处候选均不存在时返回 None。"""
-    project_dir = Path(f"orchestrator/{session_id}")
-    if not project_dir.exists():
-        project_dir = Path(f"user_uploads/{session_id}")
-    if not project_dir.exists():
-        return None
-    return project_dir
+def _locate_snapshot_project_dir(session_id: str, output_dir: str | None = None) -> Path | None:
+    """同步定位快照所属项目目录（供线程池调用）。
+
+    会话表保存的 output_dir 才是生成物的真实位置（绝对路径或相对于
+    PROJECTS_BASE_DIR 的路径）；仅在缺少记录时回退到历史上的两个固定目录。
+    全部候选都不存在时返回 None。
+    """
+    if output_dir:
+        project_dir, error = _resolve_project_dir(output_dir)
+        if error is None:
+            return project_dir
+
+    candidates = (
+        Path("orchestrator") / session_id,
+        Path("user_uploads") / session_id,
+    )
+    for project_dir in candidates:
+        if project_dir.exists():
+            return project_dir
+    return None
 
 
 async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event | None = None):
@@ -1990,9 +2002,11 @@ async def list_snapshots(
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
 
-    await _authorize_snapshot_access(db, session_id, token)
+    session = await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    project_dir = await asyncio.to_thread(
+        _locate_snapshot_project_dir, session_id, session.output_dir
+    )
     if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
@@ -2013,9 +2027,11 @@ async def rollback_to_snapshot(
     git_ops = GitOperations()
     snapshot_mgr = SnapshotManager(git_ops)
 
-    await _authorize_snapshot_access(db, session_id, token)
+    session = await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    project_dir = await asyncio.to_thread(
+        _locate_snapshot_project_dir, session_id, session.output_dir
+    )
     if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
@@ -2046,9 +2062,11 @@ async def diff_snapshots(
     from app.agent.git_operations import GitOperations
     git_ops = GitOperations()
 
-    await _authorize_snapshot_access(db, session_id, token)
+    session = await _authorize_snapshot_access(db, session_id, token)
 
-    project_dir = await asyncio.to_thread(_locate_snapshot_project_dir, session_id)
+    project_dir = await asyncio.to_thread(
+        _locate_snapshot_project_dir, session_id, session.output_dir
+    )
     if project_dir is None:
         raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
 
@@ -2271,8 +2289,11 @@ async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: 
     raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
 
 
-async def _authorize_snapshot_access(db: AsyncSession, session_id: str, token: dict) -> None:
-    """快照端点统一鉴权：拒绝路径穿越并按会话归属校验。"""
+async def _authorize_snapshot_access(db: AsyncSession, session_id: str, token: dict) -> ProjectSession:
+    """快照端点统一鉴权：拒绝路径穿越并按会话归属校验。
+
+    返回会话记录，调用方可据此拿到真实 output_dir 定位快照目录。
+    """
     user_id = str(token.get("sub", ""))
     if not user_id or user_id == "anonymous":
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
@@ -2281,7 +2302,7 @@ async def _authorize_snapshot_access(db: AsyncSession, session_id: str, token: d
     if not session_id or session_id in (".", "..") or Path(session_id).name != session_id:
         raise HTTPException(status_code=400, detail="非法的会话 ID")
 
-    await verify_session_ownership(db, session_id, user_id)
+    return await verify_session_ownership(db, session_id, user_id)
 
 
 @router.delete("/sessions/{session_id}")

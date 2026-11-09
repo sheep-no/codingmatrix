@@ -187,6 +187,7 @@ PATH_TYPE_RULES: list[tuple[str, str]] = [
 
 # 扩展名到文件类型的映射（兜底）
 EXTENSION_TYPE_MAP = {
+    '.py': 'utils',
     '.js': 'frontend_component',
     '.ts': 'frontend_types',
     '.vue': 'frontend_component',

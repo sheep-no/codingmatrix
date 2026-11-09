@@ -16,9 +16,12 @@ PYTHONPATH=/workspace python3 -c 'import asyncio; from migrations.runner import 
 
 # 使用 Alembic 配置检查版本
 alembic -c configs/alembic.ini current
+
+# 导出变更 SQL（离线，不连库）
+DATABASE_URL=mysql+pymysql://u:p@localhost/db alembic -c configs/alembic.ini upgrade head --sql
 ```
 
-项目运行时迁移器适用于已有 SQLite 数据库，会创建缺失表并补齐 `tasks` 字段。历史 Alembic 目录存在多个 head，迁移链整理完成前以运行时迁移器作为本地初始化入口。
+项目运行时迁移器适用于已有 SQLite 数据库，会创建缺失表并补齐字段。Alembic 迁移链现已收敛为单一 head：空库执行 `upgrade head` 时由 `migrations/env.py` 按 `Base.metadata` 建全表并登记 head，已有 `alembic_version` 的库走标准迁移。新增模型需同步 `migrations/env.py` 的导入与 `tests/unit/test_alembic_bootstrap.py` 的 `KEY_TABLES`；新增列需同时补 Alembic 迁移与 `migrations/runner.py` 的补列分支。迁移内反射必须用 `op.get_context().as_sql` 提供离线分支，否则 `upgrade head --sql` 会因 `MockConnection` 无法反射而失败。
 
 ## 启动服务
 

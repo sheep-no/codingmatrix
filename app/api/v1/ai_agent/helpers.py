@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+import zipfile
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -307,12 +308,21 @@ async def _safe_update_progress(update_progress, **kwargs) -> bool:
 
 
 def _create_zip_archive_safe(source_dir: Path, zip_path: Path):
+    """按文件列表接口的过滤口径打包，避免把内部文件与构建残留交给用户。
+
+    `shutil.make_archive` 原样打包整个目录，会把 `.dep_graph.json`、
+    `__pycache__/*.pyc` 等平台内部产物混进用户下载包；这里与
+    `_collect_files_sync` 保持一致：跳过点号开头的路径段与 `SKIP_DIRS`。
+    """
     try:
-        shutil.make_archive(
-            str(zip_path.with_suffix('')),
-            'zip',
-            source_dir
-        )
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file_path in source_dir.rglob("*"):
+                rel_path = file_path.relative_to(source_dir)
+                if any(part.startswith('.') or part in SKIP_DIRS for part in rel_path.parts):
+                    continue
+                if not file_path.is_file() or file_path.name.startswith('.'):
+                    continue
+                archive.write(file_path, rel_path.as_posix())
         logger.info(f"压缩完成 | 文件夹: {source_dir.name} -> {zip_path.name}")
         return True
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:

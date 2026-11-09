@@ -23,6 +23,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    if op.get_context().as_sql:
+        # 离线（--sql）模式无连接可反射，直接产出 DDL。
+        op.add_column("knowledge_entries", sa.Column("tags", sa.JSON(), nullable=True))
+        return
     inspector = sa.inspect(op.get_bind())
     columns = {column["name"] for column in inspector.get_columns("knowledge_entries")}
     if "tags" not in columns:
@@ -30,6 +34,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_context().as_sql:
+        op.drop_column("knowledge_entries", "tags")
+        return
     inspector = sa.inspect(op.get_bind())
     columns = {column["name"] for column in inspector.get_columns("knowledge_entries")}
     if "tags" in columns:

@@ -55,6 +55,11 @@ def _deduplicate_task_ids(connection) -> None:
 
 
 def upgrade() -> None:
+    if op.get_context().as_sql:
+        # 离线（--sql）模式无法查询/去重，只产出索引 DDL；
+        # 真实去重必须由在线升级执行。
+        op.create_index(_INDEX_NAME, "tasks", ["task_id"], unique=True)
+        return
     connection = op.get_bind()
     _deduplicate_task_ids(connection)
 
@@ -69,6 +74,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_context().as_sql:
+        op.drop_index(_INDEX_NAME, table_name="tasks")
+        return
     inspector = sa.inspect(op.get_bind())
     indexes = {index["name"] for index in inspector.get_indexes("tasks")}
     if _INDEX_NAME in indexes:

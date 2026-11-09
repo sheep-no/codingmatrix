@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -184,6 +185,96 @@ async def test_list_branches_and_commits_endpoints(monkeypatch):
 def test_github_https_remote_has_no_credentials():
     url = github_remote.github_https_remote("alice", "demo")
     assert url == "https://github.com/alice/demo.git"
+
+
+def test_config_summary_reports_persisted_verification():
+    unstored = github_config_service.config_summary(None)
+    assert unstored["verified"] is False
+    assert unstored["verification_status"] == "not_performed"
+    assert unstored["verified_at"] is None
+
+    record = SimpleNamespace(
+        username="alice",
+        encrypted_token="",
+        use_github=True,
+        verified_at=datetime(2026, 11, 9, 5, 0, 0),
+    )
+    summary = github_config_service.config_summary(record)
+    assert summary["verified"] is True
+    assert summary["verification_status"] == "verified"
+    assert summary["verified_at"] == "2026-11-09T05:00:00+00:00"
+
+
+def test_verified_at_serialization_is_stable_across_sqlite_round_trip():
+    """SQLite 丢 tzinfo：刚 commit 的 aware 值不能和后续读出的 naive 值格式不一致。"""
+    naive = datetime(2026, 11, 9, 5, 0, 0)
+    aware = datetime(2026, 11, 9, 5, 0, 0, tzinfo=timezone.utc)
+
+    assert github_config_service.format_verified_at(naive) == (
+        github_config_service.format_verified_at(aware)
+    )
+    assert github_config_service.format_verified_at(naive) == "2026-11-09T05:00:00+00:00"
+    assert github_config_service.format_verified_at(None) is None
+
+
+@pytest.mark.asyncio
+async def test_record_verification_persists_and_clears():
+    db = AsyncMock()
+    record = SimpleNamespace(verified_at=None)
+
+    await github_config_service.record_verification(db, record, verified=True)
+    assert record.verified_at is not None
+    db.commit.assert_awaited_once()
+
+    await github_config_service.record_verification(db, record, verified=False)
+    assert record.verified_at is None
+    assert db.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_save_config_invalidates_verification_when_username_changes():
+    record = SimpleNamespace(
+        username="alice",
+        encrypted_token="",
+        use_github=False,
+        verified_at=datetime(2026, 11, 9, 5, 0, 0),
+    )
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=record)
+
+    await github_config_service.save_config(db, 7, "bob", "", False)
+
+    assert record.username == "bob"
+    assert record.verified_at is None
+
+
+@pytest.mark.asyncio
+async def test_verify_endpoint_persists_outcome(monkeypatch):
+    record = SimpleNamespace(
+        user_id=7,
+        username="Alice",
+        encrypted_token="envelope",
+        verified_at=None,
+    )
+    db = AsyncMock()
+    monkeypatch.setattr(
+        github_api,
+        "load_readable_token",
+        AsyncMock(return_value=(record, "stored-token")),
+    )
+    monkeypatch.setattr(github_api, "fetch_user", AsyncMock(return_value={"login": "alice"}))
+
+    async def fake_record(_db, _record, *, verified):
+        _record.verified_at = datetime(2026, 11, 9, 5, 0, 0) if verified else None
+
+    persisted = AsyncMock(side_effect=fake_record)
+    monkeypatch.setattr(github_api, "record_verification", persisted)
+
+    result = await github_api.verify_github_credentials(token={"sub": "7"}, db=db)
+
+    persisted.assert_awaited_once_with(db, record, verified=True)
+    assert result["verified"] is True
+    assert result["verified_at"] == "2026-11-09T05:00:00+00:00"
 
 
 def test_write_project_files_rejects_traversal(tmp_path):

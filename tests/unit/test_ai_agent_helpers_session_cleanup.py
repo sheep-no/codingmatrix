@@ -5,6 +5,7 @@
 `_delete_session_files` 并统一以 `asyncio.to_thread` 在工作线程执行。
 """
 import threading
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -111,3 +112,26 @@ def test_delete_session_files_removes_existing_and_tolerates_missing(tmp_path):
 
     # 不存在的路径不应抛异常
     helpers._delete_session_files(tmp_path / "missing.json", str(tmp_path / "missing_dir"))
+
+
+def test_zip_archive_excludes_internal_and_cached_files(tmp_path):
+    """下载包必须与文件列表接口同口径，不混入内部产物与构建残留。"""
+    project_dir = tmp_path / "proj"
+    (project_dir / "src").mkdir(parents=True)
+    (project_dir / "src" / "index.html").write_text("<html></html>", encoding="utf-8")
+    (project_dir / "app" / "__pycache__").mkdir(parents=True)
+    (project_dir / "app" / "__pycache__" / "x.cpython-311.pyc").write_bytes(b"\x00")
+    (project_dir / ".dep_graph.json").write_text("{}", encoding="utf-8")
+    (project_dir / "node_modules").mkdir()
+    (project_dir / "node_modules" / "dep.js").write_text("x", encoding="utf-8")
+
+    zip_path = tmp_path / "proj.zip"
+    assert helpers._create_zip_archive_safe(project_dir, zip_path) is True
+
+    with zipfile.ZipFile(zip_path) as archive:
+        names = set(archive.namelist())
+
+    assert "src/index.html" in names
+    assert not any("__pycache__" in name for name in names)
+    assert ".dep_graph.json" not in names
+    assert not any(name.startswith("node_modules/") for name in names)

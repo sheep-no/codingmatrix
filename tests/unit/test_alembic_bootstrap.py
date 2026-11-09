@@ -22,7 +22,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = ROOT / "configs" / "alembic.ini"
-KEY_TABLES = ("user", "tasks", "permission")
+KEY_TABLES = (
+    "user",
+    "tasks",
+    "permission",
+    # 这些模型原先没有在 migrations/env.py 里导入，空库 upgrade head 会漏建。
+    "github_user_configs",
+    "project_sessions",
+    "workflow_history",
+    "image_generation_history",
+    "conversation_messages",
+    "saved_projects",
+    "server_config",
+)
 
 
 def _alembic_env(db_path: Path) -> dict:
@@ -129,3 +141,91 @@ def test_upgrade_head_accepts_runner_managed_database(tmp_path):
     assert "duplicate column" not in (result.stderr + result.stdout)
     assert _version_rows(db) == [_head_revision()]
     assert "user" in _tables(db)
+
+
+def _run_user_management_migration(create_system_logs: bool) -> set:
+    """在受控 schema 上直接执行 20260425 的 upgrade()。
+
+    空库走 env.py 的 metadata 旁路，不会重放历史迁移，因此该迁移里的悬空
+    调用只在「已有 alembic_version 的库」这条路径上暴露，需要单独回归。
+    """
+    import importlib.util
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, text
+
+    module_path = ROOT / "migrations" / "versions" / "20260425_add_user_management_indexes.py"
+    spec = importlib.util.spec_from_file_location("user_management_indexes", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text(
+            'CREATE TABLE "user"(id INTEGER PRIMARY KEY, permission_level TEXT, '
+            "created_at TEXT, username TEXT, email TEXT)"
+        ))
+        conn.execute(text(
+            'CREATE TABLE "permission"(id INTEGER PRIMARY KEY, permission_level TEXT)'
+        ))
+        if create_system_logs:
+            conn.execute(text(
+                "CREATE TABLE system_logs(id INTEGER PRIMARY KEY, timestamp TEXT, level TEXT)"
+            ))
+        context = MigrationContext.configure(conn)
+        with Operations.context(context):
+            module.upgrade()
+        names = {row[0] for row in conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='index'")
+        )}
+    engine.dispose()
+    return names
+
+
+def test_user_management_indexes_migration_runs():
+    """20260425 迁移不得含未定义调用（原 if_exists_exists 会 NameError）。"""
+    indexes = _run_user_management_migration(create_system_logs=True)
+    assert "ix_logs_timestamp_level" in indexes
+    assert "ix_user_permission_created" in indexes
+
+
+def test_user_management_indexes_migration_tolerates_missing_system_logs():
+    """system_logs 不存在时跳过日志索引，其余索引仍要建出来。"""
+    indexes = _run_user_management_migration(create_system_logs=False)
+    assert "ix_logs_timestamp_level" not in indexes
+    assert "ix_user_permission_created" in indexes
+    assert "ix_user_username" in indexes
+
+
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "mysql+pymysql://u:p@localhost/db",
+        "postgresql://u:p@localhost/db",
+    ],
+)
+def test_offline_sql_generation_reaches_head(tmp_path, database_url):
+    """`alembic upgrade head --sql` 必须能生成完整脚本。
+
+    历史迁移里有多处 `sa.inspect(op.get_bind())`，离线模式拿到的是
+    MockConnection，无法反射。缺少 `as_sql` 分支时这里会直接抛
+    NoInspectionAvailable，CI 与审计常用该命令导出变更 SQL。
+    """
+    env = _alembic_env(tmp_path / "offline.db")
+    env["DATABASE_URL"] = database_url
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head", "--sql"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr
+    script = result.stdout
+    assert "NoInspectionAvailable" not in result.stderr
+    assert "github_user_configs" in script
+    assert "verified_at" in script
+    assert _head_revision() in script

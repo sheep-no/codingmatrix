@@ -22,7 +22,14 @@ from app.utils.security import verify_token
 from app.db.database import get_db
 from app.models.user import User
 from app.models.github_config import GithubUserConfig
-from app.services.github_config_service import config_summary, load_readable_token, resolve_save_credentials, save_config
+from app.services.github_config_service import (
+    config_summary,
+    format_verified_at,
+    load_readable_token,
+    record_verification,
+    resolve_save_credentials,
+    save_config,
+)
 from app.services.github_remote import (
     create_user_repo,
     fetch_branches,
@@ -261,9 +268,11 @@ async def verify_github_credentials(
     user = await fetch_user(github_token)
     login = str(user["login"])
     matched = login.lower() == (record.username or "").lower()
+    await record_verification(db, record, verified=matched)
     return {
         "success": matched,
         "verified": matched,
+        "verified_at": format_verified_at(record.verified_at),
         "login": login,
         "username": record.username,
         "message": "GitHub 凭据有效" if matched else "用户名与 Token 不匹配",

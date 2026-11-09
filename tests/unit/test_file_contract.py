@@ -69,6 +69,16 @@ class TestFileContractPathValidation:
             )
             assert fc.validate_path() is False
 
+    def test_base_path_constraint_rejects_prefix_sibling(self):
+        """project-evil 与 project 共享前缀，但不是同一目录，必须拒绝。"""
+        # 用非受保护目录，避免 /tmp 规则先命中而掩盖 base_path 分支。
+        fc = FileContract(
+            operation="read",
+            file_path="/srv/project-evil/secret.py",
+            base_path="/srv/project",
+        )
+        assert fc.validate_path() is False
+
     def test_disallowed_extension(self):
         fc = FileContract(operation="read", file_path="malware.exe")
         assert fc.validate_path() is False

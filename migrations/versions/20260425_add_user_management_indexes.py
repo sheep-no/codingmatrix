@@ -22,6 +22,13 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table(table_name: str) -> bool:
+    """离线（`--sql`）模式无法反射，按表存在处理。"""
+    if op.get_context().as_sql:
+        return True
+    return sa.inspect(op.get_bind()).has_table(table_name)
+
+
 def upgrade() -> None:
     """添加用户管理相关索引（性能优化）"""
     
@@ -55,19 +62,21 @@ def upgrade() -> None:
         unique=True
     )
     
-    # 历史表索引（优化日志查询）
-    op.create_index(
-        'ix_logs_timestamp_level',
-        'system_logs',
-        ['timestamp', 'level'],
-        unique=False
-    )
-    if_exists_exists(op, 'system_logs')
+    # 历史表索引（优化日志查询）。system_logs 在精简部署中可能不存在，
+    # 存在时才建索引，避免整条迁移链中断。
+    if _has_table('system_logs'):
+        op.create_index(
+            'ix_logs_timestamp_level',
+            'system_logs',
+            ['timestamp', 'level'],
+            unique=False
+        )
 
 
 def downgrade() -> None:
     """删除索引"""
-    op.drop_index('ix_logs_timestamp_level', table_name='system_logs')
+    if _has_table('system_logs'):
+        op.drop_index('ix_logs_timestamp_level', table_name='system_logs')
     op.drop_index('ix_user_email_unique', table_name='user')
     op.drop_index('ix_user_username', table_name='user')
     op.drop_index('ix_user_permission_level', table_name='permission')

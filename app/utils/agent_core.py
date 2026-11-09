@@ -2716,7 +2716,7 @@ class ProjectFileManager:
         if project_path:
             base_dir = base_dir / project_path
             project_dir = base_dir.resolve()
-            if not str(project_dir).startswith(str(Path(self.PROJECT_BASE_DIR).resolve())):
+            if not project_dir.is_relative_to(Path(self.PROJECT_BASE_DIR).resolve()):
                 raise PermissionError("无权访问该路径")
             if not project_dir.exists():
                 raise FileNotFoundError("项目不存在")

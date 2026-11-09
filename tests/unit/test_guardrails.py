@@ -125,6 +125,24 @@ class TestPathSecurityChecker:
         is_safe, msg = PathSecurityChecker.check("../../etc/passwd", base_dir="/workspace/projects")
         assert is_safe is False
 
+    def test_prefix_sibling_outside_base(self, tmp_path):
+        """base 内的符号链接指向前缀兄弟目录时，解析后必须拒绝。
+
+        路径本身不含 `..`，不会先命中 FORBIDDEN_PATTERNS，确保真正走到
+        base_dir 的包含校验分支。
+        """
+        base = tmp_path / "projects"
+        sibling = tmp_path / "projects-evil"
+        base.mkdir()
+        sibling.mkdir()
+        (sibling / "secret.txt").write_text("secret", encoding="utf-8")
+        (base / "link").symlink_to(sibling, target_is_directory=True)
+
+        is_safe, msg = PathSecurityChecker.check(
+            "link/secret.txt", base_dir=str(base)
+        )
+        assert is_safe is False
+
 
 # ============================================================================
 # 4. 磁盘空间检查测试

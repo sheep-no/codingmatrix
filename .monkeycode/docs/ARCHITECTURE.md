@@ -178,6 +178,10 @@ PPT 模板管理器通过 `recommend_for_scenario()` 返回场景置信度、命
 
 兼容映射和保留生命周期服务位于 `app.services.state_migration_service`，通过作用域唯一键保证旧标识幂等绑定，通过受控状态流转记录归档、清理和失败重试。
 
+存在两条并行的数据库演进路径。生产启动走 `migrations/runner.py`：按 `Base.metadata` 只创建缺失表，并对既有表补列或补唯一索引（如 `tasks` 统一状态字段、`github_user_configs.verified_at`、`permission.user_id` 唯一约束）。`make migrate` 与 `alembic -c configs/alembic.ini upgrade head` 走 `migrations/env.py`：库内无 `alembic_version` 时以 `Base.metadata.create_all` 建全表并把版本直接登记为 head，因为历史迁移链起点为空迁移、无法在空库重放；已有版本的库走标准迁移，只执行尚未应用的修订。
+
+因此新增模型必须同时出现在 `migrations/env.py` 的导入列表与 `tests/unit/test_alembic_bootstrap.py` 的 `KEY_TABLES`，新增列必须同时补 alembic 迁移和 `migrations/runner.py` 的补列分支。迁移内需要反射时用 `op.get_context().as_sql` 区分在线/离线：`alembic upgrade head --sql` 使用 `MockConnection`，不支持 `sa.inspect`，离线分支只产出 DDL。
+
 双写核对服务位于 `app.services.reconciliation_service`，按模块、资源类型和资源标识保存 expected/actual 快照差异，支持差异合并、retryable 状态、延迟重试和 resolved 结果。
 
 模块级核对报告和读切换控制器位于 `app.services.state_cutover_service`。报告覆盖 session、message、task、event、checkpoint、artifact 六类资源，并将开放差异作为切换门禁；`ReadCutoverController` 按 AICloud、GirlAI、Agent、Workflow 顺序切换统一读源，保留模块级 legacy 回滚能力。

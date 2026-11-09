@@ -289,7 +289,7 @@ def _validate_project_path(project_path: str, user_id: str) -> Path:
     base_dir = Path(PROJECTS_BASE_DIR).resolve()
     project_dir = (base_dir / project_path).resolve()
 
-    if not str(project_dir).startswith(str(base_dir)):
+    if not project_dir.is_relative_to(base_dir):
         logger.warning(f"路径越界 | 用户: {user_id} | 尝试访问: {project_dir}")
         raise HTTPException(status_code=403, detail="无权访问该路径")
 
@@ -561,7 +561,7 @@ async def upload_project_zip(
 
     # 验证路径安全
     user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
-    if not str(target_dir).startswith(str(user_uploads_base)):
+    if not target_dir.is_relative_to(user_uploads_base):
         raise HTTPException(status_code=403, detail="路径不安全")
 
     try:
@@ -651,7 +651,7 @@ async def delete_user_upload(project_name: str, token: dict = Depends(verify_tok
         raise HTTPException(status_code=404, detail="项目不存在")
 
     user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
-    if not str(target_dir).startswith(str(user_uploads_base)):
+    if not target_dir.is_relative_to(user_uploads_base):
         raise HTTPException(status_code=403, detail="无权操作该路径")
 
     try:

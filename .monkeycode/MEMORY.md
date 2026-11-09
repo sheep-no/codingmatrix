@@ -554,3 +554,42 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - **`Optional[callable]` 陷阱**：`callable`（内建函数）作类型注解时，`Optional[callable]` 靠 typing.Union 不校验参数侥幸通过，PEP604 语法 `callable | None` import 即 TypeError。UP007/RUF013 autofix 会触发此炸点，共修 4 处（architecture_inspector、incremental_modify×2、architect），正确写法 `Callable | None`。
   - **RUF012 甄别方法**：加 ClassVar 前必须确认类非 dataclass/pydantic/SQLAlchemy declarative（AST 查 decorator/bases），否则会把字段从模型定义中排除产生破坏。实测 60 处全为普通类。裸赋值形态按值类型推断 list/dict/set；ClassVar 导入要插在 `from __future__` 之后。
   - 全批次基线：5216 passed / 3 skipped（PR #418 曾合法删除 4 个 ContentAnalyzer 测试，基线 5215→5211→5216 属正常漂移，排查先看并行 PR）。
+
+### 后端缺陷扫描的关键判定（2026-11-09）
+- Date: 2026-11-09
+- Context: Agent 在执行后端缺陷扫描与修复任务时总结
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 后端全量基线命令 `python3 -m pytest tests/unit -q -p no:randomly`；无 Redis 环境下 `tests/unit/test_conversation_store.py` 稳定 6 项 ConnectionRefused 失败，属环境性既有失败，改动后失败集合应与基线一致。
+  - Agent 快照/回滚/差异端点定位项目目录必须优先用 `ProjectSession.output_dir`（生成物真实位置在 `projects/{user_id}/{session_id}`），勿只查 `orchestrator/` 与 `user_uploads/`。
+  - `EXTENSION_TYPE_MAP` 缺 `.py` 时，任何非常规命名的 Python 文件会推断为 unknown 并让 `_infer_unknown_file_types` 抛 RuntimeError 中止整轮编排；新增扩展名类型记得同步 `test_dependency_rules.py` 的引用一致性门禁。
+  - PPT 下载类端点（download/slides/pdf）入口需与 preview 一致先调 `_validate_ppt_id`（UUID 正则），归属校验只保证归属、不保证 ID 格式。
+  - 用户下载 zip 与 `generate/files` 列表必须同口径过滤：跳过点号路径段与 `SKIP_DIRS`，勿用 `shutil.make_archive` 整目录打包。
+  - `TaskManager` 的 Redis 读写要同时覆盖「抛异常」与「键不存在」两种回退到 `self._tasks`，否则创建时 Redis 不可用会让运行中任务丢失状态。
+
+### GitHub 验证状态与 alembic 空库缺陷（2026-11-09）
+- Date: 2026-11-09
+- Context: Agent 在修复 GitHub 验证状态持久化与空库迁移缺表时总结
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 生产启动迁移走 `migrations/runner.py`（导入完整），`make migrate`/`alembic upgrade head` 走 `migrations/env.py`；后者模型导入不全曾导致空库漏建 7 张表，新增模型必须同步 `migrations/env.py` 与 `tests/unit/test_alembic_bootstrap.py` 的 `KEY_TABLES`。
+  - 新增后加列既要写 alembic 迁移，也要在 `migrations/runner.py` 补 PRAGMA/information_schema 演进分支，两条升级路径都要能用 `tests/unit/test_migration_runner.py` 验证。
+  - GitHub 配置的验证状态存 `GithubUserConfig.verified_at`（`utcnow_naive()`），换 Token 或改用户名时置空；`config_summary` 由该列派生 `verified`/`verification_status`/`verified_at`，verify 端点负责落库。
+
+### 路径包含校验必须用 Path.is_relative_to（2026-11-09）
+- Date: 2026-11-09
+- Context: Agent 在后端缺陷扫描中发现多处前缀式路径校验可被前缀兄弟目录绕过
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 判定路径是否位于项目根内一律用 `Path.is_relative_to`；`str.startswith(str(base))` 会把 `base-evil` 当成 `base` 的子路径，导致越界读写删除。
+  - `FileOperator._validate_path` 用 `startswith(str(base) + os.sep)` 或相等判断，是正确写法；新增路径校验照此实现。
+  - `AiProjectCode.py` 的三处前缀校验也已改为 `is_relative_to`（防御性加固）：该模块 `router` 从未被 `app/main.py` include，属存量未挂载代码，不作为活跃缺陷计入。
+
+### 空库 upgrade head 的旁路会掩盖历史迁移缺陷（2026-11-09）
+- Date: 2026-11-09
+- Context: Agent 在验证迁移离线生成与既有库升级路径时发现 `if_exists_exists` 悬空调用
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - `migrations/env.py` 在库内无 `alembic_version` 时会用 `Base.metadata.create_all` 建全表并直接 stamp head，因此空库测试与 `alembic stamp` 都不会重放历史迁移链；验证某条历史迁移是否正确，必须先在库内手工建 `alembic_version` 表并写入其 `down_revision`，再执行 `alembic upgrade <该 revision>`。
+  - `alembic upgrade head --sql` 离线模式使用 `MockConnection`，不支持 `sa.inspect`；迁移内需要反射的地方一律用 `op.get_context().as_sql` 分支处理。`20260908_add_github_user_config`、`20260918_add_knowledge_tags`、`20260918_unique_tasks_task_id`、`20261109_add_github_verified_at` 均已补齐，`test_offline_sql_generation_reaches_head` 用 MySQL/PostgreSQL 两方言守住。
+  - 历史迁移里引用辅助函数前必须确认全仓库有定义（`if_exists_exists` 为无定义悬空调用，会让既有库升级链在 `20260425` 处 `NameError` 中断）。

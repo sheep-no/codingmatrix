@@ -221,9 +221,9 @@ class TaskManager:
                 return json.loads(data)
         except Exception as e:
             logger.warning(f"Redis 读取失败: {e}")
-            if task_id in self._tasks:
-                return self._tasks[task_id]
-        return None
+        # Redis 恢复但键不存在（创建时 Redis 曾不可用）时同样回退内存，
+        # 否则运行中的任务会丢失状态。
+        return self._tasks.get(task_id)
 
     async def _save_task_to_redis(self, task_id: str, task_info: dict):
         """保存任务状态到 Redis"""
@@ -307,7 +307,7 @@ class TaskManager:
                 if task_info.get(field):
                     try:
                         task_info[field] = datetime.fromisoformat(task_info[field])
-                    except:
+                    except (TypeError, ValueError):
                         pass
         return task_info
 

@@ -9,15 +9,21 @@ depends_on = None
 
 
 def upgrade():
-    if "github_user_configs" not in sa.inspect(op.get_bind()).get_table_names():
-        op.create_table(
-            "github_user_configs",
-            sa.Column("user_id", sa.Integer(), sa.ForeignKey("user.id"), primary_key=True),
-            sa.Column("username", sa.String(39), nullable=False),
-            sa.Column("encrypted_token", sa.Text(), nullable=False),
-            sa.Column("use_github", sa.Boolean(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        )
+    already_exists = (
+        False
+        if op.get_context().as_sql
+        else "github_user_configs" in sa.inspect(op.get_bind()).get_table_names()
+    )
+    if already_exists:
+        return
+    op.create_table(
+        "github_user_configs",
+        sa.Column("user_id", sa.Integer(), sa.ForeignKey("user.id"), primary_key=True),
+        sa.Column("username", sa.String(39), nullable=False),
+        sa.Column("encrypted_token", sa.Text(), nullable=False),
+        sa.Column("use_github", sa.Boolean(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
 
 
 def downgrade():

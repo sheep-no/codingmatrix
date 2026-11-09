@@ -967,7 +967,8 @@ class TestEnrichFromSource:
         )
 
         graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
-        graph.add_file("calc.py")
+        # .py 已有类型兜底，这里显式置为 unknown 以覆盖源码增强这条路径
+        graph.add_file("calc.py", file_type="unknown")
         graph.add_file("main.py")
         graph.add_dependency("main.py", "calc.py")
 

@@ -3266,11 +3266,12 @@ async def test_infer_unknown_file_types_raises_when_still_unknown():
 
     mixin = object.__new__(SpecFirstGenerateMixin)
     graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
-    graph.add_file("mystery.py", file_type="unknown", description="mystery")
+    # .py 现在有扩展名兜底；用一个确实无法识别的扩展名保留“仍未知即硬失败”的语义
+    graph.add_file("mystery.unknownext", file_type="unknown", description="mystery")
 
     with pytest.raises(RuntimeError, match="unknown file types were not inferred"):
         await mixin._infer_unknown_file_types(
-            graph, ["mystery.py"], {"file_plan": []}, "python"
+            graph, ["mystery.unknownext"], {"file_plan": []}, "python"
         )
 
 

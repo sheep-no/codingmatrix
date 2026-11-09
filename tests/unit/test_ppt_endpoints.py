@@ -188,6 +188,20 @@ class TestDownloadPpt:
         # 404 或 422，取决于路由匹配
         assert resp.status_code in (404, 422)
 
+    @pytest.mark.parametrize(
+        ("path", "method"),
+        [
+            ("/api/v1/pptx/download/{ppt_id}", "get"),
+            ("/api/v1/pptx/{ppt_id}/slides", "get"),
+            ("/api/v1/pptx/download/{ppt_id}/pdf", "get"),
+        ],
+    )
+    def test_non_uuid_ppt_id_rejected_before_file_access(self, client, tmp_output, path, method):
+        """非 UUID 的 ppt_id 必须在读写文件前被拒绝（防路径穿越）。"""
+        resp = getattr(client, method)(path.format(ppt_id="not-a-uuid"))
+
+        assert resp.status_code == 400
+
 
 # ===========================================================================
 # 3. POST /api/v1/pptx/{task_id}/update

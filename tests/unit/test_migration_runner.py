@@ -72,6 +72,33 @@ async def test_runtime_runner_upgrades_existing_tasks_outline_columns(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_runtime_runner_adds_github_verified_at_to_legacy_table(tmp_path, monkeypatch):
+    """既有库的 github_user_configs 没有 verified_at，runner 必须补列。"""
+    database_path = Path(tmp_path) / "legacy-github.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "CREATE TABLE github_user_configs ("
+            "user_id INTEGER PRIMARY KEY, username VARCHAR(39) NOT NULL, "
+            "encrypted_token TEXT NOT NULL, use_github BOOLEAN NOT NULL, "
+            "updated_at DATETIME)"
+        ))
+    await engine.dispose()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    await run_async_migrations()
+    await run_async_migrations()
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.connect() as connection:
+        columns = await connection.execute(text("PRAGMA table_info(github_user_configs)"))
+        column_names = {row[1] for row in columns}
+    await engine.dispose()
+
+    assert "verified_at" in column_names
+
+
+@pytest.mark.asyncio
 async def test_runtime_runner_creates_unique_task_identity_index(tmp_path, monkeypatch):
     database_path = Path(tmp_path) / "fresh-index.db"
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")

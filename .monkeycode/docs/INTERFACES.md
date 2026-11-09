@@ -10,8 +10,9 @@
 
 ## GitHub 配置
 
-- `GET /api/v1/github/config`：返回 `username`、`token` 和 `use_github`；当前后端返回默认空配置。
-- `POST /api/v1/github/config`：接收 `username`、`token`、`use_github`，返回 `success`、`message`、`username`、`use_github`；当前仅返回确认信息。
+- `GET /api/v1/github/config`：返回 `username`、`token`（恒为空串）、`use_github`、`persisted`、`has_token`、`credential_state`、`verified`、`verification_status`、`verified_at`。凭据经 RSA 加密落库于 `github_user_configs`；`verified_at` 由 `POST /verify` 的远端校验结果写入，变更用户名或 Token 时置空。
+- `POST /api/v1/github/config`：接收 `username`、`token`、`use_github`，保存加密凭据并返回与 `GET` 同构的摘要字段。已存凭据时变更用户名必须同时提供新 Token，否则 422。
+- `POST /api/v1/github/verify`：用已存 Token 调 GitHub 校验身份，返回 `success`、`verified`、`verified_at`、`login`、`username`、`message`；结果落库，`verified_at` 统一按 UTC ISO-8601（带 `+00:00`）序列化。
 
 ## Flutter 候选业务模块盘点
 

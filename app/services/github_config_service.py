@@ -1,5 +1,6 @@
 """Encrypted configuration storage using the application's existing RSA keypair."""
 import re
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,20 @@ def decrypt_token(record: GithubUserConfig) -> str:
     return decrypt_secret(record.encrypted_token, f"github:{record.user_id}")
 
 
+def format_verified_at(value: datetime | None) -> str | None:
+    """Serialize verified_at as UTC ISO-8601.
+
+    SQLite drops tzinfo, so the same column comes back aware right after a
+    commit and naive on a later read. Normalize both to a single format so the
+    verify response and GET /config agree.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
 def config_summary(record: GithubUserConfig | None) -> dict:
     credential_state = "missing"
     if record and record.encrypted_token:
@@ -23,6 +38,7 @@ def config_summary(record: GithubUserConfig | None) -> dict:
             credential_state = "stored" if decrypt_token(record) else "missing"
         except Exception:
             credential_state = "unreadable"
+    verified_at = getattr(record, "verified_at", None) if record else None
     return {
         "username": record.username if record else "",
         "token": "",
@@ -30,9 +46,21 @@ def config_summary(record: GithubUserConfig | None) -> dict:
         "persisted": record is not None,
         "has_token": credential_state == "stored",
         "credential_state": credential_state,
-        "verified": False,
-        "verification_status": "not_performed",
+        "verified": verified_at is not None,
+        "verification_status": "verified" if verified_at is not None else "not_performed",
+        "verified_at": format_verified_at(verified_at),
     }
+
+
+async def record_verification(
+    db: AsyncSession,
+    record: GithubUserConfig,
+    *,
+    verified: bool,
+) -> None:
+    """Persist the remote verification outcome so the settings page can show it."""
+    record.verified_at = datetime.now(timezone.utc) if verified else None
+    await db.commit()
 
 
 async def load_readable_token(db: AsyncSession, user_id: int) -> tuple[GithubUserConfig, str]:
@@ -94,6 +122,10 @@ async def save_config(db: AsyncSession, user_id: int, username: str, token: str,
         if not username:
             raise HTTPException(status_code=422, detail="请填写 GitHub 用户名")
         record.encrypted_token = encrypt_token(token, user_id)
+        # New credentials invalidate any earlier remote verification.
+        record.verified_at = None
+    elif username.lower() != (record.username or "").lower():
+        record.verified_at = None
     record.username = username
     record.use_github = enabled
     summary = config_summary(record)

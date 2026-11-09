@@ -254,7 +254,7 @@ async def read_project_file(
 
     target_file = (project_dir / file_path).resolve()
 
-    if not str(target_file).startswith(str(project_dir)):
+    if not target_file.is_relative_to(project_dir):
         logger.warning(f"路径越界 | 用户: {user_id} | 尝试访问: {target_file}")
         raise HTTPException(status_code=403, detail="无权访问该文件")
 
@@ -300,7 +300,7 @@ async def delete_project_file(
 
     target_file = (project_dir / file_path).resolve()
 
-    if not str(target_file).startswith(str(project_dir)):
+    if not target_file.is_relative_to(project_dir):
         logger.warning(f"路径越界 | 用户: {user_id} | 尝试访问: {target_file}")
         raise HTTPException(status_code=403, detail="无权访问该文件")
 

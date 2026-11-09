@@ -9,4 +9,5 @@ class GithubUserConfig(Base):
     username = Column(String(39), nullable=False, default="")
     encrypted_token = Column(Text, nullable=False, default="")
     use_github = Column(Boolean, nullable=False, default=False)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

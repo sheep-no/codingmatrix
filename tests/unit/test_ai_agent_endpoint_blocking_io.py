@@ -64,6 +64,24 @@ def test_locate_snapshot_project_dir(tmp_path, monkeypatch):
     assert oe._locate_snapshot_project_dir("missing") is None
 
 
+def test_locate_snapshot_project_dir_prefers_session_output_dir(tmp_path, monkeypatch):
+    """会话记录的 output_dir 是生成物真实位置，不能再固定去 orchestrator/ 找。"""
+    _resolve_project_dir_relative_setup(tmp_path, monkeypatch)
+
+    project_dir = oe._locate_snapshot_project_dir("s3", "1/demo")
+
+    assert project_dir == (tmp_path / "projects" / "1" / "demo").resolve()
+
+
+def test_locate_snapshot_project_dir_falls_back_when_output_dir_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "orchestrator" / "s4").mkdir(parents=True)
+
+    project_dir = oe._locate_snapshot_project_dir("s4", "1/removed")
+
+    assert project_dir is not None and project_dir.parts[0] == "orchestrator"
+
+
 @pytest.mark.asyncio
 async def test_modify_endpoint_resolves_dir_off_event_loop(tmp_path, monkeypatch):
     main_thread = threading.get_ident()

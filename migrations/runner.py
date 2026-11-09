@@ -183,6 +183,29 @@ async def run_async_migrations():
                     )
                     print(f"已升级 user_preferences 表字段: {column_name}")
 
+        # 既有库的 github_user_configs 是 2026-09-08 新建的，CreateTable 不会
+        # 补列。验证状态列后加，需要在这里演进，否则 GET /github/config 读取
+        # 会因缺列而 503。
+        if "github_user_configs" in existing_tables:
+            if db_type == "sqlite":
+                columns_result = await conn.execute(text("PRAGMA table_info(github_user_configs)"))
+                github_columns = {row[1] for row in columns_result}
+            else:
+                columns_result = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = :db_name AND table_name = 'github_user_configs'"
+                    ),
+                    {"db_name": parsed.path.strip("/")},
+                )
+                github_columns = {row[0] for row in columns_result}
+
+            if "verified_at" not in github_columns:
+                await conn.execute(
+                    text("ALTER TABLE github_user_configs ADD COLUMN verified_at DATETIME")
+                )
+                print("已升级 github_user_configs 表字段: verified_at")
+
         # Permission.user_id 的唯一约束是后补的模型约束（2026-09-18），
         # CreateTable 只对新库生效；既有库里已经有 permission 表，需要补建
         # 唯一索引，否则同一用户可能出现多行权限，uselist=False 读取会抛

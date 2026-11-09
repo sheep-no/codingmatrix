@@ -21,6 +21,15 @@ from app.models.history import History
 from app.models.chat_history import ChatHistory
 from app.models.file import File
 from app.models.task import Task
+from app.models.github_config import GithubUserConfig
+from app.models.server_config import ServerConfig
+from app.models.saved_project import SavedProject
+from app.db.models import (
+    ProjectSession,
+    WorkflowHistory,
+    ImageGenerationHistory,
+    ConversationMessage,
+)
 from app.models.unified_state import (
     Session, Message, SessionEvent, TaskEvent, Checkpoint, Artifact,
     StateCompatibilityMapping, StateRetentionRecord,

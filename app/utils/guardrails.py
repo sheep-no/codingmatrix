@@ -179,7 +179,7 @@ class PathSecurityChecker:
             resolved_path = (Path(base_dir) / path).resolve()
             resolved_base = Path(base_dir).resolve()
             
-            if not str(resolved_path).startswith(str(resolved_base)):
+            if not resolved_path.is_relative_to(resolved_base):
                 return False, "路径超出允许的目录范围"
         
         return True, ""

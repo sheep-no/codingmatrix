@@ -186,11 +186,11 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 - UI 层复验：真实 VS Code 宿主内发送需求，状态由「Agent 正在处理」→「服务端等待架构决策，最多等待 120 秒」→「Agent 已完成」；`done` 回填增量提示「可增量修改：1/vscode-agent-fixtures-1790385675739」，增量复选框由禁用变可用；后端 `生成完成 files=7/0`；7 个产物落盘。截图 `/tmp/opencode/host_tabs_ui2/full-generation.png`、报告 `/tmp/opencode/host_report_ui2.json`。
 - 环境前提：后端需注入 `SILICONFLOW_API_KEY`（否则 LLM 报 `Provider siliconflow is not configured`）；E2E 宿主 harness 的等待上限须大于生成耗时（原 600s 短于约 11 分钟的生成，会提前退出导致误判）。
 
-### 5. GitHub 设置页验证状态不持久
+### 5. GitHub 设置页验证状态不持久（已修复 2026-11-09）
 
-现象：`GET /api/v1/github/config` 的 `verified` 恒为 `false`、`verification_status` 恒为 `not_performed`（`app/services/github_config_service.py`），而 `POST /api/v1/github/verify` 只返回结果、不落库（`app/api/v1/github.py:255`）。重开设置页永远显示「尚未验证」。
+原现象：`GET /api/v1/github/config` 的 `verified` 恒为 `false`、`verification_status` 恒为 `not_performed`（`app/services/github_config_service.py`），而 `POST /api/v1/github/verify` 只返回结果、不落库（`app/api/v1/github.py`）。重开设置页永远显示「尚未验证」。
 
-说明：这是后端缺陷，位于本范围之外。Flutter 客户端显示正确，无需改动。联调时若只看设置页回显会误判为客户端问题。
+现做法：`GithubUserConfig` 新增 `verified_at` 列，verify 端点把成功结果写入、失败结果清空，配置保存时变更用户名或 Token 也会失效；`config_summary` 由该列派生 `verified`、`verification_status`、`verified_at`。Flutter 侧无需改动，`github_settings_page.dart:147` 的读取逻辑直接生效。
 
 ## 跨边界发现（本范围外，仅存档）
 
@@ -198,20 +198,23 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 
 | 位置 | 问题 |
 |---|---|
-| `app/services/github_config_service.py` | `GET /config` 的 `verified` 硬编码 `false`，`POST /verify` 结果不落库 |
+| `app/services/github_config_service.py` | **已修复（2026-11-09）**。`GET /config` 的 `verified` 原先硬编码 `false`、`POST /verify` 结果不落库。现新增 `GithubUserConfig.verified_at`，verify 端点按结果写入/清空并返回 `verified_at`，变更用户名或 Token 时自动失效；迁移 `20261109_add_github_verified_at` 与 `migrations/runner.py` 同时补列 |
 | `app/agent/architect.py:364`、`:689` | `project_spec` 缺失时由默认兜底改为硬失败（`a476327`），当前 `Qwen/Qwen3-8B` 稳定不返回该字段。2026-09-25 经用户批准跨界修复，恢复空兜底，详见「待验收项 4」 |
 | `src/components/agent/modals/LearningModal.vue` | 读 `total_feedbacks` / `fixed_count` / `avg_fix_time` / `accuracy_improvement`，后端 `app/agent/feedback_learner.py:262` 返回 `learned_patterns` / `total_fixes_recorded` / `overall_success_rate`，导致恒显示「暂无学习数据」 |
 | `src/components/agent/modals/SettingsModal.vue` | 读 `concurrentLimits.recommended` 与 `cacheStats.total_keys`，后端返回 `recommendations`（`orchestrate_endpoints.py:1940`）与 `cached_entries`（`app/agent/spec_cache.py`），导致并发与缓存两节不渲染 |
-| `Makefile:71` | `clean` 调用 `./scripts/cleanup.sh`，该脚本不存在 |
-| `app/main.py:197` | `allow_origin_regex=settings.ALLOWED_HOSTS.replace(",", "\|")` 未转义正则元字符 |
-| `Dockerfile:23`、`:34` | 基础镜像 `python:3.10-slim`，与文档要求的 Python 3.11+ 不一致 |
+| `Makefile:71` | **已失效（2026-11-09 复核）**。`clean` 现调用 `./scripts/_archive/cleanup.sh`，该脚本存在且可执行 |
+| `app/main.py:197` | **已失效（2026-11-09 复核）**。现 `allow_origin_regex=settings.cors_origin_regex`，`app/core/config.py:172` 已按 `re.escape` 派生并锚定 |
+| `Dockerfile:23`、`:34` | **已失效（2026-11-09 复核）**。基础镜像已升级为 `python:3.11-slim` |
 | 应用挂载 | `AiProjectCode.py`、`nginx_ai.py` 未挂载 |
 | `app/agent/dependency_graph.py:1208` + `app/agent/dependency_rules.py:189` | `_infer_file_type` 对 `.py` 无扩展名兜底：`EXTENSION_TYPE_MAP` 没有 `.py`（只有 `.vue`、`.js` 等），Python 适配器的 `infer_file_type` 也只在目录名/文件名命中规则时才给类型。任何非常规命名的 `.py`（`vue.py`，甚至 `hello.py`）推断为 `unknown`，`_infer_unknown_file_types` 随即 `RuntimeError` 中止整轮编排（`spec_first_generate.py:1955`） |
 | `app/agent/architect.py:1341` | `_ensure_file_plan_completeness` 会把 Architect 幻觉出的模块自动补进 file_plan（上例中 Vue 风格的 `vue.py`、`app/api.py`），放大上一条的爆炸半径；角色分配中 architect 是 `Qwen/Qwen3-8B`（`data/unified_model_config.yaml:356`），它对简单 Python 需求产出了 Web 架构 |
-| `app/api/v1/ai_agent/schemas.py:237,239` | `OrchestratorRequest.framework` 与 `runtime` 只在 schema 声明，`app/api/v1/ai_agent/` 全目录无消费点（`rg '\.framework|\.runtime' app/api/v1/ai_agent` 无命中），客户端也不发送。即调用方无法指定目标框架/运行时，架构完全交给模型发挥 |
-| 项目打包 | `GET /api/v1/agent/generate/download/{project}` 打出的 zip 含内部文件与构建残留：本轮含 `.dep_graph.json` 与 `app/__pycache__/command.cpython-311.pyc`（校验时编译产生）。用户下载到的产物里混入平台内部文件，与 `generate/files` 列表接口的过滤行为不一致 |
+| `app/api/v1/ai_agent/schemas.py:237,239` | **已失效（2026-11-09 复核）**。`framework`/`runtime` 经 `_core_request_metadata`（`orchestrate_endpoints.py:110`）进入 `GenerationRequest.metadata`，`app/agent/orchestration/adapters.py:240`、`:982` 会写入架构上下文 |
+| 项目打包 | **已修复（2026-11-09）**。`_create_zip_archive_safe` 改为 `zipfile` 逐文件写入，跳过点号路径段与 `SKIP_DIRS`。回归见 `tests/unit/test_ai_agent_helpers_session_cleanup.py` |
 | 生成覆盖率 | 静态站那次 `success=true`，但需求要求的根级 `index.html` 与 `README.md` 未按约产出（实际把 `index.html` 放进 `src/`，且完全没有 README），反而多出需求未提的 `app/command.py`。`requirement_coverage` 未据此判失败，属模型质量与覆盖校验缺口 |
-| `app/api/v1/ai_agent/orchestrate_endpoints.py:1855` | 快照接口在 `orchestrator/{session_id}` 或 `user_uploads/{session_id}` 下找项目目录，而编排实际写入 `projects/{user_id}/{session_id}`（`done` 载荷 `project_path="1/llm-static-1790262394"`，落盘 `projects/1/llm-static-1790262394`）。实测 `GET /api/v1/agent/snapshots/llm-static-1790262394` 返回 404「项目目录不存在」。叠加编排产物未初始化 git 仓库（该目录无 `.git`），插件「文件版本」tab 对任何真实生成会话都不可用；`/rollback`（`:1878`）、`/snapshot/diff`（`:1905`）同样按错误路径查找 |
+| 路径包含校验 | **已修复（2026-11-09）**。`generate_endpoints.py` 的 `read_project_file` / `delete_project_file` 原用 `str.startswith` 判断项目范围，前缀兄弟目录（`desktop-session-evil`）可越界读写删除；`ProjectFileManager`、`FileContract.validate_path`、`PathSecurityChecker.check` 有同类问题。现统一改为 `Path.is_relative_to`，回归见 `test_flutter_project_delivery.py`、`test_file_contract.py`、`test_guardrails.py` |
+| `app/api/v1/ai_agent/orchestrate_endpoints.py` | **已修复（2026-11-09）**。快照/回滚/差异三个端点原只在 `orchestrator/{session_id}` 或 `user_uploads/{session_id}` 下找项目目录，而编排实际写入 `projects/{user_id}/{session_id}`（`done` 载荷 `project_path="1/llm-static-1790262394"`，落盘 `projects/1/llm-static-1790262394`），实测 `GET /api/v1/agent/snapshots/llm-static-1790262394` 返回 404「项目目录不存在」。现 `_authorize_snapshot_access` 返回会话记录，`_locate_snapshot_project_dir` 优先用 `ProjectSession.output_dir` 解析，缺失时才回退历史固定目录；`save_snapshot` 本身会 `init_repo`，git 仓库初始化不是问题 |
+| `migrations/versions/20260425_add_user_management_indexes.py` | **已修复（2026-11-09）**。迁移结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库因 `migrations/env.py` 在无 `alembic_version` 时直接按 `Base.metadata` 建表并 stamp head，不会重放历史链，故测试未暴露；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断。现改为 `_has_table('system_logs')` 判断后再建索引。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项 |
+| `migrations/versions/20260908_add_github_user_config.py` 等 4 条迁移 | **已修复（2026-11-09）**。`sa.inspect(op.get_bind())` 在 `--sql` 离线模式拿到 `MockConnection`，无法反射，`alembic upgrade head --sql` 抛 `NoInspectionAvailable`。`20260908`、`20260918_add_knowledge_tags`、`20260918_unique_tasks_task_id`、`20261109_add_github_verified_at` 四处补 `as_sql` 分支。回归 `tests/unit/test_alembic_bootstrap.py` 新增 MySQL/PostgreSQL 两方言离线生成用例 |
 
 ## 本地后端联调方法
 

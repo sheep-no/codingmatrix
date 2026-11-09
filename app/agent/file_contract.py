@@ -62,7 +62,7 @@ class FileContract:
 
             if self.base_path:
                 base_resolved = Path(self.base_path).resolve()
-                if not str(abs_path).startswith(str(base_resolved)):
+                if not abs_path.is_relative_to(base_resolved):
                     logger.warning(f"FileContract: 路径超出项目范围 {self.file_path}")
                     return False
 

@@ -57,3 +57,19 @@ class TestInferFileTypeBoundaries:
         assert graph._infer_file_type("src/views/App.vue") == "frontend_page"
         assert graph._infer_file_type("src/components/App.vue") == "frontend_component"
         assert graph._infer_file_type("src/api/client.js") == "frontend_api"
+
+
+class TestPythonFilesWithoutPathRule:
+    def test_plain_python_file_is_not_unknown(self):
+        """非常规命名的 .py 也必须能推断出类型，否则整轮编排会被中止。"""
+        graph = DependencyGraph()
+
+        assert graph._infer_file_type("hello.py") == "utils"
+        assert graph._infer_file_type("app/vue.py") == "utils"
+
+    def test_python_adapter_falls_back_to_extension_map(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+
+        assert graph._infer_file_type("hello.py") == "utils"

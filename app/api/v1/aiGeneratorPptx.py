@@ -2644,6 +2644,7 @@ async def download_ppt(
     token: dict = Depends(verify_token)
 ):
     """下载 PPT 文件"""
+    _validate_ppt_id(ppt_id)
     user_id = token.get("sub", "anonymous")
     _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
@@ -2725,6 +2726,7 @@ async def get_ppt_slides(
     token: dict = Depends(verify_token)
 ):
     """获取 PPT 幻灯片数据 (JSON)"""
+    _validate_ppt_id(ppt_id)
     _verify_ppt_owner(ppt_id, token.get("sub", "anonymous"))
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{ppt_id}_slides.json"
@@ -3671,6 +3673,7 @@ async def download_ppt_as_pdf(
     token: dict = Depends(verify_token),
 ):
     """将 PPT 转换为 PDF 并下载"""
+    _validate_ppt_id(ppt_id)
     _verify_ppt_owner(ppt_id, token.get("sub", "anonymous"))
     # 查找 PPTX 文件
     pptx_path = PPT_OUTPUT_DIR / f"{ppt_id}.pptx"

@@ -84,6 +84,7 @@ class TestSnapshotEndpointAuthorization:
         async def allow(db, session_id, user_id):
             seen["session_id"] = session_id
             seen["user_id"] = user_id
+            return SimpleNamespace(output_dir=None)
 
         monkeypatch.setattr(endpoints, "verify_session_ownership", allow)
         monkeypatch.chdir(tmp_path)
