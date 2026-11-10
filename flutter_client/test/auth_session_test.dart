@@ -131,6 +131,29 @@ class Fixture {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('copyWith preserves the restoring flag', () {
+    const state = AuthState(isRestoring: true);
+    expect(state.copyWith(isLoading: true).isRestoring, isTrue);
+    expect(state.copyWith(isRestoring: false).isRestoring, isFalse);
+  });
+
+  test('restore and login publish the resolved base url', () async {
+    final f = Fixture();
+    final published = <String>[];
+    final controller = AuthController(
+      f.auth,
+      f.store,
+      onBaseUrlChanged: published.add,
+    );
+    await controller.login(
+      email: 'alice@example.com',
+      password: 'password-secret',
+      serviceUrl: 'https://two.example/',
+    );
+    expect(published, contains('https://two.example'));
+    controller.dispose();
+  });
+
   test(
     'device storage adapter saves, restores and deletes only its session key',
     () async {
@@ -558,6 +581,49 @@ void main() {
       expect(f.requests.any((r) => r.url.path.contains('logout')), false);
     },
   );
+
+  test('user logout revokes the server token with bearer and csrf', () async {
+    final f = Fixture();
+    final controller = AuthController(f.auth, f.store);
+    await controller.login(
+      email: 'alice@example.com',
+      password: 'password-secret',
+    );
+
+    await controller.logout();
+
+    final logout = f.requests.singleWhere(
+      (r) => r.url.path == '/api/v1/logout',
+    );
+    expect(logout.method, 'POST');
+    expect(logout.headers['authorization'], startsWith('Bearer '));
+    expect(logout.headers['x-csrf-token'], isNotNull);
+    expect(f.auth.session, isNull);
+    expect(f.storage.value, isNull);
+    controller.dispose();
+  });
+
+  test('user logout still clears local state when revocation fails', () async {
+    final f = Fixture();
+    final controller = AuthController(f.auth, f.store);
+    await controller.login(
+      email: 'alice@example.com',
+      password: 'password-secret',
+    );
+    f.business = (request) async {
+      if (request.url.path == '/api/v1/logout') {
+        throw StateError('network down');
+      }
+      return http.Response('{}', 200);
+    };
+
+    await controller.logout();
+
+    expect(f.requests.any((r) => r.url.path == '/api/v1/logout'), isTrue);
+    expect(f.auth.session, isNull);
+    expect(f.storage.value, isNull);
+    controller.dispose();
+  });
 
   test(
     'corrupt persistence is removed and restore exposes a safe error',
