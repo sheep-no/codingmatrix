@@ -242,6 +242,17 @@
 
 > 第 164 轮去重后新增活跃问题 22 项：P1 8 项、P2 13 项、P3 1 项；另有未接入方法问题 2 项；FRESCAN-23 为既有问题扩展。Backlog 使用 `#1370-#1391`。
 
+## I.8 前端四批次复扫（第 165 轮）
+
+| 轮次 | 批次 | 范围 | 状态 | 结果 | 详细文档 |
+|------|------|------|------|------|---------|
+| 165 | 一 | 组件、视图与模板交互 | ✅ 已完成 | 新增管理台登出绕过、登录不刷新历史、弹窗语义、工具未接线 4 项；复核 FRESCAN-35 为误判 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 二 | API 客户端与后端契约 | ✅ 已完成 | 新增 aicloud 命名空间缺失、searchKnowledge 同名覆盖、回滚参数对象化、GitHub token 取值 4 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 三 | 构建、CI、容器和 Nginx | ✅ 已完成 | 新增 nginx 账号缺失 [P0 待实测]、`/api/` WS 未透传 Upgrade、CI 不跑单测、单镜像/Compose 拓扑漂移 4 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 四 | 会话边界、缓存与图片历史 | ✅ 已完成 | 新增注销残留 6 类缓存、ChatDatabase 未导出、图片历史存 base64、权限门禁、标签关联、契约形状与图片页裸 fetch 7 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+
+> 第 165 轮去重后新增问题 19 项：P0 1 项、P1 6 项、P2 9 项、P3 3 项；其中 FRESCAN-64 属未接入/接线事项，按结构记录。旧编号 2 项判定失效（FRESCAN-24、FRESCAN-35），1 项部分失效（FRESCAN-25）。Backlog 使用 `#1392-#1410`，累计 P0 2、P1 53、P2 490、P3 817，Backlog 共 1410 项。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

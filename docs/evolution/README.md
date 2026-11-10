@@ -20,6 +20,7 @@
 - [项目注释规范化演化路径](COMMENT-NORMALIZATION.md) - 先消除误导性注释（常量/端点/字段与代码不一致），再定义注释规范接入 ruff/ESLint CI，最终注释即文档
 - [图片生成功能演化路径](IMAGE-GENERATION.md) - 修复文生图缓存失效与占位端点，再归一 AI 生成/搜图/本地绘制为 ImageProvider，最终纳入 Agent 路由与 PPT 配图联动
 - [AICode 对话接口与界面演化路径](CHAT.md) - 先更名对齐（code→chat，端点/文件/schema/前端统一且旧端点兼容），再接入会话语义压缩与动态模型路由，最终对话界面收敛为 Agent 统一入口
+- [前端第 165 轮四批次复扫](modules/frontend_batch_rescan_165.md) - 最新前端缺陷基线：认证登出与会话清理、API 命名空间与契约、Nginx/CI 部署、图片历史与权限门禁，含分阶段修复规划与验收标准
 
 ## 编写规范
 
