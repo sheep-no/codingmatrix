@@ -267,8 +267,11 @@ async def test_modify_forwards_engine_so_the_core_branch_is_reachable(
 ):
     from app.agent import workflow_registry
     from app.api.v1.ai_agent.schemas import ModifyRequest
+    from app.api.v1.ai_agent import helpers
 
     monkeypatch.setenv("AGENT_ORCHESTRATION_ENGINE", "legacy")
+    (tmp_path / "1" / "demo").mkdir(parents=True)
+    monkeypatch.setattr(helpers, "PROJECTS_BASE_DIR", str(tmp_path))
     result = dict(success=True, output_dir=str(tmp_path), total_files_created=0,
                   files=[], validation={}, errors=[], warnings=[], elapsed_time=0)
     captured = {}
@@ -305,7 +308,7 @@ async def test_modify_forwards_engine_so_the_core_branch_is_reachable(
         execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
         commit=AsyncMock(),
     )
-    request = ModifyRequest(requirement="add a field", project_path=str(tmp_path), engine=engine)
+    request = ModifyRequest(requirement="add a field", project_path="1/demo", engine=engine)
 
     response = await orchestrate_endpoints.modify_project(request, {"sub": "1"}, db)
     async for _chunk in response.body_iterator:

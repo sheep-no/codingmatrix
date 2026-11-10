@@ -226,6 +226,8 @@ from .helpers import (
     _approval_queues,
     _create_project_session,
     _detect_and_clean_zombie_sessions,
+    _validate_project_path,
+    _validate_project_target,
     analyze_files_to_regenerate,
     cleanup_session_files,
     detect_resume_intent,
@@ -714,14 +716,10 @@ async def modify_project(
     if not project_path:
         raise HTTPException(status_code=400, detail="需要提供 project_path 或 output_dir")
 
-    # 解析项目目录（文件系统操作放到工作线程）
-    project_dir, resolve_error = await asyncio.to_thread(
-        _resolve_project_dir, project_path
+    # 解析并校验项目目录（范围 + 归属 + 存在性，文件系统操作放到工作线程）
+    project_dir = await asyncio.to_thread(
+        _validate_project_path, project_path, user_id
     )
-    if resolve_error == "missing":
-        raise HTTPException(status_code=404, detail=f"项目不存在: {project_path}")
-    if resolve_error == "not_dir":
-        raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
 
     # 意图判断：分析类请求走 analyze 逻辑
     if request.requirement and _is_analyze_intent(request.requirement):
@@ -909,16 +907,17 @@ async def orchestrate_project(
     db: AsyncSession = Depends(get_db)
 ):
     user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 优先级：前端传来的 project_path > request.output_dir > 时间戳目录
     output_dir = resolve_sync_output_dir(
         request.project_path, request.output_dir, user_id, timestamp
     )
+    await asyncio.to_thread(_validate_project_target, output_dir, user_id)
 
     logger.info(f"Orchestrator 生成请求 | user={user_id} | requirement={request.requirement[:50]}...")
-
-    if not user_id or user_id == "anonymous" or not user_id.isdigit():
-        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
 
     session = await create_agent_session(
         db, int(user_id), "orchestrator", request.requirement
@@ -1074,6 +1073,8 @@ async def orchestrate_project_stream(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    if request.project_path:
+        await asyncio.to_thread(_validate_project_target, request.project_path, user_id)
     requested_session_id = request.session_id
     if requested_session_id:
         _register_pending_stream(requested_session_id, user_id)
@@ -2157,13 +2158,14 @@ async def evaluate_project(
 ):
     """需求评价模式 - 只评价不修改，输出分析报告和改进建议"""
     user_id = token.get("sub", "anonymous")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = request.output_dir or f"./projects/evaluation/{timestamp}_{user_id}"
-
-    logger.info(f"评价请求 | user={user_id} | requirement={request.requirement[:50]}...")
-
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = request.output_dir or f"./projects/evaluation/{timestamp}_{user_id}"
+    await asyncio.to_thread(_validate_project_target, output_dir, user_id)
+
+    logger.info(f"评价请求 | user={user_id} | requirement={request.requirement[:50]}...")
 
     try:
         orchestrator = OrchestratorAgent(

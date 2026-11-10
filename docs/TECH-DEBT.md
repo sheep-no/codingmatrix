@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5263 passed, 6 failed, 4 skipped`（收集 5273）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5270 passed, 6 failed, 4 skipped`（收集 5280）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -326,6 +326,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | `PPTGenerationRequest.material_file_ids` 无数量上限，`_build_material_context` 逐 ID 查库并可能解析文件；10MB 请求体可放大为大量数据库查询与文件解析 | `app/api/v1/aiGeneratorPptx.py` | 已解决；请求模型限制 50 项，上下文函数对非模型入口同样截断。回归 `tests/unit/test_ppt_material_content_usage.py` 新增 2 项，回退源码后均失败 |
 | P2 | Agent Host 每次握手写入 30 分钟会话到内存与 `data/agent_host_sessions/*.json`，过期后从不清理，内存与磁盘持续增长 | `app/api/v1/agent_host.py` | 已解决；握手时按 60 秒节流清扫过期内存项与 JSON 文件。回归 `tests/unit/test_agent_host_api.py` 新增 2 项，回退源码后握手清扫项失败 |
 | P2 | `MetricsCollector` 的慢调用告警与覆盖率告警按次 `append` 且无裁剪，长运行服务下 `alerts` 无限增长（既有 PMC3 只处理了缓存命中率重复告警） | `app/utils/performance_metrics.py` | 已解决；统一走 `_append_alert` 并保留最近 100 条。回归 `tests/unit/test_performance_metrics.py` 新增 1 项，回退源码后失败 |
+
+### 后端缺陷扫描第七轮：编排入口路径越权（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `POST /ai-agent/modify` 把客户端 `project_path`/`output_dir` 直接交给 `_resolve_project_dir`，绝对路径与 `PROJECTS_BASE_DIR` 之外目录均被接受；分析分支读取该目录、修改分支把编排器输出写进该目录，等于任意路径读写 | `app/api/v1/ai_agent/orchestrate_endpoints.py`、`app/api/v1/ai_agent/schemas.py` | 已解决；`ModifyRequest` 两个字段加长度与 `..` 校验，端点改用 `_validate_project_path`（范围 + 归属 + 存在性）。回归 `tests/unit/test_modify_project_path_boundary.py` 7 项，回退源码后全部失败 |
+| P1 | 同步 `POST /ai-agent/orchestrate` 的 `output_dir` 未做范围与归属校验，可指定任意可写目录作为生成目标 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；解析后调用 `_validate_project_target`。同一回归文件覆盖绝对路径越界 |
+| P1 | `POST /ai-agent/orchestrate/stream` 的 `project_path` 虽拒绝绝对路径与 `..`，但仍可传 `2/foreign` 指向其他用户已存在的项目，读取并覆盖其文件 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；入口先做归属校验。同一回归文件覆盖跨用户拒绝 |
+| P2 | `POST /ai-agent/evaluate` 的 `output_dir` 同样未校验，评价流程会以该目录构造编排器 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；统一调用 `_validate_project_target` |
+
+`_validate_project_target` 不要求目录已存在，供会新建目录的编排入口使用；`_validate_project_path` 在其上追加存在性与目录类型检查。归属允许 `{user_id}/name`、`{timestamp}_{uid}_{user_id}` 与 `user_uploads/{user_id}/name` 三种既有布局，前端 `ProjectGenerator.vue` 与 Flutter 客户端传入的相对路径均兼容。
 
 ### 本轮逐文件验证（2026-09-27）
 

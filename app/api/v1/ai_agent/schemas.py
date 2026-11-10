@@ -52,6 +52,15 @@ def validate_path_safety(v: str | None, field_name: str = "path") -> str | None:
     return v
 
 
+def validate_path_components(v: str | None, field_name: str = "path") -> str | None:
+    """拒绝父目录遍历，但允许绝对路径（由端点再做范围校验）。"""
+    if v is None:
+        return v
+    if PATH_TRAVERSAL_PATTERN.search(v) or ".." in v:
+        raise ValueError(f"{field_name} 不能包含父目录遍历 (../)")
+    return v
+
+
 class KnowledgeRequest(BaseModel):
     content: str = Field(..., description="知识内容", min_length=1)
     knowledge_key: str | None = Field(None, description="知识关键词")
@@ -218,6 +227,12 @@ class OrchestratorRequest(BaseModel):
         """项目路径安全校验（增量模式）"""
         return validate_path_safety(v, "project_path")
 
+    @field_validator('output_dir')
+    @classmethod
+    def validate_output_dir(cls, v):
+        """输出目录只做遍历校验；范围与归属由端点统一校验。"""
+        return validate_path_components(v, "output_dir")
+
 
 class OrchestratorResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -254,8 +269,8 @@ class OrchestratorResponse(BaseModel):
 class ModifyRequest(BaseModel):
     engine: Literal["legacy", "core"] | None = Field(None, description="编排引擎；省略时沿用服务端配置")
     requirement: str | None = Field(None, description="修改需求描述（分析类请求必填，修改类可选）", max_length=5000)
-    project_path: str | None = Field(None, description="已有项目路径（相对于 projects 目录）")
-    output_dir: str | None = Field(None, description="输出目录（绝对路径或相对于 projects 目录）")
+    project_path: str | None = Field(None, description="已有项目路径（相对于 projects 目录）", max_length=500)
+    output_dir: str | None = Field(None, description="输出目录（相对于 projects 目录）", max_length=500)
     session_id: str | None = Field(None, description="已有会话 ID")
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
@@ -278,6 +293,11 @@ class ModifyRequest(BaseModel):
     @classmethod
     def validate_session_id(cls, v):
         return validate_session_id(v, "session_id")
+
+    @field_validator('project_path', 'output_dir')
+    @classmethod
+    def validate_paths(cls, v):
+        return validate_path_components(v, "path")
 
 
 class ComplexityAnalysisRequest(BaseModel):

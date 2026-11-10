@@ -84,6 +84,8 @@ def test_locate_snapshot_project_dir_falls_back_when_output_dir_missing(tmp_path
 
 @pytest.mark.asyncio
 async def test_modify_endpoint_resolves_dir_off_event_loop(tmp_path, monkeypatch):
+    from app.api.v1.ai_agent import helpers
+
     main_thread = threading.get_ident()
     seen = []
     real_resolve = Path.resolve
@@ -93,8 +95,9 @@ async def test_modify_endpoint_resolves_dir_off_event_loop(tmp_path, monkeypatch
         return real_resolve(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "resolve", spy)
+    monkeypatch.setattr(helpers, "PROJECTS_BASE_DIR", str(tmp_path))
 
-    request = ModifyRequest(project_path=str(tmp_path / "missing"))
+    request = ModifyRequest(project_path="1/missing")
     with pytest.raises(HTTPException) as excinfo:
         await oe.modify_project(request=request, token={"sub": "1"}, db=None)
 

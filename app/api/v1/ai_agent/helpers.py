@@ -47,30 +47,69 @@ _feedback_learner = None
 _feedback_learner_lock = asyncio.Lock()
 
 
-def _validate_project_path(project_path: str, user_id: str) -> Path:
+def _normalize_project_path(project_path: str) -> Path:
+    """把前端/历史客户端传来的项目路径归一化为绝对路径。
+
+    兼容三种形式：绝对路径、``projects/1/x``（工作区相对）、``1/x``（projects 相对）。
+    归一化本身不做范围判断，由调用方决定是否要求目录已存在。
+    """
     base_dir = Path(PROJECTS_BASE_DIR).resolve()
-    project_dir = (base_dir / project_path).resolve()
-    if not project_dir.is_relative_to(base_dir):
+    raw = (project_path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="项目路径不能为空")
+
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    for prefix in ("./projects/", "projects/"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+    return (base_dir / raw).resolve()
+
+
+def _validate_project_target(project_path: str, user_id: str) -> Path:
+    """校验项目目标目录位于 PROJECTS_BASE_DIR 且归属当前用户。
+
+    与 ``_validate_project_path`` 的区别是不要求目录已存在，供 ``/orchestrate``、
+    ``/orchestrate/stream`` 等会新建目录的入口使用。
+    """
+    base_dir = Path(PROJECTS_BASE_DIR).resolve()
+    project_dir = _normalize_project_path(project_path)
+    if not project_dir.is_relative_to(base_dir) or project_dir == base_dir:
         logger.warning(f"路径越界 | 用户: {user_id} | 尝试访问: {project_dir}")
         raise HTTPException(status_code=403, detail="无权访问该路径")
+
+    # 用户归属校验：允许三种布局——项目嵌套在 user_id 目录下、
+    # 项目目录名末段为 user_id（{timestamp}_{unique_id}_{user_id}）、
+    # 或压缩包上传目录 user_uploads/{user_id}/{name}。
+    if user_id and user_id != "anonymous":
+        relative_parts = project_dir.relative_to(base_dir).parts
+        if not (
+            (len(relative_parts) >= 2 and relative_parts[0] == user_id)
+            or (
+                len(relative_parts) >= 3
+                and relative_parts[0] == "user_uploads"
+                and relative_parts[1] == user_id
+            )
+            or project_dir.name.rsplit("_", 1)[-1] == user_id
+        ):
+            logger.warning(f"跨用户访问拒绝 | 请求用户: {user_id} | 项目目录: {project_dir.name}")
+            raise HTTPException(status_code=403, detail="无权访问其他用户的项目")
+
+    return project_dir
+
+
+def _validate_project_path(project_path: str, user_id: str) -> Path:
+    """校验已存在的项目目录：范围、归属、存在性与目录类型。"""
+    project_dir = _validate_project_target(project_path, user_id)
     if not project_dir.exists():
         logger.warning(f"项目不存在 | 路径: {project_dir}")
         raise HTTPException(status_code=404, detail="项目不存在")
     if not project_dir.is_dir():
         logger.warning(f"不是文件夹 | 路径: {project_dir}")
         raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
-
-    # 用户归属校验：允许两种布局——项目嵌套在 user_id 目录下，或
-    # 项目目录名末段为 user_id（{timestamp}_{unique_id}_{user_id}）。
-    if user_id and user_id != "anonymous":
-        relative_parts = project_dir.relative_to(base_dir).parts
-        if not (
-            (len(relative_parts) >= 2 and relative_parts[0] == user_id)
-            or project_dir.name.rsplit("_", 1)[-1] == user_id
-        ):
-            logger.warning(f"跨用户访问拒绝 | 请求用户: {user_id} | 项目目录: {project_dir.name}")
-            raise HTTPException(status_code=403, detail="无权访问其他用户的项目")
-
     return project_dir
 
 
