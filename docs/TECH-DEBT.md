@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5239 passed, 6 failed, 4 skipped`（收集 5249）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5255 passed, 6 failed, 4 skipped`（收集 5265）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -306,6 +306,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | `_generation_http_exception` 兜底 500 仍把 `str(error)` 拼进响应，与第二轮「500 统一通用文案」策略冲突，可泄露路径/SQL/命令输出 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；返回通用文案，异常只进日志。回归 `tests/unit/test_agent_endpoint_persistence_contract.py` 断言更新，回退源码后失败 |
 | P2 | PPT 进度 WebSocket 异常分支把 `str(e)` 推给客户端 | `app/api/v1/aiGeneratorPptx.py` | 已解决；推送通用文案 + `logger.exception`。回归 `tests/unit/test_api_500_detail_not_leaked.py` 新增静态守卫，回退源码后失败 |
 | P3 | `_cleanup_session_queues` 在 `cancel_event` 已被其它路径清理时不回收 `_pending_stream_owners`，且删除队列发生在归属确认之前，旧任务可能误删新任务资源 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；先做归属判定再删队列/事件，owner 始终回收。回归 `tests/unit/test_stream_cancel_reconnect.py` 新增 2 项，回退源码后均失败 |
+
+### 后端缺陷扫描第五轮：路径穿越删除、事务回滚与落盘一致性（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `DELETE /ai-agent/sessions/{session_id}` 把 `session_id` 直接拼进 `shutil.rmtree` 路径；`GenerateRequest.session_id` 无格式校验，客户端提交 `../../victim` 可越界删除任意目录 | `app/schema/codeRequest.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；`GenerateRequest` 限制 `[A-Za-z0-9_-]{1,128}`，删除端点再按基准目录 `is_relative_to` 防御。回归 `tests/unit/test_generate_session_id_traversal.py` 10 项，回退源码后 6 项校验 + 1 项越界删除失败 |
+| P2 | 知识库上传失败分支在事务可能已失效时直接 `commit` 失败状态，二次异常会掩盖原始错误 | `app/api/v1/aicloud_knowledge.py` | 已解决；先 `rollback` 再重新加载文档写失败状态。回归 `tests/unit/test_aicloud_embedding_failure.py` 新增 1 项，回退源码后失败 |
+| P2 | 知识库删除先删文件再删记录，commit 失败会留下「记录指向不存在文件」；且 `file_path` 未校验范围 | `app/api/v1/aicloud_knowledge.py` | 已解决；先提交记录删除再删文件，并限定在存储根目录内。回归 `tests/unit/test_aicloud_embedding_failure.py` 新增 2 项，回退源码后越界删除项失败 |
+| P2 | 单文件上传在 `os.replace` 落盘后若 DB commit 失败，不回滚也不删文件，磁盘累积孤儿文件 | `app/api/v1/file_upload.py` | 已解决；commit 失败 `rollback` + `unlink`。回归 `tests/unit/test_file_upload_orphan_cleanup.py` 新增 2 项，回退源码后提交失败项失败 |
+| P2 | 分片合并在合并文件落盘后若 DB commit 失败，同样遗留孤儿文件 | `app/api/v1/file_upload.py` | 已解决；同上。回归 `tests/unit/test_file_upload_orphan_cleanup.py` 新增 1 项，回退源码后失败 |
 
 ### 本轮逐文件验证（2026-09-27）
 

@@ -279,8 +279,15 @@ async def upload_file(
         )
         
         db.add(db_file)
-        await db.commit()
-        await db.refresh(db_file)
+        try:
+            await db.commit()
+            await db.refresh(db_file)
+        except Exception:
+            # 文件已经落盘，DB 写入失败时必须回滚事务并删掉孤儿文件，
+            # 否则磁盘上会累积无主文件且用户看不到记录。
+            await db.rollback()
+            storage_path.unlink(missing_ok=True)
+            raise
         
         logger.info(f"文件上传成功 | file_id={db_file.id} | size={db_file.file_size}")
         
@@ -582,8 +589,14 @@ async def merge_chunks(
         )
 
         db.add(db_file)
-        await db.commit()
-        await db.refresh(db_file)
+        try:
+            await db.commit()
+            await db.refresh(db_file)
+        except Exception:
+            # 合并文件已落盘，DB 失败时回滚并清理孤儿文件，避免磁盘泄漏。
+            await db.rollback()
+            file_path.unlink(missing_ok=True)
+            raise
 
         # 清理临时分片
         import shutil

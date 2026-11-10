@@ -207,10 +207,18 @@ async def upload_document(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"文档处理失败: {e}")
-        doc.status = "failed"
-        doc.error_message = str(e)[:500]
-        await db.commit()
+        logger.exception(f"文档处理失败: {doc_id}")
+        # 解析/向量化异常可能已让事务进入失败状态，直接 commit 会再次抛错并
+        # 掩盖原始错误。先回滚，再用一条干净的写事务记录失败状态。
+        await db.rollback()
+        try:
+            doc = await db.get(AicloudKnowledgeDoc, doc_id)
+            if doc is not None:
+                doc.status = "failed"
+                doc.error_message = str(e)[:500]
+                await db.commit()
+        except Exception:
+            logger.exception(f"记录文档失败状态失败: {doc_id}")
         raise HTTPException(status_code=500, detail="文档处理失败，请稍后重试")
 
 
@@ -274,16 +282,21 @@ async def delete_document(
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     
-    # 删除文件
-    if doc.file_path and os.path.exists(doc.file_path):
-        try:
-            os.remove(doc.file_path)
-        except Exception as e:
-            logger.warning(f"删除文件失败: {e}")
-    
-    # 删除数据库记录（cascade 会自动删除关联的 chunks）
+    # 先删数据库记录并提交，再删文件：commit 失败时记录仍在、文件未动，
+    # 用户可以重试；反过来会出现「文件已删、记录还指向不存在文件」的坏状态。
     await db.delete(doc)
     await db.commit()
+
+    if doc.file_path:
+        try:
+            storage_root = Path(KNOWLEDGE_STORAGE_PATH).resolve()
+            file_path = Path(doc.file_path).resolve()
+            # file_path 正常由上传流程拼在存储目录下，这里再校验一次，防止脏数据
+            # 指向任意路径导致越界删除。
+            if file_path.is_relative_to(storage_root) and file_path.exists():
+                os.remove(file_path)
+        except Exception as e:
+            logger.warning(f"删除文件失败: {e}")
     
     return {"status": "success", "message": f"文档 {doc.filename} 已删除"}
 

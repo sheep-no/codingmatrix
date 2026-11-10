@@ -161,3 +161,118 @@ async def test_upload_chunk_count_matches_stored_chunks_on_partial_failure(
     ).scalars().all()
     assert len(stored) == 1
     assert stored[0].embedding_model == kp.DEFAULT_EMBEDDING_MODEL
+
+
+@pytest.mark.asyncio
+async def test_upload_recovers_from_aborted_transaction_and_records_failure(
+    test_db, monkeypatch, tmp_path
+):
+    """解析异常若已让事务失效，失败状态仍要落库，而不是被二次异常覆盖。"""
+    async def _permission(user_id, db):
+        return None
+
+    def _broken_parse(path):
+        raise RuntimeError("parser exploded")
+
+    monkeypatch.setattr(knowledge_api, "check_aicloud_permission", _permission)
+    monkeypatch.setattr(knowledge_api, "KNOWLEDGE_STORAGE_PATH", str(tmp_path))
+    monkeypatch.setattr(knowledge_api, "parse_document", _broken_parse)
+
+    rollbacks = []
+    session = test_db
+
+    class _RollbackSpy:
+        def __getattr__(self, name):
+            return getattr(session, name)
+
+        async def rollback(self):
+            rollbacks.append(True)
+            await session.rollback()
+
+    with pytest.raises(HTTPException) as error:
+        await _call_upload(_RollbackSpy(), "boom.txt")
+
+    assert error.value.status_code == 500
+    assert rollbacks, "异常分支必须先回滚再写失败状态"
+
+    doc = (
+        await test_db.execute(
+            select(AicloudKnowledgeDoc).where(AicloudKnowledgeDoc.filename == "boom.txt")
+        )
+    ).scalars().one()
+    assert doc.status == "failed"
+    assert doc.error_message
+
+
+@pytest.mark.asyncio
+async def test_delete_document_removes_record_before_file_and_stays_in_storage(
+    test_db, monkeypatch, tmp_path
+):
+    """删除顺序与范围：先提交记录删除，再删存储目录内的文件。"""
+    import os as _os
+
+    storage = tmp_path / "knowledge"
+    storage.mkdir()
+    inside = storage / "1_doc.txt"
+    inside.write_text("data")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+
+    async def _permission(user_id, db):
+        return None
+
+    monkeypatch.setattr(knowledge_api, "check_aicloud_permission", _permission)
+    monkeypatch.setattr(knowledge_api, "KNOWLEDGE_STORAGE_PATH", str(storage))
+
+    doc = AicloudKnowledgeDoc(
+        id="doc-del",
+        user_id=1,
+        filename="doc.txt",
+        file_type=".txt",
+        file_size=4,
+        file_path=str(inside),
+        status="completed",
+    )
+    test_db.add(doc)
+    await test_db.commit()
+
+    result = await knowledge_api.delete_document(
+        doc_id="doc-del", db=test_db, user_id=1
+    )
+
+    assert result["status"] == "success"
+    assert not inside.exists()
+    assert outside.exists(), "存储目录外的文件不能被删除"
+    assert await test_db.get(AicloudKnowledgeDoc, "doc-del") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_document_does_not_touch_file_outside_storage(test_db, monkeypatch, tmp_path):
+    """脏数据 file_path 指向存储目录外时，记录删除但不得删外部文件。"""
+    storage = tmp_path / "knowledge"
+    storage.mkdir()
+    outside = tmp_path / "victim.txt"
+    outside.write_text("keep")
+
+    async def _permission(user_id, db):
+        return None
+
+    monkeypatch.setattr(knowledge_api, "check_aicloud_permission", _permission)
+    monkeypatch.setattr(knowledge_api, "KNOWLEDGE_STORAGE_PATH", str(storage))
+
+    doc = AicloudKnowledgeDoc(
+        id="doc-escape",
+        user_id=1,
+        filename="evil.txt",
+        file_type=".txt",
+        file_size=4,
+        file_path=str(outside),
+        status="completed",
+    )
+    test_db.add(doc)
+    await test_db.commit()
+
+    await knowledge_api.delete_document(doc_id="doc-escape", db=test_db, user_id=1)
+
+    assert outside.exists()
+    assert await test_db.get(AicloudKnowledgeDoc, "doc-escape") is None

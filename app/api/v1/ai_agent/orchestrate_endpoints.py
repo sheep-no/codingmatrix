@@ -2355,12 +2355,21 @@ async def delete_session_endpoint(
     ConcurrentLimitManager().unregister_session(token.get("role", "user"))
 
     # 清理会话文件
-    for session_dir in [
-        Path(f"./projects/orchestrator/{session_id}"),
-        Path(f"./orchestrator/{session_id}"),
-        Path(f"./projects/user_uploads/{session_id}"),
-    ]:
-        if session_dir.exists() and session_dir.is_dir():
+    # session_id 虽然来自数据库，但历史数据可能包含遍历字符；只允许清理
+    # 各基准目录下的一级子目录，避免越界删除。
+    for base in (
+        Path("./projects/orchestrator"),
+        Path("./orchestrator"),
+        Path("./projects/user_uploads"),
+    ):
+        session_dir = (base / session_id).resolve()
+        base_dir = base.resolve()
+        if (
+            session_dir.is_relative_to(base_dir)
+            and session_dir != base_dir
+            and session_dir.exists()
+            and session_dir.is_dir()
+        ):
             shutil.rmtree(session_dir, ignore_errors=True)
 
     return {"success": True, "message": "会话已删除"}

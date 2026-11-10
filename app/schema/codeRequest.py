@@ -58,6 +58,15 @@ class GenerateRequest(BaseModel):
     session_id: str = Field(..., description="会话 ID（用于文件锁隔离）")
     conversation_id: Optional[int] = Field(None, description="对话上下文 ID（可选，用于携带历史）")
 
+    @field_validator("session_id")
+    @classmethod
+    def _validate_session_id(cls, value: str) -> str:
+        # session_id 会用于命名项目目录，并在删除会话时拼进文件路径；
+        # 必须拒绝路径分隔符与 .. 等遍历字符。
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value or ""):
+            raise ValueError("session_id 只能包含字母、数字、下划线和连字符，长度 1-128")
+        return value
+
     # Agent 功能选项
     enable_review: bool = Field(default=True, description="是否启用代码审查")
     enable_validation: bool = Field(default=True, description="是否启用语法验证")
