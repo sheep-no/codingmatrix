@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 # 每个模块保留的原始指标点上限，避免长运行服务内存无限增长
 _MAX_METRIC_POINTS_PER_MODULE = 1000
+# 每个模块保留的告警条数上限；慢调用与覆盖率告警都按次追加，需要裁剪
+_MAX_ALERTS_PER_MODULE = 100
 
 
 @dataclass
@@ -93,7 +95,7 @@ class MetricsCollector:
                 alert = f"性能告警：{module}.{metric_name} 耗时 {elapsed_ms:.0f}ms 超过阈值 {threshold:.0f}ms"
                 logger.warning(alert)
                 if module in self.module_metrics:
-                    self.module_metrics[module].alerts.append(alert)
+                    self._append_alert(module, alert)
         
         return elapsed_ms
     
@@ -130,7 +132,7 @@ class MetricsCollector:
             self._cache_alert_active.add(module)
             alert = f"缓存命中率告警：{module} 缓存命中率 {hit_rate:.1f}% 低于阈值 {threshold}%"
             logger.warning(alert)
-            self.module_metrics[module].alerts.append(alert)
+            self._append_alert(module, alert)
         else:
             self._cache_alert_active.discard(module)
     
@@ -141,11 +143,18 @@ class MetricsCollector:
             logger.warning(alert)
             if module not in self.module_metrics:
                 self.module_metrics[module] = ModuleMetrics(module_name=module)
-            self.module_metrics[module].alerts.append(alert)
+            self._append_alert(module, alert)
     
     def get_module_metrics(self, module: str) -> Optional[ModuleMetrics]:
         """获取模块指标"""
         return self.module_metrics.get(module)
+
+    def _append_alert(self, module: str, alert: str) -> None:
+        """追加告警并按模块裁剪，避免长运行服务内存无限增长。"""
+        bucket = self.module_metrics[module].alerts
+        bucket.append(alert)
+        if len(bucket) > _MAX_ALERTS_PER_MODULE:
+            del bucket[:-_MAX_ALERTS_PER_MODULE]
     
     def get_all_metrics(self) -> Dict[str, ModuleMetrics]:
         """获取所有模块指标"""

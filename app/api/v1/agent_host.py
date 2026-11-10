@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -61,6 +62,43 @@ class AgentHostSessionStore:
 
 
 _session_store = AgentHostSessionStore()
+_last_prune_at: float = 0.0
+_PRUNE_INTERVAL_SECONDS = 60.0
+
+
+def _prune_expired_sessions(now: datetime | None = None) -> int:
+    """Drop expired sessions from memory and disk.
+
+    Every handshake writes a 30-minute session to both `_sessions` and the
+    session store. Without a sweep they accumulate forever, growing memory and
+    leaving JSON files behind.
+    """
+
+    global _last_prune_at
+    reference = now or datetime.now(timezone.utc)
+    now_monotonic = time.monotonic()
+    if now is None and now_monotonic - _last_prune_at < _PRUNE_INTERVAL_SECONDS:
+        return 0
+    _last_prune_at = now_monotonic
+    removed = 0
+    for session_id, session in list(_sessions.items()):
+        expires_at = session.get("expires_at")
+        if expires_at is not None and reference >= expires_at:
+            _sessions.pop(session_id, None)
+            removed += 1
+
+    for path in _session_store.directory.glob("*.json"):
+        try:
+            stored = _session_store.load(path.stem)
+        except (OSError, ValueError):
+            continue
+        expires_at = stored.get("expires_at") if stored else None
+        if expires_at is not None and reference >= expires_at:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return removed
 
 
 def _dump_model(model: BaseModel) -> dict[str, Any]:
@@ -253,6 +291,8 @@ async def agent_host_handshake(
         raise HTTPException(status_code=422, detail=f"unsupported capabilities: {', '.join(unsupported)}")
     if SUPPORTED_PROTOCOL_VERSION not in request.protocol_versions:
         raise HTTPException(status_code=426, detail="supported protocol version 1 is required")
+
+    _prune_expired_sessions()
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
     session_id = str(uuid4())

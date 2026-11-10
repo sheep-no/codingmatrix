@@ -586,14 +586,20 @@ async def get_history(
     )
     sessions = result.scalars().all()
 
-    sessions_data = []
-    for session in sessions:
+    # 批量取出所有会话的消息，避免按会话逐个查询（最多 1+100 次往返）。
+    messages_by_session: dict[str, list[AicloudMessage]] = {}
+    if sessions:
         messages_result = await db.execute(
             select(AicloudMessage)
-            .where(AicloudMessage.session_id == session.id)
+            .where(AicloudMessage.session_id.in_([s.id for s in sessions]))
             .order_by(AicloudMessage.created_at.asc())
         )
-        messages = messages_result.scalars().all()
+        for message in messages_result.scalars().all():
+            messages_by_session.setdefault(message.session_id, []).append(message)
+
+    sessions_data = []
+    for session in sessions:
+        messages = messages_by_session.get(session.id, [])
 
         sessions_data.append(SessionResponse(
             id=session.id,

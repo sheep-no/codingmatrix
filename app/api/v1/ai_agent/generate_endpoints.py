@@ -142,11 +142,13 @@ async def generate_project(
     except HTTPException:
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+        logger.exception(
+            f"项目生成失败 | user_id={user_id} | session_id={req.session_id}"
+        )
         raise HTTPException(
             status_code=500,
             detail={
                 "message": "项目生成失败",
-                "error": str(e),
                 "output_dir": Path(output_dir).name
             }
         ) from e

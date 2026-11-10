@@ -22,6 +22,7 @@ from app.api.v1.agent_host import (
     AgentHostActionAckRequest,
     acknowledge_agent_host_action,
     agent_host_heartbeat,
+    _prune_expired_sessions,
 )
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -578,3 +579,77 @@ async def test_agent_host_heartbeat_rejects_non_numeric_user() -> None:
     with pytest.raises(HTTPException) as error:
         await agent_host_heartbeat(handshake.session_id, {"sub": "user-1"}, None)
     assert error.value.status_code == 403
+
+
+def test_prune_expired_sessions_drops_memory_and_files(monkeypatch, tmp_path) -> None:
+    """握手会话 30 分钟过期后必须同时从内存与磁盘清除。"""
+
+    from app.api.v1 import agent_host
+
+    store = AgentHostSessionStore(tmp_path)
+    now = datetime.now(timezone.utc)
+    stale = {
+        "user_id": "7",
+        "workspace_id": "w",
+        "expires_at": now - timedelta(minutes=1),
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+        "skills": {},
+    }
+    fresh = {
+        **stale,
+        "expires_at": now + timedelta(minutes=5),
+    }
+
+    for session_id, payload in (("stale", stale), ("fresh", fresh)):
+        store.save(session_id, payload)
+
+    monkeypatch.setattr(agent_host, "_session_store", store)
+    monkeypatch.setattr(agent_host, "_sessions", {"stale": dict(stale), "fresh": dict(fresh)})
+    monkeypatch.setattr(agent_host, "_last_prune_at", 0.0)
+
+    removed = _prune_expired_sessions(now=now)
+
+    assert removed == 1
+    assert "stale" not in agent_host._sessions
+    assert "fresh" in agent_host._sessions
+    assert not (tmp_path / "stale.json").exists()
+    assert (tmp_path / "fresh.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_handshake_prunes_expired_sessions(monkeypatch, tmp_path) -> None:
+    """握手入口必须触发过期清扫，否则过期会话永不回收。"""
+
+    from app.api.v1 import agent_host
+
+    store = AgentHostSessionStore(tmp_path)
+    now = datetime.now(timezone.utc)
+    stale = {
+        "user_id": "7",
+        "workspace_id": "w",
+        "expires_at": now - timedelta(minutes=1),
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+        "skills": {},
+    }
+    store.save("stale", stale)
+
+    monkeypatch.setattr(agent_host, "_session_store", store)
+    monkeypatch.setattr(agent_host, "_sessions", {"stale": dict(stale)})
+    monkeypatch.setattr(agent_host, "_last_prune_at", 0.0)
+
+    await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-prune",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["workspace"],
+        ),
+        {"sub": "7"},
+    )
+
+    assert "stale" not in agent_host._sessions
+    assert not (tmp_path / "stale.json").exists()

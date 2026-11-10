@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import file_upload, vision_api
+from app.api.v1.ai_agent import generate_endpoints
 from app.api.v2 import guardian_router, nginx_api
 
 
@@ -29,6 +30,30 @@ def _assert_hidden(exc_info):
     detail = str(exc_info.value.detail)
     assert INTERNAL not in detail
     assert "RuntimeError" not in detail
+
+
+@pytest.mark.asyncio
+async def test_generate_project_error_detail_hides_internal(monkeypatch):
+    """`/generate` 的 500 兜底曾把 str(e) 拼进 detail.error。"""
+
+    from app.schema.codeRequest import GenerateRequest
+
+    request = GenerateRequest(requirement="x", session_id="project_1")
+
+    async def _fail(*args, **kwargs):
+        raise RuntimeError(INTERNAL)
+
+    monkeypatch.setattr(generate_endpoints, "ProjectGeneratorAgent", lambda **_: types.SimpleNamespace())
+    monkeypatch.setattr(generate_endpoints, "_build_agent_config", lambda *a, **k: None)
+    monkeypatch.setattr(generate_endpoints, "run_workflow", _fail)
+
+    with pytest.raises(HTTPException) as exc:
+        await generate_endpoints.generate_project(
+            request, token={"sub": "42"}, request=types.SimpleNamespace(), db=object()
+        )
+
+    _assert_hidden(exc)
+    assert INTERNAL not in str(exc.value.detail)
 
 
 @pytest.mark.asyncio

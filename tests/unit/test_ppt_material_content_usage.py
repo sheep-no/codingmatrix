@@ -126,3 +126,35 @@ async def test_material_context_empty_when_no_record(monkeypatch):
     db = _FakeSession({})
 
     assert await pptx_api._build_material_context(db, "42", [7]) == ""
+
+
+class _CountingSession(_FakeSession):
+    def __init__(self, records_by_id):
+        super().__init__(records_by_id)
+        self.lookups = 0
+
+    async def execute(self, statement):
+        self.lookups += 1
+        return await super().execute(statement)
+
+
+async def test_material_context_caps_lookups(monkeypatch):
+    """素材 ID 数量超过上限时不再逐条查库。"""
+
+    ids = list(range(1, pptx_api.PPT_MAX_MATERIAL_FILES + 20))
+    records = {i: _FakeFile(filename=f"{i}.pdf", cached="正文", valid=True) for i in ids}
+    db = _CountingSession(records)
+
+    context = await pptx_api._build_material_context(db, "42", ids)
+
+    assert db.lookups == pptx_api.PPT_MAX_MATERIAL_FILES
+    assert context.count("[素材：") == pptx_api.PPT_MAX_MATERIAL_FILES
+
+
+def test_ppt_request_rejects_too_many_material_ids():
+    with pytest.raises(Exception) as error:
+        pptx_api.PPTGenerationRequest(
+            prompt="季度汇报",
+            material_file_ids=list(range(pptx_api.PPT_MAX_MATERIAL_FILES + 1)),
+        )
+    assert "material_file_ids" in str(error.value)

@@ -324,6 +324,9 @@ async def get_ppt_quality_report(
 
 PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
 PPT_MAX_SLIDES = 50
+# 单个请求最多引用的素材数量：素材上下文按 ID 逐条查库并可能解析文件，
+# 不设上限时请求体可携带海量 ID 放大数据库与解析开销。
+PPT_MAX_MATERIAL_FILES = 50
 # 锚定仓库根目录，避免相对路径随进程 CWD 漂移导致产物写到意外位置。
 PPT_OUTPUT_DIR = BASE_DIR / "pptx_output"
 PPT_OWNER_DIR = PPT_OUTPUT_DIR / ".owners"
@@ -397,7 +400,11 @@ class PPTGenerationRequest(BaseModel):
     model: str = Field(default=PPT_DEFAULT_MODEL, description="AI 模型")
     conversation_id: Optional[int] = Field(None, description="会话 ID (用于携带历史上下文)")
     session_id: Optional[str] = Field(None, description="会话 ID (用于素材隔离)")
-    material_file_ids: Optional[List[int]] = Field(None, description="已上传素材的文件 ID 列表")
+    material_file_ids: Optional[List[int]] = Field(
+        None,
+        max_length=PPT_MAX_MATERIAL_FILES,
+        description="已上传素材的文件 ID 列表",
+    )
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     
     # 增强选项
@@ -1590,9 +1597,12 @@ async def _build_material_context(
     """按 file_id 读取素材正文，返回可直接拼进 prompt 的 `[参考素材]` 段。
 
     原先只记录文件名（`- name.pdf`），素材正文从未进入 LLM。无可用素材时返回空串。
+
+    每个 ID 都要查库并可能解析文件，因此超过 `PPT_MAX_MATERIAL_FILES` 的部分
+    直接忽略；该函数也会被 `prompt` 内联素材等非模型校验入口调用。
     """
     material_info = []
-    for file_id in material_file_ids:
+    for file_id in list(material_file_ids)[:PPT_MAX_MATERIAL_FILES]:
         try:
             result = await db.execute(
                 select(File).where(File.id == file_id, File.user_id == int(user_id))

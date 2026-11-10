@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5255 passed, 6 failed, 4 skipped`（收集 5265）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5263 passed, 6 failed, 4 skipped`（收集 5273）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -316,6 +316,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | 知识库删除先删文件再删记录，commit 失败会留下「记录指向不存在文件」；且 `file_path` 未校验范围 | `app/api/v1/aicloud_knowledge.py` | 已解决；先提交记录删除再删文件，并限定在存储根目录内。回归 `tests/unit/test_aicloud_embedding_failure.py` 新增 2 项，回退源码后越界删除项失败 |
 | P2 | 单文件上传在 `os.replace` 落盘后若 DB commit 失败，不回滚也不删文件，磁盘累积孤儿文件 | `app/api/v1/file_upload.py` | 已解决；commit 失败 `rollback` + `unlink`。回归 `tests/unit/test_file_upload_orphan_cleanup.py` 新增 2 项，回退源码后提交失败项失败 |
 | P2 | 分片合并在合并文件落盘后若 DB commit 失败，同样遗留孤儿文件 | `app/api/v1/file_upload.py` | 已解决；同上。回归 `tests/unit/test_file_upload_orphan_cleanup.py` 新增 1 项，回退源码后失败 |
+
+### 后端缺陷扫描第六轮：N+1 查询、无界素材与过期会话回收（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | `GET /aicloud/history` 对每个会话各发一条消息查询，`limit` 最大 100 时单次请求最多 101 次数据库往返 | `app/api/v1/aicloud.py` | 已解决；改为 `session_id IN (...)` 一次取回再按会话分组。回归 `tests/unit/test_aicloud_history_batch_query.py` 新增 2 项，回退源码后批量查询项失败 |
+| P2 | `POST /ai-agent/generate` 的 500 兜底仍把 `str(e)` 拼进 `detail.error`，泄露路径/SQL/命令输出，与全局通用文案策略冲突 | `app/api/v1/ai_agent/generate_endpoints.py` | 已解决；移除 `error` 字段，完整异常进日志。回归 `tests/unit/test_api_500_detail_not_leaked.py` 新增 1 项，回退源码后失败 |
+| P2 | `PPTGenerationRequest.material_file_ids` 无数量上限，`_build_material_context` 逐 ID 查库并可能解析文件；10MB 请求体可放大为大量数据库查询与文件解析 | `app/api/v1/aiGeneratorPptx.py` | 已解决；请求模型限制 50 项，上下文函数对非模型入口同样截断。回归 `tests/unit/test_ppt_material_content_usage.py` 新增 2 项，回退源码后均失败 |
+| P2 | Agent Host 每次握手写入 30 分钟会话到内存与 `data/agent_host_sessions/*.json`，过期后从不清理，内存与磁盘持续增长 | `app/api/v1/agent_host.py` | 已解决；握手时按 60 秒节流清扫过期内存项与 JSON 文件。回归 `tests/unit/test_agent_host_api.py` 新增 2 项，回退源码后握手清扫项失败 |
+| P2 | `MetricsCollector` 的慢调用告警与覆盖率告警按次 `append` 且无裁剪，长运行服务下 `alerts` 无限增长（既有 PMC3 只处理了缓存命中率重复告警） | `app/utils/performance_metrics.py` | 已解决；统一走 `_append_alert` 并保留最近 100 条。回归 `tests/unit/test_performance_metrics.py` 新增 1 项，回退源码后失败 |
 
 ### 本轮逐文件验证（2026-09-27）
 

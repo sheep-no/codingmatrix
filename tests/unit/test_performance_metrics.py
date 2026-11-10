@@ -79,3 +79,19 @@ def test_low_hit_rate_alert_rearms_after_recovery(tmp_path):
         collector.record_cache_miss("M")
 
     assert len(collector.get_module_metrics("M").alerts) == 2
+
+
+def test_alerts_are_trimmed_per_module(tmp_path, monkeypatch):
+    """慢调用告警会按次追加，必须有上限避免内存无限增长。"""
+
+    monkeypatch.setattr(pm, "_MAX_ALERTS_PER_MODULE", 3, raising=False)
+    collector = pm.MetricsCollector(storage_path=str(tmp_path))
+    collector.thresholds["M.run"] = 1
+
+    ticks = iter(float(value) for value in range(0, 100, 1))
+    monkeypatch.setattr(pm.time, "time", lambda: next(ticks))
+    for _ in range(10):
+        collector.end_timer("M", collector.start_timer("M"), "run")
+
+    alerts = collector.get_module_metrics("M").alerts
+    assert len(alerts) == 3
