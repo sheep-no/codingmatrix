@@ -25,6 +25,7 @@ class AuthState {
     AuthSession? session,
     String? errorMessage,
     bool? isLoading,
+    bool? isRestoring,
     bool clearSession = false,
     bool clearError = false,
   }) {
@@ -32,12 +33,18 @@ class AuthState {
       session: clearSession ? null : (session ?? this.session),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       isLoading: isLoading ?? this.isLoading,
+      isRestoring: isRestoring ?? this.isRestoring,
     );
   }
 }
 
 class AuthController extends StateNotifier<AuthState> {
-  AuthController(this._client, CredentialStore store, {AuthSession? session})
+  AuthController(
+    this._client,
+    CredentialStore store, {
+    AuthSession? session,
+    this.onBaseUrlChanged,
+  })
     : super(AuthState(session: session)) {
     _client.onSessionChanged = (session) {
       if (mounted) {
@@ -51,7 +58,12 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   final CloudAuthClient _client;
+  final void Function(String baseUrl)? onBaseUrlChanged;
   int _operation = 0;
+
+  void _publishBaseUrl() {
+    onBaseUrlChanged?.call(_client.baseUrl);
+  }
 
   Future<void> restore() async {
     final operation = ++_operation;
@@ -59,6 +71,7 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       final session = await _client.restore();
       if (mounted && operation == _operation) {
+        _publishBaseUrl();
         state = AuthState(session: session);
       }
     } on SecureStorageUnavailableException {
@@ -87,6 +100,7 @@ class AuthController extends StateNotifier<AuthState> {
         serviceUrl: serviceUrl,
       );
       if (mounted && operation == _operation) {
+        _publishBaseUrl();
         state = AuthState(session: session);
       }
     } on CloudAuthException catch (error) {
@@ -108,7 +122,7 @@ class AuthController extends StateNotifier<AuthState> {
     final operation = ++_operation;
     state = const AuthState(isLoading: true);
     try {
-      await _client.logout();
+      await _client.logout(revokeRemote: true);
       if (mounted && operation == _operation) state = const AuthState();
     } on SecureStorageUnavailableException {
       // The in-memory session is already cleared; only the stored copy is left.
@@ -161,6 +175,9 @@ final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
     final controller = AuthController(
       ref.watch(cloudAuthClientProvider),
       ref.watch(credentialStoreProvider),
+      onBaseUrlChanged: (baseUrl) {
+        ref.read(apiBaseUrlProvider.notifier).state = baseUrl;
+      },
     );
     controller.restore();
     return controller;

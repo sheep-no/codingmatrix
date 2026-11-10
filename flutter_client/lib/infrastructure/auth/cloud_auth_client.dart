@@ -307,7 +307,14 @@ class CloudAuthClient {
     };
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool revokeRemote = false}) async {
+    // Capture what the server needs before the local session is destroyed.
+    final token = session == null
+        ? null
+        : credentialStore.read(session!.accessTokenRef);
+    final logoutUri = _join('/api/v1/logout');
+    final cookieHeader = _cookies.header(logoutUri);
+    final csrf = _cookies.value('csrf_token', logoutUri);
     _epoch++;
     session = null;
     _account = null;
@@ -315,7 +322,36 @@ class CloudAuthClient {
     _cookies = SessionCookies(Uri.parse(baseUrl));
     _refreshing = null;
     onSessionChanged?.call(null);
+    if (revokeRemote && token != null) {
+      await _revokeRemote(token, logoutUri, cookieHeader, csrf);
+    }
     await credentialStore.clearSession();
+  }
+
+  // Server-side revocation is best effort: local credentials are cleared even
+  // when the network call fails, so a failed logout never traps the user.
+  Future<void> _revokeRemote(
+    String token,
+    Uri uri,
+    String cookieHeader,
+    String? csrf,
+  ) async {
+    try {
+      // Keep logout responsive: revocation is best effort and must not block
+      // the UI for the full request timeout.
+      final deadline = timeout < const Duration(seconds: 5)
+          ? timeout
+          : const Duration(seconds: 5);
+      final request = http.Request('POST', uri)..followRedirects = false;
+      request.headers['Authorization'] = 'Bearer $token';
+      if (cookieHeader.isNotEmpty) request.headers['Cookie'] = cookieHeader;
+      if (csrf != null) request.headers['X-CSRF-Token'] = csrf;
+      await http.Response.fromStream(
+        await httpClient.send(request).timeout(deadline),
+      ).timeout(deadline);
+    } catch (_) {
+      // Revocation failures are intentionally silent to keep logout reliable.
+    }
   }
 
   void detach() {
