@@ -68,9 +68,10 @@ export function createAiCloudClient(client) {
       return Array.isArray(data) ? data : []
     },
 
-    async searchHistory(query) {
+    async searchHistory(keyword) {
       try {
-        const response = await client.get('/aicloud/history/search', { query })
+        // 后端 GET /aicloud/history/search 使用 keyword 参数（FRESCAN-51）。
+        const response = await client.get('/aicloud/history/search', { keyword })
         if (response.ok) {
           return await response.json()
         }

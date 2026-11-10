@@ -37,4 +37,20 @@ describe('AiCloud 客户端契约', () => {
     })
     await expect(listClient.getHistory()).resolves.toEqual([{ id: 's1' }])
   })
+
+  it('历史检索使用后端的 keyword 参数（FRESCAN-51）', async () => {
+    const calls = []
+    const client = createAiCloudClient({
+      get: async (path, params) => {
+        calls.push({ path, params })
+        return { ok: true, json: async () => [{ session_id: 's1' }] }
+      }
+    })
+
+    await expect(client.searchHistory('部署')).resolves.toEqual([{ session_id: 's1' }])
+    expect(calls[0]).toEqual({
+      path: '/aicloud/history/search',
+      params: { keyword: '部署' }
+    })
+  })
 })

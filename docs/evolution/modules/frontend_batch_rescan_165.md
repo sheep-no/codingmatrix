@@ -42,17 +42,17 @@
 | FESURF-005 | 已修 | `downloadBackup` 返回备份数据，`ResourceControl.vue` 按数据消费。 |
 | FESURF-006 | 已修 | `toggleReview` 已删除。 |
 | FESURF-007 | 已修 | `base.js` 请求与流式请求均合并调用方 headers。 |
-| FRESCAN-24 | 已失效 | `src` 下现有 59 个 `*.test.js`，“测试入口为空”不再成立；问题转为 CI 不执行测试，见 FRESCAN-66。 |
+| FRESCAN-24 | 已失效 | `src` 下现有 70 个 `*.test.js`，“测试入口为空”不再成立；问题转为 CI 不执行测试，见 FRESCAN-66。 |
 | FRESCAN-25 | 部分失效 | `src/package.json:40` 已声明 `@playwright/test`；两份 Playwright 配置仍并存（根 `playwright.config.js:1-40`、`src/playwright.config.js:1-33`），版本为 `1.64.1` 与 `^1.62.1`。 |
 | FRESCAN-29 | 保留 P2 | `src/views/PPTPreview.vue:83-92` 失败与空数据仍共用「暂无幻灯片数据」，`:266-277` 静默返回 false。 |
 | FRESCAN-34 | 保留 P2 | 标签关联缺口仍存在，本轮扩大证据见 FRESCAN-67。 |
 | FRESCAN-35 | 已失效（误判） | 原文称组件已删除；实际 `UserManagement.vue`、`VirtualGirl.vue`、`ServiceManager.vue` 均存在且挂载（`AdminPanel.vue:531,541`）。缺口转为 FRESCAN-63。 |
 | FRESCAN-36 | 已修 | `APIKeyManager.vue:294-302` 与 `DynamicProviderManager.vue:158-166` 均写入 `loadError` 并用 `role="alert"` 展示。 |
-| FRESCAN-44 | 保留 P2 | `.github/workflows/frontend-ci.yml:6-11` 的 `paths` 仍仅含 `src/**`。 |
+| FRESCAN-44 | 已修 | `.github/workflows/frontend-ci.yml` 的 `paths` 已扩展到 `src/**`、`configs/nginx*.conf`、`Dockerfile`、`docker-compose*.yml`，由 `src/tests/frontend-ci-contract.test.js` 锁定。 |
 | FRESCAN-46/47/48 | 已修 | `src/stores/user.js:74-88` 注销清理 Agent、API Key、供应商、模型覆盖与日志状态。 |
 | FRESCAN-49 | 已修 | `src/utils/api/websocket.js:47-51,98-110` 的 `_manualClose` 守卫生效。 |
-| FRESCAN-50 | 保留 P3（未接入） | `src/utils/api/kolors.js:90-99` 仍发 `limit`，后端只认 `page_size`；方法无生产消费方。 |
-| FRESCAN-51 | 保留 P3（未接入） | `src/utils/api/aicloud.js:73-82` 仍发 `query`，后端要求 `keyword`；方法无生产消费方。 |
+| FRESCAN-50 | 已修 | `src/utils/api/kolors.js` 的 `getHistory` 已改发 `page_size`，并由 `src/utils/api/kolors.test.js` 锁定；第 165 轮阶段 2 随 FRESCAN-70 完成。 |
+| FRESCAN-51 | 已修 | `src/utils/api/aicloud.js` 的 `searchHistory` 改发后端要求的 `keyword`，`src/utils/api/aicloud.test.js` 新增参数契约用例，回退源码后失败。 |
 
 ## 3. 新增问题
 
@@ -88,7 +88,7 @@
 - 缺陷：`TaskQueue`、`ServiceManager`、`Aicloud`、`ProjectGenerator`、`EphemeralWorkflow`、`ImageGenerator` 六个组件由 navigation store 标志控制挂载，但 `leftlist.vue:80-270` 的工具菜单只提供图表、Docker、Nginx、管理台、虚拟姬、PPT、AI 绘画、临时工作流与搜索历史入口；`showTool` 虽有对应分支，全库没有 UI 写入（`ImageGenerator` 的 AI 绘画入口走 `window.open('/image-generate')` 打开独立路由，不设置该标志）。
 - 影响：`ProjectGenerator` 的恢复逻辑还在 `navigation.js:19,176` 被强制置 false；`bottominput.vue:253` 仍读取该恒 false 状态作为输入模式条件，形成无效分支。相关组件缺陷无法通过正常交互触达。
 - 判定：属于未接入/接线缺失，按结构事项记录，不按活跃运行缺陷计数。
-- 修复状态：已修复。出口统一为路由或管理台：`TaskQueue` 加入 `leftlist.vue` 工具菜单；`ServiceManager` 仅由 AdminPanel 的 `service-manager` 菜单进入；`Aicloud`、`ImageGenerator`、`ProjectGenerator`、`EphemeralWorkflow` 均有独立路由，故从 `index.vue` 卸载，并删除 `navigation.js` 中对应标志、`activeTool` 分支与持久化字段。`bottominput.vue` 的 `projectGeneratorMode` 死分支一并删除。`navigation.test.js`、`leftlist.test.js`、`index.test.js`、`bottominput.test.js` 覆盖；回退源码后相关用例失败。
+- 修复状态：已修复。出口统一为路由或管理台：`TaskQueue` 加入 `leftlist.vue` 工具菜单；`ServiceManager` 仅由 AdminPanel 的 `service-manager` 菜单进入；`Aicloud`、`ImageGenerator`、`ProjectGenerator` 有独立路由，故从 `index.vue` 卸载，并删除 `navigation.js` 中对应标志、`activeTool` 分支与持久化字段。`EphemeralWorkflow` 经全库复核没有任何路由或宿主引用（`/workflow` 渲染的是 `views/Workflow.vue`），已在卸载后成为未接入组件，保留文件待死代码清理批次处理。`bottominput.vue` 的 `projectGeneratorMode` 死分支一并删除。`navigation.test.js`、`leftlist.test.js`、`index.test.js`、`bottominput.test.js` 覆盖；回退源码后相关用例失败。
 
 ### 批次二：API 客户端与后端契约
 
@@ -152,7 +152,7 @@
 - 缺陷：`src` 下已有 59 个 `*.test.js`，`frontend-ci.yml` 只跑 `npm run lint`（实际为 `eslint . --fix`）与 `npm run build`，没有 `npm run test:run`；`e2e.yml:25` 设置 `continue-on-error: true`。
 - 影响：任何前端单元回归都不会阻断合并；lint 步骤还会改写源码。`paths` 仍只覆盖 `src/**`，Dockerfile/Compose/Nginx 变更不触发该工作流（FRESCAN-44）。
 - 证据：工作流与脚本实码可证；实际 CI 结果未运行。
-- 修复状态：已修复（待 CI 实跑）。`src/package.json` 新增只检查的 `lint:check`，`frontend-ci.yml` 在构建前执行 `npm run lint:check` 与 `npm run test:run`，`paths` 扩展到 `configs/nginx*.conf`、`Dockerfile`、`docker-compose*.yml`；新增 `src/tests/frontend-ci-contract.test.js` 断言测试步骤先于构建且不再使用 `--fix`。E2E 仍保持非阻塞，留待阶段 3 评估。
+- 修复状态：已修复（CI 实跑通过）。`src/package.json` 新增只检查的 `lint:check`，`frontend-ci.yml` 在构建前执行 `npm run lint:check` 与 `npm run test:run`，`paths` 扩展到 `configs/nginx*.conf`、`Dockerfile`、`docker-compose*.yml`；新增 `src/tests/frontend-ci-contract.test.js` 断言测试步骤先于构建且不再使用 `--fix`。阶段 3 已评估 E2E：GH runner 的 chromium `page.goto: Page crashed` 属既有基础设施问题（PR #437），check run 会标为 failure 但工作流 run 的 `conclusion` 为 success，因此不阻塞合并；保留 `continue-on-error` 并维持报告可见。
 
 #### FRESCAN-69 [P3] 单镜像运行拓扑与 Compose 拓扑漂移
 

@@ -55,7 +55,7 @@
 - **阶段 0 修复**：FRESCAN-53（管理台登出补 `api.logout()` + `clearUser()`）、FRESCAN-59（改用导出的 `chatDB` 单例）、FRESCAN-52（镜像显式创建 `nginx` 账号）已落地；受影响单测 12 条通过，回退源码态新增 3 条用例失败；Docker 构建与 `nginx -t` 待有 Docker 环境复验。
 - **阶段 1 修复**：FRESCAN-54（左栏登录/登出接线并刷新历史）、FRESCAN-55（六类跨账户缓存与导航状态清理）、FRESCAN-56（`api.aicloud` 命名空间）、FRESCAN-57（根级检索回 agent 端点并归一 `{ results }`）、FRESCAN-58（回滚传字符串标签并显式 `delete_branch=false`）已落地；新增 9 条用例，全量 63 文件 / 297 用例通过，构建成功，回退源码态 9 条用例全部失败。
 - **阶段 2 修复**：FRESCAN-60（`/api/` 透传 Upgrade 并补 `map` 协商）、FRESCAN-61（图片历史只存文件名，删除与归属统一走根目录解析）、FRESCAN-62（能力中心按 `isAdmin` 门禁知识库与沙箱）、FRESCAN-66（CI 增加只检查 lint 与单测并扩展触发路径）、FRESCAN-70（图片页收敛到统一客户端与认证资源端点）已落地；新增 14 条前端用例与 5 条后端用例，全量 66 文件 / 311 用例通过，构建成功，回退源码态前端 18 条与后端 1 条用例失败；Nginx 101 握手与 CI 实际变红待环境复验。
-- **阶段 3 修复**：FRESCAN-63（新增 `useDialogA11y`，8 个弹窗补齐 dialog 语义、Escape 与焦点回归）、FRESCAN-64（`TaskQueue` 加入工具菜单，其余工具走独立路由或管理台，首页卸载并删除导航死标志）、FRESCAN-65（token 统一 `getValidToken()`，401 统一 `handleSessionExpired()` 并广播会话过期提示）、FRESCAN-67（5 个表单页补 98 处 label/控件关联）、FRESCAN-68（AiCloud 历史失败抛错并显示可重试失败态）、FRESCAN-69（运行镜像只保留 API，Nginx 统一为独立 Compose 服务，宿主机脚本安装本地上游）已落地；新增 4 个测试文件并扩展 3 个既有测试，全量 70 文件 / 329 用例通过，lint 0 error，构建成功，后端 compose 一致性 23 条通过；回退源码态对应用例失败；容器实测与 CI 实际变红待环境复验。
+- **阶段 3 修复**：FRESCAN-63（新增 `useDialogA11y`，8 个弹窗补齐 dialog 语义、Escape 与焦点回归）、FRESCAN-64（`TaskQueue` 加入工具菜单，其余工具走独立路由或管理台，首页卸载并删除导航死标志）、FRESCAN-65（token 统一 `getValidToken()`，401 统一 `handleSessionExpired()` 并广播会话过期提示）、FRESCAN-67（5 个表单页补 98 处 label/控件关联）、FRESCAN-68（AiCloud 历史失败抛错并显示可重试失败态）、FRESCAN-69（运行镜像只保留 API，Nginx 统一为独立 Compose 服务，宿主机脚本安装本地上游）、FRESCAN-50/51（kolors 与 aicloud 客户端参数契约对齐后端）已落地；新增 4 个测试文件并扩展 4 个既有测试，全量 70 文件 / 330 用例通过，lint 0 error，构建成功，后端 compose 一致性 23 条通过；回退源码态对应用例失败；容器实测与 CI 实际变红待环境复验。
 
 ## 0. 演化总图：四层模型
 

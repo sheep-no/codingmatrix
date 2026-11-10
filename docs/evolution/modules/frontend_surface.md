@@ -40,7 +40,7 @@
 | 主导航与对话 | `components/index.vue` 延迟加载工具组件；`leftlist.vue` 管理历史和工具导航；`centerContent.vue` 展示消息；`bottominput.vue` 发送、停止和编辑 |
 | Agent | `AgentDashboard.vue` 负责组装；`AgentSidebar.vue` 管理会话/固定分类文件树；`AgentWorkspace.vue` 展示阶段、决策、thinking、步骤、日志、测试和验证；`AgentFilePanel.vue` 只读高亮预览；`modals/` 提供上传、设置、学习、性能、版本和 diff 弹窗 |
 | 业务视图 | `PPTGenerate.vue`/`PPTPreview.vue` 处理 PPT 生成和预览；`ImageGenerate.vue` 处理 Kolors；`Workflow.vue` 执行工作流；`Docs.vue` 为内置文档；`ChartEditorPage.vue` 为图表编辑；`AdminDashboard.vue` 为管理仪表盘 |
-| 首页工具 | `VirtualGirl`、`Aicloud`、`ImageGenerator`、`ProjectGenerator`、`EphemeralWorkflow`、`TaskQueue`、`ServiceManager`、`NginxConfig`、`Dockerfile` 等由 `components/index.vue` 按导航状态挂载 |
+| 首页工具 | 当前由 `components/index.vue` 按导航状态挂载的是 `VirtualGirl`、`TaskQueue`、`NginxConfig`、`Dockerfile` 等内嵌工具；`Aicloud` 走 `/capabilities` 能力中心，`ImageGenerator` 走 `/image-generate`，`ProjectGenerator` 走 `/agent`，`ServiceManager` 由 AdminPanel 管理；`EphemeralWorkflow.vue` 已无路由或宿主引用，属待清理的未接入组件 |
 | 设置/管理 | `APIKeyManager`、`AgentModelConfig`、`DynamicProviderManager`、`MCPSettings`、`AdminModelManager`、`UnifiedModelConfig` 对接 v1/v2 配置和密钥端点；`SystemMonitor`/`SystemLogs` 使用 v2 WebSocket |
 
 ### 1.3 API 与工具入口
