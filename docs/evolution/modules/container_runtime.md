@@ -44,7 +44,7 @@ API、Celery、scheduler 和 Redis 通过 Compose 网络 `ai-agent-prod-net` 通
 
 ### 2.2 运行镜像只承载 API
 
-运行时镜像只启动 Uvicorn（`Dockerfile` 的 `CMD`），不再安装或启动 Nginx，只暴露 `8080`。基础与生产 Compose 都使用同一镜像构建 API，并由独立 `nginx:alpine` 服务提供静态资源与反向代理，upstream 统一为 `api:8080`：`docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx-upstream-compose.conf`。`configs/nginx-upstream-local.conf` 已不再被任何拓扑引用，仅作为历史文件保留。
+运行时镜像只启动 Uvicorn（`Dockerfile` 的 `CMD`），不再安装或启动 Nginx，只暴露 `8080`。基础与生产 Compose 都使用同一镜像构建 API，并由独立 `nginx:alpine` 服务提供静态资源与反向代理，upstream 统一为 `api:8080`：`docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx-upstream-compose.conf`。宿主机拓扑由 `scripts/start.sh` 启动 Nginx，并把 `configs/nginx-upstream-local.conf` 安装到 `/etc/nginx/conf.d/upstream.conf`，指向本机 `127.0.0.1:8080`。
 
 ## 3. 端口、健康检查与服务状态
 
@@ -82,7 +82,7 @@ API、Celery、scheduler 和 Redis 通过 Compose 网络 `ai-agent-prod-net` 通
 - **根因**：容器内 `127.0.0.1` 只指向当前 Nginx 容器；API 的容器名为 `ai-agent-api-prod`，Compose 服务名为 `api`，配置没有使用 Compose DNS 服务名。
 - **影响**：`/api/`、`/ws/` 和 `/health` 代理请求可能连接 Nginx 自身的 8080 端口并失败，外部 80 端口无法稳定到达 API。
 - **证据**：代理位置为 `configs/nginx.conf:106-125`；API 监听和服务名为 `docker-compose.prod.yml:9-16`、`:30-31`。
-- **当前修复**：`configs/nginx-upstream-compose.conf` 使用 `api:8080`，两套 Compose 的 Nginx 服务只挂载该文件；运行镜像不再内置 Nginx。Docker build、Compose 网络代理和三类路径验证待完成。
+- **当前修复**：`configs/nginx-upstream-compose.conf` 使用 `api:8080`，两套 Compose 的 Nginx 服务只挂载该文件；运行镜像不再内置 Nginx；宿主机 `scripts/start.sh` 安装 `configs/nginx-upstream-local.conf` 供本机拓扑使用。Docker build、Compose 网络代理和三类路径验证待完成。
 
 ### CR2 [P2] 生产部署未声明数据库迁移步骤
 

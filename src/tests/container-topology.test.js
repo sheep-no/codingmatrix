@@ -29,4 +29,14 @@ describe('容器运行拓扑契约', () => {
     const upstream = read('configs/nginx-upstream-compose.conf')
     expect(upstream).toContain('server api:8080;')
   })
+
+  it('宿主机启动脚本安装本地上游配置', () => {
+    const startScript = read('scripts/start.sh')
+
+    expect(startScript).toContain('configs/nginx-upstream-local.conf')
+    expect(startScript).toContain('/etc/nginx/conf.d/upstream.conf')
+    expect(read('configs/nginx.conf')).toContain(
+      'include /etc/nginx/conf.d/upstream.conf;',
+    )
+  })
 })

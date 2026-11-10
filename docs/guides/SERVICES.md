@@ -36,10 +36,10 @@ Vite 固定监听 `0.0.0.0:3000`。代理目标固定为 `http://localhost:8000`
 
 ## 前端静态托管
 
-`npm run build` 由 `src/vite.config.js` 输出到仓库根目录 `dist/`。`app/main.py` 同样从仓库根目录 `dist/` 提供 `/static`、`/` 和 Vue Router history fallback，因此本地单进程静态托管可使用：
+`npm run build` 由 `src/vite.config.js` 输出到 `src/dist/`。`app/main.py` 同样从 `src/dist/` 提供 `/static`、`/` 和 Vue Router history fallback，因此本地单进程静态托管可使用：
 
 ```bash
-# 构建前端到 /workspace/dist
+# 构建前端到 /workspace/src/dist
 cd /workspace/src
 npm run build
 
@@ -48,7 +48,7 @@ cd /workspace
 PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Compose 的 Nginx 挂载源 `./src/dist`、Dockerfile 引用的构建阶段产物 `/app/src/dist` 与 Vite 的输出目录在 2026-09-20 已统一为 `src/dist`（容器内 `/app/src/dist`）。
+Compose 的 Nginx 挂载源 `./src/dist`、Dockerfile 引用的构建阶段产物 `/app/src/dist` 与 Vite 的输出目录在 2026-09-20 已统一为 `src/dist`（容器内 `/app/src/dist`）。宿主机 `scripts/start.sh nginx` 会把 `configs/nginx-upstream-local.conf` 安装到 `/etc/nginx/conf.d/upstream.conf`，指向本机 `127.0.0.1:8080`。
 
 ## Docker Compose
 

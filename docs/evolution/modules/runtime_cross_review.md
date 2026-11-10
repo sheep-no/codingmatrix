@@ -40,7 +40,7 @@
 
 ### RC1-RC2 修复记录（2026-08-29）
 
-- RC1 已修复：`configs/nginx.conf` 通过 `/etc/nginx/conf.d/upstream.conf` 注入上游；两套 Compose 均使用 `configs/nginx-upstream-compose.conf` 指向 `api:8080`。运行镜像不再内置 Nginx，`configs/nginx-upstream-local.conf` 仅作为历史文件保留。
+- RC1 已修复：`configs/nginx.conf` 通过 `/etc/nginx/conf.d/upstream.conf` 注入上游；两套 Compose 均使用 `configs/nginx-upstream-compose.conf` 指向 `api:8080`；宿主机 `scripts/start.sh` 安装 `configs/nginx-upstream-local.conf` 指向本机 `127.0.0.1:8080`。运行镜像不再内置 Nginx。
 - RC2 已修复：运行镜像不再安装 Nginx，Uvicorn 通过 `su` 降权到 `appuser` 启动；Nginx 权限链由独立 `nginx:alpine` 服务承担。
 - 当前状态：代码和配置静态检查已完成；Docker build、Nginx `-t`、Compose 网络代理、80 端口绑定和 API 实际可达性等待容器环境验证。
 

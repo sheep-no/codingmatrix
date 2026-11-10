@@ -160,7 +160,7 @@
 - 缺陷：Dockerfile 的 CMD 同时启动 Nginx 与 Uvicorn；两个 Compose 文件都为 `api`/`celery`/`scheduler` 设置 `command:`，覆盖该 CMD，并由独立 `nginx:alpine` 容器提供静态与代理。
 - 影响：单镜像拓扑实际不可用也不会被测试覆盖；`docker-compose.yml` 还把 API 绑定到 `127.0.0.1:8080`，期望“只起 api 容器即可访问”的场景不成立。
 - 判定：部署结构一致性问题，非当前默认拓扑故障。
-- 修复状态：已修复（待容器实测）。`Dockerfile` 删除 Nginx 安装、账号、配置复制与 `nginx && ...` 启动分支，只保留 Uvicorn 的 `CMD` 并改为 `EXPOSE 8080`；基础与生产 Compose 继续由独立 `nginx:alpine` 服务使用 `configs/nginx-upstream-compose.conf` 代理 `api:8080`。新增 `src/tests/container-topology.test.js` 锁定「镜像无 Nginx、两套 Compose 只用 Compose 上游」；回退 `Dockerfile` 后该用例失败。`docs/guides/SERVICES.md`、`docs/guides/PRODUCTION.md`、`container_runtime.md`、`runtime_cross_review.md` 已同步为单一拓扑描述。
+- 修复状态：已修复（待容器实测）。`Dockerfile` 删除 Nginx 安装、账号、配置复制与 `nginx && ...` 启动分支，只保留 Uvicorn 的 `CMD` 并改为 `EXPOSE 8080`；基础与生产 Compose 继续由独立 `nginx:alpine` 服务使用 `configs/nginx-upstream-compose.conf` 代理 `api:8080`；宿主机 `scripts/start.sh` 安装 `configs/nginx-upstream-local.conf` 到 `/etc/nginx/conf.d/upstream.conf`。新增 `src/tests/container-topology.test.js` 锁定镜像无 Nginx、两份 Compose 使用 Compose 上游、宿主机脚本安装本地上游；回退 `Dockerfile` 或 `start.sh` 后对应用例失败。`docs/guides/SERVICES.md`、`docs/guides/PRODUCTION.md`、`docs/guides/GETTING-STARTED.md`、`container_runtime.md`、`runtime_cross_review.md` 已同步为单一拓扑描述。
 
 ### 批次四：会话边界、缓存与图片历史
 
