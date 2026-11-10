@@ -157,11 +157,14 @@
 
 ### VSCODE-015 云端旧沙盒路径边界修复
 
-- 状态：`in_progress`
+- 状态：`completed`
 - 优先级：`P0`
 - 目标：将旧生成流程中的运行时沙盒调用收敛为 `cloud_syntax`，把运行时、依赖、构建、单元测试和 E2E 验证交给 VS Code Agent Host。
 - 修改：`app/agent/utils.py` 的验证范围分流、云端沙盒缺失策略和对应单元测试。
-- 验收证据：相关回归测试通过（22 passed）；覆盖云端 `bwrap` 缺失时跳过运行时沙盒、Agent Host 发布 `local_validation` 动作、Host 回传 `tool_result`、checkpoint 恢复和 `completed` 状态归并；真实模型生成请求已成功完成并生成 10 个文件，日志确认云端语法验证跳过 `bwrap`；真实 HTTP Agent Host 握手成功；`npm --prefix vscode-extension run e2e` 通过（退出码 0）。剩余验收是使用已绑定 Host 会话重新触发生成，并由 VS Code Host 实际拉取、执行和回传本地结果。
+- 验收证据：相关回归测试通过（22 passed）；覆盖云端 `bwrap` 缺失时跳过运行时沙盒、Agent Host 发布 `local_validation` 动作、Host 回传 `tool_result`、checkpoint 恢复和 `completed` 状态归并；真实模型生成请求已成功完成并生成 10 个文件，日志确认云端语法验证跳过 `bwrap`；真实 HTTP Agent Host 握手成功；`npm --prefix vscode-extension run e2e` 通过（退出码 0）。
+- 端到端收尾（2026-11-10）：已绑定 Host 会话重新触发 `run_workflow`，后端产出真实 `local_runtime` 动作（`command: ["npm","run","test"]`、`operation: unit_test`、`working_directory: "."`、`requested_by: "cloud"`）；插件 `dist/agent-host-runtime.js` 的 `poll()` 解析并执行成功（`status: passed`、`exit_code: 0`），结果以 `kind:"tool_result"` 回传 `POST /api/v1/agent/host/sessions/{id}/events`，workflow 由 `waiting_local_validation` 推进到 `completed`。
+- 回归基线：`tests/unit/test_agent_host_api.py` 26 passed、`tests/unit/test_orchestrator_validation_scopes.py` 13 passed、关联后端 86 passed / 1 skipped；插件 124 passed / 0 fail；Flutter 501 passed、`flutter analyze lib test` 无问题。
+- 环境边界：真实 VS Code Extension Host 内驱动同一链路仍不可跑（宿主无 `xvfb`、无 `/dev/kvm`），本次端到端使用插件真实 `dist` 运行时与后端真实 workflow 模块在同一进程外串联验证。
 
 ### VSCODE-016 Agent Host 安全与生命周期加固
 

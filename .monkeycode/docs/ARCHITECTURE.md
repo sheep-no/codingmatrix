@@ -99,13 +99,13 @@ flowchart LR
 
 Flutter 客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台，保留 Riverpod StateNotifier。`CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，以 Cookie/Header 双提交方式认证；`CredentialStore` 在生产 Provider 中使用 `flutter_secure_storage`，保存包含服务 origin、账号、访问令牌、过期时间及 Cookie 的单一加密会话记录，领域层继续使用 `AuthSession.accessTokenRef`。切换账号或服务时先清除旧记录；启动恢复通过服务端 refresh 验证，离线或刷新失败返回登录页。Android 已关闭应用自动备份，并通过 `android:usesCleartextTraffic` 允许明文 HTTP：后端由用户自建、地址在登录页运行时填写，无法预先枚举主机，而 Android 9+ 默认拦截明文流量；Android、Windows、Linux 的真实设备安全存储仍待平台验收。
 
-`AuthenticatedClient` 统一注入 Bearer、Cookie 和 CSRF，限制同一 origin 的 `/api/` 请求，关闭自动重定向，并提供超时、JSON 错误及网络错误的固定脱敏信息。并发 401 合并刷新，只对 GET/HEAD 最多重发一次；Agent 生成和停止等写请求保持单次提交。退出仅取消本地流订阅并清除会话，账号引用变化重建工作台 Provider，清空旧事件与产物缓存；服务端 logout 撤销等待接口 D1。停止按钮的完整确认流程继续属于 Flutter 完善规格任务 3。
+`AuthenticatedClient` 统一注入 Bearer、Cookie 和 CSRF，限制同一 origin 的 `/api/` 请求，关闭自动重定向，并提供超时、JSON 错误及网络错误的固定脱敏信息。并发 401 合并刷新，只对 GET/HEAD 最多重发一次；Agent 生成和停止等写请求保持单次提交。退出登录先取消本地流订阅并清除本地凭据，再以 Bearer + Cookie + `X-CSRF-Token` 调用 `POST /api/v1/logout` 撤销远端令牌；撤销请求限时 5 秒且失败静默，确保本地登出一定完成。账号引用变化重建工作台 Provider，清空旧事件与产物缓存。停止按钮的完整确认流程继续属于 Flutter 完善规格任务 3。
 
 ## StateGraph 边界
 
 增量编排通过 `ProjectSnapshot` 保存基线文件 hash，通过 `ChangePlan` 表达动态 add/modify/delete/rename 变更。`IncrementalFileTransaction` 备份 modify 原文件、暂存 delete/rename 源文件并登记 add/rename 新目标；Core 仅在最终成功门禁通过后提交，失败、取消和异常均恢复基线。删除-only 计划使用空生成计划并通过同一成功门禁。
 
-节点读取 State 快照并返回 StateDelta，reducer 负责 revision、消息幂等和增量合并。`CheckpointStore`、事件 Envelope 和本地验证适配器已经提供基础契约。会话适配器支持按 sequence replay，并在检测到缺口时返回 snapshot recovery action。云端验证结果限定为 `cloud_syntax`；当 State 声明必需本地 scope 时，验证节点创建 `waiting_local_validation` 动作，`run_workflow()` 将动作适配并发布到已连接的 Agent Host session，同时按 `session_id/task_id` 保存 checkpoint 和下一节点游标；插件 `tool_result` 经过任务版本和本地结果适配器校验后恢复活动 StateGraph，并从游标继续执行后续节点，所有必需 scope 通过后进入 `completed`。活动注册表缺失时可以从 checkpoint 加载状态并合并结果；跨进程续跑需要启动时注册可恢复的 workflow definition。Agent Host session 使用原子 JSON 队列保存动作、策略版本和事件确认，支持进程重启后的恢复；真实 HTTP 已验证 handshake、事件、策略、Skills 和 session control 闭环，用户模型供应商 Key 流程已通过 `13/13` 验收。API 入口仍保留原始 SSE 事件出口，多 worker 和模型驱动的跨工作台续跑仍需独立验收。
+节点读取 State 快照并返回 StateDelta，reducer 负责 revision、消息幂等和增量合并。`CheckpointStore`、事件 Envelope 和本地验证适配器已经提供基础契约。会话适配器支持按 sequence replay，并在检测到缺口时返回 snapshot recovery action。云端验证结果限定为 `cloud_syntax`；当 State 声明必需本地 scope 时，验证节点创建 `waiting_local_validation` 动作，`run_workflow()` 将动作适配并发布到已连接的 Agent Host session，同时按 `session_id/task_id` 保存 checkpoint 和下一节点游标。动作适配由 `enqueue_state_actions()` 按 scope 调用 `detect_toolchain()` 补齐命令、操作类型、工作目录、超时和来源字段；每个 scope 每轮只下发一条，避免后续动作携带旧 revision 被校验拒绝。`bind_workflow_session()` 将稳定编排会话号映射到 Host 会话并校验 owner，动作投递和 `tool_result` 恢复按该映射路由，checkpoint 键保持稳定会话号以支持重握手后的断点续传。插件 `tool_result` 经过任务版本和本地结果适配器校验后恢复活动 StateGraph，并从游标继续执行后续节点，所有必需 scope 通过后进入 `completed`。活动注册表缺失时可以从 checkpoint 加载状态并合并结果；跨进程续跑需要启动时注册可恢复的 workflow definition。Agent Host session 使用原子 JSON 队列保存动作、策略版本和事件确认，支持进程重启后的恢复；真实 HTTP 已验证 handshake、事件、策略、Skills 和 session control 闭环，用户模型供应商 Key 流程已通过 `13/13` 验收，真实动作的插件执行与结果回传已在本轮端到端跑通。API 入口仍保留原始 SSE 事件出口，多 worker 和模型驱动的跨工作台续跑仍需独立验收。
 
 ## 检索与运行时边界
 

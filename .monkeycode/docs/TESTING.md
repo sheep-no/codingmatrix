@@ -158,6 +158,14 @@ npm --prefix src run test:run -- stores/agentSession.test.js utils/api/project.t
 
 Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`，涉及真实 Extension Host 时再运行 `npm --prefix vscode-extension run e2e`。模型供应商调用和认证 E2E 需要由测试环境提供对应账号与用户项目配置。
 
+后端本地验证链路修改后运行：
+
+```bash
+python3 -m pytest tests/unit/test_agent_host_api.py tests/unit/test_orchestrator_validation_scopes.py tests/unit/test_local_validation_adapter.py tests/unit/test_validation_nodes.py tests/unit/test_workflow_registry.py tests/unit/test_cloud_validation_boundary.py tests/unit/test_workflow_session_isolation.py -q
+```
+
+该组合覆盖动作载荷翻译、会话绑定与越权拒绝、多 scope 逐轮下发、无命令跳过、安装动作翻译、结果 revision 门禁和 checkpoint 恢复。`test_agent_host_api.py` 与 `test_orchestrator_validation_scopes.py` 直接改内存 `_sessions` 的用例必须在 `finally` 中清理，避免污染后续用例。
+
 ## 验证边界
 
 - `/api/v1/health` 检查数据库和 Redis，健康响应不能证明 Celery worker 已在线。
@@ -169,7 +177,7 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 
 ## 最近结果（2026-09-07）
 
-- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `103 passed`。
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `124 passed`（2026-11-10）。
 - VS Code Extension Development Host：VS Code `1.136.1` E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - Web 任务反馈专项：`4 files passed, 36 tests passed`，覆盖归一化、增量合并、断线恢复、过期快照、终态保护、游标重置和组件操作派发；前端完整 Vitest 为 `25 files passed, 108 tests passed`。
