@@ -361,6 +361,19 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
   - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+  - 2026-11-09 基线：`flutter test` 497 passed、`flutter analyze lib test` 无问题；本轮使用 SDK `/tmp/opencode/flutter-sdk/flutter/bin/flutter`（3.47.9 / Dart 3.13.7）。2026-11-10 修复后：501 passed、analyze 无问题。
+  - `flutter_client/pubspec.lock` 已由 Flutter 3.47.9 重新解析，`sdks.dart` 下限为 `>=3.11.0-0`（matcher 0.12.20 要求 Dart ^3.10.0），而 `pubspec.yaml` 与文档仍声明 `^3.9.2`。用更旧的 Flutter 构建客户端前，先跑一次 `flutter pub get` 让其按本机 SDK 重解析锁文件，否则会因锁文件版本不满足 SDK 约束而失败。
+
+### VS Code 插件构建与依赖安装
+- Date: 2026-11-09
+- Context: Agent 在扫描 `vscode-extension/` 并跑单测时发现
+- Category: 构建方法
+- Instructions:
+  - 插件验证命令：`npm run build`（tsc）+ `node --test test/*.test.mjs`；2026-11-09 基线 109 passed / 0 fail，2026-11-10 修复后 124 passed / 0 fail。
+  - 安装依赖遇到 IPv6 `ETIMEDOUT` 时，用 `NODE_OPTIONS=--dns-result-order=ipv4first npm install --registry=https://registry.npmmirror.com/` 绕过。
+  - `tsc` 不清理已删源码对应的 `dist/` 残留，`vsce package` 前需自行清理。
+  - 后端单测环境：宿主默认 `python3.11` 缺 fastapi 等依赖，且原无 `ensurepip`。已 `apt-get install python3.11-venv` 并在 `/tmp/opencode/venv-backend` 安装 `configs/requirements.txt`，跑测用 `/tmp/opencode/venv-backend/bin/python -m pytest ...`。
+  - `tests/unit/test_agent_host_api.py` 与 `test_orchestrator_validation_scopes.py` 是有状态内存用例：新增用例若直接写 `app.api.v1.agent_host._sessions`，必须在 `finally` 里清理，否则会污染后续用例。
 
 ### 协作范围与前端优先
 - Date: 2026-09-09 / 2026-08-29 / 2026-09-16
