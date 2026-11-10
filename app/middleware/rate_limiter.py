@@ -286,11 +286,30 @@ class LoginAttemptTracker:
         self._lock = threading.Lock()
         self.max_attempts = 5
         self.window_seconds = 300
+        self._last_sweep = 0.0
+
+    def _prune_stale_keys(self, current_time: float):
+        """清扫所有过期键（需要持有锁，最多每秒一次）。
+
+        键里包含客户端可控的 email，攻击者可用不同邮箱逐个制造新键；仅在被
+        查询的键上清理会让这些键永久留存，内存无界增长。这里按窗口全量清扫。
+        """
+        if current_time - self._last_sweep < 1.0:
+            return
+        self._last_sweep = current_time
+        cutoff = current_time - self.window_seconds
+        stale = [
+            key for key, records in self.failed_attempts.items()
+            if not any(ts > cutoff for ts in records)
+        ]
+        for key in stale:
+            del self.failed_attempts[key]
 
     def record_failed_attempt(self, identifier: str):
         """记录失败尝试（线程安全）"""
         current_time = time.time()
         with self._lock:
+            self._prune_stale_keys(current_time)
             self.failed_attempts[identifier].append(current_time)
 
     def is_blocked(self, identifier: str) -> bool:
@@ -299,15 +318,15 @@ class LoginAttemptTracker:
         window_start = current_time - self.window_seconds
 
         with self._lock:
-            self.failed_attempts[identifier] = [
-                ts for ts in self.failed_attempts[identifier]
+            attempts = [
+                ts for ts in self.failed_attempts.get(identifier, [])
                 if ts > window_start
             ]
-            attempts = self.failed_attempts[identifier]
             # 列表清空后删除键，避免为每个出现过的用户名/IP 永久保留空列表
             if not attempts:
-                del self.failed_attempts[identifier]
+                self.failed_attempts.pop(identifier, None)
                 return False
+            self.failed_attempts[identifier] = attempts
             return len(attempts) >= self.max_attempts
 
     def clear_failed_attempts(self, identifier: str):

@@ -64,6 +64,41 @@ def test_login_tracker_removes_empty_and_expired_keys():
     assert "eve" not in tracker.failed_attempts
 
 
+def test_login_tracker_prunes_unqueried_stale_keys(monkeypatch):
+    """键含客户端可控 email：只清理被查询过的键会让旧键永久堆积。"""
+    tracker = LoginAttemptTracker()
+    now = time.time()
+    tracker.failed_attempts["1.2.3.4:old1"] = [now - tracker.window_seconds - 5]
+    tracker.failed_attempts["1.2.3.4:old2"] = [now - tracker.window_seconds - 5]
+    tracker._last_sweep = 0.0
+
+    tracker.record_failed_attempt("1.2.3.4:fresh")
+
+    assert "1.2.3.4:old1" not in tracker.failed_attempts
+    assert "1.2.3.4:old2" not in tracker.failed_attempts
+    assert "1.2.3.4:fresh" in tracker.failed_attempts
+
+
+def test_login_tracker_sweep_is_rate_limited(monkeypatch):
+    """每秒最多清扫一次，避免每次失败尝试都全量遍历。"""
+    tracker = LoginAttemptTracker()
+    now = time.time()
+    tracker._last_sweep = now
+    tracker.failed_attempts["stale"] = [now - tracker.window_seconds - 5]
+
+    tracker.record_failed_attempt("fresh")
+
+    assert "stale" in tracker.failed_attempts
+
+
+def test_login_tracker_is_blocked_uses_get_without_creating_key():
+    """查询未知键不得创建空列表键。"""
+    tracker = LoginAttemptTracker()
+
+    assert tracker.is_blocked("never-seen") is False
+    assert "never-seen" not in tracker.failed_attempts
+
+
 @pytest.mark.asyncio
 async def test_rate_limit_retry_after_consistent(monkeypatch):
     """RLM5：429 响应体与响应头的 retry_after 必须一致。"""

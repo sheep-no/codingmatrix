@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -44,13 +44,16 @@ class KnowledgeSearchRequest(BaseModel):
     """知识库搜索请求"""
     query: str
     collection: Optional[str] = "default"
-    top_k: int = 5
+    top_k: int = Field(default=5, ge=1, le=50)
 
 # 知识库存储路径，基于项目根目录解析，避免依赖外部固定路径
 KNOWLEDGE_STORAGE_PATH = str(BASE_DIR / "data" / "knowledge")
 
 # 单文档上传上限，避免超大文件读入内存并阻塞解析
 MAX_DOCUMENT_SIZE = 20 * 1024 * 1024
+
+# 语义检索需要在 Python 侧逐块算相似度，单次加载上限防止超大知识库打爆内存。
+MAX_SEARCH_CHUNKS = 5000
 
 
 async def get_current_user_id(token: dict = Depends(verify_token)) -> int:
@@ -322,6 +325,11 @@ async def search_knowledge(
     if collection:
         chunk_query = chunk_query.where(AicloudKnowledgeChunk.collection == collection)
     
+    # 检索需要在 Python 侧全量算相似度，这里限制单次加载的分块数，避免超大知识库
+    # 一次性读入内存造成内存放大。
+    chunk_query = chunk_query.order_by(AicloudKnowledgeChunk.created_at.desc()).limit(
+        MAX_SEARCH_CHUNKS
+    )
     result = await db.execute(chunk_query)
     all_chunks = result.scalars().all()
     

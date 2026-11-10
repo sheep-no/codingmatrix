@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5221 passed, 6 failed, 4 skipped`（收集 5231）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5227 passed, 6 failed, 4 skipped`（收集 5237）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -287,6 +287,13 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | 多组 500 分支 `detail=f"...{str(e)}"` 回显底层异常（路径、SQL、命令输出） | `app/api/v2/guardian_router.py`(6)、`app/api/v2/nginx_api.py`(3)、`app/api/v1/vision_api.py`(4)、`app/api/v1/file_upload.py`(1)、`app/api/v1/aiGeneratorPptx.py`(5)、`app/api/v1/ai_agent/generate_endpoints.py`(2)、`app/api/v1/ai_agent/orchestrate_endpoints.py`(3) | 已解决；统一通用文案 + `exc_info=True`。回归 `tests/unit/test_api_500_detail_not_leaked.py` 7 项，逐文件回退后对应项精确失败 |
 
 分页上限（`auth.get_conversations`、`aicloud.get_history`/`get_audit_logs`/`search_history`）与本轮 500 文案同批提交，回归见 `tests/unit/test_pagination_bounds.py` 9 项。
+
+### 后端缺陷扫描第三轮：资源无界增长与检索内存放大（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | `LoginAttemptTracker.failed_attempts` 以客户端可控的 email/IP 为键，只在被查询的键上清理过期记录；攻击者用大量不同邮箱登录失败可制造永不回收的键，内存无界增长 | `app/middleware/rate_limiter.py` | 已解决；新增 `_prune_stale_keys`，`record_failed_attempt` 时按窗口全量清扫（限速每秒一次），`is_blocked` 改用 `dict.get` 不再为未知键创建空列表。回归 `tests/unit/test_middleware_rlm_and_request_id.py` 新增 3 项，回退源码后 `test_login_tracker_prunes_unqueried_stale_keys` 精确失败 |
+| P3 | `POST /knowledge/search` 把用户全部知识库分块一次读入内存逐条计算余弦相似度，`top_k` 无上界；超大知识库可造成内存放大 | `app/api/v1/aicloud_knowledge.py` | 已解决；`top_k` 约束 `1..50`，候选分块查询加 `MAX_SEARCH_CHUNKS=5000` 上限。回归 `tests/unit/test_knowledge_search_bounds.py` 3 项，回退源码后全部失败 |
 
 ### 本轮逐文件验证（2026-09-27）
 
