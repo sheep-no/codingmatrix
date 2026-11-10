@@ -110,7 +110,7 @@
 - 定位：`src/composables/useAgentBackend.js:246-257`；`src/views/AgentDashboard.vue:138,521`；`src/components/agent/modals/VersionHistoryModal.vue:9`；`src/utils/api/agent.js:39-49`；`app/api/v1/ai_agent/orchestrate_endpoints.py:2003-2010`。
 - 缺陷：弹窗发出字符串 `snap.tag`，`AgentDashboard` 原样透传，`useAgentBackend` 改为 `{ tag }` 对象传给 `rollbackToSnapshot(sessionId, tag)`；客户端执行 `encodeURIComponent(tag)` 得到 `%5Bobject%20Object%5D`。
 - 影响：回滚请求带错误 `target_tag`，后端查不到快照返回 404。后端 `delete_branch` 默认 `True`，一旦标签匹配会执行破坏性分支删除；参数错误反而阻止了误删。
-- 附带：`ProjectGenerator.vue:1187` 使用旧签名 `(sessionId, tag)`，该组件当前不可达（FRESCAN-64）。
+- 附带：`ProjectGenerator.vue:1187-1188` 使用旧签名 `rollbackToSnapshot(sessionId, tag)` 且传的是字符串，本身正确；但它与 `useAgentBackend` 的调用形态不一致，回归时需同时覆盖两条链。该组件当前不可达（FRESCAN-64）。
 - 证据：实码可证；回滚端到端需运行验证。
 
 #### FRESCAN-65 [P2] GitHub 客户端依赖从未赋值的 store 引用和不存在的前端路由
