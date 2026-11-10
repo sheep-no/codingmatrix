@@ -74,6 +74,13 @@ RUN apt-get update && \
     ln -sf /app/logs /workspace/logs && \
     ln -sf /app/data /workspace/data
 
+# Debian 的 nginx 包只创建 www-data，而 configs/nginx.conf 声明 user nginx。
+# 显式创建同名系统账号，保证 chown 与 worker 用户均可解析。
+RUN if ! getent group nginx >/dev/null; then groupadd --system nginx; fi && \
+    if ! getent passwd nginx >/dev/null; then \
+        useradd --system --gid nginx --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin nginx; \
+    fi
+
 # Copy nginx configuration after the package creates its runtime directories.
 COPY configs/nginx.conf /etc/nginx/nginx.conf
 COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf

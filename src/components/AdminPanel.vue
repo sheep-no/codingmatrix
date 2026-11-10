@@ -575,7 +575,7 @@
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/stores/user'
   import * as echarts from 'echarts'
-  import { WebSocketManager, API_CONFIG } from '../utils/api/index'
+  import { WebSocketManager, API_CONFIG, api } from '../utils/api/index'
 
   const AdminAsyncLoading = {
     setup() {
@@ -926,12 +926,22 @@
         cancelButtonText: '取消',
         type: 'warning'
       })
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('permission_level')
-      router.push('/')
     } catch {
       // 用户取消
+      return
     }
+
+    // 通知服务端吊销 access/refresh token；失败不阻塞本地登出
+    try {
+      await api.logout()
+    } catch (error) {
+      console.warn('[AdminPanel] 后端登出失败:', error?.message || error)
+    }
+    if (wsManager.value) {
+      wsManager.value.disconnect()
+    }
+    userStore.clearUser()
+    router.push('/')
   }
 
   // 刷新系统信息

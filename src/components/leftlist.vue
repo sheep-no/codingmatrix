@@ -617,10 +617,8 @@
         
         // 删除本地 IndexedDB 缓存
         try {
-          const chatDb = await import('@/utils/chatDatabase')
-          const db = new chatDb.ChatDatabase()
-          await db.init()
-          await db.deleteConversation(item.conversation_id)
+          const { chatDB } = await import('@/utils/chatDatabase')
+          await chatDB.deleteConversation(item.conversation_id)
         } catch (dbError) {
           console.error('删除本地缓存失败:', dbError)
         }

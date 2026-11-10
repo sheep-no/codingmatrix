@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiMock = vi.hoisted(() => ({
   post: vi.fn(),
-  delete: vi.fn()
+  delete: vi.fn(),
+  deleteChatHistory: vi.fn()
 }))
 
 const userState = vi.hoisted(() => ({
@@ -14,7 +15,12 @@ const userState = vi.hoisted(() => ({
   clearUser: vi.fn()
 }))
 
+const chatDbMock = vi.hoisted(() => ({
+  deleteConversation: vi.fn()
+}))
+
 vi.mock('@/utils/api/index', () => ({ api: apiMock }))
+vi.mock('@/utils/chatDatabase', () => ({ chatDB: chatDbMock }))
 vi.mock('@/stores/user', () => ({
   useUserStore: () => userState
 }))
@@ -45,7 +51,12 @@ function mountLeftlist() {
         LoginDialog: true,
         VirtualHistoryList: {
           props: ['items', 'searchKeyword'],
-          template: '<div class="virtual-history"><div v-for="item in items" :key="item.id" class="history-item">{{ item.title || item.prompt }}</div></div>'
+          template: `<div class="virtual-history">
+            <div v-for="item in items" :key="item.id" class="history-item">
+              {{ item.title || item.prompt }}
+              <button class="history-delete" @click="$emit('delete', item)">删除</button>
+            </div>
+          </div>`
         }
       }
     }
@@ -64,6 +75,10 @@ describe('搜索历史记录', () => {
     localStorage.clear()
     apiMock.post.mockReset()
     apiMock.delete.mockReset()
+    apiMock.deleteChatHistory.mockReset()
+    apiMock.deleteChatHistory.mockResolvedValue(jsonResponse({ ok: true }))
+    chatDbMock.deleteConversation.mockReset()
+    chatDbMock.deleteConversation.mockResolvedValue(true)
     userState.isLoggedIn = true
     userState.restoreUser.mockReturnValue(false)
     apiMock.post.mockResolvedValue(jsonResponse({ items: [], total: 0 }))
@@ -163,6 +178,27 @@ describe('搜索历史记录', () => {
       offset: 0
     })
     expect(wrapper.findAll('.history-item')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('删除会话时通过导出的 chatDB 单例清理 IndexedDB（FRESCAN-59）', async () => {
+    apiMock.post.mockResolvedValue(jsonResponse({
+      items: [{ id: 21, conversation_id: 7, title: '待删除会话', prompt: '待删除会话' }],
+      total: 1
+    }))
+    const wrapper = mountLeftlist()
+    await openSearchBox(wrapper)
+    await wrapper.get('.search-input').setValue('待删除')
+    await wrapper.get('.search-btn').trigger('click')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+
+    await wrapper.get('.history-delete').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.deleteChatHistory).toHaveBeenCalledWith([7])
+    expect(chatDbMock.deleteConversation).toHaveBeenCalledWith(7)
+    expect(wrapper.findAll('.history-item')).toHaveLength(0)
     wrapper.unmount()
   })
 })

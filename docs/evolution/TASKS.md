@@ -253,6 +253,8 @@
 
 > 第 165 轮去重后新增问题 19 项：P0 1 项、P1 6 项、P2 9 项、P3 3 项；其中 FRESCAN-64 属未接入/接线事项，按结构记录。旧编号 2 项判定失效（FRESCAN-24、FRESCAN-35），1 项部分失效（FRESCAN-25）。Backlog 使用 `#1392-#1410`，累计 P0 2、P1 53、P2 490、P3 817，Backlog 共 1410 项。
 
+> 阶段 0 修复（2026-11-10）：FRESCAN-53 管理台登出改为 `api.logout()` + `userStore.clearUser()`；FRESCAN-59 删除会话改用已导出的 `chatDB` 单例；FRESCAN-52 在镜像内显式创建 `nginx` 账号。受影响单测 12 条通过，回退源码态新增 3 条用例失败；Docker 构建与 `nginx -t` 仍待有 Docker 的环境复验。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

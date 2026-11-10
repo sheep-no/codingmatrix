@@ -1,6 +1,6 @@
 # Frontend 第 165 轮四批次复扫记录
 
-> 版本：v0.1 | 扫描日期：2026-11-10 | 状态：只读扫描完成，未修改源码
+> 版本：v0.2 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0 三项已修复
 > 归属：前端应用第 165 轮复扫
 > 基线：`frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`、`frontend_batch_rescan.md`、`frontend_batch_rescan_164.md`
 > 范围：入口认证、状态与组合逻辑、视图与 API 契约、构建测试部署
@@ -64,6 +64,7 @@
 - 缺陷：只删除 `access_token` 与 `permission_level` 后 `router.push('/')`，未调用 `api.logout()`、未调用 `userStore.clearUser()`、未清理 `tokenManager` 内存态与 `permissionLevel` ref。
 - 影响：access token 在剩余有效期内仍可被服务端接受；前端 `isLoggedIn`、`permissionLevel` 保持旧值，路由守卫继续认为当前是超管；同浏览器持久化缓存全部保留。其他页面登出路径（`leftlist.vue:694-704`、`useAuth.js:44-53`）都已清理 store，管理面板成为唯一例外。
 - 证据：实码可证；token 实际吊销需运行验证。
+- 修复状态：已修复。`handleLogout` 在用户确认后调用 `api.logout()`，随后断开 WebSocket、执行 `userStore.clearUser()` 并跳转 `/`；服务端吊销失败仍完成本地清理。新增 `src/components/AdminPanel.logout.test.js` 三条用例，回退源码后对应用例失败。
 
 #### FRESCAN-54 [P1] 首页未绑定左栏登录/登出事件导致登录后历史不刷新
 
@@ -128,7 +129,7 @@
 - 缺陷：基础镜像为 `python:3.11-slim`（Debian），`:47-48` 只创建 `appuser`，`:70` 才安装 Debian `nginx` 包；Debian 包使用 `www-data`，不创建 `nginx` 账号。`:98` 执行 `chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run`，`nginx.conf:7` 又声明 `user nginx;`。
 - 影响：`chown` 在 `nginx` 用户不存在时直接失败，镜像构建中止；若账号存在但配置的 worker 用户不可用，Nginx 也无法启动 worker。
 - 证据：静态链路可证；Debian 包账号创建行为与构建结果需在有 Docker 的环境实测。
-- 候选修复：改用 `www-data`，或在安装 nginx 后显式 `useradd --system --no-create-home --shell /usr/sbin/nologin nginx` 并同步 `nginx.conf`。
+- 修复状态：已修复（待容器实测）。在安装 nginx 之后显式创建 `nginx` 系统用户组与账号，保留 `configs/nginx.conf:7` 的 `user nginx;` 与既有 `chown`。`docker build` 与容器内 `nginx -t` 仍需在有 Docker 的环境复验。
 
 #### FRESCAN-60 [P2] 生产 Nginx 的 `/api/` 未透传 Upgrade 导致 PPT WebSocket 失败
 
@@ -166,7 +167,7 @@
 - 缺陷：模块只导出单例 `chatDB`，`class ChatDatabase` 未加 `export`；删除历史时动态导入后执行 `new chatDb.ChatDatabase()`，构造器为 `undefined`，抛 `TypeError` 后被 `catch` 吞掉，只留一条 `console.error`。
 - 影响：服务端删除成功、界面移除条目，IndexedDB 中的 `conversations` 记录与本地缓存继续保留；重新打开同会话可能读到已删除内容。
 - 证据：实码可证；IndexedDB 残留需浏览器确认。
-- 候选修复：`leftlist.vue` 改用已导出的 `chatDB` 单例，或在 `chatDatabase.js` 同时导出类。
+- 修复状态：已修复。`leftlist.vue` 删除链路改用已导出的 `chatDB` 单例并直接调用 `deleteConversation`；新增 `leftlist.test.js` 用例断言 `chatDB.deleteConversation(7)` 被调用且条目移除，回退源码后该用例失败。
 
 #### FRESCAN-61 [P2] 图片历史把 base64 写入数据库，文件删除路径永远不命中
 
@@ -208,7 +209,7 @@
 
 第 165 轮新增 Backlog 使用 `#1392-#1410`。累计 P0 2、P1 53、P2 490、P3 817；Backlog 共 1410 项。
 
-本轮完成源码、全库引用、后端路由与配置静态核对；未执行构建、测试、容器、浏览器与辅助技术验证。FRESCAN-52 的账号缺失、FRESCAN-53/55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手均保留待实测标记。
+本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
 
 ## 5. 分阶段修复规划
 
