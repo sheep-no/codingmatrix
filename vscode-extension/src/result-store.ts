@@ -1,5 +1,6 @@
 import { LocalValidationResult } from "./protocol.js";
 import { ResultSanitizer } from "./result-sanitizer.js";
+import type { ResultSubmissionContext } from "./connection.js";
 
 export interface ResultStorage {
   get<T>(key: string, fallback: T): Promise<T>;
@@ -21,6 +22,7 @@ export class MemoryResultStorage implements ResultStorage {
 export interface PendingResultRecord {
   result: LocalValidationResult;
   queued_at: string;
+  context?: ResultSubmissionContext;
 }
 
 export class ResultStore {
@@ -39,7 +41,10 @@ export class ResultStore {
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
-  async enqueue(input: unknown): Promise<LocalValidationResult> {
+  async enqueue(
+    input: unknown,
+    context?: ResultSubmissionContext,
+  ): Promise<LocalValidationResult> {
     const sanitized = this.sanitizer.sanitize(input);
     if (!sanitized.uploadable) {
       throw new Error(sanitized.blockedReasons.join("; "));
@@ -48,7 +53,11 @@ export class ResultStore {
     await this.withLock(async () => {
       const records = await this.readRecords();
       if (!records.some((record) => record.result.event_id === result.event_id)) {
-        records.push({ result, queued_at: this.now() });
+        records.push({
+          result,
+          queued_at: this.now(),
+          ...(context === undefined ? {} : { context }),
+        });
         await this.writeRecords(records);
       }
     });
@@ -63,6 +72,7 @@ export class ResultStore {
     return records.map((record) => ({
       queued_at: record.queued_at,
       result: structuredClone(record.result),
+      ...(record.context === undefined ? {} : { context: { ...record.context } }),
     }));
   }
 

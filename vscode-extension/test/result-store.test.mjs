@@ -60,6 +60,18 @@ test("stores sanitized results with event id deduplication", async () => {
   assert.deepEqual(await store.listPending(), []);
 });
 
+test("preserves the submission context so a flush targets the right action", async () => {
+  const store = new ResultStore(new MemoryResultStorage(), { now: () => "queued" });
+  await store.enqueue(result, { messageId: "action-1", capability: "validation", policyVersion: 3 });
+
+  const [pending] = await store.listPending();
+  assert.deepEqual(pending.context, {
+    messageId: "action-1",
+    capability: "validation",
+    policyVersion: 3,
+  });
+});
+
 test("persists results across store instances", async () => {
   const storage = new MemoryResultStorage();
   const first = new ResultStore(storage);

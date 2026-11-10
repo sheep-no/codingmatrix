@@ -12,7 +12,7 @@ import { ApprovalBridge } from "./approval-bridge.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
 import { ValidationRunner } from "./validation-runner.js";
 import { WorkspaceAuthorization } from "./workspace-authorization.js";
-import { CloudConnection } from "./connection.js";
+import { CloudConnection, CloudConnectionError } from "./connection.js";
 import { discoverWorkspaceSkills, WorkspaceSkillRoot } from "./skill-discovery.js";
 import { ResultStore, ResultStorage } from "./result-store.js";
 import { dispatchWorkbenchRequest } from "./workbench-requests.js";
@@ -33,6 +33,7 @@ let connectionDisposables: vscode.Disposable[] = [];
 let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let promptAbortController: AbortController | undefined;
 let extensionLifecycleId = 0;
+let lastSessionRecoveryAt = 0;
 // Only a run that finished with a `done` event leaves a project behind, so the
 // chat panel may offer an incremental edit for that project and nothing else.
 let lastProjectPath: string | undefined;
@@ -58,6 +59,8 @@ const controller = new AgentWorkbenchController({
       incremental,
       ...options.flags,
     };
+    if (cloudConnection.hostSessionId) request.host_session_id = cloudConnection.hostSessionId;
+    if (options.flags.enable_validation) request.required_validation_scopes = ["local_runtime"];
     if (options.projectName) request.project_name = options.projectName;
     if (incremental) {
       // The incremental adapter lives in the core engine; the legacy handler
@@ -255,6 +258,19 @@ export function activate(context: vscode.ExtensionContext): void {
     }));
   }
   context.subscriptions.push(vscode.commands.registerCommand("codingmatrix.reconnectAgentSession", () => reconnectConfiguredSession()));
+
+  // Reconnects automatically when the user changes the cloud endpoint or
+  // token, instead of leaving the session on stale credentials until reload.
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (
+      event.affectsConfiguration("codingmatrix.agent.apiUrl") ||
+      event.affectsConfiguration("codingmatrix.agent.accessToken")
+    ) {
+      void reconnectConfiguredSession().catch(async () => {
+        await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+      });
+    }
+  }));
 }
 
 export function deactivate(): void {
@@ -379,9 +395,24 @@ async function startCloudConnection(
       if (startId === connectionStartId) {
         await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "online");
       }
-    } catch {
+    } catch (error) {
       if (startId === connectionStartId) {
         await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+      }
+      // A 30-minute Host session expiry returns 410. Re-handshake instead of
+      // retrying with the dead session id forever.
+      if (
+        startId === connectionStartId &&
+        error instanceof CloudConnectionError &&
+        error.status === 410 &&
+        Date.now() - lastSessionRecoveryAt > 30_000
+      ) {
+        lastSessionRecoveryAt = Date.now();
+        void reconnectConfiguredSession()
+          .catch(async () => {
+            await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+          });
+        return;
       }
     } finally {
       if (startId === connectionStartId) {

@@ -1,18 +1,21 @@
 import { AgentHostEnvelope, AgentHostSession, SKILL_RUNTIME_OPERATIONS } from "./agent-host.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 import type { CloudConnection } from "./connection.js";
-import { ToolDispatcher } from "./tool-dispatcher.js";
+import { ToolDispatcher, ToolDispatcherError } from "./tool-dispatcher.js";
+import { ProtocolError } from "./protocol.js";
+import { ValidationRunnerError } from "./validation-runner.js";
 import type { LocalValidationResult } from "./protocol.js";
 
 export interface AgentHostRuntimeOptions {
   session: AgentHostSession;
   dispatcher: ToolDispatcher;
-  connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
+  connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent" | "acknowledgeAction">>;
   approvalBridge?: ApprovalBridge;
   onEvent?: (event: AgentHostEnvelope) => void | Promise<void>;
   onSessionControl?: (action: "pause" | "resume" | "cancel") => void | Promise<void>;
   onSkillRevoke?: (skillName: string) => void | Promise<void>;
   onSkillSync?: (skills: Record<string, unknown>) => void | Promise<void>;
+  onActionError?: (action: AgentHostEnvelope, error: unknown) => void | Promise<void>;
 }
 
 export class AgentHostRuntimeError extends Error {
@@ -25,12 +28,13 @@ export class AgentHostRuntimeError extends Error {
 export class AgentHostRuntime {
   private readonly session: AgentHostSession;
   private readonly dispatcher: ToolDispatcher;
-  private connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
+  private connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent" | "acknowledgeAction">>;
   private readonly onEvent: (event: AgentHostEnvelope) => void | Promise<void>;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly onSessionControl?: AgentHostRuntimeOptions["onSessionControl"];
   private readonly onSkillRevoke?: AgentHostRuntimeOptions["onSkillRevoke"];
   private readonly onSkillSync?: AgentHostRuntimeOptions["onSkillSync"];
+  private readonly onActionError?: AgentHostRuntimeOptions["onActionError"];
   private controlStatus: "active" | "paused" | "cancelled" = "active";
   private readonly actionExecutions = new Map<string, Promise<unknown>>();
   private readonly activeActions = new Map<string, AbortController>();
@@ -46,6 +50,7 @@ export class AgentHostRuntime {
     this.onSessionControl = options.onSessionControl;
     this.onSkillRevoke = options.onSkillRevoke;
     this.onSkillSync = options.onSkillSync;
+    this.onActionError = options.onActionError;
   }
 
   setConnection(connection: AgentHostRuntimeOptions["connection"]): void {
@@ -151,8 +156,16 @@ export class AgentHostRuntime {
             payload: result,
           });
         } else {
-          await connection.submitResult(result);
+          const submission = await connection.submitResult(result, {
+            messageId: action.message_id,
+            ...(action.capability === undefined ? {} : { capability: action.capability }),
+            ...(snapshot.policy_version === undefined ? {} : { policyVersion: snapshot.policy_version }),
+          });
+          // A queued result was never accepted by the cloud; keep the action
+          // available for replay instead of clearing it server side.
+          if (isQueuedResponse(submission)) return result;
         }
+        await this.acknowledge(connection, action);
         return result;
       }
       const event: AgentHostEnvelope = {
@@ -168,6 +181,7 @@ export class AgentHostRuntime {
       };
       if (connection?.submitEvent) await connection.submitEvent(event);
       else await this.emitResult(event);
+      await this.acknowledge(connection, action);
       return result;
     } finally {
       if (executionKey && this.activeActions.get(executionKey) === controller) {
@@ -258,33 +272,71 @@ export class AgentHostRuntime {
       const actions = await connection.fetchAgentHostActions();
       if (generation !== this.connectionGeneration) return 0;
       for (const action of actions) {
-        await this.processWithConnection(action, connection);
+        await this.processPolledAction(action, connection);
         if (generation !== this.connectionGeneration) return 0;
       }
       return actions.length;
     }
     const policyVersion = this.session.snapshot().policy_version;
-    const actions = await connection.fetchPendingActions();
-    if (generation !== this.connectionGeneration) return 0;
-    for (const action of actions) {
-      await this.processWithConnection({
-        message_id: action.event_id,
-        schema_version: action.schema_version,
-        session_id: action.session_id,
+      const actions = await connection.fetchPendingActions();
+      if (generation !== this.connectionGeneration) return 0;
+      for (const action of actions) {
+        await this.processPolledAction({
+          message_id: action.event_id,
+          schema_version: action.schema_version,
+          session_id: action.session_id,
         task_id: action.task_id,
         revision: action.revision,
         kind: "tool_action",
         capability: "validation",
         policy_version: policyVersion,
         payload: action,
-      }, connection);
-      if (generation !== this.connectionGeneration) return 0;
+        }, connection);
+        if (generation !== this.connectionGeneration) return 0;
+      }
+      return actions.length;
     }
-    return actions.length;
+
+  // One malformed or unsupported action must not stop the rest of the batch:
+  // it stays in-flight cloud-side and is retried, while healthy actions still
+  // execute. Transport failures still propagate so the connection can recover.
+  private async processPolledAction(
+    action: AgentHostEnvelope,
+    connection: AgentHostRuntimeOptions["connection"],
+  ): Promise<void> {
+    try {
+      await this.processWithConnection(action, connection);
+    } catch (error) {
+      const local =
+        error instanceof ProtocolError ||
+        error instanceof ToolDispatcherError ||
+        error instanceof ValidationRunnerError ||
+        error instanceof AgentHostRuntimeError;
+      if (!local) throw error;
+      await this.onActionError?.(action, error);
+    }
   }
 
   private async emitResult(event: AgentHostEnvelope): Promise<void> {
     await this.onEvent(event);
+  }
+
+  // The backend moves fetched actions to in-flight and only clears them when a
+  // `:result` event arrives. Acknowledging after the outcome is delivered keeps
+  // that map bounded and prevents replay after a restart.
+  private async acknowledge(
+    connection: AgentHostRuntimeOptions["connection"],
+    action: AgentHostEnvelope,
+  ): Promise<void> {
+    if (!connection?.acknowledgeAction) return;
+    const actionId = isRecord(action.payload) && typeof action.payload.action_id === "string"
+      ? action.payload.action_id
+      : action.message_id;
+    try {
+      await connection.acknowledgeAction(actionId);
+    } catch {
+      // The result already reached the backend; a failed ack is non-fatal.
+    }
   }
 }
 
@@ -300,4 +352,9 @@ function isLocalValidationResult(value: unknown): value is LocalValidationResult
   return typeof value === "object" && value !== null
     && "source" in value && value.source === "local"
     && "event_id" in value && typeof value.event_id === "string";
+}
+
+function isQueuedResponse(value: unknown): boolean {
+  return typeof value === "object" && value !== null
+    && "status" in value && value.status === "queued";
 }

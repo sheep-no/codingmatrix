@@ -35,6 +35,8 @@ export interface CloudConnectionOptions {
   fetchImpl?: FetchLike;
   maxRetries?: number;
   retryDelayMs?: number;
+  requestTimeoutMs?: number;
+  streamIdleTimeoutMs?: number;
   actionsPath?: string;
   resultsPath?: string;
   handshakePath?: string;
@@ -57,6 +59,13 @@ export class CloudConnectionError extends Error {
 
 type QueuedResult = {
   result: LocalValidationResult;
+  context?: ResultSubmissionContext;
+};
+
+export type ResultSubmissionContext = {
+  messageId?: string;
+  capability?: string;
+  policyVersion?: number;
 };
 
 export type QueuedResultResponse = {
@@ -154,6 +163,19 @@ export interface DecisionSubmitResult {
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 30_000;
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+]);
 
 export class CloudConnection {
   private readonly baseUrl: string;
@@ -161,6 +183,8 @@ export class CloudConnection {
   private readonly fetchImpl: FetchLike;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly requestTimeoutMs: number;
+  private readonly streamIdleTimeoutMs: number;
   private readonly actionsPath: string;
   private readonly resultsPath: string;
   private readonly handshakePath: string;
@@ -180,6 +204,8 @@ export class CloudConnection {
     this.fetchImpl = options.fetchImpl ?? nodeFetch;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 250;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
     this.actionsPath = options.actionsPath ?? DEFAULT_ACTIONS_PATH;
     this.resultsPath = options.resultsPath ?? DEFAULT_RESULTS_PATH;
     this.handshakePath = options.handshakePath ?? DEFAULT_HANDSHAKE_PATH;
@@ -188,6 +214,10 @@ export class CloudConnection {
 
   get pendingResultCount(): number {
     return this.queuedResults.length;
+  }
+
+  get hostSessionId(): string | undefined {
+    return this.sessionId;
   }
 
   async handshake(hello: HostHelloPayload): Promise<HostHandshake> {
@@ -483,30 +513,43 @@ export class CloudConnection {
     onEvent: (event: AgentStreamEvent) => void | Promise<void>,
     signal?: AbortSignal,
   ): Promise<void> {
-    const response = await this.request("/api/v1/agent/orchestrate/stream", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-      signal,
-    });
-    if (!response.body) throw new CloudConnectionError("request_failed", "agent stream response has no body");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const chunk = await reader.read();
-      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-      for (const frame of frames) {
-        const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-        if (!data) continue;
-        await onEvent(this.parseStreamEvent(data));
-      }
-      if (chunk.done) break;
+    // The stream gets its own controller so an idle read can tear down the
+    // socket, and so the caller's abort still propagates to the fetch.
+    const controller = new AbortController();
+    const forwardAbort = (): void => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener("abort", forwardAbort, { once: true });
     }
-    const finalData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-    if (finalData) await onEvent(this.parseStreamEvent(finalData));
+    try {
+      const response = await this.request("/api/v1/agent/orchestrate/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+        timeoutMs: this.streamIdleTimeoutMs,
+      });
+      if (!response.body) throw new CloudConnectionError("request_failed", "agent stream response has no body");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const chunk = await this.readStreamChunk(reader, controller);
+        buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+          if (!data) continue;
+          await onEvent(this.parseStreamEvent(data));
+        }
+        if (chunk.done) break;
+      }
+      const finalData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+      if (finalData) await onEvent(this.parseStreamEvent(finalData));
+    } finally {
+      signal?.removeEventListener("abort", forwardAbort);
+    }
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {
@@ -523,14 +566,17 @@ export class CloudConnection {
     return actions.map(parsePendingAction);
   }
 
-  async submitResult(resultInput: unknown): Promise<unknown> {
+  async submitResult(
+    resultInput: unknown,
+    context: ResultSubmissionContext = {},
+  ): Promise<unknown> {
     const result = parseLocalValidationResult(resultInput);
     try {
-      return await this.submitParsedResult(result);
+      return await this.submitParsedResult(result, context);
     } catch (error) {
-      if (this.isNetworkError(error)) {
-        if (this.resultStore) await this.resultStore.enqueue(result);
-        else this.queuedResults.push({ result });
+      if (this.shouldRetainResult(error)) {
+        if (this.resultStore) await this.resultStore.enqueue(result, context);
+        else this.queuedResults.push({ result, context });
         return { status: "queued", event_id: result.event_id } satisfies QueuedResultResponse;
       }
       throw error;
@@ -545,11 +591,11 @@ export class CloudConnection {
     while (this.queuedResults.length > 0) {
       const queued = this.queuedResults[0];
       try {
-        const response = await this.submitParsedResult(queued.result);
+        await this.submitParsedResult(queued.result, queued.context);
         this.queuedResults.shift();
         flushed += 1;
       } catch (error) {
-        if (this.isNetworkError(error)) {
+        if (this.shouldRetainResult(error)) {
           break;
         }
         this.queuedResults.shift();
@@ -563,41 +609,98 @@ export class CloudConnection {
     const pending = await this.resultStore!.listPending();
     for (const record of pending) {
       try {
-        const response = await this.submitParsedResult(record.result);
+        await this.submitParsedResult(record.result, record.context);
         await this.resultStore!.acknowledge(record.result.event_id);
         flushed += 1;
       } catch (error) {
-        if (this.isNetworkError(error)) break;
+        if (this.shouldRetainResult(error)) break;
         await this.resultStore!.acknowledge(record.result.event_id);
       }
     }
     return flushed;
   }
 
-  private async submitParsedResult(result: LocalValidationResult): Promise<unknown> {
-    const response = await this.request(this.resultsPath, {
+  private async submitParsedResult(
+    result: LocalValidationResult,
+    context: ResultSubmissionContext = {},
+  ): Promise<unknown> {
+    // The Host event route is the live contract; the legacy results path is
+    // only used before a Host session exists (custom deployments, tests). A
+    // queued result can carry the session id from before a re-handshake, so
+    // the envelope always follows the live session id.
+    const hostSessionId = this.sessionId;
+    const path = hostSessionId
+      ? `/api/v1/agent/host/sessions/${encodeURIComponent(hostSessionId)}/events`
+      : this.resultsPath;
+    const payload = hostSessionId
+      ? {
+          message_id: `${context.messageId ?? result.event_id}:result`,
+          schema_version: result.schema_version,
+          session_id: hostSessionId,
+          task_id: result.task_id,
+          revision: result.revision,
+          kind: "tool_result",
+          ...(context.capability === undefined ? {} : { capability: context.capability }),
+          ...(context.policyVersion === undefined ? {} : { policy_version: context.policyVersion }),
+          payload: result,
+        }
+      : result;
+    const response = await this.request(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(result),
+      body: JSON.stringify(payload),
     });
     return this.readJson(response);
   }
 
+  async acknowledgeAction(actionId: string): Promise<boolean> {
+    if (!this.sessionId) return false;
+    const response = await this.request(
+      `/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/actions/ack`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action_id: actionId }),
+      },
+    );
+    const body = await this.readJson(response);
+    return this.isRecord(body) && body.acknowledged === true;
+  }
+
   private async request(
     path: string,
-    init: { method: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+    init: {
+      method: string;
+      headers?: Record<string, string>;
+      body?: string;
+      signal?: AbortSignal;
+      timeoutMs?: number;
+    },
   ): Promise<HttpResponseLike> {
+    const method = init.method.toUpperCase();
+    // Only idempotent reads are safe to replay. A mutating request that times
+    // out or returns a transient status may already have taken effect server
+    // side, so it is surfaced instead of being sent twice.
+    const retryableMethod = method === "GET" || method === "HEAD";
+    const timeoutMs = init.timeoutMs ?? this.requestTimeoutMs;
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
-        const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-          ...init,
-          headers: {
-            authorization: `Bearer ${this.accessToken}`,
-            accept: "application/json",
-            ...init.headers,
+        const response = await this.fetchWithTimeout(
+          `${this.baseUrl}${path}`,
+          {
+            method,
+            headers: {
+              authorization: `Bearer ${this.accessToken}`,
+              accept: "application/json",
+              ...init.headers,
+            },
+            ...(init.body === undefined ? {} : { body: init.body }),
+            ...(init.signal === undefined ? {} : { signal: init.signal }),
           },
-        });
+          timeoutMs,
+          path,
+        );
         if (response.status === 401 || response.status === 403) {
           throw new CloudConnectionError(
             "authentication_failed",
@@ -611,7 +714,11 @@ export class CloudConnection {
             await this.describeFailure(response),
             response.status,
           );
-          if (!this.isRetryableStatus(response.status) || attempt === this.maxRetries) {
+          if (
+            !retryableMethod ||
+            !this.isRetryableStatus(response.status) ||
+            attempt === this.maxRetries
+          ) {
             throw error;
           }
           lastError = error;
@@ -622,7 +729,7 @@ export class CloudConnection {
         if (error instanceof CloudConnectionError && error.code === "authentication_failed") {
           throw error;
         }
-        if (!this.isNetworkError(error) || attempt === this.maxRetries) {
+        if (!retryableMethod || !this.isNetworkError(error) || attempt === this.maxRetries) {
           if (error instanceof CloudConnectionError) {
             throw error;
           }
@@ -638,11 +745,101 @@ export class CloudConnection {
     throw lastError ?? new CloudConnectionError("network_unavailable", "cloud network request failed");
   }
 
+  private async fetchWithTimeout(
+    url: string,
+    init: Parameters<FetchLike>[1],
+    timeoutMs: number,
+    path: string,
+  ): Promise<HttpResponseLike> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return this.fetchImpl(url, init);
+    }
+    const controller = new AbortController();
+    const forwardAbort = (): void => controller.abort();
+    if (init?.signal) {
+      if (init.signal.aborted) controller.abort();
+      else init.signal.addEventListener("abort", forwardAbort, { once: true });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(
+            new CloudConnectionError(
+              "network_unavailable",
+              `cloud request timed out after ${timeoutMs}ms for ${path}`,
+            ),
+          );
+        }, timeoutMs);
+      });
+      return await Promise.race([
+        this.fetchImpl(url, { ...init, signal: controller.signal }),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      init?.signal?.removeEventListener("abort", forwardAbort);
+    }
+  }
+
+  private async readStreamChunk(
+    reader: { read(): Promise<{ done: boolean; value?: Uint8Array }> },
+    controller: AbortController,
+  ): Promise<{ done: boolean; value?: Uint8Array }> {
+    if (!Number.isFinite(this.streamIdleTimeoutMs) || this.streamIdleTimeoutMs <= 0) {
+      return reader.read();
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(
+            new CloudConnectionError(
+              "network_unavailable",
+              `agent stream was idle for ${this.streamIdleTimeoutMs}ms`,
+            ),
+          );
+        }, this.streamIdleTimeoutMs);
+      });
+      return await Promise.race([reader.read(), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async readJson(response: HttpResponseLike): Promise<unknown> {
     try {
-      return await response.json();
-    } catch {
+      return await this.withReadTimeout(response.json());
+    } catch (error) {
+      if (error instanceof CloudConnectionError) throw error;
       throw new CloudConnectionError("request_failed", "cloud response is not valid JSON", response.status);
+    }
+  }
+
+  // Headers can arrive while the body stalls, which would otherwise hang the
+  // caller forever just like a missing response.
+  private async withReadTimeout<T>(operation: Promise<T>): Promise<T> {
+    const timeoutMs = this.requestTimeoutMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new CloudConnectionError(
+                "network_unavailable",
+                `cloud response body timed out after ${timeoutMs}ms`,
+              ),
+            );
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -651,7 +848,7 @@ export class CloudConnection {
   private async describeFailure(response: HttpResponseLike): Promise<string> {
     const fallback = `cloud request failed with status ${response.status}`;
     try {
-      const parsed: unknown = JSON.parse(await response.text());
+      const parsed: unknown = JSON.parse(await this.withReadTimeout(response.text()));
       if (this.isRecord(parsed)) {
         const detail = parsed.message ?? parsed.detail;
         if (typeof detail === "string" && detail.trim()) {
@@ -668,9 +865,18 @@ export class CloudConnection {
   // message; the workbench renders only the message, and the repetition makes
   // the forwarded stream quadratic in the response length.
   private parseStreamEvent(payload: string): AgentStreamEvent {
-    const event = JSON.parse(payload) as AgentStreamEvent & { accumulated?: unknown };
-    if (event.type === "thinking") delete event.accumulated;
-    return event;
+    try {
+      const event = JSON.parse(payload) as AgentStreamEvent & { accumulated?: unknown };
+      if (event.type === "thinking") delete event.accumulated;
+      return event;
+    } catch {
+      // One malformed frame must not end the whole stream. Surface it as a
+      // diagnostic event so the terminal `done`/`error` frame still arrives.
+      return {
+        type: "stream_warning",
+        data: { message: "无法解析的流式事件已跳过" },
+      };
+    }
   }
 
   private isRetryableStatus(status: number): boolean {
@@ -678,9 +884,22 @@ export class CloudConnection {
   }
 
   private isNetworkError(error: unknown): boolean {
-    return error instanceof CloudConnectionError
-      ? error.code === "network_unavailable"
-      : error instanceof TypeError;
+    if (error instanceof CloudConnectionError) return error.code === "network_unavailable";
+    if (error instanceof TypeError) return true;
+    // node:http surfaces connection failures as plain Error objects carrying a
+    // syscall code; recognize those so transient outages are retried.
+    if (error instanceof Error) {
+      const code = (error as { code?: unknown }).code;
+      return typeof code === "string" && NETWORK_ERROR_CODES.has(code);
+    }
+    return false;
+  }
+
+  // A 410 means the Host session expired before the result arrived. Keep the
+  // result so the next handshake can replay it against the new session.
+  private shouldRetainResult(error: unknown): boolean {
+    return this.isNetworkError(error)
+      || (error instanceof CloudConnectionError && error.status === 410);
   }
 
   private async delay(milliseconds: number): Promise<void> {

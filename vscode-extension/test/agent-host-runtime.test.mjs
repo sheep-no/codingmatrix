@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { AgentHostRuntime, AgentHostRuntimeError } from "../dist/agent-host-runtime.js";
 import { AgentHostSession } from "../dist/agent-host.js";
 import { ApprovalBridge } from "../dist/approval-bridge.js";
+import { ToolDispatcher } from "../dist/tool-dispatcher.js";
+import { WorkspaceAuthorization } from "../dist/workspace-authorization.js";
 
 const policy = {
   local_execution_enabled: true,
@@ -138,6 +143,173 @@ test("polls cloud validation actions and submits local results", async () => {
   });
   assert.equal(await runtime.poll(), 1);
   assert.deepEqual(submitted, [result]);
+});
+
+test("acknowledges a local validation action after submitting its result", async () => {
+  const calls = [];
+  const action = {
+    action_id: "action-ack",
+    event_id: "event-ack",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    workspace_id: "workspace-1",
+    validation_scope: "local_runtime",
+    operation: "unit_test",
+    command: ["node", "--version"],
+    working_directory: ".",
+    timeout_seconds: 10,
+    requested_by: "cloud",
+  };
+  const result = {
+    event_id: "result-ack",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    source: "local",
+    validation_scope: "local_runtime",
+    status: "passed",
+    started_at: "2026-08-29T00:00:00Z",
+    finished_at: "2026-08-29T00:00:01Z",
+    summary: { command_name: "node", diagnostics: [] },
+  };
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: { dispatch: async () => result },
+    connection: {
+      fetchPendingActions: async () => [action],
+      submitResult: async (value, context) => { calls.push(["result", value, context]); },
+      acknowledgeAction: async (actionId) => { calls.push(["ack", actionId]); return true; },
+    },
+  });
+
+  assert.equal(await runtime.poll(), 1);
+  assert.deepEqual(calls[0][0], "result");
+  assert.deepEqual(calls[1], ["ack", "action-ack"]);
+});
+
+test("keeps an action unacknowledged when the result is only queued", async () => {
+  const calls = [];
+  const action = {
+    action_id: "action-queued",
+    event_id: "event-queued",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    workspace_id: "workspace-1",
+    validation_scope: "local_runtime",
+    operation: "unit_test",
+    command: ["node", "--version"],
+    working_directory: ".",
+    timeout_seconds: 10,
+    requested_by: "cloud",
+  };
+  const result = {
+    event_id: "result-queued",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    source: "local",
+    validation_scope: "local_runtime",
+    status: "passed",
+    started_at: "2026-08-29T00:00:00Z",
+    finished_at: "2026-08-29T00:00:01Z",
+    summary: { command_name: "node", diagnostics: [] },
+  };
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: { dispatch: async () => result },
+    connection: {
+      fetchPendingActions: async () => [action],
+      submitResult: async () => ({ status: "queued", event_id: "result-queued" }),
+      acknowledgeAction: async (actionId) => { calls.push(actionId); return true; },
+    },
+  });
+
+  assert.equal(await runtime.poll(), 1);
+  assert.deepEqual(calls, []);
+});
+
+test("continues polling after a malformed local validation action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "codingmatrix-runtime-poll-"));
+  const authorization = new WorkspaceAuthorization();
+  await authorization.grant("workspace-1", root);
+  const errors = [];
+  const submitted = [];
+  const malformed = {
+    action_id: "action-malformed",
+    event_id: "event-malformed",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    workspace_id: "workspace-1",
+  };
+  const valid = {
+    action_id: "action-valid",
+    event_id: "event-valid",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    workspace_id: "workspace-1",
+    validation_scope: "local_runtime",
+    operation: "unit_test",
+    command: ["node", "--version"],
+    working_directory: ".",
+    timeout_seconds: 10,
+    requested_by: "cloud",
+  };
+  const result = {
+    event_id: "result-valid",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    source: "local",
+    validation_scope: "local_runtime",
+    status: "passed",
+    summary: { command_name: "node", diagnostics: [] },
+  };
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: new ToolDispatcher({
+      authorization,
+      validationRunner: { run: async () => result },
+    }),
+    connection: {
+      fetchPendingActions: async () => [malformed, valid],
+      submitResult: async (value) => { submitted.push(value); },
+    },
+    onActionError: async (action, error) => errors.push([action.message_id, error.name]),
+  });
+
+  try {
+    assert.equal(await runtime.poll(), 2);
+    assert.equal(submitted.length, 1);
+    assert.deepEqual(errors, [["event-malformed", "ProtocolError"]]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("propagates transport failures from the poll loop", async () => {
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: createDispatcher(),
+    connection: {
+      fetchPendingActions: async () => {
+        throw new Error("network down");
+      },
+      submitResult: async () => undefined,
+    },
+  });
+
+  await assert.rejects(runtime.poll(), /network down/);
 });
 
 test("deduplicates concurrent tool actions by session and message id", async () => {

@@ -365,7 +365,7 @@ test("flushes persisted results after a successful handshake", async () => {
     },
   });
   await reconnected.handshake({ workspace_id: "workspace-1", extension_version: "0.1.0", protocol_versions: [1], capabilities: ["workspace"] });
-  assert.deepEqual(calls, ["https://codingmatrix.example/api/v1/agent/host/handshake", "https://codingmatrix.example/api/v1/agent/local-validation/results"]);
+  assert.deepEqual(calls, ["https://codingmatrix.example/api/v1/agent/host/handshake", "https://codingmatrix.example/api/v1/agent/host/sessions/session-1/events"]);
   assert.deepEqual(await resultStore.listPending(), []);
 });
 
@@ -399,6 +399,92 @@ test("restores persisted results after a connection instance restarts", async ()
   });
 
   assert.equal(await restarted.flushPendingResults(), 1);
+  assert.deepEqual(await resultStore.listPending(), []);
+});
+
+test("re-routes a queued result to the session from a later handshake", async () => {
+  const storage = new MemoryResultStorage();
+  const resultStore = new ResultStore(storage);
+  let online = false;
+  const first = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore,
+    fetchImpl: async () => { throw new TypeError("offline"); },
+  });
+  await first.submitResult(result, { messageId: "action-1" });
+
+  const now = new Date();
+  const handshake = () => response({
+    session_id: "session-2",
+    workspace_id: "workspace-1",
+    extension_version: "0.1.0",
+    protocol_version: 1,
+    capabilities: ["workspace"],
+    policy_version: 1,
+    policy: {
+      local_execution_enabled: true,
+      validation_operations: {},
+      auto_approve: false,
+      require_confirmation_on_failure: true,
+    },
+    pending_actions: [],
+    expires_at: new Date(now.getTime() + 30 * 60_000).toISOString(),
+  });
+  const calls = [];
+  const reconnected = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore: new ResultStore(storage),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return url.endsWith("/handshake") ? handshake() : response({ accepted: true });
+    },
+  });
+  await reconnected.handshake({
+    workspace_id: "workspace-1",
+    extension_version: "0.1.0",
+    protocol_versions: [1],
+    capabilities: ["workspace"],
+  });
+
+  const event = calls.at(-1);
+  assert.equal(
+    event.url,
+    "https://codingmatrix.example/api/v1/agent/host/sessions/session-2/events",
+  );
+  const body = JSON.parse(event.init.body);
+  assert.equal(body.session_id, "session-2");
+  assert.equal(body.message_id, "action-1:result");
+});
+
+test("keeps a result when the host session expired before delivery", async () => {
+  const storage = new MemoryResultStorage();
+  const resultStore = new ResultStore(storage);
+  let expired = true;
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore,
+    fetchImpl: async () => (expired
+      ? response({ detail: "session expired" }, 410)
+      : response({ accepted: true })),
+  });
+
+  assert.deepEqual(
+    await connection.submitResult(result, { messageId: "action-1" }),
+    { status: "queued", event_id: "result-1" },
+  );
+  assert.equal((await resultStore.listPending()).length, 1);
+
+  expired = false;
+  assert.equal(await connection.flushPendingResults(), 1);
   assert.deepEqual(await resultStore.listPending(), []);
 });
 
@@ -698,4 +784,205 @@ test("reports the ignored decision status instead of throwing", async () => {
     status: "ignored",
     sessionId: "s-1",
   });
+});
+
+test("times out a request that never responds", async () => {
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    requestTimeoutMs: 20,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  await assert.rejects(
+    connection.fetchPendingActions(),
+    (error) =>
+      error instanceof CloudConnectionError &&
+      error.code === "network_unavailable" &&
+      error.message.includes("timed out"),
+  );
+});
+
+test("times out when headers arrive but the body stalls", async () => {
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    requestTimeoutMs: 20,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: () => new Promise(() => {}),
+      text: () => new Promise(() => {}),
+    }),
+  });
+
+  await assert.rejects(
+    connection.fetchPendingActions(),
+    (error) =>
+      error instanceof CloudConnectionError &&
+      error.code === "network_unavailable" &&
+      error.message.includes("body timed out"),
+  );
+});
+
+test("does not retry a mutating request on a transient status", async () => {
+  let attempts = 0;
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      attempts += 1;
+      return response({}, 503);
+    },
+    retryDelayMs: 0,
+  });
+
+  await assert.rejects(
+    connection.submitDecisions("session-1", { a: "b" }),
+    (error) => error instanceof CloudConnectionError && error.status === 503,
+  );
+  assert.equal(attempts, 1);
+});
+
+test("retries a read after a transient status", async () => {
+  let attempts = 0;
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      attempts += 1;
+      return attempts === 1 ? response({}, 503) : response({ actions: [action] });
+    },
+    retryDelayMs: 0,
+  });
+
+  assert.deepEqual(await connection.fetchPendingActions(), [action]);
+  assert.equal(attempts, 2);
+});
+
+test("retries a read after a syscall network error", async () => {
+  let attempts = 0;
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        const error = new Error("connect ECONNREFUSED");
+        error.code = "ECONNREFUSED";
+        throw error;
+      }
+      return response({ actions: [action] });
+    },
+    retryDelayMs: 0,
+  });
+
+  assert.deepEqual(await connection.fetchPendingActions(), [action]);
+  assert.equal(attempts, 2);
+});
+
+test("survives a malformed stream frame and still delivers the done event", async () => {
+  const chunks = [
+    new TextEncoder().encode("data: {not-json}\n\n"),
+    new TextEncoder().encode('data: {"type":"done","data":{"success":true}}\n\n'),
+  ];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async () => {
+      let index = 0;
+      return {
+        ...response({}, 200),
+        body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: chunks[index++] } : { done: true } }) },
+      };
+    },
+  });
+  const events = [];
+
+  await connection.streamAgentPrompt({ requirement: "检查项目" }, (event) => events.push(event));
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, "stream_warning");
+  assert.deepEqual(events[1], { type: "done", data: { success: true } });
+});
+
+test("submits a local result as a host tool_result event once a session exists", async () => {
+  const calls = [];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/handshake")) {
+        return response({
+          session_id: "session-1",
+          workspace_id: "workspace-1",
+          extension_version: "0.1.0",
+          protocol_version: 1,
+          capabilities: ["workspace"],
+          policy_version: 1,
+          policy: { local_execution_enabled: true, validation_operations: {}, auto_approve: false, require_confirmation_on_failure: true },
+          pending_actions: [],
+        });
+      }
+      return response({ accepted: true });
+    },
+    retryDelayMs: 0,
+  });
+  await connection.handshake({ workspace_id: "workspace-1", extension_version: "0.1.0", protocol_versions: [1], capabilities: ["workspace"] });
+
+  await connection.submitResult(result, {
+    messageId: "action-1",
+    capability: "validation",
+    policyVersion: 1,
+  });
+
+  const submitted = calls.at(-1);
+  assert.equal(
+    submitted.url,
+    "https://codingmatrix.example/api/v1/agent/host/sessions/session-1/events",
+  );
+  const body = JSON.parse(submitted.init.body);
+  assert.equal(body.kind, "tool_result");
+  assert.equal(body.message_id, "action-1:result");
+  assert.equal(body.session_id, "session-1");
+  assert.equal(body.capability, "validation");
+  assert.deepEqual(body.payload, result);
+});
+
+test("acknowledges an executed action through the host session", async () => {
+  const calls = [];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/handshake")) {
+        return response({
+          session_id: "session-1",
+          workspace_id: "workspace-1",
+          extension_version: "0.1.0",
+          protocol_version: 1,
+          capabilities: ["workspace"],
+          policy_version: 1,
+          policy: { local_execution_enabled: true, validation_operations: {}, auto_approve: false, require_confirmation_on_failure: true },
+          pending_actions: [],
+        });
+      }
+      return response({ acknowledged: true, action_id: "action-1" });
+    },
+    retryDelayMs: 0,
+  });
+  await connection.handshake({ workspace_id: "workspace-1", extension_version: "0.1.0", protocol_versions: [1], capabilities: ["workspace"] });
+
+  assert.equal(await connection.acknowledgeAction("action-1"), true);
+  assert.equal(
+    calls.at(-1).url,
+    "https://codingmatrix.example/api/v1/agent/host/sessions/session-1/actions/ack",
+  );
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { action_id: "action-1" });
 });

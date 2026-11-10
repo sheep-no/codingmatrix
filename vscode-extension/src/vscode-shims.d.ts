@@ -12,6 +12,9 @@ declare module "vscode" {
   }
   export interface WorkspaceFolder { name: string; uri: { fsPath: string }; }
   export interface Webview { html: string; onDidReceiveMessage(listener: (message: unknown) => void): Disposable; postMessage(message: unknown): PromiseLike<boolean>; }
+  export interface ConfigurationChangeEvent {
+    affectsConfiguration(section: string): boolean;
+  }
   export interface WebviewPanel { webview: Webview; onDidDispose(listener: () => void): Disposable; reveal(viewColumn?: ViewColumn): void; dispose(): void; }
   export interface Window {
     createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel;
@@ -36,6 +39,7 @@ declare module "vscode" {
     workspaceFolders?: WorkspaceFolder[];
     getConfiguration(section?: string): { get<T>(key: string, defaultValue?: T): T | undefined };
     createFileSystemWatcher(globPattern: string): FileSystemWatcher;
+    onDidChangeConfiguration(listener: (event: ConfigurationChangeEvent) => void): Disposable;
   };
   export const languages: { getDiagnostics(): Array<[Uri, Diagnostic[]]> };
   export enum ViewColumn { One = 1 }
