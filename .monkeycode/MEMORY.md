@@ -152,7 +152,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 项目内仍有独立 SSRF 校验未收敛（`app/utils/pptx/image_search.py` 的 `_is_safe_url`、`app/api/v1/aiGeneratorPptx.py` 图片下载、`app/agent/tools.py` http 工具）；`http_request.py`、`web_search.py`、`image_generation.py` 已改用 `check_outbound_url`。
   - 该校验会拒绝解析到内网的地址（含本机 Ollama/vLLM）；自托管场景需要显式白名单，不要为了兼容而放开内网校验。
   - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
-  - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
+  - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace <venv>/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/api/docs` 与 `:3000`。FastAPI 的 `docs_url`/`openapi_url` 配置为 `/api/docs`、`/api/openapi.json`；`/docs`、`/openapi.json` 会落到 SPA 回退，前端未构建时 `src/dist/index.html` 缺失即返回 500，不能作为存活判据。
   - 写前语法门禁调用 `node -c` / `tsc` 时，返回码为负表示 node 被信号终止（如 OOM），属环境异常而非源码语法错误；此类情况应退回括号平衡启发式，不能判生成代码语法失败。
   - `CodeValidator` 会在后端进程内 `exec` 生成项目代码做运行时校验。生成项目若与 Agent 自身包同名（如 `app/`），`sys.modules` 已缓存 Agent 同名包会导致假的 "cannot import name ... from 'app'"；排查此类报错时先确认校验是否受同名缓存影响。
   - 门禁类误报的高频模式是把「Agent 执行环境状态」当成「代码缺陷」：未安装的第三方 import、依赖清单中未安装的包、node 被信号终止都属环境状态，不计入代码有效性；只有项目内模块/符号缺失才算缺陷。修一处后要顺带核对同类检查（静态导入、运行时导入、node/tsc 门禁、依赖清单）是否一致。
