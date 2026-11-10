@@ -32,5 +32,7 @@ def dispatch_state_actions(session_id: str, state: Any) -> None:
         return
     try:
         _dispatcher(session_id, state)
-    except KeyError:
+    except (KeyError, ValueError):
+        # An expired session or a state bound to another session must not fail
+        # the workflow that produced the actions.
         pass

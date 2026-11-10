@@ -8,6 +8,7 @@ from app.api.v1.agent_host import (
     AgentHostEnvelope,
     HostHandshakeRequest,
     agent_host_handshake,
+    bind_workflow_session,
     get_agent_host_actions,
     post_agent_host_event,
     update_agent_host_policy,
@@ -24,6 +25,7 @@ from app.api.v1.agent_host import (
     agent_host_heartbeat,
     _prune_expired_sessions,
 )
+from app.agent.host_action_dispatch import dispatch_state_actions
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models import ProjectSession
@@ -192,6 +194,185 @@ async def test_enqueue_state_actions_maps_execution_capabilities() -> None:
     assert enqueue_state_actions(handshake.session_id, state) == 3
     queued = (await get_agent_host_actions(handshake.session_id, {"sub": "user-capabilities"})).actions
     assert [action["capability"] for action in queued] == ["file", "terminal", "validation"]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_translates_validation_commands(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "projects" / "user-commands" / "demo"
+    workspace.mkdir(parents=True)
+    (workspace / "package.json").write_text(
+        '{"scripts": {"test": "node --test", "build": "tsc -p ."}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "app.api.v1.ai_agent.project_config.PROJECTS_BASE_DIR",
+        str(tmp_path / "projects"),
+    )
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-commands",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-commands"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-commands",
+        "revision": 3,
+        "metadata": {"output_dir": "user-commands/demo"},
+        "pending_actions": [{
+            "type": "local_validation",
+            "action_id": "action-commands",
+            "scopes": ["local_runtime"],
+        }],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 1
+
+    action = (await get_agent_host_actions(handshake.session_id, {"sub": "user-commands"})).actions[0]
+    payload = action["payload"]
+    assert payload["event_id"] == action["message_id"]
+    assert payload["session_id"] == handshake.session_id
+    assert payload["workspace_id"] == "workspace-commands"
+    assert payload["validation_scope"] == "local_runtime"
+    assert payload["operation"] == "unit_test"
+    assert payload["command"] == ["npm", "run", "test"]
+    assert payload["working_directory"] == "."
+    assert payload["timeout_seconds"] > 0
+    assert payload["requested_by"] == "cloud"
+
+
+@pytest.mark.asyncio
+async def test_bound_workflow_session_routes_actions_to_host_queue() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-bound",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-bound"},
+    )
+    conversation_id = "vscode-agent-bound-conversation"
+    bind_workflow_session(conversation_id, handshake.session_id, "user-bound")
+    state = {
+        "session_id": conversation_id,
+        "task_id": "task-bound",
+        "pending_actions": [{
+            "type": "local_validation",
+            "action_id": "action-bound",
+            "scope": "local_runtime",
+        }],
+    }
+
+    assert enqueue_state_actions(conversation_id, state) == 1
+
+    actions = (await get_agent_host_actions(handshake.session_id, {"sub": "user-bound"})).actions
+    assert actions[0]["session_id"] == handshake.session_id
+    assert actions[0]["payload"]["action_id"] == "action-bound"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_skips_validation_without_detected_command(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    workspace = tmp_path / "projects" / "user-empty" / "demo"
+    workspace.mkdir(parents=True)
+    monkeypatch.setattr(
+        "app.api.v1.ai_agent.project_config.PROJECTS_BASE_DIR",
+        str(tmp_path / "projects"),
+    )
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-empty",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-empty"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-empty",
+        "metadata": {"output_dir": "projects/user-empty/demo"},
+        "pending_actions": [{
+            "type": "local_validation",
+            "action_id": "action-empty",
+            "scopes": ["local_runtime"],
+        }],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 0
+    assert (
+        await get_agent_host_actions(handshake.session_id, {"sub": "user-empty"})
+    ).actions == []
+
+
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_translates_dependency_install(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "projects" / "user-install" / "demo"
+    workspace.mkdir(parents=True)
+    (workspace / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.api.v1.ai_agent.project_config.PROJECTS_BASE_DIR",
+        str(tmp_path / "projects"),
+    )
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-install",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["terminal"],
+        ),
+        {"sub": "user-install"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-install",
+        "metadata": {"project_path": "user-install/demo"},
+        "pending_actions": [{"type": "install_dependencies", "action_id": "action-install"}],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 1
+
+    payload = (
+        await get_agent_host_actions(handshake.session_id, {"sub": "user-install"})
+    ).actions[0]["payload"]
+    assert payload["operation"] == "dependency_install"
+    assert payload["command"] == ["python3", "-m", "pip", "install", "-r", "requirements.txt"]
+    assert payload["timeout_seconds"] == 600
+
+
+def test_bind_workflow_session_rejects_foreign_host_session() -> None:
+    with pytest.raises(KeyError):
+        bind_workflow_session("conversation", "missing-host-session", "user")
+
+
+def test_dispatch_state_actions_ignores_session_mismatch() -> None:
+    class State:
+        def to_dict(self):
+            return {"session_id": "other", "pending_actions": []}
+
+    session_id = "vscode-agent-mismatch"
+    from app.api.v1 import agent_host
+
+    agent_host._sessions[session_id] = {
+        "user_id": "user",
+        "workspace_id": "workspace",
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+    }
+    try:
+        dispatch_state_actions(session_id, State())
+    finally:
+        agent_host._sessions.pop(session_id, None)
 
 
 def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None:
@@ -368,6 +549,153 @@ async def test_tool_result_resumes_workflow_and_reaches_completed() -> None:
 
     assert response.state_status == "completed"
     assert (await get_agent_host_actions(handshake.session_id, {"sub": "user-6"})).actions == []
+
+
+@pytest.mark.asyncio
+async def test_tool_result_resumes_bound_workflow_session() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-bound-resume",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-bound-resume"},
+    )
+    conversation_id = "vscode-agent-bound-resume"
+    bind_workflow_session(conversation_id, handshake.session_id, "user-bound-resume")
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{
+                "type": "local_validation",
+                "action_id": "workflow-action-bound",
+                "scope": "local_runtime",
+            }],
+            metadata={"required_validation_scopes": ["local_runtime"]},
+        )
+
+    definition = WorkflowDefinition(
+        name="bound-resume-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(definition, session_id=conversation_id, task_id="task-bound-resume")
+    action = (
+        await get_agent_host_actions(handshake.session_id, {"sub": "user-bound-resume"})
+    ).actions[0]
+    assert action["payload"]["session_id"] == handshake.session_id
+
+    response = await post_agent_host_event(
+        handshake.session_id,
+        AgentHostEnvelope(
+            message_id=f"{action['message_id']}:result",
+            schema_version=1,
+            session_id=handshake.session_id,
+            task_id="task-bound-resume",
+            revision=1,
+            kind="tool_result",
+            capability="validation",
+            policy_version=1,
+            payload={
+                "validation_scope": "local_runtime",
+                "status": "passed",
+                "summary": {"tests_passed": 2},
+            },
+        ),
+        {"sub": "user-bound-resume"},
+    )
+
+    assert response.state_status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_multiple_validation_scopes_run_one_round_at_a_time(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "projects" / "user-scopes" / "demo"
+    workspace.mkdir(parents=True)
+    (workspace / "package.json").write_text(
+        '{"scripts": {"test": "node --test"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "app.api.v1.ai_agent.project_config.PROJECTS_BASE_DIR",
+        str(tmp_path / "projects"),
+    )
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-scopes",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-scopes"},
+    )
+    conversation_id = "vscode-agent-multi-scope"
+    bind_workflow_session(conversation_id, handshake.session_id, "user-scopes")
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{
+                "type": "local_validation",
+                "action_id": "workflow-action-scopes",
+                "scopes": ["local_runtime", "local_e2e"],
+            }],
+            metadata={"required_validation_scopes": ["local_runtime", "local_e2e"]},
+        )
+
+    definition = WorkflowDefinition(
+        name="multi-scope-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(
+        definition,
+        session_id=conversation_id,
+        task_id="task-multi-scope",
+        metadata={
+            "output_dir": "user-scopes/demo",
+            "required_validation_scopes": ["local_runtime", "local_e2e"],
+        },
+    )
+
+    for expected_scope in ("local_runtime", "local_e2e"):
+        actions = (
+            await get_agent_host_actions(handshake.session_id, {"sub": "user-scopes"})
+        ).actions
+        assert len(actions) == 1
+        action = actions[0]
+        assert action["payload"]["validation_scope"] == expected_scope
+        response = await post_agent_host_event(
+            handshake.session_id,
+            AgentHostEnvelope(
+                message_id=f"{action['message_id']}:result",
+                schema_version=1,
+                session_id=handshake.session_id,
+                task_id="task-multi-scope",
+                revision=action["revision"],
+                kind="tool_result",
+                capability="validation",
+                policy_version=1,
+                payload={
+                    "validation_scope": expected_scope,
+                    "status": "passed",
+                    "summary": {"tests_passed": 1},
+                },
+            ),
+            {"sub": "user-scopes"},
+        )
+        assert response.accepted is True
+
+    assert response.state_status == "completed"
+    assert (
+        await get_agent_host_actions(handshake.session_id, {"sub": "user-scopes"})
+    ).actions == []
 
 
 @pytest.mark.asyncio
