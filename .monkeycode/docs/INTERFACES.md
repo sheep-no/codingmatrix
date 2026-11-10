@@ -36,7 +36,7 @@ Flutter 页面对 Token 执行密码输入和提交后清理，并显示“尚�
 - `POST /api/v1/login`：接收 email/password，要求 CSRF Cookie 和 X-CSRF-Token 一致且在服务端有效；返回 access_token、username、permission_level，设置 refresh_token（HttpOnly、Path=/api/v1、Max-Age=604800）并轮换 csrf_token Cookie。
 - `POST /api/v1/refresh`：使用 refresh_token Cookie 和有效 CSRF 双提交；返回新访问令牌和用户信息，只轮换 csrf_token Cookie，原 refresh_token Cookie 继续保留。生产环境两种 Cookie 均为 Secure，SameSite=lax。
 - `POST /api/v1/register`：注册用户。
-- 服务端 logout 接口尚未找到；Flutter 退出为本地凭据与缓存清理，不发送撤销接口或 Agent stop。
+- `POST /api/v1/logout`：接收 Bearer 访问令牌，将令牌写入 Redis 吊销黑名单并删除 refresh_token Cookie（`app/api/v1/auth.py:517`）。Flutter 退出登录时先清理本地凭据，再以 Bearer + Cookie + `X-CSRF-Token` 调用该接口撤销远端令牌（`cloud_auth_client.dart` `logout(revokeRemote: true)`）；撤销请求限时 5 秒且失败静默，保证本地登出一定完成。
 - `GET /api/v1/health`：检查数据库和 Redis 状态。
 - `GET /api/v1/public-key`：读取前端加密所需的公开密钥。
 
@@ -153,7 +153,7 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 模型上下文包含 `schema_version`、`config_version`、`roles`、`current_model`、`current_agent`、`assignments`、`fallback_history` 和 `updated_at`。接口仅接收模型标识和运行统计，不接收供应商凭据。
 
-同步与流式编排共用 `OrchestratorRequest`：`engine` 为可选 `legacy|core`，省略时沿用服务端配置（缺省 `legacy`）；`contracts` 为可选对象，`framework` 和 `runtime` 为可选的 1–100 字符字符串。`_core_request_metadata()` 结构化传递这些字段及 `required_validation_scopes`、`allowed_files`、`change_plan`，同时派生 `requested_paths` 和 `user_requirement`。同步显式 Core 请求跳过单文件快捷路径。
+同步与流式编排共用 `OrchestratorRequest`：`engine` 为可选 `legacy|core`，省略时沿用服务端配置（缺省 `legacy`）；`contracts` 为可选对象，`framework` 和 `runtime` 为可选的 1–100 字符字符串。`host_session_id` 为可选 Agent Host 会话号，提供时 `_bind_local_validation_session()` 调用 `bind_workflow_session()` 绑定 owner 并校验；未知或越权会话返回 403。`required_validation_scopes` 仅接受 `local_runtime`、`local_e2e`，校验后去重写入 metadata。`_core_request_metadata()` 结构化传递这些字段及 `allowed_files`、`change_plan`，同时派生 `requested_paths` 和 `user_requirement`。同步显式 Core 请求跳过单文件快捷路径。
 
 HTTP body 合同由 `code_synthesis_contracts.HttpContract` 描述，`contracts.routes[]` / `contracts.endpoints[]` 可提供 `request_body_schema`、`response_body_schema`（JSON Schema 对象或布尔值）和 `serialization_guidance`（字符串），三项均可省略。索引保留旧合同的额外字段，使用 `exclude_unset=True` 保持省略字段的原有形状和摘要；body schema 或指导变化会改变索引摘要。`contracts` 请求字段继续接受旧字典结构；端点透传至 Core，索引构造时校验新增字段类型。
 
@@ -264,13 +264,13 @@ Core 同步响应增加 `workflow`：Core 在生成前将冻结的 `WorkflowIR` 
 
 `app.agent.project_snapshot.ProjectSnapshot` 保存项目基线 revision、文件路径、大小和 SHA-256。`app.agent.change_plan.ChangePlan` 保存基于快照的动态 `FileChange`，支持新增、修改、删除和重命名，并通过 `verify_untouched()` 检查计划外文件变化。`IncrementalFileTransaction.stage()` 在调度前备份 modify 原文件、暂存 delete/rename 源文件并登记 add/rename 新目标；`commit()` 清除事务暂存区，`rollback()` 恢复备份并移除本轮新增目标。
 
-云端验证使用 `source=cloud`、`scope=cloud_syntax`，并根据 `State.metadata.required_validation_scopes` 创建本地验证动作。本地结果适配器只接受 `local_runtime` 或 `local_e2e`，校验 task、session、revision、schema version、scope 和 `source=local`，并将协议字段映射到内部 `scope`、`passed`、`source=vscode` 契约。`passed`、`skipped`、`failed`、`timeout`、`rejected`、`cancelled` 和 `unsupported` 进入状态推导，其中 `skipped` 视为已完成阶段，`waiting_for_confirmation` 保持未完成；当语言能力、验证命令或契约版本不可用时使用 `unsupported`，保留 `reason` 等诊断并停止创建后续本地验证动作。适配器按已完成 scope 更新待执行动作，所有必需 scope 通过或跳过后才产生 `completed` 状态。VS Code 插件本地 E2E、Agent Host 真实 HTTP session 控制闭环和用户模型 Key 流程均已验收，模型驱动的跨工作台续跑仍属于独立场景验收。
+云端验证使用 `source=cloud`、`scope=cloud_syntax`，并根据 `State.metadata.required_validation_scopes` 创建本地验证动作。`enqueue_state_actions()` 将 State 待执行动作翻译为 Host 动作：按 scope 用 `detect_toolchain()` 选择命令，补齐 `event_id`、`schema_version`、`validation_scope`、`operation`、`command`、`working_directory`、`timeout_seconds`、`requested_by="cloud"`；每轮每个 scope 只下发一条，无可用命令时保留在云端而非下发缺字段动作。Workflow 稳定会话号通过 `workflow_session_id` 绑定到 Host 会话，动作投递和 `tool_result` 恢复按该映射路由，checkpoint 键仍使用稳定会话号。本地结果适配器只接受 `local_runtime` 或 `local_e2e`，校验 task、session、revision、schema version、scope 和 `source=local`，并将协议字段映射到内部 `scope`、`passed`、`source=vscode` 契约。`passed`、`skipped`、`failed`、`timeout`、`rejected`、`cancelled` 和 `unsupported` 进入状态推导，其中 `skipped` 视为已完成阶段，`waiting_for_confirmation` 保持未完成；当语言能力、验证命令或契约版本不可用时使用 `unsupported`，保留 `reason` 等诊断并停止创建后续本地验证动作。适配器按已完成 scope 更新待执行动作，所有必需 scope 通过或跳过后才产生 `completed` 状态。VS Code 插件本地 E2E、Agent Host 真实 HTTP session 控制闭环和用户模型 Key 流程均已验收，模型驱动的跨工作台续跑仍属于独立场景验收。
 
 `vscode-extension/src/protocol.ts` 提供 VS Code 端的 `PendingAction` 和 `LocalValidationResult` 类型及运行时解析器。插件端使用 `validation_scope`、`source=local` 和参数数组命令；连接层接入云端时需将 Envelope 字段映射到现有本地结果适配器的 `scope` 和 `source` 契约。
 
 `vscode-extension/src/agent-host.ts` 提供通用 `AgentHostEnvelope`、Host Hello、能力声明、策略快照和 `AgentHostSession`。会话握手校验协议版本、工作区、扩展版本、能力清单和待执行动作；策略更新要求 `policy_version` 严格递增，支持的能力包括 `workspace`、`file`、`terminal`、`diagnostics`、`validation` 和 `skill_runtime`。
 
-后端 `POST /api/v1/agent/host/handshake` 使用 access token 认证，接收 `workspace_id`、`extension_version`、`protocol_versions` 和 `capabilities`，返回用户绑定的 `session_id`、协议版本、初始 `policy`、`policy_version`、会话过期时间和待执行动作。`GET /api/v1/agent/host/sessions/{session_id}/actions` 拉取 session 动作，`POST /api/v1/agent/host/sessions/{session_id}/events` 接收 Host 事件并按 `message_id` 幂等，`PUT /api/v1/agent/host/sessions/{session_id}/policy` 以期望版本更新策略。当前握手会话保存于进程内存，StateGraph 动作入队仍需接入持久化任务存储。
+后端 `POST /api/v1/agent/host/handshake` 使用 access token 认证，接收 `workspace_id`、`extension_version`、`protocol_versions` 和 `capabilities`，返回用户绑定的 `session_id`、协议版本、初始 `policy`、`policy_version`、会话过期时间和待执行动作。`GET /api/v1/agent/host/sessions/{session_id}/actions` 拉取 session 动作，`POST /api/v1/agent/host/sessions/{session_id}/events` 接收 Host 事件并按 `message_id` 幂等，`POST /api/v1/agent/host/sessions/{session_id}/actions/ack` 确认已执行动作，`PUT /api/v1/agent/host/sessions/{session_id}/policy` 以期望版本更新策略。握手会话双写进程内存与 `AgentHostSessionStore`（JSON，目录可由 `AGENT_HOST_SESSION_DIR` 覆盖），重启后可按 `workflow_session_id` 恢复动作投递。
 
 `app.api.v1.agent_host.enqueue_state_actions()` 将 StateGraph 的 `pending_actions` 转换为版本化 `tool_action` Envelope，补齐 `session_id`、`task_id`、`revision`、`workspace_id` 和当前 `policy_version`，并按 `action_id` 去重。`run_workflow()` 在图执行完成后自动调用该适配器；已连接 Host 可通过 session actions 队列消费本地动作。session 队列、策略版本和事件确认使用 `AgentHostSessionStore` 原子写入 `data/agent_host_sessions/`，支持进程重启后的读取恢复。
 
@@ -294,7 +294,7 @@ Core 同步响应增加 `workflow`：Core 在生成前将冻结的 `WorkflowIR` 
 
 `vscode-extension/src/approval-bridge.ts` 管理本地审批请求和决定。`AgentHostRuntime` 在会话策略关闭自动批准时暂停工具动作，发布 `approval_request`，并在批准后继续执行；拒绝决定返回 `rejected` 状态。
 
-`vscode-extension/src/connection.ts` 提供 Bearer 认证的动作拉取和结果提交客户端，默认路径为 `/api/v1/agent/local-validation/actions` 与 `/api/v1/agent/local-validation/results`。客户端对 401/403 返回认证错误，对 408/429/5xx 执行有限重试，网络中断时将结果写入可注入的 `ResultStore`，新连接实例可刷新持久化队列并在云端确认后删除记录。
+`vscode-extension/src/connection.ts` 提供 Bearer 认证的动作拉取和结果提交客户端。握手成功后结果通过 `POST /api/v1/agent/host/sessions/{id}/events` 以 `kind:"tool_result"` envelope 提交，无 Host 会话时才回退旧的 `/api/v1/agent/local-validation/results`（后端无该路由，仅用于自定义部署与单测）。云端接受结果后调用 `actions/ack` 清理 in-flight；仅入队（`status:"queued"`）时保留动作以便重放。客户端只对 GET/HEAD 重试 408/429/5xx，变更型请求直接失败；网络中断时将结果与提交上下文写入可注入的 `ResultStore`，新连接实例可刷新持久化队列并在云端确认后删除记录。
 
 `vscode-extension/src/workspace-authorization.ts` 提供工作区授权、撤销、多工作区隔离和路径解析。路径必须相对授权根目录，验证与终端工作目录均由 workspace identity 映射；读取路径、已有写入路径、目录符号链接和悬空叶节点符号链接均通过真实文件系统 canonical path 校验工作区边界。
 

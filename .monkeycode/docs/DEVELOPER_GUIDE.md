@@ -172,7 +172,7 @@ npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --confi
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
-- VS Code 扩展构建成功，Node 原生测试：`103 passed`。
+- VS Code 扩展构建成功，Node 原生测试：`124 passed`（2026-11-10 复跑）。
 - VS Code Extension Development Host E2E 成功，使用 VS Code `1.136.1` 覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
@@ -320,8 +320,8 @@ git diff --check
 - `ValidationStatusView` 位于 `src/status-view.ts`，当前以纯 TypeScript 快照承载状态、通知和诊断数据；修改后通过 `npm --prefix vscode-extension test` 验证，真实 VS Code StatusBar、通知和 DiagnosticCollection 适配层在发布验收阶段接入。
 - `compatibility.ts` 负责 schema 和插件版本握手校验；插件 manifest 位于 `vscode-extension/package.json`，构建后入口是 `dist/extension.js`。本地安装 `vsce` 后可运行 `npm --prefix vscode-extension run package` 生成 VSIX。
 - `agent-host.ts` 负责版本化 Agent Host Envelope、Host Hello、能力声明、会话握手和策略版本门禁；该模块保持纯 TypeScript，可在接入 VS Code Webview 和原生 API 前独立测试。
-- 后端 Agent Host 使用 `POST /api/v1/agent/host/handshake` 初始化会话，使用 session actions、events 和 policy 端点完成动作拉取、事件回传和策略同步；所有端点需要 access token，并校验用户与 session 绑定。当前会话状态为进程内存，StateGraph 动作入队时需替换为持久化或任务存储。
-- `run_workflow()` 在工作流产生新 State 后自动调用 `enqueue_state_actions()`，把 `pending_actions` 适配为带 session/task/revision/workspace 上下文的 Host `tool_action`，并依赖 `action_id` 去重。`AgentHostSessionStore` 将队列和事件确认原子保存到 `data/agent_host_sessions/`，该目录属于运行时数据并已加入忽略规则。
+- 后端 Agent Host 使用 `POST /api/v1/agent/host/handshake` 初始化会话，使用 session actions、events、`actions/ack` 和 policy 端点完成动作拉取、事件回传、动作确认和策略同步；所有端点需要 access token，并校验用户与 session 绑定。握手会话双写进程内存与 `AgentHostSessionStore`（JSON，目录可由 `AGENT_HOST_SESSION_DIR` 覆盖），重启后仍可按 `workflow_session_id` 恢复动作投递。
+- `run_workflow()` 在工作流产生新 State 后自动调用 `enqueue_state_actions()`，把 `pending_actions` 适配为带 session/task/revision/workspace 上下文的 Host `tool_action`，并依赖 `action_id` 去重。适配器按 scope 调用 `detect_toolchain()` 补齐 `event_id`/`validation_scope`/`operation`/`command`/`working_directory`/`timeout_seconds`/`requested_by`；每个 scope 每轮只下发一条，检测不到命令时留在云端。`bind_workflow_session()` 把稳定会话号绑定到 Host 会话，动作投递与 `tool_result` 恢复按该映射路由，checkpoint 键保持稳定会话号。`AgentHostSessionStore` 将队列和事件确认原子保存到 `data/agent_host_sessions/`，该目录属于运行时数据并已加入忽略规则。
 - `tool-dispatcher.ts` 负责将 Agent Host 动作路由到工作区文件、诊断和验证适配器；文件动作必须通过 `WorkspaceAuthorization`，验证动作必须通过 `ValidationRunner`，策略关闭时拒绝新的本地动作。
 - 终端 Agent Host 动作沿用 `PendingAction` 的操作白名单和工作区目录约束，并通过 `ValidationRunner` 执行；新增终端能力时保持参数数组和 `shell=false`。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。

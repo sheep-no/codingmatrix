@@ -27,6 +27,7 @@
 - [项目规格](../specs/)：按功能保存的需求、设计和实施记录。
 - [运行诊断与有界重试实测](CORE_REPAIR_EVALUATION_2026-09-08.md)：Core 候选诊断投影、rollback 证据保留和自动 repair 实测结果。
 - [待环境验收清单](PENDING-VERIFICATION.md)：Flutter 双端与 VS Code 扩展已验证项、待环境验收项（Android APK 与真机、Windows、真实 Provider 与 LLM）、跨边界发现存档，以及本地后端联调方法。
+- 本地验证端到端（2026-11-10）：后端 `run_workflow` 产出真实 `local_runtime` 动作，插件 `dist/agent-host-runtime.js` 解析执行后以 `tool_result` 回传，workflow 由 `waiting_local_validation` 推进到 `completed`；多 scope（`local_runtime` + `local_e2e`）逐轮下发回归通过。证据见 `../specs/2026-08-29-vscode-local-validation-extension/tasklist.md` 的 VSCODE-015。
 - `../specs/2026-08-28-stategraph-rag-orchestration/`：StateGraph RAG 编排的目标设计、迁移记录和任务清单；其中本地验证与完整多阶段生产接线仍待运行环境验收。
 - `../specs/2026-08-29-vscode-local-validation-extension/`：Web 与 VS Code 双工作台 Agent Host SSD，包含需求、技术设计和实施任务清单。
 - `../specs/2026-08-30-user-scoped-skills/`：系统、用户和工作区 Skills 的命名空间、用户隔离与跨工作台同步设计。
