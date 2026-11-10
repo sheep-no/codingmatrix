@@ -44,6 +44,7 @@ const WORKBENCH_SCRIPT = `
 const vscode=acquireVsCodeApi();
 let approval,sequence=0,activeSession,lastProjectPath;
 const pending=new Map();
+const REQUEST_TIMEOUT_MS=30000;
 const $=function(id){return document.getElementById(id);};
 const status=$('status'),messages=$('messages'),approve=$('approve'),reject=$('reject'),prompt=$('prompt'),send=$('send');
 const setStatus=function(text){status.textContent=text;};
@@ -119,7 +120,13 @@ const listItem=function(title,subtitle,actions){
 const request=function(resource,params){
   const requestId='req-'+(++sequence);
   return new Promise(function(resolve,reject){
-    pending.set(requestId,{resolve:resolve,reject:reject});
+    const timer=setTimeout(function(){
+      const entry=pending.get(requestId);
+      if(!entry)return;
+      pending.delete(requestId);
+      reject(new Error('请求超时，请重试'));
+    },REQUEST_TIMEOUT_MS);
+    pending.set(requestId,{resolve:resolve,reject:reject,timer:timer});
     vscode.postMessage({type:'workbench_request',request_id:requestId,resource:resource,params:params||{}});
   });
 };
@@ -426,6 +433,7 @@ window.addEventListener('message',function(event){
     const entry=pending.get(data.request_id);
     if(!entry)return;
     pending.delete(data.request_id);
+    clearTimeout(entry.timer);
     if(data.ok)entry.resolve(data.data);
     else entry.reject(new Error(data.error||'请求失败'));
     return;
