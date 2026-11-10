@@ -461,7 +461,6 @@
 
 <script>
   import { ref, computed, reactive, toRefs } from 'vue'
-  import { useNavigationStore } from '@/stores/navigation'
   import { useApiKeyStore } from '@/stores/apikey'
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -478,7 +477,6 @@
     },
     emits: ['close'],
     setup(props) {
-      const navStore = useNavigationStore()
       const apiKeyStore = useApiKeyStore()
       const fileInput = ref(null)
       const isGenerating = ref(false)
@@ -756,7 +754,6 @@
           name: 'reference-image.png',
           size: ''
         }
-        navStore.showImageGenerator = true
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }
 

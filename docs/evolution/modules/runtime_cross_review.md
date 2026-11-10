@@ -22,7 +22,7 @@
 | 链路节点 | 当前事实 | 证据 | 终审结论 |
 |---|---|---|---|
 | 真实 Python 入口 | 应用对象为 `app`，定义于 `app/main.py`；FastAPI 文档挂载为 `/api/docs`、`/api/redoc`、`/api/openapi.json` | `app/main.py:166` | 入口定位明确 |
-| 生产容器 API | Dockerfile 支持单容器模式；生产 Compose 显式覆盖为仅运行 2 worker Uvicorn，由独立 Nginx 提供入口 | `Dockerfile`、`docker-compose.prod.yml`、`configs/nginx.conf` | RC3 运行模型代码修复完成，容器验证待完成 |
+| 生产容器 API | 运行镜像只启动 Uvicorn；基础与生产 Compose 的 Nginx 都是独立服务 | `Dockerfile`、`docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx.conf` | RC3 运行模型代码修复完成，容器验证待完成 |
 | 宿主脚本 API | `start.sh` 使用 Gunicorn 2 worker 监听 `0.0.0.0:8080`；`dev.sh` 和 `start-backend.sh` 使用 Uvicorn 8000 | `scripts/start.sh:80-100`、`scripts/dev.sh:20-22`、`scripts/start-backend.sh:5-8` | 启动方式存在三套端口/进程语义，文档必须按场景区分 |
 | Nginx 容器到 API | Compose 中 Nginx 与 API 分属不同容器；Compose upstream 使用 `api:8080` | `docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx-upstream-compose.conf` | RC1 代码修复完成，网络代理待验证 |
 | API 健康检查 | FastAPI、Dockerfile、Compose、Nginx 和启动脚本统一使用 `/api/v1/health`；Nginx 保留 `/health` 到真实 API 的显式别名 | `app/main.py`、`app/api/v1/health.py`、`Dockerfile`、`docker-compose*.yml`、`configs/nginx.conf`、`scripts/start.sh` | **RC3 代码修复完成，容器运行验证待完成** |
@@ -40,15 +40,15 @@
 
 ### RC1-RC2 修复记录（2026-08-29）
 
-- RC1 已修复：`configs/nginx.conf` 通过 `/etc/nginx/conf.d/upstream.conf` 注入上游；Compose 使用 `configs/nginx-upstream-compose.conf` 指向 `api:8080`，Dockerfile 单容器使用 `configs/nginx-upstream-local.conf` 指向 `127.0.0.1:8080`。
-- RC2 已修复：Dockerfile 安装 Nginx 后复制运行配置，Nginx 由 root master 启动并以 `nginx` worker 用户运行，Uvicorn 通过 `su` 降权到 `appuser`；`/var/log/nginx`、`/var/lib/nginx` 和 `/var/run` 由 `nginx` 用户管理。
+- RC1 已修复：`configs/nginx.conf` 通过 `/etc/nginx/conf.d/upstream.conf` 注入上游；两套 Compose 均使用 `configs/nginx-upstream-compose.conf` 指向 `api:8080`。运行镜像不再内置 Nginx，`configs/nginx-upstream-local.conf` 仅作为历史文件保留。
+- RC2 已修复：运行镜像不再安装 Nginx，Uvicorn 通过 `su` 降权到 `appuser` 启动；Nginx 权限链由独立 `nginx:alpine` 服务承担。
 - 当前状态：代码和配置静态检查已完成；Docker build、Nginx `-t`、Compose 网络代理、80 端口绑定和 API 实际可达性等待容器环境验证。
 
 ### RC1 [P1] Nginx 容器代理回环地址导致 API 入口断链
 
-修复前，Compose 启动的独立 Nginx 使用 `server 127.0.0.1:8080`，该地址指向 Nginx 容器自身。当前 Compose 专用 upstream 已改为 `server api:8080`；单容器 Dockerfile 继续使用本机 upstream。容器网络中的 `/api/`、`/ws/` 和健康路径仍需运行验证。
+修复前，Compose 启动的独立 Nginx 使用 `server 127.0.0.1:8080`，该地址指向 Nginx 容器自身。当前两套 Compose 的 upstream 均为 `server api:8080`；运行镜像不再内置 Nginx，拓扑只有独立代理一种。容器网络中的 `/api/`、`/ws/` 和健康路径仍需运行验证。
 
-修复将容器模式 upstream 收敛到 Compose 服务名，并为单容器模式保留独立配置入口；原有端口和健康路径文档仍需配合 RC3 一并核对。
+修复将 upstream 收敛到 Compose 服务名，并删除镜像内置 Nginx 这一条未使用分支；原有端口和健康路径文档已随 RC3 一并核对。
 
 ### RC2 [P1] 非 root 用户与 Nginx 监听/运行目录权限冲突
 

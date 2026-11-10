@@ -106,6 +106,18 @@ describe('搜索历史记录', () => {
     wrapper.unmount()
   })
 
+  it('provides a task queue entry so the mounted tool is reachable（FRESCAN-64）', async () => {
+    const wrapper = mountLeftlist()
+    await wrapper.get('#toolkit').trigger('click')
+    const labels = wrapper.findAll('[role="menuitem"]').map(node => node.text())
+    expect(labels.some(text => text.includes('任务队列'))).toBe(true)
+
+    const entry = wrapper.findAll('[role="menuitem"]').find(node => node.text().includes('任务队列'))
+    await entry.trigger('click')
+    expect(wrapper.emitted('useTool')).toEqual([['taskQueue']])
+    wrapper.unmount()
+  })
+
   it('posts prompt_keyword to /history and renders matches', async () => {
     apiMock.post.mockResolvedValue(jsonResponse({
       items: [{ id: 11, conversation_id: 3, title: '检索规划', prompt: '怎么做检索规划' }],

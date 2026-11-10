@@ -1,6 +1,8 @@
 // src/utils/api/github.js (v5.0.2 统一客户端模式)
 import axios from 'axios'
 
+import { getValidToken, handleSessionExpired } from './base'
+
 let githubApi = null
 
 function getGithubApi() {
@@ -15,7 +17,7 @@ function getGithubApi() {
 
     githubApi.interceptors.request.use(
       (config) => {
-        const token = window.api?._userStore?.getAccessToken?.() || localStorage.getItem('access_token')
+        const token = getValidToken()
         if (token) {
           config.headers.Authorization = `Bearer ${token}`
         }
@@ -28,8 +30,7 @@ function getGithubApi() {
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('access_token')
-          window.location.href = '/login'
+          handleSessionExpired()
         }
         return Promise.reject(error)
       }

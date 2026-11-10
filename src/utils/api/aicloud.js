@@ -59,15 +59,13 @@ export function createAiCloudClient(client) {
 
     // ========== 历史消息 ==========
     async getHistory(limit = 50, offset = 0) {
-      try {
-        const response = await client.get('/aicloud/history', { limit, offset })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { messages: [] }
-      } catch (error) {
-        return { messages: [] }
+      const response = await client.get('/aicloud/history', { limit, offset })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.detail || payload.message || '加载历史记录失败')
       }
+      const data = await response.json()
+      return Array.isArray(data) ? data : []
     },
 
     async searchHistory(query) {
@@ -76,9 +74,9 @@ export function createAiCloudClient(client) {
         if (response.ok) {
           return await response.json()
         }
-        return { results: [] }
+        return []
       } catch (error) {
-        return { results: [] }
+        return []
       }
     },
 

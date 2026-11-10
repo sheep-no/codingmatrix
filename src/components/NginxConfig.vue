@@ -112,8 +112,8 @@
             <div class="accordion-content" :class="{ expanded: accordions.basic }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>服务器名称</label>
-                  <input
+                  <label for="nginx-serverName">服务器名称</label>
+                  <input id="nginx-serverName"
                     v-model="formData.serverName"
                     type="text"
                     placeholder="example.com www.example.com"
@@ -122,13 +122,13 @@
                 </div>
 
                 <div class="form-group">
-                  <label>监听端口</label>
-                  <input v-model="formData.port" type="number" placeholder="80 / 443" />
+                  <label for="nginx-port">监听端口</label>
+                  <input id="nginx-port" v-model="formData.port" type="number" placeholder="80 / 443" />
                 </div>
 
                 <div v-if="currentType === 'https'" class="form-group">
-                  <label>SSL 证书路径</label>
-                  <input
+                  <label for="nginx-sslCert">SSL 证书路径</label>
+                  <input id="nginx-sslCert"
                     v-model="formData.sslCert"
                     type="text"
                     placeholder="/etc/nginx/ssl/cert.pem"
@@ -136,8 +136,8 @@
                 </div>
 
                 <div v-if="currentType === 'https'" class="form-group">
-                  <label>SSL 私钥路径</label>
-                  <input
+                  <label for="nginx-sslKey">SSL 私钥路径</label>
+                  <input id="nginx-sslKey"
                     v-model="formData.sslKey"
                     type="text"
                     placeholder="/etc/nginx/ssl/key.pem"
@@ -145,8 +145,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>代理目标</label>
-                  <input
+                  <label for="nginx-upstream">代理目标</label>
+                  <input id="nginx-upstream"
                     v-model="formData.upstream"
                     type="text"
                     placeholder="http://localhost:3000"
@@ -155,8 +155,8 @@
                 </div>
 
                 <div v-if="currentType === 'loadbalancer'" class="form-group">
-                  <label>后端服务器 (多个服务器用逗号分隔)</label>
-                  <input
+                  <label for="nginx-servers">后端服务器 (多个服务器用逗号分隔)</label>
+                  <input id="nginx-servers"
                     v-model="formData.servers"
                     type="text"
                     placeholder="localhost:3001,localhost:3002,localhost:3003"
@@ -175,8 +175,8 @@
             <div class="accordion-content" :class="{ expanded: accordions.worker }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>Worker 进程数</label>
-                  <select v-model="formData.workerProcesses">
+                  <label for="nginx-workerProcesses">Worker 进程数</label>
+                  <select id="nginx-workerProcesses" v-model="formData.workerProcesses">
                     <option value="auto">auto（自动）</option>
                     <option value="1">1</option>
                     <option value="2">2</option>
@@ -187,14 +187,14 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Worker 连接数</label>
-                  <input v-model="formData.workerConnections" type="number" placeholder="1024" />
+                  <label for="nginx-workerConnections">Worker 连接数</label>
+                  <input id="nginx-workerConnections" v-model="formData.workerConnections" type="number" placeholder="1024" />
                   <small class="help-text">每个 worker 进程的最大连接数</small>
                 </div>
 
                 <div class="form-group">
-                  <label>Worker 文件描述符上限</label>
-                  <input v-model="formData.workerRlimitNofile" type="number" placeholder="65535" />
+                  <label for="nginx-workerRlimitNofile">Worker 文件描述符上限</label>
+                  <input id="nginx-workerRlimitNofile" v-model="formData.workerRlimitNofile" type="number" placeholder="65535" />
                   <small class="help-text">最大文件描述符数量</small>
                 </div>
               </div>
@@ -210,8 +210,8 @@
             <div class="accordion-content" :class="{ expanded: accordions.logging }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>访问日志路径</label>
-                  <input
+                  <label for="nginx-accessLog">访问日志路径</label>
+                  <input id="nginx-accessLog"
                     v-model="formData.accessLog"
                     type="text"
                     placeholder="/var/log/nginx/access.log"
@@ -219,8 +219,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>访问日志格式</label>
-                  <select v-model="formData.accessLogFormat">
+                  <label for="nginx-accessLogFormat">访问日志格式</label>
+                  <select id="nginx-accessLogFormat" v-model="formData.accessLogFormat">
                     <option value="combined">combined（标准格式）</option>
                     <option value="main">main（简化格式）</option>
                     <option value="json">json（JSON 格式）</option>
@@ -229,8 +229,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>错误日志路径</label>
-                  <input
+                  <label for="nginx-errorLog">错误日志路径</label>
+                  <input id="nginx-errorLog"
                     v-model="formData.errorLog"
                     type="text"
                     placeholder="/var/log/nginx/error.log"
@@ -238,8 +238,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>错误日志级别</label>
-                  <select v-model="formData.errorLogLevel">
+                  <label for="nginx-errorLogLevel">错误日志级别</label>
+                  <select id="nginx-errorLogLevel" v-model="formData.errorLogLevel">
                     <option value="debug">debug（调试）</option>
                     <option value="info">info（信息）</option>
                     <option value="notice">notice（通知）</option>
@@ -270,38 +270,38 @@
             <div class="accordion-content" :class="{ expanded: accordions.timeout }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>保持连接超时（秒）</label>
-                  <input v-model="formData.keepaliveTimeout" type="number" placeholder="65" />
+                  <label for="nginx-keepaliveTimeout">保持连接超时（秒）</label>
+                  <input id="nginx-keepaliveTimeout" v-model="formData.keepaliveTimeout" type="number" placeholder="65" />
                   <small class="help-text">保持连接的时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>请求体超时（秒）</label>
-                  <input v-model="formData.clientBodyTimeout" type="number" placeholder="60" />
+                  <label for="nginx-clientBodyTimeout">请求体超时（秒）</label>
+                  <input id="nginx-clientBodyTimeout" v-model="formData.clientBodyTimeout" type="number" placeholder="60" />
                   <small class="help-text">读取请求体超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>请求头超时（秒）</label>
-                  <input v-model="formData.clientHeaderTimeout" type="number" placeholder="60" />
+                  <label for="nginx-clientHeaderTimeout">请求头超时（秒）</label>
+                  <input id="nginx-clientHeaderTimeout" v-model="formData.clientHeaderTimeout" type="number" placeholder="60" />
                   <small class="help-text">读取请求头超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>发送超时（秒）</label>
-                  <input v-model="formData.sendTimeout" type="number" placeholder="60" />
+                  <label for="nginx-sendTimeout">发送超时（秒）</label>
+                  <input id="nginx-sendTimeout" v-model="formData.sendTimeout" type="number" placeholder="60" />
                   <small class="help-text">响应发送超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>请求头缓冲区大小（KB）</label>
-                  <input v-model="formData.clientHeaderBufferSize" type="number" placeholder="1" />
+                  <label for="nginx-clientHeaderBufferSize">请求头缓冲区大小（KB）</label>
+                  <input id="nginx-clientHeaderBufferSize" v-model="formData.clientHeaderBufferSize" type="number" placeholder="1" />
                   <small class="help-text">请求头缓冲区大小</small>
                 </div>
 
                 <div class="form-group">
-                   <label>大请求头缓冲区数量</label>
-                  <input
+                   <label for="nginx-largeClientHeaderBuffersNum">大请求头缓冲区数量</label>
+                  <input id="nginx-largeClientHeaderBuffersNum"
                     v-model="formData.largeClientHeaderBuffersNum"
                     type="number"
                     placeholder="4"
@@ -309,8 +309,8 @@
                 </div>
 
                 <div class="form-group">
-                   <label>大请求头缓冲区大小（KB）</label>
-                  <input
+                   <label for="nginx-largeClientHeaderBuffersSize">大请求头缓冲区大小（KB）</label>
+                  <input id="nginx-largeClientHeaderBuffersSize"
                     v-model="formData.largeClientHeaderBuffersSize"
                     type="number"
                     placeholder="8"
@@ -347,8 +347,8 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                 <label>重试等待时间（毫秒）</label>
-                <input
+                 <label for="nginx-resetDelayedConnectionTimeout">重试等待时间（毫秒）</label>
+                <input id="nginx-resetDelayedConnectionTimeout"
                   v-model="formData.resetDelayedConnectionTimeout"
                   type="number"
                   placeholder="0"
@@ -356,24 +356,24 @@
               </div>
 
               <div class="form-group">
-                 <label>输出缓冲区数量</label>
-                <input v-model="formData.outputBuffersNum" type="number" placeholder="1" />
+                 <label for="nginx-outputBuffersNum">输出缓冲区数量</label>
+                <input id="nginx-outputBuffersNum" v-model="formData.outputBuffersNum" type="number" placeholder="1" />
               </div>
 
               <div class="form-group">
-                 <label>输出缓冲区大小（KB）</label>
-                <input v-model="formData.outputBufferSize" type="number" placeholder="32" />
+                 <label for="nginx-outputBufferSize">输出缓冲区大小（KB）</label>
+                <input id="nginx-outputBufferSize" v-model="formData.outputBufferSize" type="number" placeholder="32" />
               </div>
 
               <div class="form-group">
-                <label>多重读取次数</label>
-                <input v-model="formData.multiAccept" type="number" placeholder="off" />
+                <label for="nginx-multiAccept">多重读取次数</label>
+                <input id="nginx-multiAccept" v-model="formData.multiAccept" type="number" placeholder="off" />
                 <small class="help-text">设置为 on 或 off</small>
               </div>
 
               <div class="form-group">
-                <label>使用 epoll（仅 Linux）</label>
-                <select v-model="formData.useEpoll" :disabled="currentPlatform !== 'linux'">
+                <label for="nginx-useEpoll">使用 epoll（仅 Linux）</label>
+                <select id="nginx-useEpoll" v-model="formData.useEpoll" :disabled="currentPlatform !== 'linux'">
                   <option value="off">off</option>
                   <option value="on">on</option>
                 </select>
@@ -404,38 +404,38 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                 <label>Gzip 压缩级别（1-9）</label>
-                <input v-model="formData.gzipLevel" type="number" min="1" max="9" placeholder="6" />
+                 <label for="nginx-gzipLevel">Gzip 压缩级别（1-9）</label>
+                <input id="nginx-gzipLevel" v-model="formData.gzipLevel" type="number" min="1" max="9" placeholder="6" />
                 <small class="help-text">级别越高压缩率越高但消耗更多 CPU</small>
               </div>
 
               <div class="form-group">
-                 <label>最小压缩文件大小（字节）</label>
-                <input v-model="formData.gzipMinLength" type="number" placeholder="1024" />
+                 <label for="nginx-gzipMinLength">最小压缩文件大小（字节）</label>
+                <input id="nginx-gzipMinLength" v-model="formData.gzipMinLength" type="number" placeholder="1024" />
                 <small class="help-text">小于此值的文件不压缩</small>
               </div>
 
               <div class="form-group">
-                 <label>压缩缓冲区数量</label>
-                <input v-model="formData.gzipBuffersNum" type="number" placeholder="16" />
+                 <label for="nginx-gzipBuffersNum">压缩缓冲区数量</label>
+                <input id="nginx-gzipBuffersNum" v-model="formData.gzipBuffersNum" type="number" placeholder="16" />
               </div>
 
               <div class="form-group">
-                 <label>压缩缓冲区大小（KB）</label>
-                <input v-model="formData.gzipBuffersSize" type="number" placeholder="8" />
+                 <label for="nginx-gzipBuffersSize">压缩缓冲区大小（KB）</label>
+                <input id="nginx-gzipBuffersSize" v-model="formData.gzipBuffersSize" type="number" placeholder="8" />
               </div>
 
               <div class="form-group">
-                <label>压缩 HTTP 版本</label>
-                <select v-model="formData.gzipHttpVersion">
+                <label for="nginx-gzipHttpVersion">压缩 HTTP 版本</label>
+                <select id="nginx-gzipHttpVersion" v-model="formData.gzipHttpVersion">
                   <option value="1.0">HTTP/1.0</option>
                   <option value="1.1">HTTP/1.1</option>
                 </select>
               </div>
 
               <div class="form-group">
-                <label>压缩类型</label>
-                <input
+                <label for="nginx-gzipTypes">压缩类型</label>
+                <input id="nginx-gzipTypes"
                   v-model="formData.gzipTypes"
                   type="text"
                   placeholder="text/plain text/css application/json"
@@ -454,33 +454,33 @@
             </div>
             <div class="accordion-content" :class="{ expanded: accordions.proxy }">
               <div class="form-group">
-                <label>代理连接超时 (秒)</label>
-                <input v-model="formData.proxyConnectTimeout" type="number" placeholder="60" />
+                <label for="nginx-proxyConnectTimeout">代理连接超时 (秒)</label>
+                <input id="nginx-proxyConnectTimeout" v-model="formData.proxyConnectTimeout" type="number" placeholder="60" />
               </div>
 
               <div class="form-group">
-                 <label>代理发送超时（秒）</label>
-                <input v-model="formData.proxySendTimeout" type="number" placeholder="60" />
+                 <label for="nginx-proxySendTimeout">代理发送超时（秒）</label>
+                <input id="nginx-proxySendTimeout" v-model="formData.proxySendTimeout" type="number" placeholder="60" />
               </div>
 
               <div class="form-group">
-                 <label>代理读取超时（秒）</label>
-                <input v-model="formData.proxyReadTimeout" type="number" placeholder="60" />
+                 <label for="nginx-proxyReadTimeout">代理读取超时（秒）</label>
+                <input id="nginx-proxyReadTimeout" v-model="formData.proxyReadTimeout" type="number" placeholder="60" />
               </div>
 
               <div class="form-group">
-                 <label>代理缓冲大小（KB）</label>
-                <input v-model="formData.proxyBufferSize" type="number" placeholder="4" />
+                 <label for="nginx-proxyBufferSize">代理缓冲大小（KB）</label>
+                <input id="nginx-proxyBufferSize" v-model="formData.proxyBufferSize" type="number" placeholder="4" />
               </div>
 
               <div class="form-group">
-                <label>代理缓冲数量</label>
-                <input v-model="formData.proxyBuffersNum" type="number" placeholder="8" />
+                <label for="nginx-proxyBuffersNum">代理缓冲数量</label>
+                <input id="nginx-proxyBuffersNum" v-model="formData.proxyBuffersNum" type="number" placeholder="8" />
               </div>
 
               <div class="form-group">
-                 <label>单个代理缓冲大小（KB）</label>
-                <input v-model="formData.proxyBuffersSize" type="number" placeholder="4" />
+                 <label for="nginx-proxyBuffersSize">单个代理缓冲大小（KB）</label>
+                <input id="nginx-proxyBuffersSize" v-model="formData.proxyBuffersSize" type="number" placeholder="4" />
               </div>
 
               <div class="checkbox-group" style="margin-top: 15px">
@@ -495,8 +495,8 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                 <label>代理最大临时文件大小（MB）</label>
-                <input v-model="formData.proxyMaxTempFileSize" type="number" placeholder="1024" />
+                 <label for="nginx-proxyMaxTempFileSize">代理最大临时文件大小（MB）</label>
+                <input id="nginx-proxyMaxTempFileSize" v-model="formData.proxyMaxTempFileSize" type="number" placeholder="1024" />
               </div>
             </div>
           </div>
@@ -509,8 +509,8 @@
             </div>
             <div class="accordion-content" :class="{ expanded: accordions.ssl }">
               <div class="form-group">
-                <label>SSL 协议版本</label>
-                <input
+                <label for="nginx-sslProtocols">SSL 协议版本</label>
+                <input id="nginx-sslProtocols"
                   v-model="formData.sslProtocols"
                   type="text"
                   placeholder="TLSv1.2 TLSv1.3"
@@ -520,8 +520,8 @@
               </div>
 
               <div class="form-group">
-                <label>SSL 加密套件</label>
-                <input
+                <label for="nginx-sslCiphers">SSL 加密套件</label>
+                <input id="nginx-sslCiphers"
                   v-model="formData.sslCiphers"
                   type="text"
                   placeholder="HIGH:!aNULL:!MD5"
@@ -530,13 +530,13 @@
               </div>
 
               <div class="form-group">
-                 <label>SSL 会话缓存（MB）</label>
-                <input v-model="formData.sslSessionCacheSize" type="number" placeholder="10" />
+                 <label for="nginx-sslSessionCacheSize">SSL 会话缓存（MB）</label>
+                <input id="nginx-sslSessionCacheSize" v-model="formData.sslSessionCacheSize" type="number" placeholder="10" />
               </div>
 
               <div class="form-group">
-                 <label>SSL 会话超时（分钟）</label>
-                <input v-model="formData.sslSessionTimeout" type="number" placeholder="10" />
+                 <label for="nginx-sslSessionTimeout">SSL 会话超时（分钟）</label>
+                <input id="nginx-sslSessionTimeout" v-model="formData.sslSessionTimeout" type="number" placeholder="10" />
               </div>
 
               <div class="checkbox-group" style="margin-top: 15px">
@@ -551,13 +551,13 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                <label>OCSP 装订</label>
-                <input v-model="formData.sslStapling" type="text" placeholder="on" />
+                <label for="nginx-sslStapling">OCSP 装订</label>
+                <input id="nginx-sslStapling" v-model="formData.sslStapling" type="text" placeholder="on" />
               </div>
 
               <div class="form-group">
-                <label>HSTS 最大时间（天）</label>
-                <input v-model="formData.hstsMaxAge" type="number" placeholder="31536000" />
+                <label for="nginx-hstsMaxAge">HSTS 最大时间（天）</label>
+                <input id="nginx-hstsMaxAge" v-model="formData.hstsMaxAge" type="number" placeholder="31536000" />
                 <small class="help-text">设置为 0 禁用 HSTS</small>
               </div>
 
@@ -594,13 +594,13 @@
 
               <div v-if="formData.cacheEnabled" style="margin-top: 15px">
                 <div class="form-group">
-                  <label>静态缓存时间（天）</label>
-                  <input v-model="formData.staticCacheTime" type="number" placeholder="30" />
+                  <label for="nginx-staticCacheTime">静态缓存时间（天）</label>
+                  <input id="nginx-staticCacheTime" v-model="formData.staticCacheTime" type="number" placeholder="30" />
                 </div>
 
                 <div class="form-group">
-                  <label>缓存的文件扩展名</label>
-                  <input
+                  <label for="nginx-cacheExtensions">缓存的文件扩展名</label>
+                  <input id="nginx-cacheExtensions"
                     v-model="formData.cacheExtensions"
                     type="text"
                     placeholder="jpg,jpeg,png,gif,ico,css,js,svg,woff,woff2,ttf,eot"
@@ -615,8 +615,8 @@
                 style="margin-top: 15px"
               >
                 <div class="form-group">
-                  <label>代理缓存路径</label>
-                  <input
+                  <label for="nginx-proxyCachePath">代理缓存路径</label>
+                  <input id="nginx-proxyCachePath"
                     v-model="formData.proxyCachePath"
                     type="text"
                     placeholder="/var/cache/nginx/proxy_cache"
@@ -624,13 +624,13 @@
                 </div>
 
                 <div class="form-group">
-                  <label>代理缓存目录层级</label>
-                  <input v-model="formData.proxyCacheLevels" type="text" placeholder="1:2" />
+                  <label for="nginx-proxyCacheLevels">代理缓存目录层级</label>
+                  <input id="nginx-proxyCacheLevels" v-model="formData.proxyCacheLevels" type="text" placeholder="1:2" />
                 </div>
 
                 <div class="form-group">
-                  <label>代理缓存名称</label>
-                  <input
+                  <label for="nginx-proxyCacheZone">代理缓存名称</label>
+                  <input id="nginx-proxyCacheZone"
                     v-model="formData.proxyCacheZone"
                     type="text"
                     placeholder="proxy_cache_zone"
@@ -638,18 +638,18 @@
                 </div>
 
                 <div class="form-group">
-                   <label>代理缓存大小（MB）</label>
-                  <input v-model="formData.proxyCacheSize" type="number" placeholder="100" />
+                   <label for="nginx-proxyCacheSize">代理缓存大小（MB）</label>
+                  <input id="nginx-proxyCacheSize" v-model="formData.proxyCacheSize" type="number" placeholder="100" />
                 </div>
 
                 <div class="form-group">
-                  <label>代理缓存非活动时间（分钟）</label>
-                  <input v-model="formData.proxyCacheInactive" type="number" placeholder="60" />
+                  <label for="nginx-proxyCacheInactive">代理缓存非活动时间（分钟）</label>
+                  <input id="nginx-proxyCacheInactive" v-model="formData.proxyCacheInactive" type="number" placeholder="60" />
                 </div>
 
                 <div class="form-group">
-                   <label>代理缓存最大占用（%）</label>
-                  <input v-model="formData.proxyCacheMaxSize" type="number" placeholder="80" />
+                   <label for="nginx-proxyCacheMaxSize">代理缓存最大占用（%）</label>
+                  <input id="nginx-proxyCacheMaxSize" v-model="formData.proxyCacheMaxSize" type="number" placeholder="80" />
                 </div>
               </div>
             </div>
@@ -677,18 +677,18 @@
 
                 <div v-if="formData.rateLimitEnabled" style="margin-top: 15px">
                   <div class="form-group">
-                    <label>限流区域名称</label>
-                    <input v-model="formData.rateLimitZone" type="text" placeholder="one" />
+                    <label for="nginx-rateLimitZone">限流区域名称</label>
+                    <input id="nginx-rateLimitZone" v-model="formData.rateLimitZone" type="text" placeholder="one" />
                   </div>
 
                   <div class="form-group">
-                     <label>限流速率（请求数/秒）</label>
-                    <input v-model="formData.rateLimitRate" type="number" placeholder="10" />
+                     <label for="nginx-rateLimitRate">限流速率（请求数/秒）</label>
+                    <input id="nginx-rateLimitRate" v-model="formData.rateLimitRate" type="number" placeholder="10" />
                   </div>
 
                   <div class="form-group">
-                    <label>限流键</label>
-                    <select v-model="formData.rateLimitKey">
+                    <label for="nginx-rateLimitKey">限流键</label>
+                    <select id="nginx-rateLimitKey" v-model="formData.rateLimitKey">
                       <option value="$binary_remote_addr">客户端 IP 地址</option>
                       <option value="$remote_addr">客户端 IP 地址（文本）</option>
                       <option value="$server_name">服务器名称</option>
@@ -697,14 +697,14 @@
                   </div>
 
                   <div class="form-group">
-                    <label>突发大小</label>
-                    <input v-model="formData.rateLimitBurst" type="number" placeholder="20" />
+                    <label for="nginx-rateLimitBurst">突发大小</label>
+                    <input id="nginx-rateLimitBurst" v-model="formData.rateLimitBurst" type="number" placeholder="20" />
                     <small class="help-text">允许的突发请求数</small>
                   </div>
 
                   <div class="form-group">
-                     <label>限流区域大小（MB）</label>
-                    <input v-model="formData.rateLimitZoneSize" type="number" placeholder="10" />
+                     <label for="nginx-rateLimitZoneSize">限流区域大小（MB）</label>
+                    <input id="nginx-rateLimitZoneSize" v-model="formData.rateLimitZoneSize" type="number" placeholder="10" />
                   </div>
                 </div>
               </div>
@@ -718,13 +718,13 @@
 
               <div v-if="formData.limitConnEnabled" style="margin-top: 15px">
                 <div class="form-group">
-                  <label>最大连接数</label>
-                  <input v-model="formData.limitConnNum" type="number" placeholder="10" />
+                  <label for="nginx-limitConnNum">最大连接数</label>
+                  <input id="nginx-limitConnNum" v-model="formData.limitConnNum" type="number" placeholder="10" />
                 </div>
 
                 <div class="form-group">
-                  <label>连接限流区域名称</label>
-                  <input v-model="formData.limitConnZone" type="text" placeholder="addr" />
+                  <label for="nginx-limitConnZone">连接限流区域名称</label>
+                  <input id="nginx-limitConnZone" v-model="formData.limitConnZone" type="text" placeholder="addr" />
                 </div>
               </div>
             </div>
@@ -746,14 +746,14 @@
 
               <div v-if="formData.corsEnabled" style="margin-top: 15px">
                 <div class="form-group">
-                   <label>允许的源</label>
-                  <input v-model="formData.corsOrigin" type="text" placeholder="*" />
+                   <label for="nginx-corsOrigin">允许的源</label>
+                  <input id="nginx-corsOrigin" v-model="formData.corsOrigin" type="text" placeholder="*" />
                   <small class="help-text">使用 * 允许所有源，或指定多个源</small>
                 </div>
 
                 <div class="form-group">
-                   <label>允许的方法</label>
-                  <input
+                   <label for="nginx-corsMethods">允许的方法</label>
+                  <input id="nginx-corsMethods"
                     v-model="formData.corsMethods"
                     type="text"
                     placeholder="GET, POST, PUT, DELETE, OPTIONS"
@@ -762,8 +762,8 @@
                 </div>
 
                 <div class="form-group">
-                   <label>允许的请求头</label>
-                  <input
+                   <label for="nginx-corsHeaders">允许的请求头</label>
+                  <input id="nginx-corsHeaders"
                     v-model="formData.corsHeaders"
                     type="text"
                     placeholder="DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
@@ -772,8 +772,8 @@
                 </div>
 
                 <div class="form-group">
-                   <label>暴露的响应头</label>
-                  <input
+                   <label for="nginx-corsExposeHeaders">暴露的响应头</label>
+                  <input id="nginx-corsExposeHeaders"
                     v-model="formData.corsExposeHeaders"
                     type="text"
                     placeholder="Content-Length,Content-Range"
@@ -782,8 +782,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>预检请求缓存时间（秒）</label>
-                  <input v-model="formData.corsMaxAge" type="number" placeholder="86400" />
+                  <label for="nginx-corsMaxAge">预检请求缓存时间（秒）</label>
+                  <input id="nginx-corsMaxAge" v-model="formData.corsMaxAge" type="number" placeholder="86400" />
                 </div>
 
                 <div class="checkbox-group">
@@ -812,8 +812,8 @@
 
               <div v-if="formData.securityHeaders" style="margin-top: 15px">
                 <div class="form-group">
-                  <label>X-Frame-Options/点击劫持防护</label>
-                  <select v-model="formData.xFrameOptions">
+                  <label for="nginx-xFrameOptions">X-Frame-Options/点击劫持防护</label>
+                  <select id="nginx-xFrameOptions" v-model="formData.xFrameOptions">
                     <option value="SAMEORIGIN">SAMEORIGIN</option>
                     <option value="DENY">DENY</option>
                     <option value="ALLOW-FROM">ALLOW-FROM</option>
@@ -821,8 +821,8 @@
                 </div>
 
                 <div v-if="formData.xFrameOptions === 'ALLOW-FROM'" class="form-group">
-                  <label>X-Frame-Options 允许的源</label>
-                  <input
+                  <label for="nginx-xFrameAllowFrom">X-Frame-Options 允许的源</label>
+                  <input id="nginx-xFrameAllowFrom"
                     v-model="formData.xFrameAllowFrom"
                     type="text"
                     placeholder="https://example.com"
@@ -830,16 +830,16 @@
                 </div>
 
                 <div class="form-group">
-                  <label>X-Content-Type-Options/内容类型嗅探防护</label>
-                  <select v-model="formData.xContentTypeOptions">
+                  <label for="nginx-xContentTypeOptions">X-Content-Type-Options/内容类型嗅探防护</label>
+                  <select id="nginx-xContentTypeOptions" v-model="formData.xContentTypeOptions">
                     <option value="nosniff">nosniff</option>
                     <option value="">禁用</option>
                   </select>
                 </div>
 
                 <div class="form-group">
-                  <label>X-XSS-Protection/跨站脚本防护</label>
-                  <select v-model="formData.xXssProtection">
+                  <label for="nginx-xXssProtection">X-XSS-Protection/跨站脚本防护</label>
+                  <select id="nginx-xXssProtection" v-model="formData.xXssProtection">
                     <option value="1; mode=block">1; mode=block</option>
                     <option value="1">1</option>
                     <option value="0">0（禁用）</option>
@@ -847,8 +847,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Content-Security-Policy/内容安全策略</label>
-                  <input
+                  <label for="nginx-contentSecurityPolicy">Content-Security-Policy/内容安全策略</label>
+                  <input id="nginx-contentSecurityPolicy"
                     v-model="formData.contentSecurityPolicy"
                     type="text"
                     placeholder="default-src 'self'"
@@ -857,8 +857,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Referrer-Policy/来源策略</label>
-                  <select v-model="formData.referrerPolicy">
+                  <label for="nginx-referrerPolicy">Referrer-Policy/来源策略</label>
+                  <select id="nginx-referrerPolicy" v-model="formData.referrerPolicy">
                     <option value="strict-origin-when-cross-origin">
                       strict-origin-when-cross-origin
                     </option>
@@ -873,8 +873,8 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Permissions-Policy/权限策略</label>
-                  <input
+                  <label for="nginx-permissionsPolicy">Permissions-Policy/权限策略</label>
+                  <input id="nginx-permissionsPolicy"
                     v-model="formData.permissionsPolicy"
                     type="text"
                     placeholder="geolocation=(), microphone=(), camera=()"

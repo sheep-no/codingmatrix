@@ -134,7 +134,11 @@
         <div v-if="showHistory" class="history-panel">
           <h4>最近 10 天对话记录</h4>
           <div class="history-list">
-            <div v-if="historySessions.length === 0" class="empty-history">暂无历史记录</div>
+            <div v-if="historyError" class="history-error" role="alert">
+              <span>{{ historyError }}</span>
+              <Button variant="ghost" size="sm" @click="loadHistory">重试</Button>
+            </div>
+            <div v-else-if="historySessions.length === 0" class="empty-history">暂无历史记录</div>
             <div
               v-for="session in historySessions"
               :key="session.id"
@@ -280,6 +284,7 @@
   const inputMessage = ref('')
   const messages = ref([])
   const historySessions = ref([])
+  const historyError = ref('')
   const isSending = ref(false)
   const showHistory = ref(false)
   const reviewEnabled = ref(true)
@@ -441,12 +446,14 @@
   const loadCurrentSession = async () => {
     const sessionId = getSessionId()
     currentSessionId.value = sessionId
+    historyError.value = ''
 
     try {
       const sessions = await api.aicloud.getHistory()
+      if (!Array.isArray(sessions)) throw new Error('历史记录格式异常')
       historySessions.value = sessions || []
 
-      const currentSession = sessions?.find(s => s.id === sessionId)
+      const currentSession = sessions.find(s => s.id === sessionId)
       if (currentSession?.messages) {
         messages.value = currentSession.messages.map(msg => ({
           role: msg.role,
@@ -458,16 +465,22 @@
       }
     } catch (error) {
       console.error('加载会话失败:', error)
+      historyError.value = error.message || '加载历史记录失败'
+      historySessions.value = []
       messages.value = []
     }
   }
 
   const loadHistory = async () => {
+    historyError.value = ''
     try {
       const data = await api.aicloud.getHistory()
-      historySessions.value = data || []
+      if (!Array.isArray(data)) throw new Error('历史记录格式异常')
+      historySessions.value = data
     } catch (error) {
       console.error('加载历史失败:', error)
+      historyError.value = error.message || '加载历史记录失败'
+      historySessions.value = []
     }
   }
 
@@ -936,6 +949,16 @@
     padding: 20px;
     text-align: center;
     color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .history-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    color: var(--color-danger, #dc2626);
     font-size: 13px;
   }
 

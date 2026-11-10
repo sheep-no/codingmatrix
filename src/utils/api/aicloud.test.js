@@ -14,4 +14,27 @@ describe('AiCloud 客户端契约', () => {
     // 后端未定义 /aicloud/reviews/toggle，客户端不应暴露对应方法。
     expect(client.toggleReview).toBeUndefined()
   })
+
+  it('历史加载失败时抛错，供页面展示失败态（FRESCAN-68）', async () => {
+    const client = createAiCloudClient({
+      get: async () => ({
+        ok: false,
+        json: async () => ({ detail: '需要管理员权限' })
+      })
+    })
+
+    await expect(client.getHistory()).rejects.toThrow('需要管理员权限')
+  })
+
+  it('历史成功响应统一返回数组（FRESCAN-68）', async () => {
+    const emptyClient = createAiCloudClient({
+      get: async () => ({ ok: true, json: async () => ({ messages: [] }) })
+    })
+    await expect(emptyClient.getHistory()).resolves.toEqual([])
+
+    const listClient = createAiCloudClient({
+      get: async () => ({ ok: true, json: async () => [{ id: 's1' }] })
+    })
+    await expect(listClient.getHistory()).resolves.toEqual([{ id: 's1' }])
+  })
 })

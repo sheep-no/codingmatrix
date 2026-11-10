@@ -13,23 +13,23 @@
       <h3 class="form-title">添加供应商</h3>
       <div class="form-grid">
         <div class="form-group">
-          <label>供应商名称</label>
-          <input v-model="form.name" type="text" placeholder="例如：Claude 代理" class="form-input" />
+          <label for="provider-name">供应商名称</label>
+          <input id="provider-name" v-model="form.name" type="text" placeholder="例如：Claude 代理" class="form-input" />
         </div>
         <div class="form-group">
-          <label>接口地址</label>
-          <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="form-input" />
+          <label for="provider-base_url">接口地址</label>
+          <input id="provider-base_url" v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="form-input" />
         </div>
         <div class="form-group">
-          <label>协议类型</label>
-          <select v-model="form.protocol" class="form-select">
+          <label for="provider-protocol">协议类型</label>
+          <select id="provider-protocol" v-model="form.protocol" class="form-select">
             <option value="openai">OpenAI 兼容</option>
             <option value="anthropic">Anthropic 原生</option>
           </select>
         </div>
         <div class="form-group">
-          <label>API Key/接口密钥</label>
-          <input v-model="form.api_key" type="password" placeholder="输入 API Key/接口密钥" class="form-input" />
+          <label for="provider-api_key">API Key/接口密钥</label>
+          <input id="provider-api_key" v-model="form.api_key" type="password" placeholder="输入 API Key/接口密钥" class="form-input" />
         </div>
       </div>
       <button

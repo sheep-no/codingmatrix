@@ -42,9 +42,9 @@ Redis 容器 ai-agent-redis-prod
 
 API、Celery、scheduler 和 Redis 通过 Compose 网络 `ai-agent-prod-net` 通信，生产配置声明 `api-logs`、`api-data`、`redis-data`、`nginx-logs` 四个命名卷；生产 Compose 已补齐 Celery worker 和独立 scheduler 服务。
 
-### 2.2 Dockerfile 单容器拓扑
+### 2.2 运行镜像只承载 API
 
-Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启动 Nginx 后启动两个 worker 的 Uvicorn：`Dockerfile:63-73`、`:90-91`。该模型要求 Nginx 在同一容器内访问 `127.0.0.1:8080`，与生产 Compose 中独立 Nginx 容器的服务发现模型形成双轨。生产 Compose 实际使用同一 Dockerfile 构建 API 容器，而 Nginx 使用 `nginx:alpine` 独立镜像：`docker-compose.prod.yml:9-13`、`:79-86`。
+运行时镜像只启动 Uvicorn（`Dockerfile` 的 `CMD`），不再安装或启动 Nginx，只暴露 `8080`。基础与生产 Compose 都使用同一镜像构建 API，并由独立 `nginx:alpine` 服务提供静态资源与反向代理，upstream 统一为 `api:8080`：`docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx-upstream-compose.conf`。`configs/nginx-upstream-local.conf` 已不再被任何拓扑引用，仅作为历史文件保留。
 
 ## 3. 端口、健康检查与服务状态
 
@@ -54,7 +54,7 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 | Nginx | 宿主机 `80` -> 容器 `80` | 容器内 `GET http://localhost:80/api/v1/health` | 代理链可用性取决于 API upstream |
 | Redis | 宿主机 `127.0.0.1:6379` -> 容器 `6379`：`docker-compose.prod.yml:54-55` | `redis-cli ping`：`:61-66` | API 启动等待 Redis healthy：`:27-30` |
 | Celery | 基础和生产 Compose 均无宿主端口 | 生产 Compose 作为独立 worker 声明 | worker 消费状态待运行验证 |
-| Dockerfile runtime | 暴露 `80`、`8080` | `GET http://localhost:8080/api/v1/health` | 与独立 Nginx Compose 模型重复 |
+| Dockerfile runtime | 暴露 `8080` | `GET http://localhost:8080/api/v1/health` | 只承载 API，Nginx 由独立服务提供 |
 | Jaeger | `127.0.0.1:16686/14268/14250`：`docker-compose.yml:99-102` | 未声明 | 已加 `observability` profile，默认不启动 |
 
 基础 Compose 的 API/Celery/Nginx 仍主要依赖启动顺序；API 使用 `/app` 单 worker 并启用 scheduler，生产 Compose 使用独立 scheduler。基础 Compose 的 API/Celery bind mount 已统一到 `/app/app`、`/app/logs` 和 `/app/data`。
@@ -82,7 +82,7 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 - **根因**：容器内 `127.0.0.1` 只指向当前 Nginx 容器；API 的容器名为 `ai-agent-api-prod`，Compose 服务名为 `api`，配置没有使用 Compose DNS 服务名。
 - **影响**：`/api/`、`/ws/` 和 `/health` 代理请求可能连接 Nginx 自身的 8080 端口并失败，外部 80 端口无法稳定到达 API。
 - **证据**：代理位置为 `configs/nginx.conf:106-125`；API 监听和服务名为 `docker-compose.prod.yml:9-16`、`:30-31`。
-- **当前修复**：`configs/nginx-upstream-compose.conf` 使用 `api:8080`，`configs/nginx-upstream-local.conf` 为 Dockerfile 单容器保留 `127.0.0.1:8080`；Docker build、Compose 网络代理和三类路径验证待完成。
+- **当前修复**：`configs/nginx-upstream-compose.conf` 使用 `api:8080`，两套 Compose 的 Nginx 服务只挂载该文件；运行镜像不再内置 Nginx。Docker build、Compose 网络代理和三类路径验证待完成。
 
 ### CR2 [P2] 生产部署未声明数据库迁移步骤
 
@@ -94,8 +94,8 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 
 ### CR3 [P2] Dockerfile 与 Compose 运行模型已收敛
 
-- **当前状态**：Dockerfile 保留单容器 Nginx+Uvicorn 启动模型；生产 Compose 通过显式 `command` 让 API 只运行 Uvicorn，并由独立 Nginx 负责代理和静态文件。
-- **配置证据**：生产 API 使用 `uvicorn ... --workers 2`；生产 Nginx 挂载 `./src/dist` 到 `/workspace/src/dist`，与 Nginx `root` 配置一致。
+- **当前状态**：Dockerfile 只启动 Uvicorn，基础与生产 Compose 都由独立 Nginx 服务负责代理和静态文件。
+- **配置证据**：运行镜像 `EXPOSE 8080` 且 `CMD` 只执行 Uvicorn；生产 API 通过 `command` 使用 `--workers 2`；Nginx 挂载 `./src/dist` 到 `/workspace/src/dist`，与 Nginx `root` 配置一致。
 - **运行验证**：API、Nginx、静态资源和健康链路仍需容器环境验证。
 
 ### CR4 [P3] 基础 Compose 的应用挂载目录与镜像工作目录不一致
@@ -131,9 +131,9 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应问题 |
 |---|---|---|---|---|---|
-| 1 | P2 | 将独立 Nginx 上游改为 Compose 服务名并验证三类代理路径 | 恢复 80 -> API 的 HTTP/WebSocket/健康链路 | `configs/nginx.conf`、`configs/nginx-upstream-compose.conf`、`configs/nginx-upstream-local.conf` | CR1，配置已修复 |
+| 1 | P2 | 将独立 Nginx 上游改为 Compose 服务名并验证三类代理路径 | 恢复 80 -> API 的 HTTP/WebSocket/健康链路 | `configs/nginx.conf`、`configs/nginx-upstream-compose.conf` | CR1，配置已修复 |
 | 2 | P2 | 明确并接入一次性数据库迁移责任方 | 让 schema 版本随发布受控推进 | `docker-compose*.yml`、发布流程 | CR2 |
-| 3 | P2 | 收敛为独立代理或单容器运行模型 | 消除重复进程、健康检查和日志职责 | `Dockerfile:63-91`、`docker-compose.prod.yml:79-103` | CR3 |
+| 3 | P2 | 收敛为独立代理运行模型 | 消除重复进程、健康检查和日志职责 | `Dockerfile`、`docker-compose*.yml` | CR3，镜像已只保留 API |
 | 4 | P3 | 统一 `/app` 与 `/workspace/app` 路径 | 保证挂载代码与 Uvicorn 加载代码一致 | `Dockerfile:41-58`、`docker-compose.yml:23-26` | CR4：代码修复完成，容器验证待完成 |
 | 5 | P3 | 用 profile/覆盖文件管理 Jaeger | 使可选观测服务真正按需启动 | `docker-compose.yml:94-108` | CR5，已修复 |
 | 6 | P3 | 固定 Nginx、Jaeger 版本或 digest | 提高构建和回滚可复现性 | `docker-compose.yml:74`、`docker-compose.yml:95`、`docker-compose.prod.yml:150` | CR6，待部署环境验证 |

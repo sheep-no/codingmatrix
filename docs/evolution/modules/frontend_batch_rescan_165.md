@@ -1,6 +1,6 @@
 # Frontend 第 165 轮四批次复扫记录
 
-> 版本：v0.3 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0 与阶段 1 已修复
+> 版本：v0.4 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0-3 已修复（容器与 CI 实跑待环境复验）
 > 归属：前端应用第 165 轮复扫
 > 基线：`frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`、`frontend_batch_rescan.md`、`frontend_batch_rescan_164.md`
 > 范围：入口认证、状态与组合逻辑、视图与 API 契约、构建测试部署
@@ -80,6 +80,7 @@
 - 缺陷：弹窗根节点只有 `modal-overlay`/`modal-content` 样式类，缺少 `role="dialog"`、`aria-modal`、标题关联、Escape 关闭与焦点回归；共享组件 `src/components/ui/Modal.vue:7-8` 已具备这些语义。
 - 影响：屏幕阅读器无法识别弹窗边界，键盘用户无法用 Escape 关闭；同一交互出现两套实现。
 - 证据：实码可证；读屏行为需辅助技术实测。
+- 修复状态：已修复。新增共享 composable `src/composables/useDialogA11y.js`（Escape 关闭、Tab 首尾循环、`visible` 变化时焦点进入与回归）；`UserManagement.vue`、`ServiceManager.vue`、`VirtualGirl.vue` 的 8 个弹窗补齐 `role="dialog"`、`aria-modal`、`aria-labelledby`、`tabindex="-1"` 并接入该 composable。`useDialogA11y.test.js`、`UserManagement.test.js`、`ServiceManager.test.js` 覆盖键盘与属性；回退源码后相关用例失败。
 
 #### FRESCAN-64 [P2] 首页挂载的多个工具组件没有任何 UI 入口
 
@@ -87,6 +88,7 @@
 - 缺陷：`TaskQueue`、`ServiceManager`、`Aicloud`、`ProjectGenerator`、`EphemeralWorkflow`、`ImageGenerator` 六个组件由 navigation store 标志控制挂载，但 `leftlist.vue:80-270` 的工具菜单只提供图表、Docker、Nginx、管理台、虚拟姬、PPT、AI 绘画、临时工作流与搜索历史入口；`showTool` 虽有对应分支，全库没有 UI 写入（`ImageGenerator` 的 AI 绘画入口走 `window.open('/image-generate')` 打开独立路由，不设置该标志）。
 - 影响：`ProjectGenerator` 的恢复逻辑还在 `navigation.js:19,176` 被强制置 false；`bottominput.vue:253` 仍读取该恒 false 状态作为输入模式条件，形成无效分支。相关组件缺陷无法通过正常交互触达。
 - 判定：属于未接入/接线缺失，按结构事项记录，不按活跃运行缺陷计数。
+- 修复状态：已修复。出口统一为路由或管理台：`TaskQueue` 加入 `leftlist.vue` 工具菜单；`ServiceManager` 仅由 AdminPanel 的 `service-manager` 菜单进入；`Aicloud`、`ImageGenerator`、`ProjectGenerator`、`EphemeralWorkflow` 均有独立路由，故从 `index.vue` 卸载，并删除 `navigation.js` 中对应标志、`activeTool` 分支与持久化字段。`bottominput.vue` 的 `projectGeneratorMode` 死分支一并删除。`navigation.test.js`、`leftlist.test.js`、`index.test.js`、`bottominput.test.js` 覆盖；回退源码后相关用例失败。
 
 ### 批次二：API 客户端与后端契约
 
@@ -124,6 +126,7 @@
 - 缺陷：token 首选 `window.api?._userStore?.getAccessToken?.()`，但全库没有给 `window.api._userStore` 赋值（`base.js:81` 设置的是 `window.userStore`）；`base.js` 第二优先级分支同样恒空。401 时跳转 `/login`，路由表中无该路径，只由 catch-all 重定向回首页。
 - 影响：当前依赖 `localStorage.access_token` 兜底仍能带上 token；一旦 token 只存在于内存或刷新失败，GitHub 面板会以匿名请求 401，并被静默送回首页，用户看不到“会话过期”提示。
 - 证据：实码可证；token 失效路径待实测。
+- 修复状态：已修复。`base.js` 导出 `handleSessionExpired(store)`，统一执行 `clearUser()` 并广播 `session-expired` 事件；请求与流式请求的 401/4001 分支全部改走该函数。`github.js` 改用 `getValidToken()`，401 不再删除单个键或跳转不存在的 `/login`。`App.vue` 监听事件并弹出会话过期提示。`github.test.js` 覆盖 token 取值与 401；回退源码后相关用例失败。
 
 ### 批次三：构建、测试与部署
 
@@ -133,7 +136,7 @@
 - 缺陷：基础镜像为 `python:3.11-slim`（Debian），`:47-48` 只创建 `appuser`，`:70` 才安装 Debian `nginx` 包；Debian 包使用 `www-data`，不创建 `nginx` 账号。`:98` 执行 `chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run`，`nginx.conf:7` 又声明 `user nginx;`。
 - 影响：`chown` 在 `nginx` 用户不存在时直接失败，镜像构建中止；若账号存在但配置的 worker 用户不可用，Nginx 也无法启动 worker。
 - 证据：静态链路可证；Debian 包账号创建行为与构建结果需在有 Docker 的环境实测。
-- 修复状态：已修复（待容器实测）。在安装 nginx 之后显式创建 `nginx` 系统用户组与账号，保留 `configs/nginx.conf:7` 的 `user nginx;` 与既有 `chown`。`docker build` 与容器内 `nginx -t` 仍需在有 Docker 的环境复验。
+- 修复状态：已修复，随 FRESCAN-69 拓扑收敛解决。运行镜像不再安装或启动 Nginx，账号创建、`chown nginx:nginx` 与 `nginx.conf` 复制均已删除，构建链不再依赖 `nginx` 系统账号；Nginx 由独立 `nginx:alpine` 服务承担，`configs/nginx.conf:7` 的 `user nginx;` 在该镜像内成立。`docker build` 与容器内 `nginx -t` 仍需在有 Docker 的环境复验。
 
 #### FRESCAN-60 [P2] 生产 Nginx 的 `/api/` 未透传 Upgrade 导致 PPT WebSocket 失败
 
@@ -157,6 +160,7 @@
 - 缺陷：Dockerfile 的 CMD 同时启动 Nginx 与 Uvicorn；两个 Compose 文件都为 `api`/`celery`/`scheduler` 设置 `command:`，覆盖该 CMD，并由独立 `nginx:alpine` 容器提供静态与代理。
 - 影响：单镜像拓扑实际不可用也不会被测试覆盖；`docker-compose.yml` 还把 API 绑定到 `127.0.0.1:8080`，期望“只起 api 容器即可访问”的场景不成立。
 - 判定：部署结构一致性问题，非当前默认拓扑故障。
+- 修复状态：已修复（待容器实测）。`Dockerfile` 删除 Nginx 安装、账号、配置复制与 `nginx && ...` 启动分支，只保留 Uvicorn 的 `CMD` 并改为 `EXPOSE 8080`；基础与生产 Compose 继续由独立 `nginx:alpine` 服务使用 `configs/nginx-upstream-compose.conf` 代理 `api:8080`。新增 `src/tests/container-topology.test.js` 锁定「镜像无 Nginx、两套 Compose 只用 Compose 上游」；回退 `Dockerfile` 后该用例失败。`docs/guides/SERVICES.md`、`docs/guides/PRODUCTION.md`、`container_runtime.md`、`runtime_cross_review.md` 已同步为单一拓扑描述。
 
 ### 批次四：会话边界、缓存与图片历史
 
@@ -198,12 +202,14 @@
 - 定位：`src/components/NginxConfig.vue`（94 处 `<label>`，0 处 `for`，如 `:115,125,130,139`）；`src/components/UserManagement.vue`（12 处 `<label>`，0 处 `for`）；`src/components/settings/DynamicProviderManager.vue:16,20,24,31`（4 处 `<label>`，0 处 `for`）；`src/components/VirtualGirl.vue:265,269,273,277,281,285`（6 处 `<label>`，0 处 `for`）；`src/views/ChartEditorPage.vue:141,148,155,171,175`（8 处 `<label>`，0 处 `for`）。
 - 影响：点击标签不聚焦控件，屏幕阅读器读不到控件名称；表单错误定位依赖视觉邻近。
 - 判定：可用性缺陷，不阻断主流程。
+- 修复状态：已修复。`NginxConfig.vue`（71 处）、`UserManagement.vue`（12 处）、`DynamicProviderManager.vue`（4 处）、`VirtualGirl.vue`（6 处）、`ChartEditorPage.vue`（5 处）为控件补稳定 `id` 并与 `label for` 关联；包裹式 radio/checkbox/toggle 保持原结构。新增 `src/tests/form-label-association.test.js`，回退源码后 5 条用例失败。
 
 #### FRESCAN-68 [P3] AiCloud 历史失败返回值形状与数组契约不一致
 
 - 定位：`src/utils/api/aicloud.js:61-82`；`src/components/Aicloud.vue:441-472`。
 - 缺陷：成功时 `getHistory()` 返回后端数组，失败时返回 `{ messages: [] }` 对象；`loadCurrentSession` 直接 `sessions?.find(...)`，对象上没有 `find`，抛错后被外层 catch 吞掉并把消息清空；`loadHistory` 直接把对象赋给 `historySessions`，模板 `v-for` 按对象值迭代。
 - 影响：网络失败或 403 时历史面板渲染异常或为空，且不显示失败原因。
+- 修复状态：已修复。`aicloud.js` 的 `getHistory()` 成功与失败都返回数组（失败向上抛错）；`Aicloud.vue` 新增 `historyError` 与 `.history-error[role="alert"]` 失败态及重试入口。`aicloud.test.js` 两条新用例覆盖成功数组与失败抛错。
 
 #### FRESCAN-70 [P2] 图片生成页面绕过统一客户端，错误全部静默
 
@@ -249,13 +255,13 @@
 
 ### 阶段 3：结构收敛与可用性（1 周）
 
-1. FRESCAN-63：三个弹窗迁移到 `ui/Modal.vue` 或补齐 `role`/`aria-modal`/Escape/焦点回归；补组件测试断言属性。
-2. FRESCAN-64：为六个已挂载工具选定出口：加入工具菜单，或从 `index.vue` 卸载并删除 navigation 标志；同时清理 `bottominput.vue:253` 的死分支。
-3. FRESCAN-65：token 读取统一到 `base.js` 的 `getValidToken()`；401 处理改为 `clearUser()` + 跳转 `/` 并提示会话过期。
-4. FRESCAN-67：批量补 `label for`/控件 `id`，优先设置页与管理页。
-5. FRESCAN-68：AiCloud 历史失败统一返回数组，并补失败态提示。
-6. FRESCAN-69：明确保留单一拓扑：删除 Dockerfile 中未使用的 `nginx` 启动分支，或让 Compose 复用该 CMD；同步更新 README 部署说明。
-7. 验收标准：可访问性项用组件测试锁定属性；拓扑项在文档与 Compose 中只保留一种描述。
+1. FRESCAN-63：三个弹窗迁移到 `ui/Modal.vue` 或补齐 `role`/`aria-modal`/Escape/焦点回归；补组件测试断言属性。状态：已修复，采用共享 `useDialogA11y` composable，8 个弹窗补齐语义与键盘行为。
+2. FRESCAN-64：为六个已挂载工具选定出口：加入工具菜单，或从 `index.vue` 卸载并删除 navigation 标志；同时清理 `bottominput.vue:253` 的死分支。状态：已修复，`TaskQueue` 加入工具菜单，其余走路由或管理台，首页卸载并删除导航标志。
+3. FRESCAN-65：token 读取统一到 `base.js` 的 `getValidToken()`；401 处理改为 `clearUser()` + 跳转 `/` 并提示会话过期。状态：已修复，401 统一调用 `handleSessionExpired()` 并广播 `session-expired`，由 `App.vue` 弹提示；当前停留在原页面，跳转 `/` 未采用。
+4. FRESCAN-67：批量补 `label for`/控件 `id`，优先设置页与管理页。状态：已修复，5 个表单页共补 98 处关联。
+5. FRESCAN-68：AiCloud 历史失败统一返回数组，并补失败态提示。状态：已修复，客户端失败抛错，页面显示 `role="alert"` 失败态与重试。
+6. FRESCAN-69：明确保留单一拓扑：删除 Dockerfile 中未使用的 `nginx` 启动分支，或让 Compose 复用该 CMD；同步更新 README 部署说明。状态：已修复，镜像只保留 API，Nginx 统一为独立 Compose 服务。
+7. 验收标准：可访问性项用组件测试锁定属性；拓扑项在文档与 Compose 中只保留一种描述。状态：已达成，新增 `useDialogA11y.test.js`、`form-label-association.test.js`、`container-topology.test.js`。
 
 ### 测试与验证建议
 

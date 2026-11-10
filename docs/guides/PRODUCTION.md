@@ -184,7 +184,7 @@ curl -i http://127.0.0.1:8080/api/v1/health
 
 ## Nginx 与 Vite
 
-`configs/nginx.conf` 使用 `/workspace/src/dist` 作为静态根目录，80 端口提供 SPA fallback；`/api/` 和 `/ws/` 代理到 `api_backend`。Compose 上游为 `api:8080`，Dockerfile 内置 Nginx 使用的本地上游为 `127.0.0.1:8080`。Nginx 设置 100 MB 请求体上限、Gzip、常见安全响应头和隐藏文件拒绝规则。
+`configs/nginx.conf` 使用 `/workspace/src/dist` 作为静态根目录，80 端口提供 SPA fallback；`/api/` 和 `/ws/` 代理到 `api_backend`。运行镜像只承载 FastAPI（`8080`），Nginx 在两套 Compose 中都是独立服务，upstream 固定为 `api:8080`。Nginx 设置 100 MB 请求体上限、Gzip、常见安全响应头和隐藏文件拒绝规则。
 
 `src/vite.config.js` 的开发服务器监听 `0.0.0.0:3000`，允许 `localhost`、`127.0.0.1` 和 `.monkeycode-ai.online`，Vite `/api/v1`、`/api/v2` 代理目标是 `http://localhost:8000`。该开发代理与 Compose API 的 8080 端口属于不同运行拓扑，不能混用。
 

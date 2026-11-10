@@ -52,7 +52,7 @@ Compose 的 Nginx 挂载源 `./src/dist`、Dockerfile 引用的构建阶段产�
 
 ## Docker Compose
 
-基础 Compose 定义 `api`、`celery`、`redis` 和 `nginx`；生产 Compose 额外定义独立 `scheduler`。API upstream 为 `api:8080`，单镜像内 Nginx upstream 为 `127.0.0.1:8080`。
+基础 Compose 定义 `api`、`celery`、`redis` 和 `nginx`；生产 Compose 额外定义独立 `scheduler`。运行镜像只承载 FastAPI（`8080`），静态资源与反向代理统一由独立 `nginx:alpine` 服务提供，upstream 固定为 `api:8080`。
 
 基础 `docker-compose.yml` 中的 Jaeger 服务字段当前位于顶层 `networks.jaeger`，Compose schema 会在解析阶段拒绝该文件。生产 Compose 还存在前端产物路径、生产密钥和数据库持久化阻塞。修复这些配置后，预期入口为：
 

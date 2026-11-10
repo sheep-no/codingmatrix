@@ -76,6 +76,22 @@ export function getValidToken() {
   return null
 }
 
+/**
+ * 统一处理会话失效：清理当前账户并广播一次全局提示。
+ * 宿主页面监听 `session-expired` 事件展示「会话已过期」。
+ */
+export function handleSessionExpired(store = null) {
+  const effectiveStore = store || (typeof window !== 'undefined' ? window.userStore : null)
+  if (effectiveStore && typeof effectiveStore.clearUser === 'function') {
+    effectiveStore.clearUser()
+  }
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('session-expired', {
+      detail: { message: '会话已过期，请重新登录' }
+    }))
+  }
+}
+
 export function createBaseClient(userStore = null) {
   if (userStore) {
     window.userStore = userStore
@@ -114,7 +130,7 @@ export function createBaseClient(userStore = null) {
               } else {
                 client.state.refreshRetryCount = 0
                 console.warn('[API] Token refresh failed, clearing user')
-                if (effectiveUserStore.clearUser) effectiveUserStore.clearUser()
+                handleSessionExpired(effectiveUserStore)
                 throw new Error('Token refresh failed')
               }
             }
@@ -172,7 +188,7 @@ export function createBaseClient(userStore = null) {
 
         if (client.state.refreshRetryCount >= MAX_REFRESH_RETRIES) {
           client.state.refreshRetryCount = 0
-          if (effectiveUserStore && effectiveUserStore.clearUser) effectiveUserStore.clearUser()
+          handleSessionExpired(effectiveUserStore)
           throw new Error('Authentication failed')
         }
 
@@ -185,7 +201,7 @@ export function createBaseClient(userStore = null) {
             }
           }
         } catch (refreshError) {
-          if (effectiveUserStore && effectiveUserStore.clearUser) effectiveUserStore.clearUser()
+          handleSessionExpired(effectiveUserStore)
           throw new Error('Authentication failed', { cause: refreshError })
         }
       }
@@ -238,7 +254,7 @@ export function createBaseClient(userStore = null) {
       if ((response.status === 401 || response.status === 4001) && token) {
         if (client.state.refreshRetryCount >= MAX_REFRESH_RETRIES) {
           client.state.refreshRetryCount = 0
-          if (effectiveUserStore && effectiveUserStore.clearUser) effectiveUserStore.clearUser()
+          handleSessionExpired(effectiveUserStore)
           throw new Error('Token refresh retry limit exceeded')
         }
 
