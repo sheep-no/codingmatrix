@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 import time
@@ -23,6 +24,9 @@ SUPPORTED_PROTOCOL_VERSION = 1
 CAPABILITIES = {"workspace", "file", "terminal", "diagnostics", "validation", "skill_runtime"}
 HOST_EVENT_KINDS = {"approval_request", "progress_event", "diagnostic_event", "tool_result"}
 _sessions: dict[str, dict[str, Any]] = {}
+logger = logging.getLogger(__name__)
+
+LOCAL_VALIDATION_SCOPES = {"local_runtime", "local_e2e"}
 
 
 class AgentHostSessionStore:
@@ -107,15 +111,32 @@ def _dump_model(model: BaseModel) -> dict[str, Any]:
 
 def enqueue_state_actions(session_id: str, state: Any) -> int:
     """Adapt State.pending_actions into versioned Host actions for a session."""
-    session = _sessions.get(session_id)
+    host_session_id = _host_session_id_for(session_id) or session_id
+    session = _sessions.get(host_session_id)
+    if session is None:
+        session = _session_store.load(host_session_id)
     if session is None:
         raise KeyError(f"agent host session not found: {session_id}")
+    if datetime.now(timezone.utc) >= session["expires_at"]:
+        _sessions.pop(host_session_id, None)
+        raise KeyError(f"agent host session expired: {session_id}")
+    _sessions[host_session_id] = session
     state_data = state.to_dict() if hasattr(state, "to_dict") else dict(state)
     if state_data.get("session_id") not in (None, session_id):
+        raise ValueError("state session does not match agent host session")
+    stored_workflow_session = session.get("workflow_session_id")
+    if stored_workflow_session not in (None, session_id):
         raise ValueError("state session does not match agent host session")
     task_id = str(state_data.get("task_id", ""))
     revision = int(state_data.get("revision", 0))
     workspace_id = str(session["workspace_id"])
+    pending_actions = state_data.get("pending_actions", [])
+    needs_commands = any(
+        isinstance(action, dict)
+        and action.get("type") in {"local_validation", "install_dependencies", "dependency_install"}
+        for action in pending_actions
+    )
+    commands = _validation_commands(state_data) if needs_commands else None
     existing = {
         action.get("payload", {}).get("action_id")
         for action in [
@@ -124,36 +145,244 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
         ]
     }
     added = 0
-    for pending in state_data.get("pending_actions", []):
+    for pending in pending_actions:
         if not isinstance(pending, dict):
             continue
-        action_id = str(pending.get("action_id") or pending.get("event_id") or uuid4())
-        if action_id in existing:
-            continue
-        capability = _pending_action_capability(pending)
-        session["pending_actions"].append({
-            "message_id": str(pending.get("event_id") or uuid4()),
-            "schema_version": SUPPORTED_PROTOCOL_VERSION,
-            "session_id": session_id,
-            "task_id": task_id,
-            "revision": revision,
-            "kind": "tool_action",
-            "capability": capability,
-            "policy_version": session["policy_version"],
-            "payload": {
+        event_id = str(pending.get("event_id") or uuid4())
+        base_id = str(pending.get("action_id") or event_id)
+        for scope, spec in _pending_execution_plans(pending, commands):
+            action_id = base_id if scope is None else f"{base_id}:{scope}"
+            message_id = event_id if scope is None else f"{event_id}:{scope}"
+            if action_id in existing:
+                continue
+            capability = _pending_action_capability(pending)
+            payload = {
                 **pending,
+                "schema_version": SUPPORTED_PROTOCOL_VERSION,
+                "event_id": message_id,
                 "action_id": action_id,
-                "session_id": session_id,
+                "session_id": host_session_id,
                 "task_id": task_id,
                 "revision": revision,
                 "workspace_id": workspace_id,
-            },
-        })
-        existing.add(action_id)
-        added += 1
+            }
+            if spec is not None:
+                payload.update({
+                    "validation_scope": scope or "local_runtime",
+                    "operation": _validation_operation(spec.action, scope),
+                    "command": list(spec.command),
+                    "working_directory": ".",
+                    "timeout_seconds": spec.timeout_seconds,
+                    "requested_by": "cloud",
+                })
+            session["pending_actions"].append({
+                "message_id": message_id,
+                "schema_version": SUPPORTED_PROTOCOL_VERSION,
+                "session_id": host_session_id,
+                "task_id": task_id,
+                "revision": revision,
+                "kind": "tool_action",
+                "capability": capability,
+                "policy_version": session["policy_version"],
+                "payload": payload,
+            })
+            existing.add(action_id)
+            added += 1
     if added:
-        _session_store.save(session_id, session)
+        _session_store.save(host_session_id, session)
     return added
+
+
+def bind_workflow_session(workflow_session_id: str, host_session_id: str, user_id: str) -> None:
+    """Remember which Host session executes a workflow conversation's actions."""
+    if not workflow_session_id or not host_session_id:
+        raise KeyError("workflow and host session ids are required")
+    session = _sessions.get(host_session_id)
+    if session is None:
+        session = _session_store.load(host_session_id)
+    if session is None:
+        raise KeyError(f"agent host session not found: {host_session_id}")
+    if datetime.now(timezone.utc) >= session["expires_at"]:
+        _sessions.pop(host_session_id, None)
+        raise KeyError(f"agent host session expired: {host_session_id}")
+    if str(session.get("user_id", "")) != str(user_id):
+        raise PermissionError("agent host session belongs to another user")
+    # A re-handshake replaces the delivery target; the old session must stop
+    # claiming this conversation so new actions are not queued twice.
+    for other_id, other in _sessions.items():
+        if other_id != host_session_id and other.get("workflow_session_id") == workflow_session_id:
+            other.pop("workflow_session_id", None)
+            _session_store.save(other_id, other)
+    for path in _session_store.directory.glob("*.json"):
+        if path.stem == host_session_id:
+            continue
+        try:
+            other = _session_store.load(path.stem)
+        except (OSError, ValueError):
+            continue
+        if other and other.get("workflow_session_id") == workflow_session_id:
+            other.pop("workflow_session_id", None)
+            _session_store.save(path.stem, other)
+    session["workflow_session_id"] = workflow_session_id
+    _sessions[host_session_id] = session
+    _session_store.save(host_session_id, session)
+
+
+def _host_session_id_for(workflow_session_id: str) -> str | None:
+    if workflow_session_id in _sessions:
+        return workflow_session_id
+    now = datetime.now(timezone.utc)
+    for host_session_id, session in _sessions.items():
+        if (
+            session.get("workflow_session_id") == workflow_session_id
+            and now < session["expires_at"]
+        ):
+            return host_session_id
+    for path in _session_store.directory.glob("*.json"):
+        try:
+            session = _session_store.load(path.stem)
+        except (OSError, ValueError):
+            continue
+        if (
+            session
+            and session.get("workflow_session_id") == workflow_session_id
+            and now < session["expires_at"]
+        ):
+            _sessions[path.stem] = session
+            return path.stem
+    return None
+
+
+def _pending_scopes(action: dict[str, Any]) -> list[str]:
+    raw = action.get("scopes", action.get("scope", []))
+    if isinstance(raw, str):
+        raw = [raw]
+    return [scope for scope in raw if scope in LOCAL_VALIDATION_SCOPES]
+
+
+def _validation_commands(state_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect toolchain commands for the generated workspace, keyed by scope.
+
+    Returns ``None`` when the workspace is unknown, which keeps legacy payloads
+    for state-only callers. An empty mapping means the workspace exists but no
+    executable command was detected, so the action must not be sent.
+    """
+    metadata = state_data.get("metadata") or {}
+    workspace = _workspace_directory(metadata)
+    if workspace is None:
+        logger.warning("agent host action skipped: workspace directory is unknown")
+        return None
+    try:
+        from app.agent.toolchain import ToolchainAction, detect_toolchain
+
+        plan = detect_toolchain(workspace)
+    except (OSError, ValueError):
+        logger.exception("agent host action skipped: toolchain detection failed")
+        return None
+    preferences = {
+        "install": (ToolchainAction.INSTALL,),
+        "local_runtime": (
+            ToolchainAction.TEST,
+            ToolchainAction.BUILD,
+            ToolchainAction.TYPECHECK,
+            ToolchainAction.LINT,
+            ToolchainAction.INSTALL,
+        ),
+        "local_e2e": (
+            ToolchainAction.SMOKE,
+            ToolchainAction.TEST,
+            ToolchainAction.BUILD,
+        ),
+    }
+    return {
+        scope: next(
+            (spec for action in actions if (spec := plan.for_action(action)) is not None),
+            None,
+        )
+        for scope, actions in preferences.items()
+    }
+
+
+def _workspace_directory(metadata: dict[str, Any]) -> Path | None:
+    from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
+
+    for key in ("project_path", "output_dir"):
+        value = metadata.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value)
+        if path.is_absolute():
+            candidate = path.resolve()
+        else:
+            relative = value.removeprefix("./")
+            if relative.startswith("projects/"):
+                relative = relative.removeprefix("projects/")
+            candidate = Path(PROJECTS_BASE_DIR) / relative
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _pending_execution_plans(
+    action: dict[str, Any],
+    commands: dict[str, Any] | None,
+):
+    """Yield (scope, command) pairs; at most one command per validation scope."""
+    if action.get("type") == "local_validation":
+        scopes = _pending_scopes(action)
+        if not scopes:
+            # A local validation request without a scope is not executable;
+            # keep the legacy payload for compatibility with older producers.
+            yield None, None
+            return
+        if commands is None:
+            # No workspace metadata (state-only callers): retain the legacy
+            # payload so the action still reaches the Host queue.
+            yield None, None
+            return
+        # Emit one scope at a time: a second action would carry the old
+        # revision and be rejected once the first result advances the state.
+        plan = next(
+            ((scope, spec) for scope in scopes if (spec := commands.get(scope)) is not None),
+            None,
+        )
+        if plan is None:
+            # An executable action without a command fails plugin parsing and
+            # aborts the whole poll, so it stays pending on the cloud side.
+            logger.warning("agent host action skipped: no command for %s", action.get("type"))
+            return
+        yield plan
+        return
+    if action.get("type") in {"install_dependencies", "dependency_install"}:
+        spec = commands.get("install") if commands else None
+        if spec is None:
+            if commands is None:
+                yield None, None
+                return
+            logger.warning("agent host action skipped: no dependency command detected")
+            return
+        yield None, spec
+        return
+    # Non-executable actions keep their existing payload contract.
+    yield None, None
+
+
+def _validation_operation(action: Any, scope: str | None) -> str:
+    from app.agent.toolchain import ToolchainAction
+
+    if action is ToolchainAction.TEST:
+        return "e2e_test" if scope == "local_e2e" else "unit_test"
+    if action is ToolchainAction.BUILD:
+        return "build"
+    if action is ToolchainAction.INSTALL:
+        return "dependency_install"
+    if action in {ToolchainAction.LINT, ToolchainAction.FORMAT}:
+        return "syntax_check"
+    if action is ToolchainAction.TYPECHECK:
+        return "build"
+    if action in {ToolchainAction.SMOKE, ToolchainAction.HEALTH, ToolchainAction.START}:
+        return "service_check"
+    return "unit_test"
 
 
 # Register the Host dispatcher so the agent layer can forward pending actions
@@ -429,18 +658,21 @@ async def post_agent_host_event(
 
         if not event.task_id or event.revision is None:
             raise HTTPException(status_code=422, detail="tool_result requires task_id and revision")
+        # Actions live on the Host session, while workflow checkpoints are keyed
+        # by the stable conversation id bound during orchestration.
+        workflow_session_id = str(session.get("workflow_session_id") or session_id)
         result = {
             **event.payload,
             "event_id": event.message_id,
             "schema_version": event.schema_version,
-            "session_id": session_id,
+            "session_id": workflow_session_id,
             "task_id": event.task_id,
             "revision": event.revision,
             "source": "local",
         }
         try:
             state = await resume_workflow_from_local_result(
-                session_id=session_id,
+                session_id=workflow_session_id,
                 task_id=event.task_id,
                 result=result,
             )

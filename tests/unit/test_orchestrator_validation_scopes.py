@@ -1,8 +1,15 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.api.v1.ai_agent.orchestrate_endpoints import _legacy_requirement_with_allowed_files
-from app.api.v1.ai_agent.schemas import OrchestratorRequest
+from app.api.v1 import agent_host
+from app.api.v1.ai_agent.orchestrate_endpoints import (
+    _bind_local_validation_session,
+    _legacy_requirement_with_allowed_files,
+)
+from app.api.v1.ai_agent.schemas import ModifyRequest, OrchestratorRequest
 from app.agent.architect import Architect
 from app.agent.state import StateDelta, StateGraphBuilder
 from app.agent.workflow_registry import WorkflowDefinition, run_workflow
@@ -23,6 +30,66 @@ def test_orchestrator_request_rejects_unknown_validation_scope() -> None:
             requirement="创建一个可测试项目",
             required_validation_scopes=["cloud_runtime"],
         )
+
+
+def test_modify_request_validates_and_deduplicates_validation_scopes() -> None:
+    request = ModifyRequest(
+        requirement="修复问题",
+        required_validation_scopes=["local_runtime", "local_runtime"],
+    )
+
+    assert request.required_validation_scopes == ["local_runtime"]
+
+
+def test_modify_request_rejects_unknown_validation_scope() -> None:
+    with pytest.raises(ValidationError, match="required_validation_scopes"):
+        ModifyRequest(requirement="修复问题", required_validation_scopes=["cloud"])
+
+
+def test_modify_request_validates_host_session_id() -> None:
+    assert ModifyRequest(host_session_id="host-session-1").host_session_id == "host-session-1"
+
+    with pytest.raises(ValidationError, match="host_session_id"):
+        ModifyRequest(host_session_id="bad session id")
+
+
+def test_bind_local_validation_session_is_optional() -> None:
+    assert _bind_local_validation_session(ModifyRequest(), "conversation-1", "user-1") == (
+        "conversation-1"
+    )
+
+
+def test_bind_local_validation_session_rejects_unknown_host_session() -> None:
+    request = ModifyRequest(host_session_id="unknown-host-session")
+
+    with pytest.raises(HTTPException) as exc_info:
+        _bind_local_validation_session(request, "conversation-1", "user-1")
+
+    assert exc_info.value.status_code == 403
+
+
+def test_bind_local_validation_session_rejects_foreign_owner() -> None:
+    host_session_id = "host-session-owner"
+    agent_host._sessions[host_session_id] = {
+        "user_id": "other-user",
+        "workspace_id": "workspace",
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+    }
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            _bind_local_validation_session(
+                ModifyRequest(host_session_id=host_session_id),
+                "conversation-1",
+                "user-1",
+            )
+        assert exc_info.value.status_code == 403
+    finally:
+        agent_host._sessions.pop(host_session_id, None)
 
 
 def test_orchestrator_request_validates_and_deduplicates_allowed_files() -> None:

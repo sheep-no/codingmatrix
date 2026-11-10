@@ -152,6 +152,11 @@ class OrchestratorRequest(BaseModel):
         ),
     )
     session_id: str | None = Field(None, description="会话ID（用于增量生成/续传）")
+    host_session_id: str | None = Field(
+        None,
+        description="Agent Host 会话 ID；提供时编排状态绑定该会话，便于本地动作回传",
+        max_length=SESSION_ID_MAX_LENGTH,
+    )
     is_resume: bool | None = Field(None, description="True 仅重连指定存活任务；False 明确新生成；省略保留旧客户端行为")
     incremental: bool = Field(False, description="是否启用增量生成")
     require_approval: bool = Field(False, description="是否要求关键文件人工审批")
@@ -198,6 +203,11 @@ class OrchestratorRequest(BaseModel):
     @classmethod
     def validate_session_id(cls, v):
         return validate_session_id(v, "session_id")
+
+    @field_validator('host_session_id')
+    @classmethod
+    def validate_host_session_id(cls, v):
+        return validate_session_id(v, "host_session_id")
 
     @field_validator('project_name')
     @classmethod
@@ -272,6 +282,11 @@ class ModifyRequest(BaseModel):
     project_path: str | None = Field(None, description="已有项目路径（相对于 projects 目录）", max_length=500)
     output_dir: str | None = Field(None, description="输出目录（相对于 projects 目录）", max_length=500)
     session_id: str | None = Field(None, description="已有会话 ID")
+    host_session_id: str | None = Field(
+        None,
+        description="Agent Host 会话 ID；提供时编排状态绑定该会话，便于本地动作回传",
+        max_length=SESSION_ID_MAX_LENGTH,
+    )
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
@@ -288,6 +303,11 @@ class ModifyRequest(BaseModel):
     max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
     api_key_token: str | None = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     incremental: bool = Field(True, description="是否增量修改")
+    required_validation_scopes: list[str] = Field(
+        default_factory=list,
+        description="需要由 Agent Host 执行的本地验证范围",
+        max_length=2,
+    )
 
     @field_validator('session_id')
     @classmethod
@@ -298,6 +318,19 @@ class ModifyRequest(BaseModel):
     @classmethod
     def validate_paths(cls, v):
         return validate_path_components(v, "path")
+
+    @field_validator('host_session_id')
+    @classmethod
+    def validate_host_session_id(cls, v):
+        return validate_session_id(v, "host_session_id")
+
+    @field_validator('required_validation_scopes')
+    @classmethod
+    def validate_validation_scopes(cls, v):
+        unsupported = [scope for scope in v if scope not in {"local_runtime", "local_e2e"}]
+        if unsupported:
+            raise ValueError("required_validation_scopes 仅支持 local_runtime 和 local_e2e")
+        return list(dict.fromkeys(v))
 
 
 class ComplexityAnalysisRequest(BaseModel):

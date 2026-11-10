@@ -120,6 +120,24 @@ def _core_request_metadata(request) -> dict[str, Any]:
     return metadata
 
 
+def _bind_local_validation_session(request: Any, conversation_id: str, user_id: str) -> str:
+    """Map a stable workflow session to the Host session that runs its actions.
+
+    Workflow state keeps the stable conversation id so checkpoints survive a
+    Host re-handshake; only action delivery and result routing use the Host id.
+    """
+    host_session_id = getattr(request, "host_session_id", None)
+    if not host_session_id:
+        return conversation_id
+    from app.api.v1.agent_host import bind_workflow_session
+
+    try:
+        bind_workflow_session(conversation_id, host_session_id, str(user_id))
+    except (KeyError, PermissionError):
+        raise HTTPException(status_code=403, detail="无权使用该 Agent Host 会话")
+    return conversation_id
+
+
 def _legacy_requirement_with_allowed_files(
     requirement: str,
     allowed_files: list[str],
@@ -830,11 +848,12 @@ async def modify_project(
                     )
                     graph_state = await run_workflow(
                         workflow,
-                        session_id=session_id,
+                        session_id=_bind_local_validation_session(request, session_id, user_id),
                         task_id=session_id,
                         metadata={
                             **({"engine": request.engine} if request.engine is not None else {}),
                             "project_path": str(project_dir),
+                            "required_validation_scopes": request.required_validation_scopes,
                         },
                         db=db,
                         user_id=int(user_id),
@@ -1013,7 +1032,11 @@ async def orchestrate_project(
         )
         graph_state = await run_workflow(
             workflow,
-            session_id=str(session_id or output_dir),
+            session_id=_bind_local_validation_session(
+                request,
+                str(session_id or output_dir),
+                user_id,
+            ),
             task_id=str(session_id or output_dir),
             metadata={
                 **({"engine": request.engine} if request.engine is not None else {}),
@@ -1528,7 +1551,7 @@ async def orchestrate_project_stream(
                     )
                     graph_state = await run_workflow(
                         workflow,
-                        session_id=session_id,
+                        session_id=_bind_local_validation_session(request, session_id, user_id),
                         task_id=session_id,
                         metadata={
                             **({"engine": request.engine} if request.engine is not None else {}),
