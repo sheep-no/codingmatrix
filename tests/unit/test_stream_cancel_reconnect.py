@@ -324,3 +324,35 @@ async def test_delete_session_stops_task_and_clears_memory_state(monkeypatch):
     finally:
         generation_task.cancel()
         await asyncio.gather(generation_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_session_queues_drops_owner_even_if_event_already_gone(monkeypatch):
+    """cancel_event 已被别处清理时，owner 仍必须回收，否则字典无界增长。"""
+    monkeypatch.setattr(endpoints, "_approval_queues", {})
+    monkeypatch.setattr(endpoints, "_decision_queues", {})
+    monkeypatch.setattr(endpoints, "_cancel_events", {})
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "42"})
+
+    await endpoints._cleanup_session_queues("sess")
+
+    assert "sess" not in endpoints._pending_stream_owners
+
+
+@pytest.mark.asyncio
+async def test_cleanup_session_queues_does_not_touch_newer_task(monkeypatch):
+    """旧任务清理时若 session 已被新事件接管，不得删队列/事件/owner。"""
+    newer_event = asyncio.Event()
+    old_event = asyncio.Event()
+
+    monkeypatch.setattr(endpoints, "_approval_queues", {"sess": "approval"})
+    monkeypatch.setattr(endpoints, "_decision_queues", {"sess": "decision"})
+    monkeypatch.setattr(endpoints, "_cancel_events", {"sess": newer_event})
+    monkeypatch.setattr(endpoints, "_pending_stream_owners", {"sess": "99"})
+
+    await endpoints._cleanup_session_queues("sess", old_event)
+
+    assert endpoints._approval_queues["sess"] == "approval"
+    assert endpoints._decision_queues["sess"] == "decision"
+    assert endpoints._cancel_events["sess"] is newer_event
+    assert endpoints._pending_stream_owners["sess"] == "99"

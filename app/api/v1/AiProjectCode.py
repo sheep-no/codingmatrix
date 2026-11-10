@@ -457,6 +457,10 @@ class ProjectTreeNode(BaseModel):
 # ==================== 压缩包上传相关 ====================
 
 USER_UPLOADS_MAX_SIZE = 50 * 1024 * 1024  # 50MB
+# 解压后总量与单文件上限：压缩包本身只有 50MB，但解压后可能膨胀到数十 GB，
+# 需要在写入磁盘前按声明的 file_size 拒绝 zip bomb。
+USER_UPLOADS_MAX_UNCOMPRESSED_SIZE = 200 * 1024 * 1024  # 200MB
+USER_UPLOADS_MAX_ENTRY_SIZE = 20 * 1024 * 1024  # 单文件 20MB
 USER_UPLOADS_ALLOWED_EXTENSIONS = {'.zip'}
 USER_UPLOADS_ALLOWED_INNER_EXTENSIONS = {
     '.py', '.js', '.ts', '.jsx', '.tsx', '.vue', '.html', '.css', '.scss',
@@ -574,6 +578,22 @@ async def upload_project_zip(
 
             if not safe_files:
                 raise HTTPException(status_code=400, detail="压缩包中没有允许的文件类型")
+
+            total_size = sum(zf.getinfo(zip_name).file_size for zip_name, _ in safe_files)
+            oversized = [
+                zip_name for zip_name, _ in safe_files
+                if zf.getinfo(zip_name).file_size > USER_UPLOADS_MAX_ENTRY_SIZE
+            ]
+            if oversized:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"压缩包内文件超过单文件限制 ({USER_UPLOADS_MAX_ENTRY_SIZE // 1024 // 1024}MB)",
+                )
+            if total_size > USER_UPLOADS_MAX_UNCOMPRESSED_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"解压后总大小超过限制 ({USER_UPLOADS_MAX_UNCOMPRESSED_SIZE // 1024 // 1024}MB)",
+                )
 
             target_dir.mkdir(parents=True, exist_ok=True)
 

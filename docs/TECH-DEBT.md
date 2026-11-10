@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5227 passed, 6 failed, 4 skipped`（收集 5237）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5239 passed, 6 failed, 4 skipped`（收集 5249）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -294,6 +294,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 |---|---|---|---|
 | P2 | `LoginAttemptTracker.failed_attempts` 以客户端可控的 email/IP 为键，只在被查询的键上清理过期记录；攻击者用大量不同邮箱登录失败可制造永不回收的键，内存无界增长 | `app/middleware/rate_limiter.py` | 已解决；新增 `_prune_stale_keys`，`record_failed_attempt` 时按窗口全量清扫（限速每秒一次），`is_blocked` 改用 `dict.get` 不再为未知键创建空列表。回归 `tests/unit/test_middleware_rlm_and_request_id.py` 新增 3 项，回退源码后 `test_login_tracker_prunes_unqueried_stale_keys` 精确失败 |
 | P3 | `POST /knowledge/search` 把用户全部知识库分块一次读入内存逐条计算余弦相似度，`top_k` 无上界；超大知识库可造成内存放大 | `app/api/v1/aicloud_knowledge.py` | 已解决；`top_k` 约束 `1..50`，候选分块查询加 `MAX_SEARCH_CHUNKS=5000` 上限。回归 `tests/unit/test_knowledge_search_bounds.py` 3 项，回退源码后全部失败 |
+
+### 后端缺陷扫描第四轮：越权访问、zip 炸弹与代理感知限流（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `POST /aicloud/chat` 与 `/aicloud/chat/stream` 按客户端提供的 `session_id` 查会话时不带 `user_id` 过滤，命中他人会话后读取全部历史消息并追加新消息，可越权读取与污染他人会话 | `app/api/v1/aicloud.py` | 已解决；查询限定 `user_id`，ID 已被他人占用时返回 404。回归 `tests/unit/test_aicloud_session_isolation.py` 3 项，回退源码后 2 项精确失败 |
+| P1 | `POST /projects/upload-zip` 只校验条目路径与扩展名，未限制解压后体积；50MB 的 zip 可膨胀到数十 GB 占满磁盘（zip bomb） | `app/api/v1/AiProjectCode.py` | 已解决；新增单文件 20MB 与解压后总量 200MB 上限，按 `ZipInfo.file_size` 在写盘前拒绝。回归 `tests/unit/test_AIprojectcode_zip_bomb.py` 4 项，回退源码后 2 项体积用例失败 |
+| P2 | 登录限流键取自 `request.client.host`，nginx 反向代理后直连 peer 恒为代理地址，所有用户共用同一个 `127.0.0.1:email` 限流键，跨账号暴力破解失去 IP 维度限流 | `app/api/v1/auth.py` | 已解决；改用 `app.utils.rate_limiter.get_client_ip`（仅在受信代理时采信 `X-Real-IP`/`X-Forwarded-For` 末段）。回归 `tests/unit/test_rate_limiter.py` 新增 1 项，回退源码后精确失败 |
+| P3 | `request.client` 为 `None`（测试客户端/部分 ASGI 环境）时直接取 `.host` 抛 `AttributeError`，登录返回 500 | `app/api/v1/auth.py` | 已解决；回退值 `unknown`。回归 `tests/unit/test_auth_login_timing_enumeration.py` 新增 1 项，回退源码后精确失败 |
+| P2 | `_generation_http_exception` 兜底 500 仍把 `str(error)` 拼进响应，与第二轮「500 统一通用文案」策略冲突，可泄露路径/SQL/命令输出 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；返回通用文案，异常只进日志。回归 `tests/unit/test_agent_endpoint_persistence_contract.py` 断言更新，回退源码后失败 |
+| P2 | PPT 进度 WebSocket 异常分支把 `str(e)` 推给客户端 | `app/api/v1/aiGeneratorPptx.py` | 已解决；推送通用文案 + `logger.exception`。回归 `tests/unit/test_api_500_detail_not_leaked.py` 新增静态守卫，回退源码后失败 |
+| P3 | `_cleanup_session_queues` 在 `cancel_event` 已被其它路径清理时不回收 `_pending_stream_owners`，且删除队列发生在归属确认之前，旧任务可能误删新任务资源 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；先做归属判定再删队列/事件，owner 始终回收。回归 `tests/unit/test_stream_cancel_reconnect.py` 新增 2 项，回退源码后均失败 |
 
 ### 本轮逐文件验证（2026-09-27）
 

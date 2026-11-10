@@ -11,6 +11,7 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from slowapi import Limiter
@@ -93,6 +94,42 @@ def test_client_ip_handles_missing_client():
 
 def test_limiter_uses_proxy_aware_key_func():
     assert mod.limiter._key_func is mod.get_client_ip
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_uses_proxy_aware_client_ip(monkeypatch):
+    """登录限流键必须用代理感知 IP，否则 nginx 后所有用户共用同一键。"""
+    from fastapi import HTTPException
+
+    from app.api.v1 import auth as auth_module
+
+    captured = {}
+
+    def _check(identifier):
+        captured["identifier"] = identifier
+        return False
+
+    async def _get_user(db, email):
+        return None
+
+    monkeypatch.setattr(auth_module, "check_login_rate_limit", _check)
+    monkeypatch.setattr(auth_module, "get_user_by_email", _get_user)
+
+    request = SimpleNamespace(
+        client=SimpleNamespace(host="10.0.0.5"),
+        headers={"X-Real-IP": "203.0.113.9"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_module.login(
+            request=request,
+            body={"email": "user@example.com", "password": "Passw0rd!"},
+            db=None,
+            csrf="t",
+        )
+
+    assert exc.value.status_code == 429
+    assert captured["identifier"] == "203.0.113.9:user@example.com"
 
 
 def test_resolve_storage_uri(monkeypatch):

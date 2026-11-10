@@ -16,6 +16,7 @@ from app.api.v1 import auth as auth_module
 class _FakeRequest:
     def __init__(self, host: str = "127.0.0.1"):
         self.client = types.SimpleNamespace(host=host)
+        self.headers = {}
 
 
 async def _call_login(body: dict):

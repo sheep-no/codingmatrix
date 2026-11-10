@@ -22,6 +22,7 @@ from app.models.history import History
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.utils.cache_decorator import cache_response, invalidate_cache_by_prefix
 from app.middleware.rate_limiter import check_login_rate_limit, record_login_failure, record_login_success
+from app.utils.rate_limiter import get_client_ip
 from app.utils.csrf import get_csrf_token, csrf_protect
 from app.utils.encryption import get_public_key_for_client, decrypt_sensitive_data
 from app.utils.security_audit import log_login_success, log_login_failed, log_token_refresh
@@ -182,8 +183,9 @@ async def login(
     else:
         logger.warning(f"用户使用明文登录（建议升级加密）| email={email[:3]}***@***")
     
-    # 获取客户端标识用于限流
-    client_ip = request.client.host
+    # 与全局限流器保持一致：反向代理后直连 peer 恒为代理地址，必须按受信代理
+    # 头取真实客户端 IP，否则所有用户共用同一个限流键。
+    client_ip = get_client_ip(request)
     identifier = f"{client_ip}:{email}"
     
     # 检查登录尝试限流

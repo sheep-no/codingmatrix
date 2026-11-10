@@ -3905,12 +3905,12 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
 
     except WebSocketDisconnect:
         logger.info(f"PPT WebSocket 连接断开 | task_id={task_id}")
-    except Exception as e:
-        logger.error(f"PPT WebSocket 错误 | task_id={task_id} | error={e}")
+    except Exception:
+        logger.exception(f"PPT WebSocket 错误 | task_id={task_id}")
         try:
             await websocket.send_json({
                 "type": "error",
-                "error": f"服务器错误: {str(e)}"
+                "error": "服务器发生错误，请稍后重试"
             })
         except:
             pass

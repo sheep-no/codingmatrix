@@ -262,7 +262,9 @@ def _generation_http_exception(error: Exception) -> HTTPException:
     message = str(error)
     if "Provider " in message and "not configured" in message:
         return HTTPException(status_code=503, detail=message)
-    return HTTPException(status_code=500, detail=f"项目生成失败: {message}")
+    # 其余异常可能夹带路径、命令输出等内部信息，只回显通用文案。
+    logger.exception("项目生成失败")
+    return HTTPException(status_code=500, detail="项目生成失败，请稍后重试")
 # 运行中的生成任务，用于浏览器重连
 _active_tasks: dict[str, dict] = {}
 _user_creation_locks: dict[str, asyncio.Lock] = {}
@@ -592,14 +594,23 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
         session_id: 会话 ID
         expected_cancel_event: 如果提供，只在 cancel_event 仍是同一个对象时才删除（防止旧任务清理新任务的资源）
     """
+    current_event = _cancel_events.get(session_id)
+    owns_session = (
+        expected_cancel_event is None
+        or current_event is None
+        or current_event is expected_cancel_event
+    )
+    if not owns_session:
+        # 有更新的任务接管了该 session，不能清理属于它的资源。
+        return
+    # 队列也属于当前任务，必须在归属确认之后再删，否则旧任务会误删新任务的队列。
     if session_id in _approval_queues:
         del _approval_queues[session_id]
     _decision_queues.pop(session_id, None)
-    if session_id in _cancel_events and (
-        expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event
-    ):
+    if current_event is not None:
         del _cancel_events[session_id]
-        _pending_stream_owners.pop(session_id, None)
+    # cancel_event 可能已被其它路径清理，owner 仍需回收，避免字典无界增长。
+    _pending_stream_owners.pop(session_id, None)
 
 
 async def _cleanup_all_queues():

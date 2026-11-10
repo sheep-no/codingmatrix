@@ -134,3 +134,14 @@ def test_ppt_500_details_are_generic():
     source = inspect.getsource(aiGeneratorPptx)
     offenders = re.findall(r'status_code=500, detail=f"[^"]*\{', source)
     assert offenders == []
+
+
+def test_ppt_websocket_error_is_generic():
+    """PPT 进度 WebSocket 出错时也不能把异常文本推给客户端。"""
+    import inspect
+
+    from app.api.v1 import aiGeneratorPptx
+
+    source = inspect.getsource(aiGeneratorPptx.ppt_progress_websocket)
+    assert '"error": f"服务器错误: {str(e)}"' not in source
+    assert '"error": "服务器发生错误，请稍后重试"' in source

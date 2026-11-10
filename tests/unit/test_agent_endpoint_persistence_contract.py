@@ -59,7 +59,9 @@ def test_unexpected_generation_failure_remains_internal_error():
     error = _generation_http_exception(RuntimeError("database exploded"))
 
     assert error.status_code == 500
-    assert error.detail == "项目生成失败: database exploded"
+    # 底层异常可能夹带路径/SQL/命令输出，响应只给通用文案。
+    assert error.detail == "项目生成失败，请稍后重试"
+    assert "database exploded" not in error.detail
 
 
 def test_unsuccessful_generation_result_has_error_terminal_state():

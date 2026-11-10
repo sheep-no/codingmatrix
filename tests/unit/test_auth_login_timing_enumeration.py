@@ -13,6 +13,7 @@ from app.api.v1 import auth as auth_module
 class _FakeRequest:
     def __init__(self, host: str = "127.0.0.1"):
         self.client = type("C", (), {"host": host})()
+        self.headers = {}
 
 
 def _install_common(monkeypatch, user):
@@ -26,6 +27,13 @@ def _install_common(monkeypatch, user):
     monkeypatch.setattr(auth_module, "record_login_failure", lambda identifier: None)
     monkeypatch.setattr(auth_module, "get_user_by_email", _get_user)
     monkeypatch.setattr(auth_module, "log_login_failed", _noop)
+
+
+class _NoClientRequest:
+    """模拟没有 client 信息的 ASGI 环境（测试客户端/部分代理）。"""
+
+    client = None
+    headers = {}
 
 
 @pytest.mark.asyncio
@@ -49,6 +57,23 @@ async def test_unknown_user_still_verifies_dummy_hash(monkeypatch):
     assert exc.value.status_code == 401
     assert len(calls) == 1, "用户不存在分支未执行 bcrypt 校验"
     assert calls[0].startswith("$2b$")
+
+
+@pytest.mark.asyncio
+async def test_login_without_client_info_does_not_crash(monkeypatch):
+    """request.client 为 None 时应回退 unknown，而不是抛 AttributeError 变成 500。"""
+    _install_common(monkeypatch, user=None)
+    monkeypatch.setattr(auth_module, "verify_password", lambda password, hashed: False)
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_module.login(
+            request=_NoClientRequest(),
+            body={"email": "ghost@example.com", "password": "Passw0rd!"},
+            db=None,
+            csrf="token",
+        )
+
+    assert exc.value.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -103,11 +103,24 @@ async def chat(
     model_info = get_model(request.model_id) if request.model_id else get_default_model()
 
     session_result = await db.execute(
-        select(AicloudSession).where(AicloudSession.id == session_id)
+        select(AicloudSession).where(
+            AicloudSession.id == session_id,
+            AicloudSession.user_id == user_id,
+        )
     )
     session = session_result.scalar_one_or_none()
 
     if not session:
+        # session_id 由客户端提供；已存在但属于他人时不能复用，否则会读到并
+        # 追加他人会话的消息。仅当该 ID 未被占用时才新建。
+        existing_result = await db.execute(
+            select(AicloudSession.id).where(AicloudSession.id == session_id)
+        )
+        if existing_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found",
+            )
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
@@ -306,11 +319,23 @@ async def chat_stream(
     model_info = get_model(request.model_id) if request.model_id else get_default_model()
 
     session_result = await db.execute(
-        select(AicloudSession).where(AicloudSession.id == session_id)
+        select(AicloudSession).where(
+            AicloudSession.id == session_id,
+            AicloudSession.user_id == user_id,
+        )
     )
     session = session_result.scalar_one_or_none()
 
     if not session:
+        # 同 chat：客户端可控的 session_id 不能在他人会话上复用。
+        existing_result = await db.execute(
+            select(AicloudSession.id).where(AicloudSession.id == session_id)
+        )
+        if existing_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found",
+            )
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
