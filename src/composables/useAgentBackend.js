@@ -246,7 +246,8 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   const rollbackToSnapshot = async (tag, sessionId) => {
     if (!sessionId) return
     try {
-      await projectApi.rollbackToSnapshot(sessionId, { tag })
+      // 后端签名是 target_tag: str；显式关闭分支删除，避免回滚附带删除分支
+      await projectApi.rollbackToSnapshot(sessionId, tag, { deleteBranch: false })
       ElMessage.success(`已回滚到快照 ${tag}`)
       addLog('warning', `回滚到快照: ${tag}`)
       await loadSnapshots(sessionId)

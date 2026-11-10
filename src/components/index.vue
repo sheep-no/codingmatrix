@@ -30,6 +30,8 @@
           @delete-history="handleDeleteHistory"
           @new-conversation="handleNewConversation"
           @use-tool="handleUseTool"
+          @login="handleLogin"
+          @logout="handleLogout"
         />
       </ErrorBoundary>
 
@@ -1239,6 +1241,25 @@
     conversationHistory.value = []
     localStorage.removeItem('chatState')
     streamManager.clearStreamRequestState()
+  }
+
+  const resetWorkspaceForAccountChange = () => {
+    handleNewConversation()
+    conversationHistoryMap.value.clear()
+  }
+
+  const handleLogin = async () => {
+    resetWorkspaceForAccountChange()
+    try {
+      await leftlistRef.value?.fetchHistory?.(true)
+    } catch (error) {
+      console.error('[ERR] Refresh history after login failed:', error?.message || error)
+    }
+  }
+
+  const handleLogout = () => {
+    resetWorkspaceForAccountChange()
+    navigationStore.hideAllTools()
   }
 
   const restoreStream = async () => {

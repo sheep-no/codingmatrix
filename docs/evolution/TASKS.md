@@ -255,6 +255,8 @@
 
 > 阶段 0 修复（2026-11-10）：FRESCAN-53 管理台登出改为 `api.logout()` + `userStore.clearUser()`；FRESCAN-59 删除会话改用已导出的 `chatDB` 单例；FRESCAN-52 在镜像内显式创建 `nginx` 账号。受影响单测 12 条通过，回退源码态新增 3 条用例失败；Docker 构建与 `nginx -t` 仍待有 Docker 的环境复验。
 
+> 阶段 1 修复（2026-11-10）：FRESCAN-54 绑定左栏登录/登出并刷新历史；FRESCAN-55 `clearUser()` 补齐六类跨账户缓存与导航状态清理；FRESCAN-56 恢复 `api.aicloud` 命名空间；FRESCAN-57 根级 `searchKnowledge` 回到 agent 端点并归一 `{ results }`；FRESCAN-58 回滚改传字符串标签并显式关闭分支删除。新增 9 条用例，全量 63 文件 / 297 用例通过，构建成功；回退源码态上述 9 条用例全部失败。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

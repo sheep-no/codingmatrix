@@ -1,6 +1,16 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useTokenManager } from '@/utils/tokenManager'
+import { useNavigationStore } from './navigation'
+
+// 注销时必须一并清除的跨账户浏览器状态（FRESCAN-55）
+const CROSS_ACCOUNT_LOCAL_KEYS = [
+  'chatState',
+  'streamRequestState',
+  'offlineMessageQueue',
+  'aicloud_session_id'
+]
+const CROSS_ACCOUNT_SESSION_KEYS = ['image-generate-session-v1']
 
 export const useUserStore = defineStore(
   'user',
@@ -86,6 +96,21 @@ export const useUserStore = defineStore(
       // 清除系统日志与过滤状态，避免下一账户在 WebSocket 建立前
       // 看到上一账户的日志内容与筛选条件
       localStorage.removeItem('systemLogsState')
+
+      // 清除会话正文、流式恢复、离线待发消息与 AiCloud 会话标识，
+      // 避免下一账户复用上一账户的聊天内容与生成上下文
+      CROSS_ACCOUNT_LOCAL_KEYS.forEach(key => localStorage.removeItem(key))
+      CROSS_ACCOUNT_SESSION_KEYS.forEach(key => sessionStorage.removeItem(key))
+
+      // 清除工具栏持久化状态并收起当前账户已打开的工具
+      try {
+        const navigationStore = useNavigationStore()
+        navigationStore.clearNavigationStorage()
+        navigationStore.hideAllTools()
+      } catch {
+        // 启动期 token 刷新失败时 Pinia 可能尚未激活，至少清掉持久化键
+        localStorage.removeItem('navigationState')
+      }
     }
 
     /**

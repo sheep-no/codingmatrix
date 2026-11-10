@@ -1,6 +1,6 @@
 # Frontend 第 165 轮四批次复扫记录
 
-> 版本：v0.2 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0 三项已修复
+> 版本：v0.3 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0 与阶段 1 已修复
 > 归属：前端应用第 165 轮复扫
 > 基线：`frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`、`frontend_batch_rescan.md`、`frontend_batch_rescan_164.md`
 > 范围：入口认证、状态与组合逻辑、视图与 API 契约、构建测试部署
@@ -72,6 +72,7 @@
 - 缺陷：`Leftlist` 声明了 `login`/`logout` 事件并实际 `emit`，父组件只绑定 `select-history`、`delete-history`、`new-conversation`、`use-tool`。
 - 影响：登录成功后左栏不重新执行 `fetchHistory`，历史列表保持登录前的空状态，用户需要刷新页面；登出后父组件也不会重置会话状态。
 - 证据：实码可证；登录后的列表表现需浏览器确认。
+- 修复状态：已修复。`index.vue` 绑定 `@login`/`@logout`：登录后清空当前会话与 `conversationHistoryMap` 并调用 `leftlist.fetchHistory(true)`，登出后重置工作区并 `navigationStore.hideAllTools()`。`index.test.js` 新增两条用例，回退源码后失败。
 
 #### FRESCAN-63 [P2] 管理页与虚拟姬弹窗缺少 dialog 语义和键盘退出
 
@@ -97,6 +98,7 @@
 - 附带：AiCloud 后端全部端点要求 admin（`app/utils/aicloud/permission.py:47-67`，`aicloud.py:100` 等），即使修好命名空间，普通用户仍会收到 403。能力中心的同名平铺方法（`listKnowledgeDocs`、`executeCode` 等）仍可用，见 FRESCAN-62。
 - 定级：宿主组件只有 navigation 标志、没有 UI 入口，当前只能由持久化的 `navigationState` 或开发工具触发；按未接入面定 P2。一旦补入口，本项立即升级为 P1。
 - 证据：实码可证。
+- 修复状态：已修复。`createDefaultClient` 显式挂载 `aicloud: createAiCloudClient(baseClient)`，同时保留平铺方法供能力中心使用。`apiShape.test.js` 断言命名空间与方法存在，回退源码后失败。宿主入口缺失仍见 FRESCAN-64。
 
 #### FRESCAN-57 [P1] `searchKnowledge` 同名覆盖导致普通用户知识库检索失效
 
@@ -105,6 +107,7 @@
 - 影响：普通用户在能力中心检索知识库时收到 403，客户端吞错后返回 `{results: []}`，界面表现为“无结果”。管理员路径能返回 `{query, results, total_found}`，与消费方 `.results` 匹配。
 - 附带契约缺陷：`agent.js` 默认返回 `{results: []}`，但后端 `knowledge_endpoints.py:77-100` 返回裸数组；即使不发生覆盖，`ProjectGenerator.vue:1239-1240` 读取 `.results` 也恒为空。
 - 证据：实码可证；403 表现需登录普通账户实测。
+- 修复状态：已修复。客户端组合次序改为 `...createAgentClient` 最后展开，根级 `searchKnowledge` 走 `GET /agent/knowledge/search`；`agent.js` 改用 `q` 参数并把裸数组归一为 `{ results }`；AiCloud 版本保留在 `api.aicloud.searchKnowledge`。`apiShape.test.js`、`agent.test.js` 覆盖两条契约，回退源码后失败。
 
 #### FRESCAN-58 [P1] 快照回滚把标签对象拼进 URL，且后端默认删除分支
 
@@ -113,6 +116,7 @@
 - 影响：回滚请求带错误 `target_tag`，后端查不到快照返回 404。后端 `delete_branch` 默认 `True`，一旦标签匹配会执行破坏性分支删除；参数错误反而阻止了误删。
 - 附带：`ProjectGenerator.vue:1187-1188` 使用旧签名 `rollbackToSnapshot(sessionId, tag)` 且传的是字符串，本身正确；但它与 `useAgentBackend` 的调用形态不一致，回归时需同时覆盖两条链。该组件当前不可达（FRESCAN-64）。
 - 证据：实码可证；回滚端到端需运行验证。
+- 修复状态：已修复。`useAgentBackend` 直接传字符串标签并显式 `deleteBranch: false`；`agent.js` 用 `URLSearchParams` 构造 `target_tag` 与可选 `delete_branch`。`agent.test.js`、`useAgentBackend.rollback.test.js` 覆盖标签与分支参数，回退源码后失败。
 
 #### FRESCAN-65 [P2] GitHub 客户端依赖从未赋值的 store 引用和不存在的前端路由
 
@@ -160,6 +164,7 @@
 - 缺陷：`clearUser()` 已清理 token、用户名、Agent 会话、API Key、供应商、模型覆盖与日志状态，仍未清理：`chatState`（`index.vue:354-361`）、`streamRequestState`（`utils/streamManager.js:11`）、`offlineMessageQueue`（`composables/useOfflineQueue.js:4`）、`image-generate-session-v1`（`ImageGenerate.vue:255`，sessionStorage）、`aicloud_session_id`（`Aicloud.vue:433-436`）、`navigationState`（`stores/navigation.js:6,163`）。
 - 影响：同一浏览器切换账户后，新账户可能看到上一账户的会话正文、流式恢复提示、离线待发消息、图片生成提示词与结果、AiCloud 会话标识以及打开的工具栏状态；`restoreStateFromStorage`（`index.vue:364-448`）会在挂载时直接复用 `chatState`。
 - 证据：写入点与恢复点实码可证；跨账户时序需浏览器验证。
+- 修复状态：已修复。`clearUser()` 新增清理 `chatState`、`streamRequestState`、`offlineMessageQueue`、`aicloud_session_id`、`image-generate-session-v1`，并调用 `navigationStore.clearNavigationStorage()` 与 `hideAllTools()`。`user.logout.test.js` 新增一条覆盖六类键的用例，回退源码后失败。
 
 #### FRESCAN-59 [P1] `ChatDatabase` 类未导出导致删除会话本地缓存静默失效
 
@@ -209,7 +214,7 @@
 
 第 165 轮新增 Backlog 使用 `#1392-#1410`。累计 P0 2、P1 53、P2 490、P3 817；Backlog 共 1410 项。
 
-本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
+本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。阶段 1 新增 9 条用例，全量单测 63 个文件 / 297 条用例通过，`npm run build` 成功；回退源码态确认阶段 1 的 9 条用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
 
 ## 5. 分阶段修复规划
 

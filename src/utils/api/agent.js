@@ -36,9 +36,13 @@ export function createAgentClient(client) {
       return await request('get', `/agent/snapshots/${sessionId}`) || { snapshots: [] }
     },
 
-    async rollbackToSnapshot(sessionId, tag) {
+    async rollbackToSnapshot(sessionId, tag, options = {}) {
       try {
-        const response = await client.post(`/agent/rollback/${sessionId}?target_tag=${encodeURIComponent(tag)}`)
+        const params = new URLSearchParams({ target_tag: String(tag) })
+        if (options.deleteBranch !== undefined) {
+          params.set('delete_branch', String(Boolean(options.deleteBranch)))
+        }
+        const response = await client.post(`/agent/rollback/${sessionId}?${params.toString()}`)
         if (response.ok) {
           return await response.json()
         }
@@ -78,7 +82,10 @@ export function createAgentClient(client) {
     },
 
     async searchKnowledge(query) {
-      return await request('get', '/agent/knowledge/search', null, { query }) || { results: [] }
+      // 后端 GET /agent/knowledge/search 使用 q 参数并返回裸数组；
+      // 消费方统一读取 results，这里做一次形状归一（FRESCAN-57）
+      const entries = await request('get', '/agent/knowledge/search', null, { q: query })
+      return { results: Array.isArray(entries) ? entries : [] }
     },
 
     // ========== 需求联想 ==========
