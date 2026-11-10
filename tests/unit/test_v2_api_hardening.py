@@ -106,6 +106,37 @@ async def test_restore_accepts_whitelisted_keys():
     assert fake.committed is True
 
 
+# ==================== 批量配置路由可访问性 ====================
+
+def test_batch_config_endpoint_is_reachable(monkeypatch):
+    """`/admin/config/batch` 必须先于 `/admin/config/{key}` 声明，否则被当作 key=batch。"""
+    calls = []
+
+    async def fake_batch_update(configs, user_id):
+        calls.append((configs, user_id))
+        return True
+
+    monkeypatch.setattr(
+        guardian_router.resource_config_service, "batch_update_configs", fake_batch_update
+    )
+    app.dependency_overrides[verify_token] = lambda: {
+        "sub": "1",
+        "permission_level": "superadmin",
+    }
+    try:
+        client = TestClient(app)
+        resp = client.put(
+            "/api/v2/Controller/admin/config/batch",
+            json={"configs": {"log_level": "INFO"}},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert resp.json()["updated_count"] == 1
+    assert calls == [({"log_level": "INFO"}, 1)]
+
+
 # ==================== 限流配置校验 ====================
 
 @pytest.mark.parametrize("limit,window", [(0, 60), (-1, 60), (10, 0), (10, -5)])

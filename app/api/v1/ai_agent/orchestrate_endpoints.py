@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, select
 from sqlalchemy import delete as sql_delete
@@ -1929,7 +1929,7 @@ async def search_sessions(
 async def list_user_sessions(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=50),
 ):
     user_id = token.get("sub")
     if not user_id or not str(user_id).isdigit():
@@ -2115,7 +2115,7 @@ async def get_recommended_limits(
 
 @router.get("/concurrent-limits/history")
 async def get_limit_change_history(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     token: dict = Depends(verify_token),
 ):
     from app.utils.system_config import system_config_manager

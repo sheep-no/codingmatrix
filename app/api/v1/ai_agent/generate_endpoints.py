@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -402,8 +402,8 @@ async def save_project(
 async def list_saved_projects(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
-    offset: int = 0,
-    limit: int = 50
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
 ):
     user_id = token.get("sub")
     if not user_id:

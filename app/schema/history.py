@@ -12,7 +12,7 @@ class HistoryRequest(BaseModel):
 class ConversationHistoryRequest(BaseModel):
     conversation_id: int
     last_history_id: Optional[int] = None
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=100)
 
     @field_validator('conversation_id', mode='before')
     @classmethod

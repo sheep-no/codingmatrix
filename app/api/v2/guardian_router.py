@@ -269,6 +269,49 @@ async def get_config(key: str, token: dict = Depends(require_admin)):
     }
 
 
+@router.put("/admin/config/batch")
+async def batch_update_configs(
+    request: BatchConfigUpdateRequest,
+    token: dict = Depends(require_superadmin)
+):
+    """
+    批量更新配置
+
+    Args:
+        request: 配置更新请求
+
+    Returns:
+        更新结果
+    """
+    user_id = int(token.get("sub", 0))
+
+    invalid_keys = [key for key in request.configs if key not in VALID_CONFIG_KEYS]
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不允许修改的配置项: {', '.join(invalid_keys)}"
+        )
+
+    success = await resource_config_service.batch_update_configs(
+        request.configs, user_id
+    )
+
+    if not success:
+        raise HTTPException(status_code=500, detail="配置更新失败")
+
+    for key, value in request.configs.items():
+        if key.startswith("feature_"):
+            feature_name = key.replace("feature_", "").replace("_enabled", "")
+            enabled = value.lower() in ("true", "1", "yes", "on")
+            await feature_switch_service.set_feature_enabled(feature_name, enabled, user_id)
+
+    return {
+        "status": "success",
+        "updated_count": len(request.configs),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
 @router.put("/admin/config/{key}")
 async def update_config(
     key: str,
@@ -309,49 +352,6 @@ async def update_config(
         "status": "success",
         "key": key,
         "value": request.value,
-        "timestamp": datetime.now().isoformat()
-    }
-
-
-@router.put("/admin/config/batch")
-async def batch_update_configs(
-    request: BatchConfigUpdateRequest,
-    token: dict = Depends(require_superadmin)
-):
-    """
-    批量更新配置
-
-    Args:
-        request: 配置更新请求
-
-    Returns:
-        更新结果
-    """
-    user_id = int(token.get("sub", 0))
-
-    invalid_keys = [key for key in request.configs if key not in VALID_CONFIG_KEYS]
-    if invalid_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"不允许修改的配置项: {', '.join(invalid_keys)}"
-        )
-
-    success = await resource_config_service.batch_update_configs(
-        request.configs, user_id
-    )
-
-    if not success:
-        raise HTTPException(status_code=500, detail="配置更新失败")
-
-    for key, value in request.configs.items():
-        if key.startswith("feature_"):
-            feature_name = key.replace("feature_", "").replace("_enabled", "")
-            enabled = value.lower() in ("true", "1", "yes", "on")
-            await feature_switch_service.set_feature_enabled(feature_name, enabled, user_id)
-
-    return {
-        "status": "success",
-        "updated_count": len(request.configs),
         "timestamp": datetime.now().isoformat()
     }
 

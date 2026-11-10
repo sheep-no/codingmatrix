@@ -59,6 +59,8 @@ class ConcurrentLimitManager:
         "premium": 5,
         "enterprise": 10,
     }
+    # 变更日志只用于审计展示，保留最近 N 条即可，避免长期运行无限增长。
+    MAX_CHANGE_LOG = 500
 
     def __init__(self, load_monitor=None):
         if getattr(self, "_initialized", False):
@@ -100,6 +102,8 @@ class ConcurrentLimitManager:
             reason=reason,
         )
         self._change_log.append(record)
+        if len(self._change_log) > self.MAX_CHANGE_LOG:
+            del self._change_log[:-self.MAX_CHANGE_LOG]
 
         logger.info(
             f"并发限制更新: {role} {old_limit} -> {new_limit} "
@@ -167,4 +171,7 @@ class ConcurrentLimitManager:
 
     def get_change_history(self, limit: int = 50) -> List[LimitChangeRecord]:
         """获取变更历史"""
-        return self._change_log[-limit:]
+        safe_limit = max(0, min(int(limit), self.MAX_CHANGE_LOG))
+        if safe_limit == 0:
+            return []
+        return self._change_log[-safe_limit:]

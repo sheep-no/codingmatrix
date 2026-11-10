@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5270 passed, 6 failed, 4 skipped`（收集 5280）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5280 passed, 6 failed, 4 skipped`（收集 5290，第八轮完成后）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关；基线通过数从第七轮的 5270 增至 5280。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
@@ -337,6 +337,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | `POST /ai-agent/evaluate` 的 `output_dir` 同样未校验，评价流程会以该目录构造编排器 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；统一调用 `_validate_project_target` |
 
 `_validate_project_target` 不要求目录已存在，供会新建目录的编排入口使用；`_validate_project_path` 在其上追加存在性与目录类型检查。归属允许 `{user_id}/name`、`{timestamp}_{uid}_{user_id}` 与 `user_uploads/{user_id}/name` 三种既有布局，前端 `ProjectGenerator.vue` 与 Flutter 客户端传入的相对路径均兼容。
+
+### 后端缺陷扫描第八轮：路由声明顺序遮蔽（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | `PUT /api/v2/Controller/admin/config/batch` 声明在 `PUT /admin/config/{key}` 之后。FastAPI 按声明顺序匹配，`batch` 被当作 `key="batch"` 进入单点更新，请求体结构不符恒返回 422，批量配置接口实际不可用 | `app/api/v2/guardian_router.py` | 已解决；`batch_update_configs` 上移到路径参数路由之前。回归 `tests/unit/test_v2_api_hardening.py::test_batch_config_endpoint_is_reachable`，回退声明顺序后用例以 422 失败 |
+| P2 | `ConversationHistoryRequest.limit` 为裸 `int`，负数在 SQLite 中等于取消 `LIMIT`，`POST /api/v1/conversation/history` 可一次物化整段对话；超大值同样放大查询 | `app/schema/history.py` | 已解决；约束 `1..100`。回归 `tests/unit/test_backend_hardening_round8.py` 边界用例，回退后 3 项越界用例失败 |
+| P3 | `GET /api/v1/agent/saved` 的 `offset`/`limit` 与 `GET /api/v1/agent/sessions` 的 `limit` 均为裸 `int`，负值或超大值直达 SQL | `app/api/v1/ai_agent/generate_endpoints.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；分别约束 `offset>=0`、`limit 1..100` 与 `limit 1..50`。回归同上文件查询参数断言 |
+| P3 | `ConcurrentLimitManager._change_log` 每次热调整都 `append` 且永不裁剪，`GET /concurrent-limits/history?limit=` 无上界，长期运行内存与响应体持续增长 | `app/utils/dynamic_concurrent.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；日志保留最近 500 条，读取时再按 `1..500` 钳制，端点加同样约束。回归同上文件，回退后日志上限用例失败 |
+
+扫描方式：用 AST 提取全部路由的 (method, path) 声明序列，按方法逐条比对「后续同方法路径可被前面的 `{param}` 模式命中」的形态。修复后全应用命中 0 处；跨方法同名路径（如 `DELETE /pptx/history/{task_id}` 与 `GET /pptx/history/stats`）不构成遮蔽。
 
 ### 本轮逐文件验证（2026-09-27）
 
