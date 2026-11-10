@@ -148,8 +148,8 @@ async def api_analyze_image(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"图片分析失败: {e}")
-        raise HTTPException(status_code=500, detail=f"图片分析失败：{str(e)}")
+        logger.error(f"图片分析失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="图片分析失败")
     finally:
         if image_path:
             try:
@@ -195,8 +195,8 @@ async def api_ocr(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"OCR 识别失败: {e}")
-        raise HTTPException(status_code=500, detail=f"OCR 识别失败：{str(e)}")
+        logger.error(f"OCR 识别失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="OCR 识别失败")
     finally:
         if image_path:
             try:
@@ -248,8 +248,8 @@ async def api_code_from_image(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"UI 转代码失败: {e}")
-        raise HTTPException(status_code=500, detail=f"UI 转代码失败：{str(e)}")
+        logger.error(f"UI 转代码失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="UI 转代码失败")
     finally:
         if image_path:
             try:
@@ -299,8 +299,8 @@ async def api_check_safety(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"安全审核失败: {e}")
-        raise HTTPException(status_code=500, detail=f"安全审核失败：{str(e)}")
+        logger.error(f"安全审核失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="安全审核失败")
     finally:
         if image_path:
             try:

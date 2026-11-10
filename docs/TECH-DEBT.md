@@ -274,7 +274,19 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly` → `5191 passed, 6 failed, 4 skipped`（收集 5201）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。用例总数较 HEAD 的 5178 增加 23 项，全部来自本轮新增回归。
+回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5221 passed, 6 failed, 4 skipped`（收集 5231）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关。
+
+### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 登录用户不存在分支直接返回，跳过 bcrypt 校验；该路径比「密码错误」快一个数量级，可据响应耗时枚举已注册邮箱 | `app/api/v1/auth.py`、`app/utils/security.py` | 已解决；新增 `DUMMY_PASSWORD_HASH`，用户不存在时也执行一次等价校验。回归 `tests/unit/test_auth_login_timing_enumeration.py` 2 项，回退源码后精确失败 |
+| P1 | `nginx.deploy` 把请求体 `nginx_path` 直接拼进写入路径，未做目录白名单；同文件读取/删除/列表端点均有 `_is_allowed_nginx_config_path`，部署端点可写到任意目录 | `app/api/v2/nginx_api.py` | 已解决；写入前复用 `_is_allowed_nginx_config_path`，越界 403 |
+| P2 | async 端点内直接调用阻塞 `subprocess.run`，等待外部进程期间冻结整个事件循环 | `app/api/v1/skills.py`、`app/api/v2/nginx_api.py` | 已解决；改用 `asyncio.to_thread`。回归 `tests/unit/test_event_loop_subprocess_blocking.py`、`tests/unit/test_skills_reload_auth.py` 断言 subprocess 不在主线程执行，回退源码后 3 项失败 |
+| P2 | `/skills/reload` 提取失败时回显完整 `result.stderr`，泄露脚本路径与内部输出 | `app/api/v1/skills.py` | 已解决；stderr 只进日志，响应为通用文案。回归同上（`test_reload_hides_extract_stderr`），回退后失败 |
+| P2 | 多组 500 分支 `detail=f"...{str(e)}"` 回显底层异常（路径、SQL、命令输出） | `app/api/v2/guardian_router.py`(6)、`app/api/v2/nginx_api.py`(3)、`app/api/v1/vision_api.py`(4)、`app/api/v1/file_upload.py`(1)、`app/api/v1/aiGeneratorPptx.py`(5)、`app/api/v1/ai_agent/generate_endpoints.py`(2)、`app/api/v1/ai_agent/orchestrate_endpoints.py`(3) | 已解决；统一通用文案 + `exc_info=True`。回归 `tests/unit/test_api_500_detail_not_leaked.py` 7 项，逐文件回退后对应项精确失败 |
+
+分页上限（`auth.get_conversations`、`aicloud.get_history`/`get_audit_logs`/`search_history`）与本轮 500 文案同批提交，回归见 `tests/unit/test_pagination_bounds.py` 9 项。
 
 ### 本轮逐文件验证（2026-09-27）
 

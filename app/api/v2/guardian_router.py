@@ -417,7 +417,8 @@ async def list_docker_containers(token: dict = Depends(require_admin)):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取容器列表失败: {str(e)}")
+        logger.error(f"获取容器列表失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="获取容器列表失败")
 
 
 @router.get("/admin/ws-stats")
@@ -654,7 +655,7 @@ async def create_backup(token: dict = Depends(require_superadmin)):
 
     except Exception as e:
         logger.error(f"创建备份失败: {e}")
-        raise HTTPException(status_code=500, detail=f"创建备份失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="创建备份失败")
 
 
 @router.get("/admin/backup/list")
@@ -684,7 +685,7 @@ async def list_backups(token: dict = Depends(require_admin)):
 
     except Exception as e:
         logger.error(f"列出备份失败: {e}")
-        raise HTTPException(status_code=500, detail=f"列出备份失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="列出备份失败")
 
 
 @router.get("/admin/backup/{timestamp}")
@@ -712,7 +713,7 @@ async def download_backup(timestamp: str, token: dict = Depends(require_admin)):
 
     except Exception as e:
         logger.error(f"读取备份失败: {e}")
-        raise HTTPException(status_code=500, detail=f"读取备份失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="读取备份失败")
 
 
 @router.post("/admin/backup/restore")
@@ -772,7 +773,7 @@ async def restore_backup(
 
     except Exception as e:
         logger.error(f"恢复备份失败: {e}")
-        raise HTTPException(status_code=500, detail=f"恢复备份失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="恢复备份失败")
 
 
 @router.delete("/admin/backup/{filename}")
@@ -796,7 +797,7 @@ async def delete_backup(filename: str, token: dict = Depends(require_superadmin)
 
     except Exception as e:
         logger.error(f"删除备份失败: {e}")
-        raise HTTPException(status_code=500, detail=f"删除备份失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="删除备份失败")
 
 
 class RateLimitUpdate(BaseModel):

@@ -76,6 +76,11 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(password_bytes, hashed_password_bytes)
 
 
+# 恒定存在的 bcrypt 哈希，用于用户不存在时执行一次等价的校验，
+# 避免登录接口因跳过 bcrypt 而在响应时间上暴露账号是否存在。
+DUMMY_PASSWORD_HASH = "$2b$12$GAMJWkRLkW4cQZUZjkpWFuouXhfz4ScpSj2ENxip8DvACzkiaiqXG"
+
+
 def create_access_token(sub: str, permission_level: str, 
                         expires_delta: Optional[timedelta] = None,
                         role: str = "user",

@@ -290,7 +290,7 @@ async def upload_file(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文件上传失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"上传失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="上传失败")
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink()

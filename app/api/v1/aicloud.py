@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
@@ -447,7 +447,7 @@ async def read_file(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except Exception as e:
         await log_file_read(db, user_id, request.file_path, False, str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件读取失败")
 
     if request.require_review and not result.get("ai_passed", True):
         review = await create_review(
@@ -503,7 +503,7 @@ async def write_file(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except Exception as e:
         await log_file_write(db, user_id, request.file_path, False, error=str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件写入失败")
 
     review = await create_review(
         db=db,
@@ -533,9 +533,9 @@ async def write_file(
 
 @router.get("/history", response_model=list[SessionResponse])
 async def get_history(
-    days: int = 10,
-    limit: int = 50,
-    offset: int = 0,
+    days: int = Query(10, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
@@ -595,7 +595,7 @@ async def get_audit_logs(
     operation: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
@@ -727,7 +727,7 @@ async def approve_review_endpoint(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
         except Exception as e:
             await log_file_write(db, user_id, review.file_path, False, error=str(e))
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件写入失败")
 
     return {"status": "approved", "review_id": review.id}
 
@@ -768,10 +768,16 @@ async def reject_review_endpoint(
     return {"status": "rejected", "review_id": review.id}
 
 
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符，避免用户输入的 % / _ 被当作通配符。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("/history/search", response_model=list[SessionExportResponse])
 async def search_history(
     keyword: str,
-    days: int = 10,
+    days: int = Query(10, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
@@ -785,45 +791,42 @@ async def search_history(
     from datetime import timedelta
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # 单次 JOIN 取回候选消息，避免按会话逐个查询造成 N+1；
+    # 会话数按最近活跃排序后截断，保证响应有界。
     result = await db.execute(
-        select(AicloudSession)
+        select(AicloudSession, AicloudMessage)
+        .join(AicloudMessage, AicloudMessage.session_id == AicloudSession.id)
         .where(
             AicloudSession.user_id == user_id,
-            AicloudSession.last_active_at >= cutoff_date
+            AicloudSession.last_active_at >= cutoff_date,
+            AicloudMessage.content.ilike(f"%{_escape_like(keyword)}%", escape="\\"),
         )
-        .order_by(AicloudSession.last_active_at.desc())
+        .order_by(AicloudSession.last_active_at.desc(), AicloudMessage.created_at.asc())
+        .limit(limit * 200)
     )
-    sessions = result.scalars().all()
+    rows = result.all()
 
-    matching_sessions = []
-    for session in sessions:
-        messages_result = await db.execute(
-            select(AicloudMessage)
-            .where(AicloudMessage.session_id == session.id)
-            .order_by(AicloudMessage.created_at.asc())
-        )
-        messages = messages_result.scalars().all()
-
-        matching_messages = [
+    grouped: dict[str, list] = {}
+    for session, message in rows:
+        grouped.setdefault(session.id, []).append(
             MessageResponse(
-                id=msg.id,
-                role=msg.role,
-                content=msg.content,
-                created_at=msg.created_at
+                id=message.id,
+                role=message.role,
+                content=message.content,
+                created_at=message.created_at,
             )
-            for msg in messages
-            if keyword.lower() in msg.content.lower()
-        ]
+        )
 
-        if matching_messages:
-            matching_sessions.append(SessionExportResponse(
-                session_id=session.id,
-                exported_at=utcnow_naive(),
-                message_count=len(matching_messages),
-                messages=matching_messages
-            ))
-
-    return matching_sessions
+    ordered_session_ids = list(grouped)[:limit]
+    return [
+        SessionExportResponse(
+            session_id=session_id,
+            exported_at=utcnow_naive(),
+            message_count=len(grouped[session_id]),
+            messages=grouped[session_id],
+        )
+        for session_id in ordered_session_ids
+    ]
 
 
 @router.get("/history/export/{session_id}", response_model=SessionExportResponse)

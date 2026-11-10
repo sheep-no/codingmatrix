@@ -3373,8 +3373,8 @@ async def generate_ppt_from_text_task(
         )
 
     except Exception as exc:
-        logger.error("PPT Agent 端到端失败 | error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"生成失败: {exc}")
+        logger.error("PPT Agent 端到端失败 | error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="生成失败")
 
 
 # =============================================================================
@@ -3446,8 +3446,9 @@ async def generate_ppt_from_file(
         await _stream_upload_to_path(file, temp_path, 50 * 1024 * 1024)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
+    except Exception:
+        logger.error("上传文件保存失败", exc_info=True)
+        raise HTTPException(status_code=500, detail="文件保存失败")
 
     # 解析文件内容
     try:
@@ -3456,8 +3457,9 @@ async def generate_ppt_from_file(
             raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件解析失败: {e}")
+    except Exception:
+        logger.error("上传文件解析失败", exc_info=True)
+        raise HTTPException(status_code=500, detail="文件解析失败")
 
     # 截断过长内容（避免 token 超限）
     max_chars = 30000
@@ -3599,8 +3601,9 @@ async def upload_custom_template(
         await _stream_upload_to_path(file, template_path, 20 * 1024 * 1024)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"模板保存失败: {e}")
+    except Exception:
+        logger.error("模板保存失败", exc_info=True)
+        raise HTTPException(status_code=500, detail="模板保存失败")
 
     # 解析模板配置
     try:
@@ -3689,8 +3692,9 @@ async def download_ppt_as_pdf(
             status_code=501,
             detail="PDF 导出需要安装 LibreOffice。请在服务器上安装: apt-get install libreoffice-impress"
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF 转换失败: {e}")
+    except Exception:
+        logger.error("PDF 转换失败", exc_info=True)
+        raise HTTPException(status_code=500, detail="PDF 转换失败")
 
     if not pdf_path.exists():
         raise HTTPException(status_code=500, detail="PDF 转换失败")

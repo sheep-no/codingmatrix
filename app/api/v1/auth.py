@@ -2,7 +2,7 @@ import logging
 import json
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
@@ -196,6 +196,9 @@ async def login(
     
     user = await get_user_by_email(db, email)
     if not user:
+        # 用户不存在时也执行一次 bcrypt 校验，抹平与“密码错误”分支的响应时间差，
+        # 避免通过响应耗时枚举已注册邮箱。
+        verify_password(password, DUMMY_PASSWORD_HASH)
         logger.warning(f"登录失败：用户不存在 | email={email}")
         record_login_failure(identifier)
         await log_login_failed(None, "user_not_found", client_ip)
@@ -582,8 +585,8 @@ async def get_user_profile(
 @router.get("/conversations")
 @cache_response(ttl=120, key_prefix="conversations")
 async def get_conversations(
-        limit: int = 50,
-        offset: int = 0,
+        limit: int = Query(50, ge=1, le=100),
+        offset: int = Query(0, ge=0),
         db: AsyncSession = Depends(get_db),
         token: dict = Depends(verify_token)
 ):

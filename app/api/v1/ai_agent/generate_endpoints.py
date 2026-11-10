@@ -272,8 +272,8 @@ async def read_project_file(
     except UnicodeDecodeError:
         content = "[二进制文件，无法显示]"
     except Exception as e:
-        logger.error(f"读取文件失败 | 文件：{target_file} | 错误：{e!s}")
-        raise HTTPException(status_code=500, detail=f"读取文件失败：{e!s}") from e
+        logger.error(f"读取文件失败 | 文件：{target_file} | 错误：{e!s}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取文件失败") from e
 
     stat = target_file.stat()
 
@@ -315,8 +315,8 @@ async def delete_project_file(
         logger.info(f"文件已删除 | 文件：{target_file}")
         return {'status': 'deleted', 'file_path': file_path}
     except Exception as e:
-        logger.error(f"删除文件失败 | 文件：{target_file} | 错误：{e!s}")
-        raise HTTPException(status_code=500, detail=f"删除文件失败：{e!s}") from e
+        logger.error(f"删除文件失败 | 文件：{target_file} | 错误：{e!s}", exc_info=True)
+        raise HTTPException(status_code=500, detail="删除文件失败") from e
 
 
 @router.post("/import-files")

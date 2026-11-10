@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
@@ -7,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+logger = logging.getLogger(__name__)
 
 class UserLimitUpdate(BaseModel):
     user_id: str
@@ -38,7 +41,8 @@ async def update_user_concurrent_limit(
             "tier": update.tier
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"更新用户并发限制失败 | user_id={update.user_id} | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="更新用户并发限制失败")
 
 @router.delete("/user-limit/{user_id}")
 async def remove_user_concurrent_limit(
@@ -55,7 +59,8 @@ async def remove_user_concurrent_limit(
             "user_id": user_id
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"移除用户并发限制失败 | user_id={user_id} | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="移除用户并发限制失败")
 
 @router.post("/config")
 async def update_system_config(
@@ -73,7 +78,8 @@ async def update_system_config(
             "value": update.value
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"更新系统配置失败 | path={update.path} | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="更新系统配置失败")
 
 @router.get("/config")
 async def get_system_config(

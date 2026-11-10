@@ -2,6 +2,8 @@
 自定义 Skill 管理 API
 允许用户上传、管理和使用自定义提示词 skill
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -15,6 +17,8 @@ from app.models.user import User
 from app.models.Permission import Permission
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["Skills"])
 
@@ -235,32 +239,40 @@ async def reload_prompts(token: dict = Depends(verify_token)):
     if token.get("permission_level") not in {"admin", "superadmin"}:
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
+    import asyncio
     import subprocess
-    
-    try:
-        from app.core.config import BASE_DIR
-        extract_script = BASE_DIR / ".claude" / "skills" / "prompts-extractor" / "extract.py"
-        result = subprocess.run(
+
+    from app.core.config import BASE_DIR
+
+    extract_script = BASE_DIR / ".claude" / "skills" / "prompts-extractor" / "extract.py"
+
+    def _run_extract() -> subprocess.CompletedProcess:
+        # subprocess.run 是阻塞调用，放进线程避免卡住事件循环。
+        return subprocess.run(
             ['python3', str(extract_script)],
             capture_output=True,
             text=True,
             timeout=60
         )
-        
+
+    try:
+        result = await asyncio.to_thread(_run_extract)
+
         if result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"提取失败: {result.stderr}"
-            )
-        
+            logger.error(f"提示词提取失败 | returncode={result.returncode} | stderr={result.stderr[:500]}")
+            raise HTTPException(status_code=500, detail="提取失败")
+
         return {
             "message": "提示词文档已更新",
             "output": result.stdout
         }
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="提取超时")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"更新提示词文档失败 | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="更新提示词文档失败")
 
 
 @router.post("/migrate-legacy", summary="迁移历史 Skill 所有权")

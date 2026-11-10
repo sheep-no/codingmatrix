@@ -12,6 +12,7 @@ Nginx 配置管理 API - 增强版（性能优化）
 - 相同参数直接返回缓存（命中率约 60%）
 - TTL: 300 秒 (5 分钟)
 """
+import asyncio
 import logging
 import os
 import re
@@ -201,12 +202,13 @@ async def check_nginx(
         
         logger.debug(f"临时配置文件创建成功 | path={tmp_path}")
         
-        # 执行 nginx 语法检查
-        result = subprocess.run(
+        # 执行 nginx 语法检查（阻塞调用放进线程，避免卡住事件循环）
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["nginx", "-t", "-c", str(tmp_path)],
             capture_output=True,
             text=True,
-            timeout=NGINX_CHECK_TIMEOUT
+            timeout=NGINX_CHECK_TIMEOUT,
         )
         
         # 检查通过
@@ -250,7 +252,7 @@ async def check_nginx(
         
     except Exception as e:
         logger.error(f"处理异常 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Nginx 配置处理失败")
         
     finally:
         # 清理临时文件
@@ -316,7 +318,7 @@ async def generate_nginx(
         
     except Exception as e:
         logger.error(f"生成 Nginx 配置失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"配置生成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="配置生成失败")
 
 
 @router.post("/deploy", response_model=NginxDeployResponse, summary="部署 Nginx 配置")
@@ -338,6 +340,10 @@ async def deploy_nginx(
     
     backup_path = None
     config_path = f"{req.nginx_path}/conf.d/app.conf"
+
+    # nginx_path 来自请求体，写入前必须限定在允许的配置目录内
+    if not _is_allowed_nginx_config_path(config_path):
+        raise HTTPException(status_code=403, detail="不允许写入该路径")
     
     try:
         # 1. 备份现有配置
@@ -355,13 +361,14 @@ async def deploy_nginx(
             f.write(req.config)
         logger.info(f"配置已写入 | path={config_path}")
         
-        # 4. 测试配置
+        # 4. 测试配置（阻塞调用放进线程，避免卡住事件循环）
         logger.info(f"测试 Nginx 配置")
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["nginx", "-t", "-c", f"{req.nginx_path}/nginx.conf"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
         
         if result.returncode != 0:
@@ -381,13 +388,14 @@ async def deploy_nginx(
                 detail=f"配置测试失败：{result.stderr}"
             )
         
-        # 5. 重载 Nginx
+        # 5. 重载 Nginx（阻塞调用放进线程，避免卡住事件循环）
         logger.info(f"重载 Nginx")
-        reload_result = subprocess.run(
+        reload_result = await asyncio.to_thread(
+            subprocess.run,
             ["nginx", "-s", "reload"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
         if reload_result.returncode != 0:
             logger.error(
@@ -420,7 +428,7 @@ async def deploy_nginx(
         logger.error(f"部署 Nginx 配置失败 | error={str(e)}", exc_info=True)
         if backup_path:
             shutil.copy2(backup_path, config_path)
-        raise HTTPException(status_code=500, detail=f"部署失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="部署失败")
 
 
 @router.get("/config", summary="获取当前 Nginx 配置")
@@ -457,7 +465,7 @@ async def get_nginx_config(
         
     except Exception as e:
         logger.error(f"读取配置文件失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"读取失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="读取失败")
 
 
 @router.delete("/backup/{backup_name}", summary="删除备份文件")
@@ -496,7 +504,7 @@ async def delete_backup(
         return {"status": "success", "message": "备份文件已删除"}
     except Exception as e:
         logger.error(f"删除备份文件失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="删除失败")
 
 
 @router.get("/backups", summary="列出所有备份文件")
@@ -538,4 +546,4 @@ async def list_backups(
         
     except Exception as e:
         logger.error(f"列出备份文件失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"列出失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="列出失败")
