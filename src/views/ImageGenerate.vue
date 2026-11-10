@@ -244,14 +244,12 @@
   import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
   import { useRouter } from 'vue-router'
   import { useApiKeyStore } from '@/stores/apikey'
-  import { useUserStore } from '@/stores/user'
   import { useTaskFeedback } from '@/composables/useTaskFeedback'
   import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
+  import { api } from '@/utils/api/index'
 
   const router = useRouter()
   const apiKeyStore = useApiKeyStore()
-  const userStore = useUserStore()
-  const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
   const IMAGE_SESSION_KEY = 'image-generate-session-v1'
   const SESSION_TTL_MS = 30 * 60 * 1000
 
@@ -277,6 +275,46 @@
   const originalPrompt = ref('')  // 保存生成图片时的原始 prompt
   let abortController = null
   let pageUnloading = false
+  const objectUrls = new Set()
+  let historyObjectUrls = new Set()
+
+  function releaseUrls(urls) {
+    urls.forEach((url) => {
+      URL.revokeObjectURL(url)
+      objectUrls.delete(url)
+    })
+    urls.clear()
+  }
+
+  function isGeneratedResource(reference) {
+    return typeof reference === 'string'
+      && reference
+      && !reference.startsWith('data:')
+      && !reference.startsWith('blob:')
+      && !reference.startsWith('http')
+      && (reference.includes('generated_images/') || !reference.includes('/'))
+  }
+
+  function filenameOf(reference) {
+    return reference.split('?')[0].split('/').pop()
+  }
+
+  async function referenceToDisplayUrl(reference, bucket = objectUrls) {
+    if (!isGeneratedResource(reference)) return reference
+    const blob = await api.kolors.getResourceBlob(filenameOf(reference))
+    const url = URL.createObjectURL(blob)
+    bucket.add(url)
+    return url
+  }
+
+  async function responseToImages(data, bucket = objectUrls) {
+    const references = data?.paths?.length ? data.paths : (data?.images || [])
+    const images = await Promise.all(references.map(async reference => ({
+      url: await referenceToDisplayUrl(reference, bucket),
+      ref: isGeneratedResource(reference) ? filenameOf(reference) : null
+    })))
+    return images.filter(image => image.url)
+  }
 
   const taskFeedbackActions = computed(() => {
     const status = taskFeedbackState.value.status
@@ -307,8 +345,12 @@
 
   function persistableImages(images) {
     return (images || [])
-      .filter((img) => img && typeof img.url === 'string' && !img.url.startsWith('blob:'))
-      .map((img) => ({ url: img.url }))
+      .map((img) => {
+        if (img?.ref) return { ref: img.ref }
+        if (img && typeof img.url === 'string' && !img.url.startsWith('blob:')) return { url: img.url }
+        return null
+      })
+      .filter(Boolean)
   }
 
   function persistSession() {
@@ -326,8 +368,8 @@
         seed: seed.value,
         isGenerating: isGenerating.value,
         generatedImages: persistableImages(generatedImages.value),
-        lastGeneratedImage: lastImage && typeof lastImage.url === 'string' && !lastImage.url.startsWith('blob:')
-          ? { url: lastImage.url, prompt: lastImage.prompt || '' }
+        lastGeneratedImage: lastImage && (lastImage.ref || (typeof lastImage.url === 'string' && !lastImage.url.startsWith('blob:')))
+          ? { ref: lastImage.ref || null, url: lastImage.ref ? null : lastImage.url, prompt: lastImage.prompt || '' }
           : null,
         originalPrompt: originalPrompt.value,
       }))
@@ -352,7 +394,20 @@
     }
   }
 
-  function applySession(saved) {
+  async function restoreImages(savedImages) {
+    const images = await Promise.all((savedImages || []).map(async (img) => {
+      if (!img) return null
+      const reference = img.ref || img.url
+      if (!reference) return null
+      return {
+        url: await referenceToDisplayUrl(reference),
+        ref: img.ref || (isGeneratedResource(reference) ? filenameOf(reference) : null)
+      }
+    }))
+    return images.filter(Boolean)
+  }
+
+  async function applySession(saved) {
     if (!saved) return false
     // 参考文件无法写入 sessionStorage，图生图会话回退到文生图，避免生成按钮被锁死
     mode.value = 'text2img'
@@ -363,10 +418,18 @@
     cfgScale.value = Number.isFinite(saved.cfgScale) ? saved.cfgScale : 7.5
     denoising.value = Number.isFinite(saved.denoising) ? saved.denoising : 0.7
     seed.value = Number.isFinite(saved.seed) ? saved.seed : -1
-    generatedImages.value = persistableImages(saved.generatedImages)
-    lastGeneratedImage.value = saved.lastGeneratedImage && saved.lastGeneratedImage.url
-      ? { url: saved.lastGeneratedImage.url, prompt: saved.lastGeneratedImage.prompt || '' }
-      : null
+    generatedImages.value = await restoreImages(saved.generatedImages)
+    const savedLast = saved.lastGeneratedImage
+    const lastReference = savedLast && (savedLast.ref || savedLast.url)
+    if (lastReference) {
+      lastGeneratedImage.value = {
+        url: await referenceToDisplayUrl(lastReference),
+        ref: savedLast.ref || (isGeneratedResource(lastReference) ? filenameOf(lastReference) : null),
+        prompt: savedLast.prompt || ''
+      }
+    } else {
+      lastGeneratedImage.value = null
+    }
     originalPrompt.value = saved.originalPrompt || ''
     return Boolean(saved.isGenerating && prompt.value.trim() && mode.value === 'text2img')
   }
@@ -405,46 +468,27 @@
       progress: null
     }, { mode: mode.value })
 
-    const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
-    const headers = { Authorization: token ? `Bearer ${token}` : '' }
     abortController = new AbortController()
 
     try {
       if (mode.value === 'text2img') {
         const [w, h] = resolution.value.split('x').map(Number)
-        const res = await fetch(`${API_BASE}/kolors/text-to-image`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-            prompt: prompt.value.trim(),
-            style: style.value,
-            width: w,
-            height: h,
-            steps: steps.value,
-            cfg_scale: cfgScale.value,
-            seed: seed.value === -1 ? undefined : seed.value,
-            api_key_token: apiKeyStore.siliconflowKey?.token
-          }),
-          signal: abortController.signal
-        })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: '请求失败' }))
-          throw new Error(err.detail || err.message || '生成失败')
-        }
-        const data = await res.json()
-        if (data.images && data.images.length > 0) {
-          generatedImages.value = data.images.map(url => ({ url }))
-          // 保存最后一张图片用于增量修改
-          lastGeneratedImage.value = { url: data.images[0], prompt: prompt.value.trim() }
-          originalPrompt.value = prompt.value.trim()
-        } else if (data.paths && data.paths.length > 0) {
-          generatedImages.value = data.paths.map(url => ({ url }))
-          // 保存最后一张图片用于增量修改
-          lastGeneratedImage.value = { url: data.paths[0], prompt: prompt.value.trim() }
-          originalPrompt.value = prompt.value.trim()
-        } else {
+        const data = await api.kolors.textToImage(prompt.value.trim(), {
+          style: style.value,
+          width: w,
+          height: h,
+          steps: steps.value,
+          cfg_scale: cfgScale.value,
+          seed: seed.value === -1 ? undefined : seed.value
+        }, apiKeyStore.siliconflowKey?.token, abortController.signal)
+        const images = await responseToImages(data)
+        if (!images.length) {
           throw new Error('返回数据格式异常')
         }
+        generatedImages.value = images
+        // 保存最后一张图片用于增量修改；ref 用于刷新后重新取回受保护资源
+        lastGeneratedImage.value = { url: images[0].url, ref: images[0].ref, prompt: prompt.value.trim() }
+        originalPrompt.value = prompt.value.trim()
       } else {
         const formData = new FormData()
         formData.append('image', uploadedFile.value)
@@ -458,30 +502,15 @@
           formData.append('height', h)
         }
         formData.append('api_key_token', apiKeyStore.siliconflowKey?.token || '')
-        const res = await fetch(`${API_BASE}/kolors/image-to-image`, {
-          method: 'POST',
-          headers,
-          body: formData,
-          signal: abortController.signal
-        })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: '请求失败' }))
-          throw new Error(err.detail || err.message || '生成失败')
-        }
-        const data = await res.json()
-        if (data.images && data.images.length > 0) {
-          generatedImages.value = data.images.map(url => ({ url }))
-          // 保存最后一张图片用于增量修改
-          lastGeneratedImage.value = { url: data.images[0], prompt: prompt.value.trim() }
-          originalPrompt.value = prompt.value.trim()
-        } else if (data.paths && data.paths.length > 0) {
-          generatedImages.value = data.paths.map(url => ({ url }))
-          // 保存最后一张图片用于增量修改
-          lastGeneratedImage.value = { url: data.paths[0], prompt: prompt.value.trim() }
-          originalPrompt.value = prompt.value.trim()
-        } else {
+        const data = await api.kolors.imageToImage(formData, {}, null, abortController.signal)
+        const images = await responseToImages(data)
+        if (!images.length) {
           throw new Error('返回数据格式异常')
         }
+        generatedImages.value = images
+        // 保存最后一张图片用于增量修改；ref 用于刷新后重新取回受保护资源
+        lastGeneratedImage.value = { url: images[0].url, ref: images[0].ref, prompt: prompt.value.trim() }
+        originalPrompt.value = prompt.value.trim()
       }
       taskFeedback.complete({
         stage: mode.value === 'img2img' ? '图生图已完成' : '文生图已完成',
@@ -600,45 +629,41 @@
 
   async function loadHistory() {
     try {
-      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
-      const res = await fetch(`${API_BASE}/kolors/history?page=1&page_size=20`, {
-        headers: { Authorization: token ? `Bearer ${token}` : '' }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        history.value = (data.items || []).map(item => ({
-          id: item.image_id || item.id,
-          url: (item.image_urls && item.image_urls[0]) || ''
-        }))
-      }
-    } catch { /* ignore */ }
+      const data = await api.kolors.getHistory(1, 20)
+      const nextHistoryUrls = new Set()
+      const items = await Promise.all((data.items || []).map(async item => ({
+        id: item.image_id || item.id,
+        url: await referenceToDisplayUrl((item.image_urls && item.image_urls[0]) || '', nextHistoryUrls)
+      })))
+      releaseUrls(historyObjectUrls)
+      historyObjectUrls = nextHistoryUrls
+      history.value = items
+    } catch (e) {
+      error.value = e.message || '加载历史记录失败'
+    }
   }
 
   async function deleteHistory(id) {
     try {
-      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
-      await fetch(`${API_BASE}/kolors/history/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: token ? `Bearer ${token}` : '' }
-      })
+      await api.kolors.deleteHistory(id)
       history.value = history.value.filter(h => h.id !== id)
-    } catch { /* ignore */ }
+    } catch (e) {
+      error.value = e.message || '删除历史记录失败'
+    }
   }
 
   async function clearHistory() {
     try {
-      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
-      await fetch(`${API_BASE}/kolors/history`, {
-        method: 'DELETE',
-        headers: { Authorization: token ? `Bearer ${token}` : '' }
-      })
+      await api.kolors.clearHistory()
       history.value = []
-    } catch { /* ignore */ }
+    } catch (e) {
+      error.value = e.message || '清空历史记录失败'
+    }
   }
 
-  onMounted(() => {
+  onMounted(async () => {
     loadHistory()
-    const shouldResume = applySession(restoreSession())
+    const shouldResume = await applySession(restoreSession())
     window.addEventListener('beforeunload', markPageUnloading)
     window.addEventListener('pagehide', markPageUnloading)
     if (shouldResume) handleGenerate()
@@ -647,6 +672,8 @@
   onUnmounted(() => {
     window.removeEventListener('beforeunload', markPageUnloading)
     window.removeEventListener('pagehide', markPageUnloading)
+    releaseUrls(objectUrls)
+    releaseUrls(historyObjectUrls)
     if (abortController && !pageUnloading) {
       abortController.abort()
       isGenerating.value = false

@@ -85,6 +85,8 @@ function createDefaultClient(store) {
     ...createTaskClient(baseClient),
     ppt: createPptClient(baseClient),
     ...createKolorsClient(baseClient),
+    // kolors 客户端显式挂载命名空间，图片页统一走 api.kolors.*（FRESCAN-70）
+    kolors: createKolorsClient(baseClient),
     ...createVisionClient(baseClient),
     ...createAiCloudClient(baseClient),
     // aicloud 客户端显式挂载命名空间，避免与 agent 的同名方法互相覆盖（FRESCAN-56/57）

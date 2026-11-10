@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import BASE_DIR, settings
 from app.db.models import ImageGenerationHistory
+from app.services.image_history_refs import resolve_reference
 from app.services.image_resource_service import cleanup_file, cleanup_stale_files
 
 # 与生成侧（aiGeneratorPptx.PPT_OUTPUT_DIR）锚定同一根目录，避免进程 CWD
@@ -129,7 +130,8 @@ async def cleanup_expired_image_history(
     removed_files = 0
     for record in records:
         for url in record.image_urls or []:
-            if url and cleanup_file(url):
+            target = resolve_reference(url, image_dir or DEFAULT_IMAGE_OUTPUT_DIR)
+            if target is not None and cleanup_file(target):
                 removed_files += 1
         await db.delete(record)
         removed_records += 1
@@ -141,7 +143,10 @@ async def cleanup_expired_image_history(
     if image_dir is not None:
         remaining = (await db.scalars(select(ImageGenerationHistory))).all()
         protected = {
-            Path(url) for record in remaining for url in (record.image_urls or []) if url
+            target
+            for record in remaining
+            for url in (record.image_urls or [])
+            if (target := resolve_reference(url, image_dir)) is not None
         }
         removed_orphans = cleanup_stale_files(
             image_dir,

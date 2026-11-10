@@ -26,6 +26,16 @@ describe('API 客户端形状与契约（FRESCAN-56/57）', () => {
     expect(typeof api.aicloud.executeCode).toBe('function')
   })
 
+  it('暴露 kolors 命名空间，供图片页统一客户端调用', () => {
+    const api = initApiClient(null)
+
+    expect(api.kolors).toBeDefined()
+    expect(typeof api.kolors.textToImage).toBe('function')
+    expect(typeof api.kolors.imageToImage).toBe('function')
+    expect(typeof api.kolors.getHistory).toBe('function')
+    expect(typeof api.kolors.getResourceBlob).toBe('function')
+  })
+
   it('根级 searchKnowledge 走 agent 端点并使用 q 参数', async () => {
     const api = initApiClient(null)
 

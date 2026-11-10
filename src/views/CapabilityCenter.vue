@@ -95,6 +95,11 @@
 
     <section v-else-if="activeTab === 'knowledge'" class="panel">
       <div class="panel-title"><h2>知识库</h2><button @click="loadKnowledgeDocs(true)">刷新</button></div>
+      <div v-if="permissionDenied" class="permission-notice" role="status">
+        <strong>需要管理员权限</strong>
+        <p>{{ permissionMessage() }}</p>
+      </div>
+      <template v-else>
        <label class="drop-zone" @dragover.prevent @drop.prevent="dropKnowledgeFile">
          <span>拖入文档，或点击选择文件</span>
          <input type="file" accept=".txt,.md,.pdf,.docx,.py,.js,.ts,.json,.yaml,.yml,.csv,.log" @change="uploadKnowledge" />
@@ -116,10 +121,16 @@
         <button @click="removeKnowledgeDoc(doc.id)">删除</button>
       </div>
        <div v-if="!panelStates.knowledge.loading && !panelStates.knowledge.error && knowledgeDocs.length === 0" class="empty">暂无知识库文档</div>
+      </template>
     </section>
 
     <section v-else-if="activeTab === 'sandbox'" class="panel">
       <div class="panel-title"><h2>代码执行沙箱</h2></div>
+      <div v-if="permissionDenied" class="permission-notice" role="status">
+        <strong>需要管理员权限</strong>
+        <p>{{ permissionMessage() }}</p>
+      </div>
+      <template v-else>
       <select v-model="sandboxLanguage" aria-label="代码语言">
         <option value="python">Python</option>
         <option value="javascript">JavaScript</option>
@@ -132,6 +143,7 @@
          <button class="primary" :disabled="panelStates.sandbox.loading || !sandboxCode.trim()" @click="executeSandboxCode">运行代码</button>
        </div>
        <pre v-if="sandboxResult && !panelStates.sandbox.error">{{ sandboxResult }}</pre>
+      </template>
     </section>
     </div>
     </div>
@@ -139,19 +151,29 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { api } from '@/utils/api/index'
+import { useUserStore } from '@/stores/user'
 import LoadingState from '@/components/LoadingState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 
 const tabs = [
   { id: 'vision', label: '视觉工具', description: '分析图片与提取文字' },
-  { id: 'knowledge', label: '知识库', description: '管理与检索参考文档' },
-  { id: 'sandbox', label: '代码沙箱', description: '运行代码片段' },
+  { id: 'knowledge', label: '知识库', description: '管理与检索参考文档（需管理员）', requiresAdmin: true },
+  { id: 'sandbox', label: '代码沙箱', description: '运行代码片段（需管理员）', requiresAdmin: true },
   { id: 'skills', label: 'Skills/技能', description: '管理可复用技能' },
   { id: 'host', label: 'Agent Host/主机会话', description: '查看会话与执行状态' }
 ]
 const activeTab = ref('vision')
+const userStore = useUserStore()
+const canManageAicloud = computed(() => userStore.isAdmin)
+const activeRequiresAdmin = computed(() => Boolean(tabs.find(tab => tab.id === activeTab.value)?.requiresAdmin))
+const permissionDenied = computed(() => activeRequiresAdmin.value && !canManageAicloud.value)
+
+function permissionMessage() {
+  return '知识库与代码沙箱需要管理员权限，请联系管理员升级账户权限后再使用。'
+}
+
 function navigateTabs(event, id) {
   const index = tabs.findIndex(tab => tab.id === id)
   let next
@@ -251,6 +273,7 @@ async function loadHosts(force = false) {
 async function controlHost(sessionId, action) { await api.controlAgentHostSession(sessionId, action); await loadHosts(true) }
 async function readActions(sessionId) { hostActions.value = JSON.stringify(await api.getAgentHostActions(sessionId), null, 2) }
 async function loadKnowledgeDocs(force = false) {
+  if (!canManageAicloud.value) return
   if (loadedPanels.has('knowledge') && !force) return
   panelStates.knowledge.loading = true
   panelStates.knowledge.error = ''
@@ -278,6 +301,7 @@ async function searchKnowledge() {
   knowledgeSearchResults.value = query ? ((await api.searchKnowledge(query))?.results || []) : []
 }
 async function executeSandboxCode() {
+  if (!canManageAicloud.value) return
   if (!sandboxCode.value.trim()) return
   panelStates.sandbox.loading = true
   panelStates.sandbox.error = ''
@@ -291,6 +315,7 @@ async function executeSandboxCode() {
 }
 
 watch(activeTab, tab => {
+  if (!canManageAicloud.value && tabs.find(item => item.id === tab)?.requiresAdmin) return
   const loaders = { skills: loadSkills, host: loadHosts, knowledge: loadKnowledgeDocs }
   loaders[tab]?.()
 }, { immediate: true })
@@ -325,6 +350,9 @@ watch(activeTab, tab => {
 .panel-content { min-width: 0; }
 .panel-content:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 4px; border-radius: 12px; }
 .panel-description { color: var(--content-secondary); font-size: 14px; line-height: 1.7; margin: 10px 0 24px; }
+.permission-notice { border: 1px solid var(--control-border); border-radius: 12px; padding: 20px; background: var(--surface-subtle); }
+.permission-notice strong { display: block; margin-bottom: 8px; }
+.permission-notice p { margin: 0; color: var(--content-secondary); line-height: 1.7; }
 .field-label { display: block; font-size: 14px; font-weight: 500; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
 .full-width { grid-column: 1 / -1; }

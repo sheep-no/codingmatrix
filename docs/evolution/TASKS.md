@@ -257,6 +257,8 @@
 
 > 阶段 1 修复（2026-11-10）：FRESCAN-54 绑定左栏登录/登出并刷新历史；FRESCAN-55 `clearUser()` 补齐六类跨账户缓存与导航状态清理；FRESCAN-56 恢复 `api.aicloud` 命名空间；FRESCAN-57 根级 `searchKnowledge` 回到 agent 端点并归一 `{ results }`；FRESCAN-58 回滚改传字符串标签并显式关闭分支删除。新增 9 条用例，全量 63 文件 / 297 用例通过，构建成功；回退源码态上述 9 条用例全部失败。
 
+> 阶段 2 修复（2026-11-10）：FRESCAN-60 `/api/` 补 `proxy_http_version 1.1`、Upgrade 透传与长读超时；FRESCAN-61 图片历史改存文件名并由 `image_history_refs` 统一解析，资源端点增加历史表归属兜底；FRESCAN-62 能力中心按 `userStore.isAdmin` 门禁知识库与沙箱；FRESCAN-66 CI 改跑 `lint:check` 与 `test:run` 并扩展触发路径；FRESCAN-70 图片页五处 `fetch` 收敛到 `api.kolors.*`，客户端补 `kolors` 命名空间，历史图走认证 blob。新增 14 条前端用例与 5 条后端用例，全量 66 文件 / 311 用例通过，构建成功；回退源码态前端 18 条、后端 1 条用例失败。Nginx 101 握手与 CI 实际变红仍待环境复验。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

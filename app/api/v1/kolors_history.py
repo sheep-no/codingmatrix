@@ -10,8 +10,6 @@ API 端点：
 
 import json
 import logging
-import os
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +17,8 @@ from sqlalchemy import select, delete as sql_delete, func
 
 from app.db.database import get_db
 from app.db.models import ImageGenerationHistory
+from app.services.image_history_refs import resolve_reference
+from app.utils.image_generation import OUTPUT_DIR
 from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,12 @@ router = APIRouter(prefix="/api/v1/kolors", tags=["kolors-history"])
 
 
 def _delete_image_files(image_urls: list):
-    """删除本地图片文件"""
+    """删除本地图片文件；数据库存文件名，也兼容历史的绝对路径与 base64。"""
     for url in (image_urls or []):
         try:
-            file_path = Path(url)
+            file_path = resolve_reference(url, OUTPUT_DIR)
+            if file_path is None:
+                continue
             if file_path.exists():
                 file_path.unlink()
                 logger.info(f"已删除图片文件: {url}")

@@ -141,6 +141,7 @@
 - 缺陷：`/ws/` 配有 `proxy_http_version 1.1`、`Upgrade`、`Connection "upgrade"` 和 86400 秒读超时；`/api/` 只设置 `Connection ""`。PPT 进度 WS 地址是 `/api/v1/ws/ppt/{taskId}`，命中 `/api/` 分支。
 - 影响：经生产 Nginx 的握手请求不携带 Upgrade 头，服务端无法完成协议升级，PPT 生成页收不到进度事件；Vite 开发代理 `/api/v1` 已开 `ws: true`（`vite.config.js:62-71`），问题只在生产拓扑出现。
 - 证据：配置与地址实码可证；握手失败需 Nginx 实测。
+- 修复状态：已修复（待 Nginx 实测）。`configs/nginx.conf` 新增 `map $http_upgrade $connection_upgrade`，`/api/` 分支补 `proxy_http_version 1.1`、`Upgrade`、`Connection $connection_upgrade` 与 86400 秒读超时；新增 `src/tests/nginx-websocket.test.js` 锁定配置，回退源码后该用例失败。经 Nginx 的 101 握手仍需在有 Docker 的环境复验。
 
 #### FRESCAN-66 [P2] 前端 CI 从不执行单元测试，E2E 门禁非阻塞
 
@@ -148,6 +149,7 @@
 - 缺陷：`src` 下已有 59 个 `*.test.js`，`frontend-ci.yml` 只跑 `npm run lint`（实际为 `eslint . --fix`）与 `npm run build`，没有 `npm run test:run`；`e2e.yml:25` 设置 `continue-on-error: true`。
 - 影响：任何前端单元回归都不会阻断合并；lint 步骤还会改写源码。`paths` 仍只覆盖 `src/**`，Dockerfile/Compose/Nginx 变更不触发该工作流（FRESCAN-44）。
 - 证据：工作流与脚本实码可证；实际 CI 结果未运行。
+- 修复状态：已修复（待 CI 实跑）。`src/package.json` 新增只检查的 `lint:check`，`frontend-ci.yml` 在构建前执行 `npm run lint:check` 与 `npm run test:run`，`paths` 扩展到 `configs/nginx*.conf`、`Dockerfile`、`docker-compose*.yml`；新增 `src/tests/frontend-ci-contract.test.js` 断言测试步骤先于构建且不再使用 `--fix`。E2E 仍保持非阻塞，留待阶段 3 评估。
 
 #### FRESCAN-69 [P3] 单镜像运行拓扑与 Compose 拓扑漂移
 
@@ -181,6 +183,7 @@
 - 影响：`ImageGenerationHistory.image_urls` 单行可达数 MB，历史列表随生成次数膨胀；磁盘图片文件永不回收。前端历史缩略图当前依赖 base64 显示，因此能显示但代价高。
 - 附带：归属校验的 `GET /kolors/resources/{filename}` 全库无前端消费方，前端直读 `image_urls[0]`；一旦后端改为只存路径，历史图会变成不可访问的相对路径。
 - 证据：实码可证；数据体积需实际库统计。
+- 修复状态：已修复。新增 `app/services/image_history_refs.py` 统一文件名归一与根目录解析；`save_image_generation_history` 落库改存 `normalize_image_references(image_paths)`，五处生成调用改传 `paths`；`kolors_history._delete_image_files` 与 `generated_asset_retention` 改用 `resolve_reference`；`get_generated_resource` 增加 `ImageGenerationHistory.image_urls` 文件名归属兜底。新增 `tests/unit/test_image_history_refs.py` 覆盖归一、解析、归属与外来记录拒绝，回退 `get_generated_resource` 后归属用例失败。
 
 #### FRESCAN-62 [P2] 能力中心知识库与沙箱页缺少权限门禁
 
@@ -188,6 +191,7 @@
 - 缺陷：知识库与沙箱 tab 对所有登录用户展示，加载与执行直接调用 admin-only 端点；异常只把 `error.message` 写进面板。
 - 影响：普通用户看到“知识库加载失败”“代码执行失败”，无法得知需要管理员权限，也没有升级入口；页面看起来是功能故障。
 - 证据：路由 meta 仅 `requiresAuth`（`router/index.js:92-95`），后端权限实码可证；实际 403 文案需实测。
+- 修复状态：已修复。`CapabilityCenter.vue` 读取 `userStore.isAdmin`，知识库与沙箱在无权限时不渲染表单并展示升级提示，加载函数与 tab 监听同时短路；新增两条用例分别断言普通用户不触发管理端点、管理员正常加载，回退源码后两条均失败。
 
 #### FRESCAN-67 [P3] 活跃表单的 `label` 与控件缺少关联
 
@@ -207,6 +211,7 @@
 - 缺陷：文生图、图生图、历史分页、删除单条、清空历史五处直接 `fetch(`${API_BASE}/...`)`，只手工拼 `Authorization`；`loadHistory`/`deleteHistory`/`clearHistory` 的 `catch` 全部为空注释，失败时界面无任何提示。统一客户端已有的 token 刷新、CSRF、错误归一化与 401 处理全部不生效。
 - 影响：access token 过期时图片页不会自动刷新，只会静默显示空历史或“生成失败”；后端改为 `csrf_protect` 或调整返回结构时，这一页不会随客户端一起适配。`kolors.js` 里的同名封装没有生产消费方。
 - 证据：实码可证；token 过期时的实际表现需运行验证。
+- 修复状态：已修复。`kolors.js` 的 `textToImage`/`imageToImage` 改走 `client.request` 以支持 FormData、认证头与中止信号，`getHistory` 改用 `page_size`，失败统一抛错，新增 `getResourceBlob`；`index.js` 显式挂载 `api.kolors` 命名空间；`ImageGenerate.vue` 五处裸 `fetch` 收敛到 `api.kolors.*`，历史与生成图经认证端点转 objectURL 并在刷新、卸载时释放，失败写入可见错误；会话持久化改存文件名 `ref`，刷新后经认证端点重新取回，不再丢失最后一张图。新增 `src/utils/api/kolors.test.js`、命名空间断言与更新后的 `ImageGenerate.test.js`，回退源码后相关用例失败。
 
 ## 4. 统计与证据边界
 
@@ -214,7 +219,7 @@
 
 第 165 轮新增 Backlog 使用 `#1392-#1410`。累计 P0 2、P1 53、P2 490、P3 817；Backlog 共 1410 项。
 
-本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。阶段 1 新增 9 条用例，全量单测 63 个文件 / 297 条用例通过，`npm run build` 成功；回退源码态确认阶段 1 的 9 条用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
+本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。阶段 1 新增 9 条用例，全量单测 63 个文件 / 297 条用例通过，`npm run build` 成功；回退源码态确认阶段 1 的 9 条用例失败。阶段 2 新增 14 条前端用例与 5 条后端用例，全量单测 66 个文件 / 311 条用例通过，`kolors` 相关后端 39 条用例通过，后端全量 5173 passed / 4 skipped（6 条 `conversation_store` Redis 用例因本机无 Redis 失败），`npm run build` 成功；回退源码态阶段 2 前端 18 条用例失败、后端归属兜底用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
 
 ## 5. 分阶段修复规划
 
@@ -235,12 +240,12 @@
 
 ### 阶段 2：核心可用性与部署（3-5 天）
 
-1. FRESCAN-60：在 `/api/` 分支补 `proxy_http_version 1.1`、`Upgrade`、`Connection "upgrade"` 与长读超时，或把 PPT WS 迁到 `/ws/`。验收：经 Nginx 连接 `/api/v1/ws/ppt/{id}` 返回 101；补一条 Nginx 配置断言测试。
-2. FRESCAN-61：历史落库改存 `paths`（相对 `generated_images` 的文件名），`_delete_image_files` 按文件名拼接根目录后删除；前端历史改用 `/kolors/resources/{filename}`。验收：新生成记录的 `image_urls` 不含 `data:`；删除历史后文件不存在；历史缩略图可加载。
-3. FRESCAN-62：能力中心按 `userStore.isAdmin` 隐藏或禁用知识库/沙箱，并对 403 给出明确升级提示。
-4. FRESCAN-70：`ImageGenerate.vue` 五处 `fetch` 改走统一客户端（`api.kolors.*` 或新增带 `page_size` 的封装），失败时给可见提示；同步修正 `kolors.js` 的分页参数。验收：token 过期时图片页自动刷新重试；断网时出现错误提示而非空列表。
-5. FRESCAN-66：`frontend-ci.yml` 增加 `npm run test:run`（CI 使用不带 `--fix` 的 `npm run lint:check`）；评估把 E2E 从 `continue-on-error` 提升为阻塞。
-6. 验收标准：新增 Nginx 配置测试与图片历史契约测试；CI 在仅前端单元测试失败时变红。
+1. FRESCAN-60：在 `/api/` 分支补 `proxy_http_version 1.1`、`Upgrade`、`Connection "upgrade"` 与长读超时，或把 PPT WS 迁到 `/ws/`。验收：经 Nginx 连接 `/api/v1/ws/ppt/{id}` 返回 101；补一条 Nginx 配置断言测试。状态：已修复，配置断言通过，101 握手待实测。
+2. FRESCAN-61：历史落库改存 `paths`（相对 `generated_images` 的文件名），`_delete_image_files` 按文件名拼接根目录后删除；前端历史改用 `/kolors/resources/{filename}`。验收：新生成记录的 `image_urls` 不含 `data:`；删除历史后文件不存在；历史缩略图可加载。状态：已修复，归一/解析/归属用例通过。
+3. FRESCAN-62：能力中心按 `userStore.isAdmin` 隐藏或禁用知识库/沙箱，并对 403 给出明确升级提示。状态：已修复，普通用户与管理员两条用例通过。
+4. FRESCAN-70：`ImageGenerate.vue` 五处 `fetch` 改走统一客户端（`api.kolors.*` 或新增带 `page_size` 的封装），失败时给可见提示；同步修正 `kolors.js` 的分页参数。验收：token 过期时图片页自动刷新重试；断网时出现错误提示而非空列表。状态：已修复，客户端契约与页面交互用例通过；token 过期刷新依赖基础客户端既有链路，端到端待实测。
+5. FRESCAN-66：`frontend-ci.yml` 增加 `npm run test:run`（CI 使用不带 `--fix` 的 `npm run lint:check`）；评估把 E2E 从 `continue-on-error` 提升为阻塞。状态：已修复，CI 契约用例通过；E2E 阻塞化留待阶段 3。
+6. 验收标准：新增 Nginx 配置测试与图片历史契约测试；CI 在仅前端单元测试失败时变红。状态：配置与契约测试已落地；CI 变红行为待实际工作流运行确认。
 
 ### 阶段 3：结构收敛与可用性（1 周）
 

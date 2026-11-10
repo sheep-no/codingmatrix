@@ -7,10 +7,16 @@ const apiMock = vi.hoisted(() => ({
   deleteSkill: vi.fn(),
   listAgentHostSessions: vi.fn(),
   listKnowledgeDocs: vi.fn(),
-  analyzeImage: vi.fn()
+  analyzeImage: vi.fn(),
+  executeCode: vi.fn()
 }))
 
+const userState = vi.hoisted(() => ({ admin: true }))
+
 vi.mock('@/utils/api/index', () => ({ api: apiMock }))
+vi.mock('@/stores/user', () => ({
+  useUserStore: () => ({ get isAdmin() { return userState.admin } })
+}))
 
 import CapabilityCenter from './CapabilityCenter.vue'
 
@@ -31,10 +37,36 @@ async function openTab(wrapper, label) {
 describe('CapabilityCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    userState.admin = true
     apiMock.listSkills.mockResolvedValue([])
     apiMock.listAgentHostSessions.mockResolvedValue([])
     apiMock.listKnowledgeDocs.mockResolvedValue([])
     apiMock.deleteSkill.mockResolvedValue(undefined)
+  })
+
+  it('shows an upgrade hint for admin-only tabs without calling admin endpoints', async () => {
+    userState.admin = false
+    const wrapper = mountCapabilityCenter()
+
+    await openTab(wrapper, '知识库')
+    expect(apiMock.listKnowledgeDocs).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('需要管理员权限')
+
+    await openTab(wrapper, '代码沙箱')
+    expect(wrapper.text()).toContain('需要管理员权限')
+    expect(apiMock.executeCode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('loads the knowledge tab for administrators', async () => {
+    apiMock.listKnowledgeDocs.mockResolvedValue([{ id: 1, filename: '指南.md', chunk_count: 3 }])
+    const wrapper = mountCapabilityCenter()
+
+    await openTab(wrapper, '知识库')
+    expect(apiMock.listKnowledgeDocs).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('指南.md')
+    expect(wrapper.text()).not.toContain('需要管理员权限')
+    wrapper.unmount()
   })
 
   it('loads an inactive tab on first entry and caches its result', async () => {

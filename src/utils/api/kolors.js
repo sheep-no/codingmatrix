@@ -2,31 +2,46 @@
  * API Kolors 图像生成模块
  * 后端端点: /api/v1/kolors
  */
+async function readError(response, fallback) {
+  const payload = await response.json().catch(() => ({}))
+  return new Error(payload.detail || payload.message || fallback)
+}
+
 export function createKolorsClient(client) {
   return {
-    async textToImage(prompt, params = {}, api_key_token = null) {
-      const response = await client.post('/kolors/text-to-image', {
-        prompt,
-        api_key_token,
-        ...params
+    async textToImage(prompt, params = {}, apiKeyToken = null, signal = null) {
+      const response = await client.request('/kolors/text-to-image', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt,
+          api_key_token: apiKeyToken,
+          ...params
+        }),
+        signal
       })
-      if (response.ok) {
-        return await response.json()
+      if (!response.ok) {
+        throw await readError(response, '文生图失败')
       }
-      throw new Error('文生图失败')
+      return await response.json()
     },
 
-    async imageToImage(prompt, imageUrl, params = {}, api_key_token = null) {
-      const response = await client.post('/kolors/image-to-image', {
-        prompt,
-        image_path: imageUrl,
-        api_key_token,
-        ...params
+    async imageToImage(promptOrFormData, params = {}, apiKeyToken = null, signal = null) {
+      const isFormData = typeof FormData !== 'undefined' && promptOrFormData instanceof FormData
+      const response = await client.request('/kolors/image-to-image', {
+        method: 'POST',
+        body: isFormData
+          ? promptOrFormData
+          : JSON.stringify({
+            prompt: promptOrFormData,
+            api_key_token: apiKeyToken,
+            ...params
+          }),
+        signal
       })
-      if (response.ok) {
-        return await response.json()
+      if (!response.ok) {
+        throw await readError(response, '图生图失败')
       }
-      throw new Error('图生图失败')
+      return await response.json()
     },
 
     async inpaint(prompt, imageUrl, maskUrl, params = {}) {
@@ -87,52 +102,45 @@ export function createKolorsClient(client) {
       }
     },
 
-    async getHistory(page = 1, limit = 20) {
-      try {
-        const response = await client.get('/kolors/history', { page, limit })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { images: [] }
-      } catch (error) {
-        return { images: [] }
+    async getHistory(page = 1, pageSize = 20) {
+      // 后端分页参数是 page_size；旧实现发 limit 会被忽略（FRESCAN-50/70）
+      const response = await client.get('/kolors/history', { page, page_size: pageSize })
+      if (!response.ok) {
+        throw await readError(response, '获取绘图历史失败')
       }
+      return await response.json()
     },
 
     async getHistoryDetail(imageId) {
-      try {
-        const response = await client.get(`/kolors/history/${imageId}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return null
-      } catch (error) {
-        return null
+      const response = await client.get(`/kolors/history/${imageId}`)
+      if (!response.ok) {
+        throw await readError(response, '获取绘图历史详情失败')
       }
+      return await response.json()
     },
 
     async deleteHistory(imageId) {
-      try {
-        const response = await client.delete(`/kolors/history/${imageId}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
+      const response = await client.delete(`/kolors/history/${imageId}`)
+      if (!response.ok) {
+        throw await readError(response, '删除绘图历史失败')
       }
+      return await response.json()
     },
 
     async clearHistory() {
-      try {
-        const response = await client.delete('/kolors/history')
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
+      const response = await client.delete('/kolors/history')
+      if (!response.ok) {
+        throw await readError(response, '清空绘图历史失败')
       }
+      return await response.json()
+    },
+
+    async getResourceBlob(filename) {
+      const response = await client.get(`/kolors/resources/${encodeURIComponent(filename)}`)
+      if (!response.ok) {
+        throw await readError(response, '读取历史图片失败')
+      }
+      return await response.blob()
     }
   }
 }
