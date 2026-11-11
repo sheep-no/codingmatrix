@@ -276,6 +276,8 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5280 passed, 6 failed, 4 skipped`（收集 5290，第八轮完成后）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关；基线通过数从第七轮的 5270 增至 5280。
 
+集成测试：`python3 -m pytest tests/integration -q -p no:randomly --timeout=300` → `43 passed, 5 skipped`（收集 48，20s 内完成）。5 项跳过全部因本机无 Redis（`test_apikey_index_ttl.py` 4 项、`test_state_recovery.py` 1 项 Pub/Sub），无失败。
+
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
 | 优先级 | 问题 | 实际位置 | 状态 |
