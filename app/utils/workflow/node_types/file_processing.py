@@ -38,9 +38,9 @@ class FileProcessingNode(TaskNodeBase):
 
     def get_required_params(self) -> List[str]:
         operation = self.params.get("operation", "")
-        if operation == "read":
-            return ["path"]
-        elif operation in ("write", "copy", "move", "delete", "create_dir", "list_dir"):
+        if operation in ("copy", "move"):
+            return ["source", "destination"]
+        elif operation in ("read", "write", "delete", "create_dir", "list_dir"):
             return ["path"]
         return ["operation"]
 
