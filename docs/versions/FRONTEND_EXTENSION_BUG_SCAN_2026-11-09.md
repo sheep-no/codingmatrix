@@ -3,7 +3,7 @@
 **扫描时间**: 2026-11-09
 **扫描范围**: `flutter_client/`（71 个 `lib/**/*.dart`）、`vscode-extension/src/`（17 个 `.ts` 模块 + 2 个 `.d.ts`）
 **参照基线**: `flutter test` → 497 passed；`flutter analyze lib test` → No issues found；插件 `npm run build` + `node --test test/*.test.mjs` → 109 passed / 0 fail
-**修复后基线（2026-11-10）**: `flutter test` → 501 passed；`flutter analyze lib test` → No issues found；插件 124 passed / 0 fail；后端相关单测 86 passed / 0 fail（另 1 skipped）
+**修复后基线（2026-11-11）**: `flutter test` → 501 passed；`flutter analyze lib test` → No issues found；插件 126 passed / 0 fail；后端相关单测 90 passed / 0 fail
 **判定口径**: 仅把已用脚本或真实调用复现的行为列为「已验证」；仅靠代码阅读得出的列为「静态判定」
 
 ---
@@ -17,7 +17,7 @@
 | P1-1 | 高 | 插件 | 变更型 POST 在 408/429/5xx 自动重放，可能重复执行 | 已验证 | 已修 |
 | P1-2 | 高 | 插件 | 编排流 POST 在 5xx 被重放，缺少幂等保护 | 已验证 | 已修 |
 | P1-3 | 高 | 插件 | 畸形 SSE 帧直接中断整条事件流 | 已验证 | 已修 |
-| P1-4 | 高 | 插件 | 无令牌刷新、无重新握手，30 分钟后永久离线 | 静态判定 + 契约核对 | 部分修复（410 重握手已加，令牌刷新待后端） |
+| P1-4 | 高 | 插件 | 无令牌刷新、无重新握手，30 分钟后永久离线 | 静态判定 + 契约核对 + 真实 HTTP | 已修（410/401 重握手 + Host 会话滑动续期；令牌刷新待后端契约） |
 | P1-5 | 高 | Flutter | 退出登录不调用服务端 `/logout`，令牌在 30 分钟内仍有效 | 已验证 | 已修 |
 | P2-1 | 中 | 插件 | 真实网络错误（ECONNREFUSED）不触发重试 | 已验证 | 已修 |
 | P2-2 | 中 | 插件 | webview 请求 pending 表无超时，条目泄漏且 Promise 永不结算 | 静态判定 | 已修 |
@@ -156,7 +156,12 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 - Host 会话 30 分钟过期（`app/api/v1/agent_host.py:257`、`:304-305` 返回 410），插件不重新握手；`heartbeat` 路由（`:427-449`）只刷新 `ProjectSession.last_activity_at`，不会延长 Host 会话的 `expires_at`，且插件从不调用它（全仓 `rg heartbeat src` 仅命中前端事件过滤）。
 - 过期后每次请求抛错，`poll` 的 `catch` 只把状态置为 offline（`extension.ts:381-385`），下一轮仍用同一失效凭据与失效会话，永久离线。
 
-**修复建议**: 401 时用 refresh token 刷新；410 时重新握手并更新 `connection.sessionId`；后端如需长会话，应在 heartbeat 或任意已认证 Host 请求中滑动延长 `expires_at`。
+**修复结果（2026-11-11）**
+
+- 后端：任意已认证 Host 请求都会滑动延长 `expires_at`（`_get_session(touch=True)`），常量收敛为 `HOST_SESSION_TTL`。插件默认 1 秒轮询一次，会话因此不再于 30 分钟边界过期。
+- 插件：`poll` 的 `catch` 对 401 与 410 都触发 30 秒节流的 `reconnectConfiguredSession()`，重握手会重读设置里的 `apiUrl`/`accessToken`，外部更新令牌后无需重载窗口。
+- 验证：`tests/unit/test_agent_host_api.py` 新增 2 例（滑动续期、过期仍 410），关联后端回归 90 passed；插件 126 passed。真实后端实测 `GET /sessions/{id}/actions` 后 `expires_at` 由 `00:47:34` 滑至 `00:47:55`。
+- 剩余：插件无 refresh token，无法自行刷新访问令牌；401 重握手只对「设置中已写入新令牌」有效，自动续期仍依赖后端提供可用的 refresh 契约。
 
 ### P1-5 Flutter 退出不撤销服务端令牌
 
