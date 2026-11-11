@@ -102,7 +102,9 @@ class CodeReviewer(Specialist):
             else:
                 result = json.loads(response)
         except (json.JSONDecodeError, TypeError):
-            logger.warning(f"CodeReviewer LLM 输出非合法 JSON，标记为需要人工审查: {response[:200]}")
+            logger.warning(
+                f"CodeReviewer LLM 输出非合法 JSON，标记为需要人工审查: {str(response)[:200]}"
+            )
             result = {
                 "approved": False,
                 "risk_level": "medium",

@@ -544,6 +544,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.79% → 73.89%`，覆盖行 48766 → 48825，语句总数 63706 不变，覆盖分支 13415 → 13432（总分支 20556 不变），新增 1 个测试文件 30 项，全量 `6728 → 6758 passed, 2 skipped`。`service_config_manager.py` 37.98% → 100.00%（103/103 行、26/26 分支）。
 
+### 后端缺陷扫描第二十四轮：代码审查非字符串响应二次崩溃（2026-11-11）
+
+补测 `app/agent/code_reviewer.py`（80 语句、38.60%），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | LLM 返回非字符串时审查流程二次崩溃：`review_code` 捕获 `TypeError` 后，异常处理分支里的 `response[:200]` 对 `None`/对象再次做切片，直接抛 `TypeError: 'NoneType' object is not subscriptable`；原本应降级为「需人工审查」，实际整个审查调用失败 | `app/agent/code_reviewer.py`（`review_code`） | 已解决；日志改用 `str(response)[:200]`。回归 `tests/unit/test_code_reviewer_branches.py::TestReviewResultParsing::test_non_string_response_requests_manual_review`，回退后抛 `TypeError` |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.89% → 73.98%`，覆盖行 48825 → 48872，语句总数 63706 不变，覆盖分支 13432 → 13462（总分支 20556 不变），新增 1 个测试文件 19 项，全量 `6758 → 6777 passed, 2 skipped`。`code_reviewer.py` 38.60% → 100.00%（80/80 行、34/34 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
