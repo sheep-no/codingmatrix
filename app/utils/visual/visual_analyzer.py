@@ -128,14 +128,20 @@ class SlideVisualDecision:
     
     @property
     def need_image(self) -> bool:
-        return len(self.images) > 0 and any(img.image_type != ImageType.NONE for img in self.images)
+        return any(
+            img.image_type != ImageType.NONE and not img.is_decoration
+            for img in self.images
+        )
     
     def get_main_image(self) -> Optional[ImageDecision]:
-        """获取主图片（第一张非装饰图片）"""
+        """获取主图片（第一张非装饰图片）
+
+        装饰图片只参与版面点缀，不能作为正文配图。
+        """
         for img in self.images:
             if img.image_type != ImageType.NONE and not img.is_decoration:
                 return img
-        return self.images[0] if self.images else None
+        return None
 
 
 @dataclass

@@ -116,6 +116,10 @@ class LayoutDecider:
     # 内容区域（float）
     CONTENT_WIDTH_INCHES = SLIDE_WIDTH_INCHES - MARGIN_LEFT_INCHES - MARGIN_RIGHT_INCHES
     CONTENT_HEIGHT_INCHES = SLIDE_HEIGHT_INCHES - MARGIN_TOP_INCHES - MARGIN_BOTTOM_INCHES - 0.5
+
+    # 图片宽度占比上限/下限，避免异常比例把文本框挤出画布
+    MIN_IMAGE_WIDTH_RATIO = 0.1
+    MAX_IMAGE_WIDTH_RATIO = 0.7
     
     def __init__(self):
         self.visual_analyzer = VisualAnalyzer()
@@ -242,7 +246,7 @@ class LayoutDecider:
 
         # 根据主图片位置决定布局
         position = main_image.position
-        img_width_ratio = main_image.width_ratio
+        img_width_ratio = self._safe_width_ratio(main_image.width_ratio)
 
         # 初始化默认值
         text_top = Inches(1.5)
@@ -388,6 +392,8 @@ class LayoutDecider:
         else:
             content_top = Inches(1.5)
         content_height = self.CONTENT_HEIGHT.inches - content_top.inches - self.MARGIN_BOTTOM.inches
+        max_height = self.SLIDE_HEIGHT.inches - self.MARGIN_BOTTOM.inches - content_top.inches
+        content_height = max(min(content_height, max_height), 0.3)
 
         content_props = {
             "items": decision.content_summary,
@@ -404,11 +410,22 @@ class LayoutDecider:
             left=text_left,
             top=content_top,
             width=text_width,
-            height=Inches(max(content_height, 3)),
+            height=Inches(content_height),
             properties=content_props
         ))
 
         return elements
+
+    @classmethod
+    def _safe_width_ratio(cls, value: Any) -> float:
+        """将外部传入的图片宽度占比约束到可用区间。"""
+        try:
+            ratio = float(value)
+        except (TypeError, ValueError):
+            return 0.4
+        if ratio != ratio or ratio in (float("inf"), float("-inf")):
+            return 0.4
+        return min(max(ratio, cls.MIN_IMAGE_WIDTH_RATIO), cls.MAX_IMAGE_WIDTH_RATIO)
 
     def _plan_decoration_image(self, img: 'ImageDecision') -> Optional[LayoutElement]:
         """规划装饰图片"""
@@ -807,11 +824,14 @@ class LayoutDecider:
         )
         line.fill.solid()
         color = element.properties.get("color", (74, 144, 217))
-        # 支持 hex 字符串和 tuple 两种格式
+        # 支持 hex 字符串和 tuple 两种格式，非法值回退到深灰色
         if isinstance(color, str):
-            color = color.lstrip('#')
-            color = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
-        line.fill.fore_color.rgb = RGBColor(*color)
+            color = self._parse_color(color)
+        elif isinstance(color, (tuple, list)) and len(color) == 3:
+            color = RGBColor(*color)
+        else:
+            color = RGBColor(0x33, 0x33, 0x33)
+        line.fill.fore_color.rgb = color
         line.line.fill.background()
     
     def _add_page_number(

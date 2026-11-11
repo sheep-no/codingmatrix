@@ -61,6 +61,7 @@ def _make_import_pattern(language: str) -> re.Pattern:
         # import x from 'y' / require('y')
         return re.compile(
             r"""(?:import\s+(?:[^'"]+\s+from\s+)?['"]([^'"]+)['"]"""
+            r"""|(?:const|let|var)\s+\w+\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)"""
             r"""|require\(\s*['"]([^'"]+)['"]\s*\))"""
         )
     if language == "go":
@@ -99,7 +100,10 @@ LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
         extensions=(".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"),
         skip_dirs=("node_modules", "dist", "build", ".next", ".nuxt", "out", "coverage"),
         init_file=("index.js", "index.ts", "index.jsx", "index.tsx", "index.mjs", "index.cjs"),
-        test_file_globs=("*.test.js", "*.spec.js", "*.test.ts", "*.spec.ts", "*.test.jsx", "*.test.tsx"),
+        test_file_globs=(
+            "*.test.js", "*.spec.js", "*.test.ts", "*.spec.ts",
+            "*.test.jsx", "*.spec.jsx", "*.test.tsx", "*.spec.tsx",
+        ),
         test_dir_names=("tests", "test", "__tests__", "spec"),
         test_fixture_files=("jest.config.js", "jest.config.ts", "vitest.config.js", "vitest.config.ts"),
         test_fixture_marker="describe(",
@@ -330,10 +334,14 @@ class ProjectProfiler:
                 continue
             if path.suffix.lower() not in self.profile_rules.extensions:
                 continue
-            # 跳过隐藏目录与语言特定目录
+            # 只看相对路径，避免项目根目录本身位于隐藏目录时把所有文件都跳过
+            try:
+                parts = path.relative_to(root).parts
+            except ValueError:
+                parts = path.parts
             if any(
                 part.startswith('.') or part in self.profile_rules.skip_dirs or part in _COMMON_SKIP_DIRS
-                for part in path.parts
+                for part in parts
             ):
                 continue
             yield path
@@ -346,7 +354,7 @@ class ProjectProfiler:
         name = path.name.lower()
         for glob_pattern in self.profile_rules.test_file_globs:
             # 简单 fnmatch（处理 * 通配符）
-            regex = "^" + re.escape(glob_pattern).replace(r"\*", ".*") + "$"
+            regex = "^" + re.escape(glob_pattern.lower()).replace(r"\*", ".*") + "$"
             if re.match(regex, name):
                 return True
         return False
@@ -397,9 +405,17 @@ class ProjectProfiler:
             ]
 
             dir_name = os.path.basename(dirpath).lower()
+            # 按目录名中的词元匹配，避免 "rapid"/"capital"/"metadata" 命中 "api"/"data"
+            tokens = {token for token in re.split(r"[^a-z0-9]+", dir_name) if token}
+            candidates = set(tokens)
+            for token in tokens:
+                if token.endswith("ies"):
+                    candidates.add(f"{token[:-3]}y")
+                elif token.endswith("s"):
+                    candidates.add(token[:-1])
 
             for layer_name, patterns in self.LAYER_PATTERNS.items():
-                if any(p in dir_name for p in patterns):
+                if candidates.intersection(patterns):
                     rel_path = os.path.relpath(dirpath, root)
                     if rel_path not in layers.get(layer_name, []):
                         layers.setdefault(layer_name, []).append(rel_path)
@@ -556,6 +572,10 @@ class ProjectProfiler:
                     module = next((g for g in m.groups() if g), None)
                     if not module:
                         continue
+                    if module.startswith('.'):
+                        module = self._resolve_relative_module(module, src_file, root)
+                        if not module:
+                            continue
                     # 跳过标准库/外部包启发：项目内模块通常以小写字母开头、不含点（python）/不含反斜杠
                     if self._is_project_module(module, root):
                         import_counts[module] += 1
@@ -564,6 +584,27 @@ class ProjectProfiler:
                 continue
 
         return import_counts
+
+    def _resolve_relative_module(self, module: str, src_file: Path, root: Path) -> str | None:
+        """把 Python 相对导入解析为项目内点分模块名。
+
+        `from . import x` 本身指向包而非具体模块，返回 None 以免把包路径当作被依赖文件。
+        """
+        if self.language != "python":
+            return module
+        dots = len(module) - len(module.lstrip('.'))
+        suffix = module.lstrip('.')
+        if not suffix:
+            return None
+        base = src_file.parent
+        for _ in range(dots - 1):
+            base = base.parent
+        try:
+            rel = base.relative_to(root)
+        except ValueError:
+            return None
+        prefix = rel.as_posix().replace('/', '.')
+        return f"{prefix}.{suffix}" if prefix and prefix != '.' else suffix
 
     def _is_project_module(self, module: str, root: Path | None = None) -> bool:
         """粗略判断是否是项目内模块（避免被大量外部 import 污染）"""
@@ -587,9 +628,11 @@ class ProjectProfiler:
                      "com.google", "android.", "kotlin."),
         }
         prefixes = stdlib_prefixes.get(self.language, ())
-        # 检查前缀
+        # 检查前缀（兼容 Python/JS 的 "."、路径的 "/"、Rust/Go 的 "::"）
         for prefix in prefixes:
-            if module == prefix or module.startswith((prefix + ".", prefix + "/")):
+            if prefix.endswith(":") and module.startswith(prefix):
+                return False
+            if module == prefix or module.startswith((prefix + ".", prefix + "/", prefix + "::", prefix + ":")):
                 return False
         # Python：第三方包（flask/requests/numpy）与项目模块在模块名上无法区分，
         # 用「项目内是否存在对应源文件」判据把它们排除，避免污染 high_dependency（PP10）。

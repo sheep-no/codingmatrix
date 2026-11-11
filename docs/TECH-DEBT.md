@@ -373,6 +373,30 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app`，unit + integration）：`67.56% → 68.06%`，覆盖语句 42964 → 43377，新增 104 个用例（`5359 → 5463 passed`）。四个目标模块：`constrained_generation.py` 0% → 97.9%，`content_analyzer.py` 20.75% → 100%，`text_processor.py` 12.5% → 96.3%，`human_approval.py` 18.2% → 97.4%。
 
+### 后端缺陷扫描第十一轮：布局、项目指纹与配图缓存缺陷（2026-11-11）
+
+继续对 20%–35% 覆盖的纯逻辑模块补测，修复补测中暴露的 6 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 装饰图片被当成正文主图：`get_main_image()` 在无「非装饰图」时回退 `images[0]`，`need_image` 又只判断 `image_type != NONE`。只有角落装饰图的页面被判为需要配图，同一张图标既渲染成主图又渲染成装饰图 | `app/utils/visual/visual_analyzer.py` | 已解决；`get_main_image()` 无合格主图返回 `None`，`need_image` 排除 `is_decoration`。回归 `tests/unit/test_layout_decider.py`，回退后 2 项失败 |
+| P1 | 外部传入的 `width_ratio` 未约束，`0`/负数/`1.5`/超大值/nan/非数字会把文本框宽高算成负数或把内容推到画布外（`width_ratio=5` 时文本宽 -49.6 英寸） | `app/utils/visual/layout_decider.py` | 已解决；新增 `_safe_width_ratio` 约束到 0.1–0.7，非法值回退 0.4。回归同上，回退后 10 项失败 |
+| P2 | 居中/行内/顶部图片布局的内容框超出画布：内容高度只按内容区高度计算，未减去实际起始位置，`CENTER` 页面内容框底边 8.5 英寸 > 7.5 英寸画布 | `app/utils/visual/layout_decider.py` | 已解决；按 `slide_height - bottom_margin - content_top` 再夹取，最小 0.3 英寸。回归同上，回退后 3 项失败 |
+| P2 | 分隔线颜色非法（如 `#GGGGGG`）时 `int(color[i:i+2], 16)` 直接抛 `ValueError`，整页渲染中断 | `app/utils/visual/layout_decider.py` | 已解决；复用 `_parse_color` 并对 tuple 长度做校验，非法值回退深灰。回归同上，回退后 1 项失败 |
+| P2 | 项目根目录位于隐藏目录时（如 CI 的 `.workspace/project`），`_iter_source_files` 用绝对路径 `path.parts` 判断隐藏段，导致该根下所有文件被跳过，指纹恒为空 | `app/agent/project_profiler.py` | 已解决；改用 `path.relative_to(root)` 只检查项目内路径。回归 `tests/unit/test_project_profiler_branches.py`，回退后 1 项失败 |
+| P2 | 相对导入被当作外部模块过滤：`from .helpers import x` 得到 `.helpers`，随后被「首字符 `.` 视为项目内」的规则计数成假模块 `.foo`/`.`，`high_dependency` 出现 `/foo.py`、`/.py` 等不存在文件 | `app/agent/project_profiler.py` | 已解决；新增 `_resolve_relative_module` 解析为 `pkg.helpers`，`from . import x` 指向包本身时跳过。回归同上，回退后 3 项失败 |
+
+同批修复的低风险判定缺陷（均由新增用例覆盖）：
+
+- 分层目录名由任意子串改为词元匹配，`rapid`/`capital`/`metadata` 不再命中 `api`/`data`；同时支持复数与 `-ies`。
+- JS `require('x')` 仅在独立语句时匹配，`const x = require('x')` 不再漏计；`node:`、`std::` 前缀识别为标准库。
+- JS/Python/Go/Java 测试文件匹配统一小写化，`FooIT.java`、`*.spec.tsx` 可被识别。
+- `ImageStrategy` 搜索缓存写入用 `order=...` 键、读取用无 `order` 键，缓存永远未命中；统一为同一键。
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`68.06% → 69.71%`，覆盖语句 43377 → 46407，新增 288 个用例（`5463 → 5751 passed`）。本轮四个目标模块：`layout_decider.py` 29.34% → 95.90%，`visual_analyzer.py` 26.52% → 57.53%，`project_profiler.py` 33.06% → 98.22%，`image_upgrader.py` 9.93% → 91.65%。
+
+覆盖率采集需显式带 `--cov-branch`：`tests/unit/test_toolchain.py` 会在临时项目里真实启动 `python3 -m pytest`，pytest-cov 只在该参数下向子进程注入 `COV_CORE_BRANCH=enabled`。缺失时子进程写出 statement-only 碎片，主进程 `combine()` 抛 `DataError: Can't combine statement coverage data with branch data`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

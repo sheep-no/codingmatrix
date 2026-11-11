@@ -1396,7 +1396,7 @@ class ImageStrategy:
 
         if all_results:
             self._cache.set_search_results(
-                self._cache.generate_cache_key(query, "strategy"),
+                self._cache.generate_cache_key(query, "strategy", order="+".join(order)),
                 all_results,
             )
 
