@@ -981,3 +981,63 @@ async def test_handshake_prunes_expired_sessions(monkeypatch, tmp_path) -> None:
 
     assert "stale" not in agent_host._sessions
     assert not (tmp_path / "stale.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_traffic_slides_host_session_expiry(monkeypatch, tmp_path) -> None:
+    """活跃会话应滑动续期，避免 30 分钟边界把正在轮询的插件踢下线。"""
+
+    from app.api.v1 import agent_host
+
+    store = AgentHostSessionStore(tmp_path)
+    session_id = "sliding-session"
+    now = datetime.now(timezone.utc)
+    near_expiry = now + timedelta(minutes=1)
+    store.save(session_id, {
+        "user_id": "user-slide",
+        "workspace_id": "workspace-slide",
+        "expires_at": near_expiry,
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+        "skills": {},
+    })
+    monkeypatch.setattr(agent_host, "_session_store", store)
+    monkeypatch.setattr(agent_host, "_sessions", {})
+
+    actions = await get_agent_host_actions(session_id, {"sub": "user-slide"})
+
+    assert actions.actions == []
+    refreshed = store.load(session_id)
+    assert refreshed["expires_at"] > near_expiry
+    assert refreshed["expires_at"] - now >= timedelta(minutes=29)
+
+
+@pytest.mark.asyncio
+async def test_expired_session_still_rejected_when_sliding(monkeypatch, tmp_path) -> None:
+    """滑动续期只对未过期会话生效，过期会话仍返回 410。"""
+
+    from app.api.v1 import agent_host
+
+    store = AgentHostSessionStore(tmp_path)
+    session_id = "expired-session"
+    store.save(session_id, {
+        "user_id": "user-expired",
+        "workspace_id": "workspace-expired",
+        "expires_at": datetime.now(timezone.utc) - timedelta(seconds=1),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "in_flight_actions": [],
+        "events": {},
+        "skills": {},
+    })
+    monkeypatch.setattr(agent_host, "_session_store", store)
+    monkeypatch.setattr(agent_host, "_sessions", {})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_agent_host_actions(session_id, {"sub": "user-expired"})
+
+    assert exc_info.value.status_code == 410
