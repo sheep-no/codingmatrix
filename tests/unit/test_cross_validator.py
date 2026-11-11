@@ -861,6 +861,57 @@ def test_signature_check_still_reports_missing_after_partial_positional():
     assert any("timeout" in message for message in messages)
 
 
+def test_signature_check_ignores_variadic_parameters():
+    # *args / **kwargs 由调用方自由决定，不能报缺参
+    files = {
+        "calc.py": (
+            "def total(*values):\n"
+            "    return sum(values)\n"
+            "\n"
+            "def configure(base, **options):\n"
+            "    return base\n"
+        ),
+        "main.py": (
+            "from calc import total, configure\n"
+            "\n"
+            "total(1, 2, 3)\n"
+            "configure('x')\n"
+        ),
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_still_reports_required_before_varargs():
+    # 过滤可变参数不能连带放过它之前的必需参数
+    files = {
+        "calc.py": "def total(base, *values):\n    return base\n",
+        "main.py": "from calc import total\n\ntotal()\n",
+    }
+    messages = _missing_argument_issues(files)
+    assert len(messages) == 1
+    assert "base" in messages[0]
+
+
+def test_signature_check_treats_comparison_as_positional_arg():
+    # `x == 1` 是比较表达式，不是关键字参数，应计入位置参数
+    files = {
+        "calc.py": "def add(a, b):\n    return a + b\n",
+        "main.py": "from calc import add\n\nadd(flag == 1, 2)\n",
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_keyword_arg_name_handles_compound_expressions():
+    from app.agent.cross_validator import CrossValidator
+
+    assert CrossValidator._keyword_arg_name("value=1") == "value"
+    for expr in ("x == 1", "x != 1", "x >= 1", "x <= 1", "x:=1", "not x"):
+        assert CrossValidator._keyword_arg_name(expr) is None
+    assert CrossValidator._keyword_arg_name("call(a=1)") is None
+    assert CrossValidator._keyword_arg_name('text="a=b"') == "text"
+    assert CrossValidator._keyword_arg_name("'a=b'") is None
+
+
 def _js_validator():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext

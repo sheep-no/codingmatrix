@@ -435,6 +435,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`70.47% → 70.77%`，覆盖行 46859 → 47014，语句总数 63642 → 63643，覆盖分支 12447 → 12547，新增 87 个用例（`5882 → 5969 passed`）。`dependency_graph.py` 77.62% → 92.03%。
 
+### 后端缺陷扫描第十五轮：交叉验证签名与契约缺陷（2026-11-11）
+
+补测 `app/agent/cross_validator.py`（76.04%，缺失 184 行），修复补测暴露的 5 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 可变参数 `*args` / `**kwargs` 被当作必需参数：`def total(*values)` 的正常调用被报「缺少必需参数 values」，直接生成伪缺陷交给 LLM 修复 | `app/agent/cross_validator.py`（`_extract_function_params`、`_validate_function_signatures`） | 已解决；提取参数时跳过星号参数，并移除会连带放过前置必需参数的 `has_varargs` 短路。回归 `tests/unit/test_cross_validator.py`，回退后 2 项失败 |
+| P1 | 调用实参含比较表达式时位置参数少算：`add(flag == 1, 2)` 中的 `flag == 1` 被 `'=' in arg` 当成关键字参数，`2` 之外少计一个位置参数，误报缺参 | `app/agent/cross_validator.py`（`_extract_call_params`、`_count_positional_args`） | 已解决；新增 `_keyword_arg_name()` 只识别顶层单个 `=`，比较与海象运算符按位置参数处理。回归同上并新增 `tests/unit/test_cross_validator_branches.py`，回退后 3 项失败 |
+| P1 | axios 响应字段从未被识别：响应变量赋值写在调用之前，但扫描窗口只取调用点之后的 800 字符，`const res = await axios.get(...)` 恒查不到，API 契约校验被静默跳过 | `app/agent/cross_validator.py`（`_extract_frontend_api_calls`） | 已解决；窗口向前回看 200 字符。回归 `test_cross_validator_branches.py::test_axios_response_fields_use_data_prefix`，回退后 1 项失败 |
+| P2 | 通用导入提取漏掉 `#include` 与行内 `require()`：注释过滤只按首字符 `#` 判断，`#include <stdio.h>` 被当成注释；`require(...)` 正则锚定行首，`const x = require('node:fs')` 永不命中 | `app/agent/cross_validator.py`（`_extract_imports_generic`） | 已解决；`#include` 放行，`require` 改为行内匹配。回归同上，回退后 1 项失败 |
+| P2 | 批量修复兜底把无关内容写进目标文件：响应含 `===other.py===` 标记但无期望文件时，单文件兜底仍把整段响应（含标记）当作代码写入，覆盖原文件 | `app/agent/cross_validator.py`（`_parse_batch_fix_result`） | 已解决；仅当内容完全不含 `===` 标记时才走单文件兜底。回归同上，回退后 1 项失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`70.77% → 71.12%`，覆盖行 47014 → 47213，语句总数 63643 → 63670，覆盖分支 12547 → 12675，新增 102 个用例（`5969 → 6071 passed`）。`cross_validator.py` 76.04% → 96.64%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

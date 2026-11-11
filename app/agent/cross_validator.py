@@ -1014,7 +1014,6 @@ class CrossValidator:
 
                 # 检查必需参数是否都已提供
                 # 位置参数按定义顺序占用必需参数，避免把 f(x) 误报为缺少参数
-                has_varargs = 'kwargs' in defined_params or 'args' in defined_params
                 for param_name, param_default in defined_params.items():
                     if param_default is not None or param_name == 'self':
                         continue
@@ -1022,8 +1021,6 @@ class CrossValidator:
                         continue
                     if positional_count > 0:
                         positional_count -= 1
-                        continue
-                    if has_varargs:
                         continue
                     issues.append({
                         "type": "missing_argument",
@@ -1043,6 +1040,10 @@ class CrossValidator:
             param = param.strip()
             if not param or param in ('self', 'cls'):
                 continue
+            # *args / **kwargs 是可变参数，调用方无需显式提供，不能作为
+            # 必需参数参与缺参校验。
+            if param.startswith('*'):
+                continue
 
             # 处理默认值
             if '=' in param:
@@ -1051,7 +1052,6 @@ class CrossValidator:
             else:
                 # 处理类型注解
                 name = param.split(':')[0].strip()
-                name = name.removeprefix('*')
                 params[name] = None
 
         return params
@@ -1139,22 +1139,52 @@ class CrossValidator:
             if not arg:
                 continue
 
-            # 处理关键字参数
-            if '=' in arg:
-                name = arg.split('=')[0].strip()
+            # 处理关键字参数。`x == 1`、`x >= 1` 是比较表达式，属于位置参数，
+            # 只识别顶层单个 `=`。
+            name = self._keyword_arg_name(arg)
+            if name is not None:
                 params.add(name)
-            else:
-                # 位置参数（无法确定名称）
-                pass
 
         return params
+
+    @staticmethod
+    def _keyword_arg_name(arg: str) -> str | None:
+        """返回顶层关键字参数的名称，比较表达式返回 None。"""
+        depth = 0
+        quote = ''
+        index = 0
+        while index < len(arg):
+            char = arg[index]
+            if quote:
+                if char == '\\':
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ''
+                index += 1
+                continue
+            if char in ('"', "'", '`'):
+                quote = char
+            elif char in '([{':
+                depth += 1
+            elif char in ')]}':
+                depth -= 1
+            elif char == '=' and depth == 0:
+                prev = arg[index - 1] if index > 0 else ''
+                nxt = arg[index + 1] if index + 1 < len(arg) else ''
+                if prev not in ('=', '!', '<', '>', ':') and nxt != '=':
+                    name = arg[:index].strip()
+                    return name if name.isidentifier() else None
+                return None
+            index += 1
+        return None
 
     def _count_positional_args(self, call_args: str) -> int:
         """统计位置参数个数（关键字参数与 * 展开不计入）"""
         count = 0
         for arg in self._split_top_level_args(call_args):
             arg = arg.strip()
-            if not arg or arg.startswith('*') or '=' in arg:
+            if not arg or arg.startswith('*') or self._keyword_arg_name(arg) is not None:
                 continue
             count += 1
         return count
@@ -1231,12 +1261,15 @@ class CrossValidator:
             r'^use\s+([\w:]+)',                      # Rust use
             r'^#include\s+[<"]([^>"]+)[>"]',         # C/C++ #include
             r'^using\s+([\w.]+)\s*;',                # C# using
-            r'\brequire\s*\(\s*["\']([^"\']+)["\']', # Node.js require
+            r'^.*?\brequire\s*\(\s*["\']([^"\']+)["\']', # Node.js require
         ]
 
         for line in content.split('\n'):
             line = line.strip()
-            if line.startswith(('//', '#', '/*')):
+            # `#include` 以 # 开头，是有效导入，不能按注释跳过。
+            if line.startswith(('//', '/*')) or (
+                line.startswith('#') and not line.startswith('#include')
+            ):
                 continue
 
             for pattern in patterns:
@@ -1411,8 +1444,10 @@ class CrossValidator:
                     if '${' in endpoint:
                         continue
 
-                    # 只在该调用附近的代码里识别响应体变量
-                    surrounding = content[match.end():match.end() + 800]
+                    # 响应变量赋值通常写在调用之前（`const res = await
+                    # axios.get(...)`），窗口必须向前回看，否则 axios 的
+                    # 响应字段永远不会被识别，契约校验被静默跳过。
+                    surrounding = content[max(0, match.start() - 200):match.end() + 800]
                     body_vars: dict[str, str] = {}
                     # fetch: data = await res.json() / const data = await res.json()
                     for var in re.findall(
@@ -1877,8 +1912,9 @@ class CrossValidator:
                 code = self._clean_code_block(code)
                 result[file_path] = code
 
-        # 如果没有匹配到格式，尝试解析整个内容作为单个文件
-        if not result and len(expected_files) == 1:
+        # 只有完全没有分隔标记时才把整段内容当作单文件结果。若响应含标记
+        # 但都不属于期望文件，整段内容并不是该文件的代码，不能写入。
+        if not result and len(expected_files) == 1 and '===' not in content:
             code = self._clean_code_block(content)
             result[expected_files[0]] = code
 
