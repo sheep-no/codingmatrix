@@ -231,8 +231,21 @@ class SpecFirstGenerator:
             if isinstance(openapi_spec, list):
                 while isinstance(openapi_spec, list) and len(openapi_spec) > 0:
                     if isinstance(openapi_spec[0], dict):
-                        openapi_spec = openapi_spec[0]
-                        logger.info("OpenAPI 规范从 list 中提取第一个元素")
+                        first = openapi_spec[0]
+                        if "openapi" in first:
+                            openapi_spec = first
+                            logger.info("OpenAPI 规范从 list 中提取第一个元素")
+                            break
+                        # 首元素是无关 dict 时继续向后扫描，避免丢弃后续有效规范
+                        for item in openapi_spec:
+                            if isinstance(item, dict) and "openapi" in item:
+                                openapi_spec = item
+                                logger.info("OpenAPI 规范从 list 中其他 dict 元素提取")
+                                break
+                        else:
+                            openapi_spec = first
+                            logger.warning("OpenAPI 规范解析失败: list 中无有效规范")
+                            break
                         break
                     elif isinstance(openapi_spec[0], list):
                         openapi_spec = openapi_spec[0]

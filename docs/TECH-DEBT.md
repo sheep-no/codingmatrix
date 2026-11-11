@@ -501,6 +501,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.29% → 72.60%`，覆盖行 47891 → 48057，语句总数 63695 → 63697，覆盖分支 13011 → 13105，新增 61 个用例（`6378 → 6439 passed`）。`error_recovery.py` 46.06% → 98.97%（342/342 行，行覆盖 100%）。报告阶段 coverage 7.17.2 偶发报 `architect.py` AST 递归告警而漏计该文件，从同一份 `.coverage` 数据重新生成 JSON 后已包含 `architect.py`（800 语句），上表数值取自重新生成结果。
 
+### 后端缺陷扫描第二十轮：规范解析丢规范与纯逻辑模块补测（2026-11-11）
+
+补测 `app/utils/agent_skills.py`（176 语句、14.88%）、`app/utils/workflow/node_types/data_transform.py`（173 语句、38.10%）、`app/services/agent_memory_service.py`（129 语句、21.85%）与 `app/agent/spec_first_generator.py`（278 语句、38.13%），修复补测暴露的 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 返回列表首元素是无关 dict 时直接中断：`_generate_openapi_spec` 看到 `list[0]` 为 dict 就立即当作规范，后续元素里的有效 OpenAPI 对象永远扫描不到，`{"api": ...}` 之类的包裹响应会被整条丢弃 | `app/agent/spec_first_generator.py`（`_generate_openapi_spec`） | 已解决；首元素缺 `openapi` 字段时继续向后扫描，全部无命中才回退原值并返回失败。回归 `tests/unit/test_spec_first_generator_branches.py::TestOpenApiBranches::test_first_dict_without_openapi_scans_rest`，回退后失败 |
+
+四个目标模块的最终覆盖：`agent_skills.py` 14.88% → 100.00%，`data_transform.py` 38.10% → 100.00%，`agent_memory_service.py` 21.85% → 99.34%（`304->309` 为 `update_model_stats` 先递增计数后不可达的防御性分支），`spec_first_generator.py` 38.13% → 100.00%（278/278 行、112/112 分支）。
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.60% → 73.46%`，覆盖行 48057 → 48549，语句总数 63697 → 63706，覆盖分支 13105 → 13350（总分支 20550 → 20556），新增 4 个测试文件共 190 项，全量 `6439 → 6628 passed, 2 skipped`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
