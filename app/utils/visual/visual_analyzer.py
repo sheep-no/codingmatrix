@@ -17,6 +17,9 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+# 区分「字段不存在」与「字段值为 None」
+_MISSING = object()
+
 
 class ImageType(Enum):
     """图片类型枚举"""
@@ -367,10 +370,14 @@ class VisualAnalyzer:
             if "```json" in content:
                 start = content.find("```json") + 7
                 end = content.find("```", start)
+                if end == -1:
+                    end = len(content)
                 content = content[start:end].strip()
             elif "```" in content:
                 start = content.find("```") + 3
                 end = content.find("```", start)
+                if end == -1:
+                    end = len(content)
                 content = content[start:end].strip()
 
             # 尝试解析 JSON，如果失败则尝试修复常见格式错误
@@ -496,94 +503,137 @@ class VisualAnalyzer:
         import re
         result = {"slides_analysis": [], "overall_style": {}}
 
-        # 尝试提取 slides_analysis 数组
-        slides_match = re.search(r'"slides_analysis"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-        if slides_match:
-            slides_str = slides_match.group(1)
-            # 简单解析每个 slide 对象
-            slide_matches = re.findall(r'\{[^{}]*\}', slides_str)
-            for slide_str in slide_matches:
-                slide_data = {}
-                # 提取 slide_index
-                idx_match = re.search(r'"slide_index"\s*:\s*(\d+)', slide_str)
-                if idx_match:
-                    slide_data["slide_index"] = int(idx_match.group(1))
-                # 提取 images
-                images_match = re.search(r'"images"\s*:\s*\[(.*?)\]', slide_str, re.DOTALL)
-                if images_match:
-                    slide_data["images"] = self._extract_images(images_match.group(1))
-                # 提取 title_style
-                title_style_match = re.search(r'"title_style"\s*:\s*\{([^{}]*)\}', slide_str)
-                if title_style_match:
-                    slide_data["title_style"] = self._extract_style(title_style_match.group(1))
-                # 提取 content_style
-                content_style_match = re.search(r'"content_style"\s*:\s*\{([^{}]*)\}', slide_str)
-                if content_style_match:
-                    slide_data["content_style"] = self._extract_style(content_style_match.group(1))
-                # 提取 bullet_style
-                bullet_style_match = re.search(r'"bullet_style"\s*:\s*\{([^{}]*)\}', slide_str)
-                if bullet_style_match:
-                    slide_data["bullet_style"] = self._extract_style(bullet_style_match.group(1))
-                # 提取其他字段
-                for field in ["text_layout", "has_separator_line", "separator_color", "highlight_words", "highlight_color", "add_decoration", "decoration_style", "corner_decoration", "reasoning"]:
-                    field_match = re.search(rf'"{field}"\s*:\s*([^,}}]+)', slide_str)
-                    if field_match:
-                        val = field_match.group(1).strip()
-                        if val.lower() == 'true':
-                            slide_data[field] = True
-                        elif val.lower() == 'false':
-                            slide_data[field] = False
-                        elif val.startswith('['):
-                            try:
-                                slide_data[field] = json.loads(val)
-                            except:
-                                slide_data[field] = []
-                        else:
-                            slide_data[field] = val.strip('"')
-                if slide_data:
-                    result["slides_analysis"].append(slide_data)
+        overall_style = self._json_field_value(content, "overall_style")
+        if isinstance(overall_style, dict):
+            result["overall_style"] = overall_style
+
+        slides = self._json_field_value(content, "slides_analysis")
+        if isinstance(slides, list):
+            result["slides_analysis"] = [s for s in slides if isinstance(s, dict)]
+            return result
+
+        # 整体数组无法解析时逐个 slide 提取，兼容非法数组等局部损坏
+        start = content.find('"slides_analysis"')
+        array_start = content.find("[", start) if start != -1 else -1
+        if array_start == -1:
+            return result
+
+        for slide_str in self._iter_balanced_objects(content[array_start + 1:]):
+            slide_data = {}
+            idx = self._json_field_value(slide_str, "slide_index")
+            if isinstance(idx, (int, float)):
+                slide_data["slide_index"] = int(idx)
+            images = self._json_field_value(slide_str, "images")
+            if isinstance(images, list):
+                slide_data["images"] = self._extract_images(json.dumps(images, ensure_ascii=False))
+            for style_field in ("title_style", "content_style", "bullet_style"):
+                style = self._json_field_value(slide_str, style_field)
+                if isinstance(style, dict):
+                    slide_data[style_field] = self._extract_style(
+                        json.dumps(style, ensure_ascii=False)
+                    )
+            # 提取其他字段
+            for field_name in ["text_layout", "has_separator_line", "separator_color", "highlight_words", "highlight_color", "add_decoration", "decoration_style", "corner_decoration", "reasoning"]:
+                value = self._json_field_value(slide_str, field_name)
+                if value is _MISSING:
+                    continue
+                if field_name in ("has_separator_line", "add_decoration", "corner_decoration"):
+                    slide_data[field_name] = self._as_bool(value)
+                elif field_name == "highlight_words":
+                    slide_data[field_name] = value if isinstance(value, list) else []
+                else:
+                    slide_data[field_name] = str(value).strip('"')
+            if slide_data:
+                result["slides_analysis"].append(slide_data)
 
         return result
 
+    @staticmethod
+    def _iter_balanced_objects(text: str):
+        """按括号配对切出完整对象，避免嵌套结构被非贪心正则截断。"""
+        depth = 0
+        start = -1
+        in_string = False
+        escaped = False
+        for index, char in enumerate(text):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                if depth == 0:
+                    start = index
+                depth += 1
+            elif char == "}" and depth:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    yield text[start:index + 1]
+
+    @staticmethod
+    def _json_field_value(source: str, field_name: str):
+        """读取字段值，优先按 JSON 解析，保留数组/布尔/数字原始类型。"""
+        import re
+        match = re.search(rf'"{re.escape(field_name)}"\s*:\s*', source)
+        if not match:
+            return _MISSING
+        try:
+            value, _ = json.JSONDecoder().raw_decode(source, match.end())
+            return value
+        except ValueError:
+            tail = source[match.end():]
+            raw = tail.split(",", 1)[0].split("}", 1)[0].strip()
+            return raw.strip('"') if raw else _MISSING
+
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().strip('"').strip("'").lower() == "true"
+
     def _extract_images(self, images_str: str) -> List[Dict]:
         """从字符串中提取图片数据"""
-        import re
         images = []
-        image_matches = re.findall(r'\{([^{}]*)\}', images_str)
-        for img_str in image_matches:
+        for img_str in self._iter_balanced_objects(images_str):
             img_data = {}
             for field_name in ["image_type", "description", "keywords", "position", "width_ratio", "is_decoration"]:
-                field_match = re.search(rf'"{field_name}"\s*:\s*([^,}}]+)', img_str)
-                if field_match:
-                    val = field_match.group(1).strip()
-                    if field_name in ["width_ratio"]:
-                        try:
-                            img_data[field_name] = float(val)
-                        except:
-                            img_data[field_name] = 0.4
-                    elif field_name in ["is_decoration"]:
-                        img_data[field_name] = val.lower() == 'true'
-                    else:
-                        img_data[field_name] = val.strip('"')
+                val = self._json_field_value(img_str, field_name)
+                if val is _MISSING:
+                    continue
+                if field_name == "width_ratio":
+                    try:
+                        img_data[field_name] = float(val)
+                    except (TypeError, ValueError):
+                        img_data[field_name] = 0.4
+                elif field_name == "is_decoration":
+                    img_data[field_name] = self._as_bool(val)
+                elif field_name == "keywords":
+                    img_data[field_name] = val if isinstance(val, list) else [str(val).strip('"')]
+                else:
+                    img_data[field_name] = str(val).strip('"')
             if img_data:
                 images.append(img_data)
         return images
 
     def _extract_style(self, style_str: str) -> Dict:
         """从字符串中提取样式数据"""
-        import re
         style = {}
         for field_name in ["font_family", "font_size", "font_color", "font_weight", "style", "color"]:
-            field_match = re.search(rf'"{field_name}"\s*:\s*([^,}}]+)', style_str)
-            if field_match:
-                val = field_match.group(1).strip()
-                if field_name in ["font_size", "width_ratio"]:
-                    try:
-                        style[field_name] = int(float(val))
-                    except:
-                        style[field_name] = 24
-                else:
-                    style[field_name] = val.strip('"')
+            val = self._json_field_value(style_str, field_name)
+            if val is _MISSING:
+                continue
+            if field_name in ["font_size", "width_ratio"]:
+                try:
+                    style[field_name] = int(float(val))
+                except (TypeError, ValueError):
+                    style[field_name] = 24
+            else:
+                style[field_name] = str(val).strip('"')
         return style
     
     def _build_visual_plan(

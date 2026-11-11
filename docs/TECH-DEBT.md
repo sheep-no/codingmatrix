@@ -397,6 +397,19 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率采集需显式带 `--cov-branch`：`tests/unit/test_toolchain.py` 会在临时项目里真实启动 `python3 -m pytest`，pytest-cov 只在该参数下向子进程注入 `COV_CORE_BRANCH=enabled`。缺失时子进程写出 statement-only 碎片，主进程 `combine()` 抛 `DataError: Can't combine statement coverage data with branch data`。
 
+### 后端缺陷扫描第十二轮：视觉分析解析兜底缺陷（2026-11-11）
+
+继续补测 `visual_analyzer.py`（26.52% → 57.53% 后的第一缺口），修复解析兜底 4 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 模型返回以 ```json 开头但缺结尾围栏时（输出被截断），`content.find("```", start)` 返回 -1，`content[start:-1]` 丢掉最后一个字符，合法尾部结构被破坏后解析失败 | `app/utils/visual/visual_analyzer.py`（`_parse_analysis_response`） | 已解决；`end == -1` 时取 `len(content)`。回归 `tests/unit/test_visual_analyzer_branches.py`，回退后 2 项失败 |
+| P1 | JSON 修复仍失败时走正则兜底，但 `\{[^{}]*\}` 无法匹配含嵌套 `images` / `title_style` 的 slide 对象，正常响应被整段丢弃，视觉规划退化为全默认 | `app/utils/visual/visual_analyzer.py`（`_extract_json_by_regex`） | 已解决；改为括号配对切分（`_iter_balanced_objects`，跳过字符串内括号与转义）+ `JSONDecoder.raw_decode` 保类型。回归同上，回退后 4 项失败 |
+| P2 | `keywords` / `highlight_words` 数组按 `[^,}]+` 取值，只拿到首个逗号前的 `["云`，关键词与高亮词退化成截断字符串 | `app/utils/visual/visual_analyzer.py`（`_extract_images`、`_extract_json_by_regex`） | 已解决；数组字段按 JSON 解析保留 `list`，非法数组回退空列表。回归同上，回退后 3 项失败 |
+| P2 | `_extract_style` 的 `font_size` 正则取到带引号的 `"22"` 后 `float('"22"')` 抛错，恒回退 24，模型指定的字号全部丢失 | `app/utils/visual/visual_analyzer.py`（`_extract_style`） | 已解决；统一走 `_json_field_value` 解引用后转数值。回归同上，回退后 1 项失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`69.71% → 69.95%`，覆盖语句 46407 → 46574，新增 45 个用例（`5751 → 5796 passed`）。`visual_analyzer.py` 57.53% → 98.84%（无遗漏语句，剩余部分分支为循环回边）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
