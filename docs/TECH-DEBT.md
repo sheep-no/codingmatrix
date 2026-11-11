@@ -274,9 +274,9 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：`python3 -m pytest tests/unit -q -p no:randomly --timeout=300` → `5280 passed, 6 failed, 4 skipped`（收集 5290，第八轮完成后）。6 项失败全部为 `tests/unit/test_conversation_store.py` 在无 Redis 环境下的连接拒绝（`localhost:6379`），与本次改动无关；基线通过数从第七轮的 5270 增至 5280。
+回归：补齐本地依赖后，`PYTHONPATH=/workspace REDIS_URL=redis://localhost:6379/0 python3 -m pytest tests/unit tests/integration -q -p no:randomly --timeout=300` → `5355 passed, 2 skipped, 0 failed`（收集 5357，198s）。剩余 2 项为 `tests/unit/test_dynamic_adapter.py` 中显式 `@pytest.mark.skip` 的流式响应 mock，属设计性跳过。
 
-集成测试：`python3 -m pytest tests/integration -q -p no:randomly --timeout=300` → `43 passed, 5 skipped`（收集 48，20s 内完成）。5 项跳过全部因本机无 Redis（`test_apikey_index_ttl.py` 4 项、`test_state_recovery.py` 1 项 Pub/Sub），无失败。
+补齐的本地测试依赖：`redis-server 7.0.15`（`127.0.0.1:6379`，测试使用 db 0 与 db 15）、`faiss-cpu 1.16.0`、`libreoffice-impress 7.4.7.2`、`poppler-utils 22.12.0`。补齐前无 Redis 时 unit 有 6 项失败、integration 有 5 项跳过；补 faiss 前 `test_v5_1_requirement_deep.py` 1 项跳过；补 LibreOffice/poppler 前 `test_ppt_feature_repairs.py` 1 项跳过。
 
 ### 后端缺陷扫描第二轮：认证授权与错误处理（2026-11-10）
 
