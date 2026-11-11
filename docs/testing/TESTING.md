@@ -71,7 +71,8 @@ cd /workspace/flutter_client && flutter test --no-pub --concurrency=1
 
 - pytest 主配置位于 `pyproject.toml`，默认收集 `tests/unit` 与 `tests/integration`，启用 `asyncio_mode=auto` 和 strict markers；`configs/pytest.ini` 是兼容配置并额外声明 `slow`、`selenium` 与 300 秒 timeout。
 - Vitest 配置位于 `src/vite.config.js`，使用 `jsdom`、globals 和 v8 coverage。
-- 根目录 `playwright.config.js` 和 `src/playwright.config.js` 都指向 `tests/e2e`，默认 base URL 为 `http://127.0.0.1:3000`，默认 Chromium；CI 重试 2 次并使用单 worker。
+- `src/playwright.config.js` 复用根目录 `playwright.config.js`，只把 `testDir` 覆盖为仓库根 `tests/e2e` 的绝对路径；base URL、重试与浏览器参数以根配置为单一来源。
+- 两处 `@playwright/test` 已统一为 `1.64.1`，避免 CLI 与测试文件解析到不同版本而重复加载。
 - `configs/playwright.config.js` 是多浏览器配置，包含 Chromium、Firefox 和 WebKit，执行时需要显式指定该配置。
 - 浏览器流程通常需要 Vite；涉及真实 API 的用例还需要 FastAPI、Redis、数据库和测试账号。
 - 根目录与 `src/node_modules` 各有 Playwright 依赖。执行 `tests/e2e` 时应让 CLI 和测试文件解析到同一份 `@playwright/test`，避免重复加载冲突。

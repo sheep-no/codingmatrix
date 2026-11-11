@@ -162,4 +162,20 @@ describe('PPTPreview quality report', () => {
     expect(wrapper.find('.preview-inspector .quality-report-card').exists()).toBe(true)
     wrapper.unmount()
   })
+
+  it('distinguishes load failure from an empty deck and retries (FRESCAN-29)', async () => {
+    api.ppt.getPPTSlides.mockRejectedValueOnce(new Error('幻灯片服务不可用'))
+    const wrapper = mount(PPTPreview)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('幻灯片加载失败'))
+    const failure = wrapper.find('[role="alert"]')
+    expect(failure.text()).toContain('幻灯片服务不可用')
+    expect(wrapper.text()).not.toContain('暂无幻灯片数据')
+
+    api.ppt.getPPTSlides.mockResolvedValueOnce({ slides: [{ title: '恢复页', content_blocks: [{ content: '恢复内容' }] }] })
+    await failure.find('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('恢复内容')
+    expect(wrapper.text()).not.toContain('幻灯片加载失败')
+    wrapper.unmount()
+  })
 })
