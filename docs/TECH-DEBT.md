@@ -574,6 +574,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.10% → 74.38%`，覆盖行 48958 → 49112，语句总数 63727 不变，覆盖分支 13504 → 13588（总分支 20566 不变），新增 2 个测试文件共 69 项，全量 `6804 → 6866 passed, 2 skipped`。`fix_pattern_cache.py` 45.32% → 100.00%（159/159 行、44/44 分支），`strategy_evaluator.py` 41.74% → 100.00%（158/158 行、60/60 分支）。
 
+### 后端缺陷扫描第二十七轮：项目级审查语言分派失效（2026-11-11）
+
+补测 `app/utils/review/code_review_agent.py`（153 语句、39.72%）与 `app/core/file_validator.py`（158 语句、48.39%），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 项目级审查从不执行 Python/JS 规则：`get_review_report` 用 `ext[2:]` 得到 `py`、`js`、`ts`、`jsx`、`tsx` 传给 `review_file`，而分派只接受 `python`/`javascript`，全部落到通用检查；`eval`、硬编码密码、SQL 拼接、`console.log`、无障碍等规则在整项目审查中完全失效 | `app/utils/review/code_review_agent.py`（`review_file`） | 已解决；分派时小写归一化并接受 `py`/`js`/`ts`/`jsx`/`tsx` 别名。回归 `tests/unit/test_code_review_agent_branches.py::TestReport::test_project_report_uses_language_specific_rules` 等 10 项，回退后失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.38% → 74.69%`，覆盖行 49112 → 49266，语句总数 63727 → 63728，覆盖分支 13588 → 13692（总分支 20566 不变），新增 2 个测试文件共 123 项，全量 `6866 → 6987 passed, 2 skipped`。`code_review_agent.py` 39.72% → 100.00%（153/153 行、62/62 分支），`file_validator.py` 48.39% → 100.00%（158/158 行、90/90 分支）。报告阶段 coverage 7.17.2 抛 `SystemError: AST constructor recursion depth mismatch` 未写出 JSON，从同一份 `.coverage` 重新生成后取得上表数值。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

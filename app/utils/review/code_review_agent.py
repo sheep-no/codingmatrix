@@ -219,12 +219,12 @@ class CodeReviewAgent:
         
         content = filepath.read_text(encoding='utf-8')
         
-        if language == "python":
+        normalized = language.lower()
+        if normalized in ("python", "py"):
             return self.review_python_code(content, str(filepath))
-        elif language == "javascript":
+        if normalized in ("javascript", "js", "ts", "tsx", "jsx"):
             return self.review_javascript_code(content, str(filepath))
-        else:
-            return self.review_generic_code(content, str(filepath))
+        return self.review_generic_code(content, str(filepath))
     
     def review_python_code(self, code: str, filepath: str) -> List[ReviewIssue]:
         """审查 Python 代码"""
