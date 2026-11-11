@@ -1,6 +1,6 @@
 # Frontend 第 165 轮四批次复扫记录
 
-> 版本：v0.4 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0-3 已修复（容器与 CI 实跑待环境复验）
+> 版本：v0.5 | 扫描日期：2026-11-10 | 状态：扫描完成，阶段 0-3 及旧编号收尾已修复（容器实测待环境复验）
 > 归属：前端应用第 165 轮复扫
 > 基线：`frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`、`frontend_batch_rescan.md`、`frontend_batch_rescan_164.md`
 > 范围：入口认证、状态与组合逻辑、视图与 API 契约、构建测试部署
@@ -43,9 +43,9 @@
 | FESURF-006 | 已修 | `toggleReview` 已删除。 |
 | FESURF-007 | 已修 | `base.js` 请求与流式请求均合并调用方 headers。 |
 | FRESCAN-24 | 已失效 | `src` 下现有 70 个 `*.test.js`，“测试入口为空”不再成立；问题转为 CI 不执行测试，见 FRESCAN-66。 |
-| FRESCAN-25 | 部分失效 | `src/package.json:40` 已声明 `@playwright/test`；两份 Playwright 配置仍并存（根 `playwright.config.js:1-40`、`src/playwright.config.js:1-33`），版本为 `1.64.1` 与 `^1.62.1`。 |
-| FRESCAN-29 | 保留 P2 | `src/views/PPTPreview.vue:83-92` 失败与空数据仍共用「暂无幻灯片数据」，`:266-277` 静默返回 false。 |
-| FRESCAN-34 | 保留 P2 | 标签关联缺口仍存在，本轮扩大证据见 FRESCAN-67。 |
+| FRESCAN-25 | 已修 | `src/playwright.config.js` 改为复用根配置并只覆盖 `testDir`，两处 `@playwright/test` 统一为 `1.64.1`，由 `src/tests/playwright-config.test.js` 锁定。 |
+| FRESCAN-29 | 已修 | `src/views/PPTPreview.vue` 新增 `loadError` 与 `role="alert"` 失败态及重试，失败不再与「暂无幻灯片数据」共用同一分支，`PPTPreview.test.js` 覆盖。 |
+| FRESCAN-34 | 已修 | 原六个表单文件中 `APIKeyManager.vue` 已删除，其余五个表单的 `label` 全部通过 `for` 或包裹关联，由 `src/tests/form-label-association.test.js` 锁定。 |
 | FRESCAN-35 | 已失效（误判） | 原文称组件已删除；实际 `UserManagement.vue`、`VirtualGirl.vue`、`ServiceManager.vue` 均存在且挂载（`AdminPanel.vue:531,541`）。缺口转为 FRESCAN-63。 |
 | FRESCAN-36 | 已修 | `APIKeyManager.vue:294-302` 与 `DynamicProviderManager.vue:158-166` 均写入 `loadError` 并用 `role="alert"` 展示。 |
 | FRESCAN-44 | 已修 | `.github/workflows/frontend-ci.yml` 的 `paths` 已扩展到 `src/**`、`configs/nginx*.conf`、`Dockerfile`、`docker-compose*.yml`，由 `src/tests/frontend-ci-contract.test.js` 锁定。 |
@@ -221,11 +221,11 @@
 
 ## 4. 统计与证据边界
 
-本轮新增 19 项：P0 1 项、P1 6 项、P2 9 项、P3 3 项；其中 FRESCAN-64 属未接入/接线事项，计入 P2 结构类，不按活跃运行缺陷计。旧编号中 FEBOOT-01~05、FESTATE-01~07、FESURF-001~007、FRESCAN-05/06/07/28/30/31/36/37/39/40/42/45/46/47/48/49 复核为已修；FRESCAN-24、FRESCAN-35 判定失效；FRESCAN-25 部分失效。
+本轮新增 19 项：P0 1 项、P1 6 项、P2 9 项、P3 3 项；其中 FRESCAN-64 属未接入/接线事项，计入 P2 结构类，不按活跃运行缺陷计。旧编号中 FEBOOT-01~05、FESTATE-01~07、FESURF-001~007、FRESCAN-05/06/07/25/28/29/30/31/34/36/37/39/40/42/45/46/47/48/49/50/51 复核为已修；FRESCAN-24、FRESCAN-35 判定失效。
 
 第 165 轮新增 Backlog 使用 `#1392-#1410`。累计 P0 2、P1 53、P2 490、P3 817；Backlog 共 1410 项。
 
-本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。阶段 1 新增 9 条用例，全量单测 63 个文件 / 297 条用例通过，`npm run build` 成功；回退源码态确认阶段 1 的 9 条用例失败。阶段 2 新增 14 条前端用例与 5 条后端用例，全量单测 66 个文件 / 311 条用例通过，`kolors` 相关后端 39 条用例通过，后端全量 5173 passed / 4 skipped（6 条 `conversation_store` Redis 用例因本机无 Redis 失败），`npm run build` 成功；回退源码态阶段 2 前端 18 条用例失败、后端归属兜底用例失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
+本轮完成源码、全库引用、后端路由与配置静态核对。阶段 0 修复后执行了 `src` 依赖安装与受影响单测：`leftlist.test.js`、`AdminPanel.logout.test.js`、`user.logout.test.js` 共 12 条用例通过，并在回退源码态确认新增 3 条用例失败。阶段 1 新增 9 条用例，全量单测 63 个文件 / 297 条用例通过，`npm run build` 成功；回退源码态确认阶段 1 的 9 条用例失败。阶段 2 新增 14 条前端用例与 5 条后端用例，全量单测 66 个文件 / 311 条用例通过，`kolors` 相关后端 39 条用例通过，后端全量 5173 passed / 4 skipped（6 条 `conversation_store` Redis 用例因本机无 Redis 失败），`npm run build` 成功；回退源码态阶段 2 前端 18 条用例失败、后端归属兜底用例失败。阶段 3 及旧编号收尾后全量单测 71 个文件 / 334 条用例通过，`npm run lint:check` 0 error，`npm run build` 成功；`PPTPreview` 失败态与 `playwright-config` 用例在回退源码态失败。未执行 Docker 构建、Nginx 运行、浏览器与辅助技术验证；FRESCAN-52 的容器构建、FRESCAN-55 的跨账户时序、FRESCAN-58 的端到端回滚、FRESCAN-60 的 Nginx WS 握手仍保留待实测标记。
 
 ## 5. 分阶段修复规划
 
@@ -262,6 +262,12 @@
 5. FRESCAN-68：AiCloud 历史失败统一返回数组，并补失败态提示。状态：已修复，客户端失败抛错，页面显示 `role="alert"` 失败态与重试。
 6. FRESCAN-69：明确保留单一拓扑：删除 Dockerfile 中未使用的 `nginx` 启动分支，或让 Compose 复用该 CMD；同步更新 README 部署说明。状态：已修复，镜像只保留 API，Nginx 统一为独立 Compose 服务。
 7. 验收标准：可访问性项用组件测试锁定属性；拓扑项在文档与 Compose 中只保留一种描述。状态：已达成，新增 `useDialogA11y.test.js`、`form-label-association.test.js`、`container-topology.test.js`。
+
+### 收尾：旧编号三项
+
+1. FRESCAN-25：`src/playwright.config.js` 改为复用根配置，只覆盖 `testDir`；`src/package.json` 与根统一为 `@playwright/test@1.64.1`。状态：已修复，新增 `src/tests/playwright-config.test.js` 锁定单一来源与版本一致，回退源码态失败。
+2. FRESCAN-29：`PPTPreview.vue` 新增 `loadError` 与失败态重试，失败与空数据分支分离。状态：已修复，`PPTPreview.test.js` 新增失败态用例，回退源码态失败。
+3. FRESCAN-34：原六个表单文件中 `APIKeyManager.vue` 已删除，其余五个表单的标签关联由 FRESCAN-67 全部补齐。状态：已修复，`form-label-association.test.js` 静态校验通过。
 
 ### 测试与验证建议
 

@@ -78,6 +78,14 @@
             <p>正在加载预览...</p>
           </div>
         </div>
+        <div v-else-if="loadError" class="page-content">
+          <div class="empty-state" role="alert">
+            <p>幻灯片加载失败：{{ loadError }}</p>
+            <button class="btn btn-secondary" type="button" :disabled="isLoading" @click="retryLoad">
+              {{ isLoading ? '正在重试...' : '重新加载' }}
+            </button>
+          </div>
+        </div>
         <div v-else class="page-content">
           <div class="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -175,6 +183,7 @@ const pdfPreview = ref('')
 let disposed = false
 const showPDFDownload = ref(false)
 const isLoading = ref(true)
+const loadError = ref('')
 const qualityReport = ref(null)
 const visualReviewDegraded = computed(() => !!qualityReport.value?.degraded_stage ||
   qualityReport.value?.issues?.some(issue => issue.issue_type === 'vision_review_unavailable'))
@@ -342,7 +351,8 @@ async function loadHtmlPreview() {
 // 如果没有 HTML 预览，则加载传统幻灯片数据
 async function loadSlides() {
   if (slides.value.length > 0) return
-  
+
+  loadError.value = ''
   try {
     const data = await api.ppt.getPPTSlides(pptId)
     if (data && data.slides) {
@@ -350,7 +360,18 @@ async function loadSlides() {
     }
   } catch (error) {
     console.error('加载幻灯片失败：', error)
+    loadError.value = error?.message || '无法获取幻灯片数据'
   } finally {
+    isLoading.value = false
+  }
+}
+
+async function retryLoad() {
+  isLoading.value = true
+  const hasPreview = await loadPdfPreview() || await loadHtmlPreview()
+  if (!hasPreview) {
+    await loadSlides()
+  } else {
     isLoading.value = false
   }
 }

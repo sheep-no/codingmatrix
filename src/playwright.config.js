@@ -1,25 +1,10 @@
-// Playwright E2E 测试配置
-import { defineConfig } from '@playwright/test'
+// 从 src 目录运行时复用根配置，避免两份配置的浏览器参数与重试策略漂移。
+// testDir 用绝对路径，确保从 src 解析后仍指向仓库根 tests/e2e（FRESCAN-25）。
+import { fileURLToPath } from 'node:url'
 
-export default defineConfig({
-  testDir: '../tests/e2e',
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
-  use: {
-    baseURL: process.env.BASE_URL || 'http://127.0.0.1:3000',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        browserName: 'chromium',
-        launchOptions: { args: ['--no-sandbox', '--disable-dev-shm-usage'] },
-      },
-    },
-  ],
-})
+import rootConfig from '../playwright.config.js'
+
+export default {
+  ...rootConfig,
+  testDir: fileURLToPath(new URL('../tests/e2e', import.meta.url)),
+}
