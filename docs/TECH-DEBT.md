@@ -584,6 +584,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.38% → 74.69%`，覆盖行 49112 → 49266，语句总数 63727 → 63728，覆盖分支 13588 → 13692（总分支 20566 不变），新增 2 个测试文件共 123 项，全量 `6866 → 6987 passed, 2 skipped`。`code_review_agent.py` 39.72% → 100.00%（153/153 行、62/62 分支），`file_validator.py` 48.39% → 100.00%（158/158 行、90/90 分支）。报告阶段 coverage 7.17.2 抛 `SystemError: AST constructor recursion depth mismatch` 未写出 JSON，从同一份 `.coverage` 重新生成后取得上表数值。
 
+### 后端缺陷扫描第二十八轮：任务快照缺失导致执行协程崩溃（2026-11-11）
+
+补测 `app/utils/image_generation.py`（192 语句、36.78%）与 `app/utils/task_manager.py`（207 语句、55.98%），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 任务快照缺失时执行协程崩溃：`_execute_task` 从 Redis 和内存都取不到任务（创建时 Redis 故障只写内存、Redis 恢复后内存快照被清理，或清理任务与执行并发），`task_info` 为 `None`，首个 `_update_status` 执行 `task_info["status"] = ...` 抛 `TypeError`；该异常又被外层 `except Exception` 捕获后再次调用 `_update_status`，二次抛错逃出协程，后台 asyncio 任务以 `Task exception was never retrieved` 结束，任务状态永久停留在初始值 | `app/utils/task_manager.py`（`_execute_task`） | 已解决；取不到快照时记录 `任务状态不存在，跳过执行` 并移除运行中条目后直接返回。回归 `tests/unit/test_task_manager_branches.py::TestExecuteTask::test_missing_task_info_does_not_crash`，回退后抛 `TypeError: 'NoneType' object does not support item assignment` |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.69% → 75.01%`，覆盖行 49266 → 49470，语句总数 63728 → 63731，覆盖分支 13692 → 13760（总分支 20566 不变），新增 2 个测试文件共 93 项，全量 `6987 → 7080 passed, 2 skipped`。`image_generation.py` 36.78% → 100.00%（192/192 行、50/50 分支），`task_manager.py` 55.98% → 100.00%（210/210 行、52/52 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

@@ -152,6 +152,10 @@ class TaskManager:
         """执行任务"""
         # 从 Redis 读取任务状态
         task_info = await self._get_task_from_redis(task_id)
+        if not task_info:
+            logger.warning(f"任务状态不存在，跳过执行 | task_id={task_id}")
+            self._running_tasks.pop(task_id, None)
+            return
 
         async def _update_status(status: str, **kwargs):
             task_info["status"] = status
