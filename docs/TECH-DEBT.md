@@ -594,6 +594,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.69% → 75.01%`，覆盖行 49266 → 49470，语句总数 63728 → 63731，覆盖分支 13692 → 13760（总分支 20566 不变），新增 2 个测试文件共 93 项，全量 `6987 → 7080 passed, 2 skipped`。`image_generation.py` 36.78% → 100.00%（192/192 行、50/50 分支），`task_manager.py` 55.98% → 100.00%（210/210 行、52/52 分支）。
 
+### 后端缺陷扫描第二十九轮：错误恢复为空时生成结果组装崩溃（2026-11-11）
+
+补测 `app/agent/orchestrator_generation/traditional_generate.py`（206 语句、21.28%）与 `app/api/v2/Controller.py`（151 语句、12.71%），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `fix_attempts` 的 `if` 保护失效：推导式写成 `for h in self.error_recovery.fix_history if self.error_recovery`，可迭代对象先于条件求值，`error_recovery` 为 `None`（未启用错误恢复、初始化失败或精简调用路径）时直接抛 `AttributeError: 'NoneType' object has no attribute 'fix_history'`。此时文件已全部生成、验证已完成，仅结果字典组装失败，整次生成以异常收场，已写盘产物与成功状态一并丢失 | `app/agent/orchestrator_generation/traditional_generate.py`（`_generate_traditional` 返回值） | 已解决；条件表达式改为 `self.error_recovery.fix_history if self.error_recovery else []`。回归 `tests/unit/test_traditional_generate_branches.py::TestDegradedPaths` 等 17 项，回退后全部失败并抛该 `AttributeError` |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`75.01% → 75.46%`，覆盖行 49470 → 49756，语句总数 63731 不变，覆盖分支 13760 → 13858（总分支 20566 不变），新增 2 个测试文件共 58 项，全量 `7080 → 7138 passed, 2 skipped`。`traditional_generate.py` 21.28% → 100.00%（206/206 行、76/76 分支），`Controller.py` 12.71% → 100.00%（151/151 行、30/30 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

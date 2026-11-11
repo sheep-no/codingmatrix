@@ -400,7 +400,9 @@ class TraditionalGenerateMixin:
                     "success": h.fix_applied,
                     "model_used": h.model_used if hasattr(h, 'model_used') else None
                 }
-                for h in self.error_recovery.fix_history if self.error_recovery
+                for h in (
+                    self.error_recovery.fix_history if self.error_recovery else []
+                )
             ],
             "session_id": self.session_id,
             "requirement_coverage": coverage_check,
