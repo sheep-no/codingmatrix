@@ -52,9 +52,10 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Context: Agent 在验证前端聊天路由迁移时发现
 - Category: 测试方法
 - Instructions:
-  - 根目录与 `src/node_modules` 同时安装 Playwright 时，使用 `src/playwright.config.js` 执行位于 `tests/e2e/` 的测试会触发 `Requiring @playwright/test second time`。
-  - 前端单元测试可在 `src/` 目录执行 `npx vitest run`；Playwright E2E 需要统一 CLI 与测试文件解析到同一份 Playwright 依赖后再运行。
-  - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI + `src/node_modules/@playwright/test`，并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
+  - 根目录与 `src/node_modules` 同时安装 Playwright 且版本不一致时，会触发 `Requiring @playwright/test second time`；2026-11-11 起两处版本统一为 `1.64.1`，`src/playwright.config.js` 复用根配置、只用绝对路径覆盖 `testDir`，由 `src/tests/playwright-config.test.js` 静态锁定。
+  - 前端单元测试可在 `src/` 目录执行 `npx vitest run`。
+  - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI 并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
+  - `src` 目录是独立 npm 工程，CI 只在其内安装依赖；前端单测若运行时 import 根目录配置，会因根 `@playwright/test` 未安装而报 `Cannot find module`，此类契约测试应读取源码做静态断言。
   - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
   - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
   - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
