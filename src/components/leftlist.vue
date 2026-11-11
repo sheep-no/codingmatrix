@@ -253,6 +253,31 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
+        @click.stop="useTool('taskQueue')"
+        @keydown.enter="useTool('taskQueue')"
+        @keydown.space.prevent="useTool('taskQueue')"
+      >
+        <svg
+          class="tool-icon-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <polyline points="3 6 4.5 7.5 6.5 4.5"></polyline>
+          <polyline points="3 12 4.5 13.5 6.5 10.5"></polyline>
+          <polyline points="3 18 4.5 19.5 6.5 16.5"></polyline>
+        </svg>
+        <span>任务队列</span>
+      </div>
+      <div
+        role="menuitem"
+        tabindex="0"
+        class="toolkit-item"
         @click.stop="useTool('searchHistory')"
         @keydown.enter="useTool('searchHistory')"
         @keydown.space.prevent="useTool('searchHistory')"
@@ -617,10 +642,8 @@
         
         // 删除本地 IndexedDB 缓存
         try {
-          const chatDb = await import('@/utils/chatDatabase')
-          const db = new chatDb.ChatDatabase()
-          await db.init()
-          await db.deleteConversation(item.conversation_id)
+          const { chatDB } = await import('@/utils/chatDatabase')
+          await chatDB.deleteConversation(item.conversation_id)
         } catch (dbError) {
           console.error('删除本地缓存失败:', dbError)
         }

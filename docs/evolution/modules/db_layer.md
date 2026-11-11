@@ -62,8 +62,8 @@ engine = create_async_engine(
 - **Bug 代码**：
 
 ```dockerfile
-# Dockerfile:91
-CMD ["sh", "-c", "nginx & uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2"]
+# Dockerfile（历史片段；当前 Nginx 已移出镜像，关键仍是 --workers 2）
+CMD ["sh", "-c", "exec su -s /bin/sh appuser -c 'exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2'"]
 ```
 
 ```python

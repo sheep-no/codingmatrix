@@ -130,7 +130,7 @@ flutter analyze --no-pub
 flutter test --no-pub --concurrency=1
 ```
 
-前端构建产物位于仓库根目录 `dist/`。容器/Nginx 的产物路径差异记录在 [服务与端口指南](SERVICES.md)。
+前端构建产物位于 `src/dist/`。容器/Nginx 的产物路径记录在 [服务与端口指南](SERVICES.md)。
 
 ## 相关文档
 

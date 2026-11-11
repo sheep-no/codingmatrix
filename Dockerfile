@@ -65,18 +65,12 @@ COPY pyproject.toml ./
 # Copy frontend build artifacts from frontend stage
 COPY --from=frontend-builder /app/src/dist ./src/dist
 
-# Install nginx
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends nginx && \
-    rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /var/log/nginx /var/lib/nginx /etc/nginx/conf.d /workspace/src /workspace/logs /workspace/data && \
+# 运行镜像只承载 FastAPI。Nginx 在基础 Compose 与生产 Compose 中都是独立服务，
+# 由 configs/nginx-upstream-compose.conf 代理到 api:8080。
+RUN mkdir -p /workspace/src /workspace/logs /workspace/data && \
     ln -sfn /app/src/dist /workspace/src/dist && \
     ln -sf /app/logs /workspace/logs && \
     ln -sf /app/data /workspace/data
-
-# Copy nginx configuration after the package creates its runtime directories.
-COPY configs/nginx.conf /etc/nginx/nginx.conf
-COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf
 
 # 文档转换工具链：PPT 转 PDF 调用 libreoffice（app/api/v1/aiGeneratorPptx.py），
 # PDF 转 PNG 预览与成品质量复审调用 pdftoppm（app/services/ppt_quality_orchestrator.py、
@@ -94,16 +88,14 @@ RUN apt-get update && \
 # 创建 root 属主的目录，若不预建并 chown，非 root 的 appuser 将无法写入
 # 上传目录与生成物目录。
 RUN mkdir -p /app/logs /app/data /app/keys /app/uploads /app/pptx_output /app/generated_images /app/projects && \
-    chown -R appuser:appuser /app && \
-    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run
+    chown -R appuser:appuser /app
 
 # Expose ports
-EXPOSE 80 8080
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
 # Start command
-# Nginx needs a root master for port 80, while the API runs as appuser.
-CMD ["sh", "-c", "nginx && exec su -s /bin/sh appuser -c 'exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2'"]
+CMD ["sh", "-c", "exec su -s /bin/sh appuser -c 'exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2'"]

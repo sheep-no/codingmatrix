@@ -10,6 +10,7 @@
     "budget:check": "node scripts/check-performance-budget.js",
     "preview": "vite preview",
     "lint": "eslint . --fix",
+    "lint:check": "eslint .",
     "format": "prettier --write \"**/*.{vue,js,jsx,css,scss,less,json,md}\"",
     "test": "vitest",
     "test:run": "vitest run",

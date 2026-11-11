@@ -30,6 +30,8 @@
           @delete-history="handleDeleteHistory"
           @new-conversation="handleNewConversation"
           @use-tool="handleUseTool"
+          @login="handleLogin"
+          @logout="handleLogout"
         />
       </ErrorBoundary>
 
@@ -114,36 +116,6 @@
         @close="() => navigationStore.hideTool('taskQueue')"
       />
 
-      <ImageGenerator
-        v-if="showImageGenerator"
-        :visible="showImageGenerator"
-        @close="() => navigationStore.hideTool('imageGenerator')"
-      />
-
-      <Aicloud
-        v-if="showAicloud"
-        :visible="showAicloud"
-        @close="() => navigationStore.hideTool('aicloud')"
-      />
-
-      <ServiceManager
-        v-if="showServiceManager"
-        :visible="showServiceManager"
-        @close="() => navigationStore.hideTool('serviceManager')"
-      />
-
-      <ProjectGenerator
-        v-if="showProjectGenerator"
-        :visible="showProjectGenerator"
-        @close="() => navigationStore.hideTool('projectGenerator')"
-      />
-
-      <EphemeralWorkflow
-        v-if="showEphemeralWorkflow"
-        :visible="showEphemeralWorkflow"
-        @close="() => navigationStore.hideTool('ephemeralWorkflow')"
-      />
-
       <!-- 快捷键帮助弹窗 -->
       <KeyboardShortcutsHelp
         v-if="showShortcutsHelp"
@@ -176,12 +148,7 @@
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
   const Dockerfile = defineAsyncComponent(() => import('./Dockerfile.vue'))
   const VirtualGirl = defineAsyncComponent(() => import('./VirtualGirl.vue'))
-  const ServiceManager = defineAsyncComponent(() => import('./ServiceManager.vue'))
-  const ProjectGenerator = defineAsyncComponent(() => import('./ProjectGenerator.vue'))
-  const EphemeralWorkflow = defineAsyncComponent(() => import('./EphemeralWorkflow.vue'))
   const TaskQueue = defineAsyncComponent(() => import('./TaskQueue.vue'))
-  const ImageGenerator = defineAsyncComponent(() => import('./ImageGenerator.vue'))
-  const Aicloud = defineAsyncComponent(() => import('./Aicloud.vue'))
   const MessageEditor = defineAsyncComponent(() => import('./MessageEditor.vue'))
   const KeyboardShortcutsHelp = defineAsyncComponent(() => import('./KeyboardShortcutsHelp.vue'))
 
@@ -221,12 +188,7 @@
   const showNginxConfig = computed(() => navigationStore.showNginxConfig)
   const showDockerConfig = computed(() => navigationStore.showDockerConfig)
   const showVirtualGirl = computed(() => navigationStore.showVirtualGirl)
-  const showServiceManager = computed(() => navigationStore.showServiceManager)
-  const showProjectGenerator = computed(() => navigationStore.showProjectGenerator)
-  const showEphemeralWorkflow = computed(() => navigationStore.showEphemeralWorkflow)
   const showTaskQueue = computed(() => navigationStore.showTaskQueue)
-  const showImageGenerator = computed(() => navigationStore.showImageGenerator)
-  const showAicloud = computed(() => navigationStore.showAicloud)
 
   const MAX_CONVERSATION_CACHE = 50
 
@@ -1239,6 +1201,25 @@
     conversationHistory.value = []
     localStorage.removeItem('chatState')
     streamManager.clearStreamRequestState()
+  }
+
+  const resetWorkspaceForAccountChange = () => {
+    handleNewConversation()
+    conversationHistoryMap.value.clear()
+  }
+
+  const handleLogin = async () => {
+    resetWorkspaceForAccountChange()
+    try {
+      await leftlistRef.value?.fetchHistory?.(true)
+    } catch (error) {
+      console.error('[ERR] Refresh history after login failed:', error?.message || error)
+    }
+  }
+
+  const handleLogout = () => {
+    resetWorkspaceForAccountChange()
+    navigationStore.hideAllTools()
   }
 
   const restoreStream = async () => {

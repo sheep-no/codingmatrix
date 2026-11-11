@@ -78,7 +78,6 @@ function createDefaultClient(store) {
     ...baseClient,
     ...createAuthClient(baseClient),
     ...createProjectClient(baseClient),
-    ...createAgentClient(baseClient),
     ...createWorkflowClient(baseClient),
     ...createGirlClient(baseClient),
     ...createChatClient(baseClient),
@@ -86,8 +85,15 @@ function createDefaultClient(store) {
     ...createTaskClient(baseClient),
     ppt: createPptClient(baseClient),
     ...createKolorsClient(baseClient),
+    // kolors 客户端显式挂载命名空间，图片页统一走 api.kolors.*（FRESCAN-70）
+    kolors: createKolorsClient(baseClient),
     ...createVisionClient(baseClient),
     ...createAiCloudClient(baseClient),
+    // aicloud 客户端显式挂载命名空间，避免与 agent 的同名方法互相覆盖（FRESCAN-56/57）
+    aicloud: createAiCloudClient(baseClient),
+    // agent 放在 aicloud 之后，使 api.searchKnowledge 走普通用户可以访问的
+    // GET /agent/knowledge/search，而不是 admin-only 的 AiCloud 端点
+    ...createAgentClient(baseClient),
     ...createAdminClient(baseClient),
     ...createGithubClient(baseClient),
     ...createSkillsClient(baseClient)

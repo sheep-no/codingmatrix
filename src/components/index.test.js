@@ -105,6 +105,38 @@ describe('首页工作台响应式导航', () => {
     expect(offlineQueue.setSendCallback).toHaveBeenCalledWith(expect.any(Function))
   })
 
+  it('登录成功后重置工作区并刷新历史（FRESCAN-54）', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = '42'
+    state.conversationHistory = [{ prompt: 'old' }]
+    state.conversationHistoryMap.set('42', [{ prompt: 'old' }])
+    const fetchHistory = vi.fn().mockResolvedValue()
+    state.leftlistRef = { fetchHistory }
+
+    await state.handleLogin()
+
+    expect(fetchHistory).toHaveBeenCalledWith(true)
+    expect(state.conversationHistory).toEqual([])
+    expect(state.currentConversationId).toBeNull()
+    expect(state.conversationHistoryMap.size).toBe(0)
+  })
+
+  it('登出后重置工作区并收起已打开工具（FRESCAN-54）', () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = '42'
+    state.conversationHistory = [{ prompt: 'old' }]
+    state.conversationHistoryMap.set('42', [{ prompt: 'old' }])
+    const hideAllTools = vi.spyOn(state.navigationStore, 'hideAllTools')
+
+    state.handleLogout()
+
+    expect(hideAllTools).toHaveBeenCalled()
+    expect(state.conversationHistory).toEqual([])
+    expect(state.conversationHistoryMap.size).toBe(0)
+  })
+
   it.each([undefined, 'chosen-model'])('传递联网模式并保持自动或显式选模：%s', async model => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState

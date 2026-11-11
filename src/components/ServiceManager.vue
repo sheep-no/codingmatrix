@@ -249,10 +249,18 @@
 
     <!-- 熔断配置弹窗 -->
     <div v-if="showFuseModal" class="modal-overlay" @click="closeFuseModal">
-      <div class="modal" @click.stop>
+      <div
+        ref="fuseModalRef"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fuse-modal-title"
+        tabindex="-1"
+        @click.stop
+      >
         <div class="modal-header">
-          <h3>熔断配置 - {{ currentService?.display_name || currentService?.name }}</h3>
-          <button class="modal-close" @click="closeFuseModal">
+          <h3 id="fuse-modal-title">熔断配置 - {{ currentService?.display_name || currentService?.name }}</h3>
+          <button class="modal-close" aria-label="关闭熔断配置弹窗" @click="closeFuseModal">
             <svg
               width="20"
               height="20"
@@ -304,10 +312,18 @@
 
     <!-- 重命名弹窗 -->
     <div v-if="showRenameModalFlag" class="modal-overlay" @click="closeRenameModal">
-      <div class="modal" @click.stop>
+      <div
+        ref="renameModalRef"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-modal-title"
+        tabindex="-1"
+        @click.stop
+      >
         <div class="modal-header">
-          <h3>重命名服务</h3>
-          <button class="modal-close" @click="closeRenameModal">
+          <h3 id="rename-modal-title">重命名服务</h3>
+          <button class="modal-close" aria-label="关闭重命名弹窗" @click="closeRenameModal">
             <svg
               width="20"
               height="20"
@@ -344,10 +360,18 @@
 
     <!-- 熔断状态弹窗 -->
     <div v-if="showStatusModal" class="modal-overlay" @click="closeStatusModal">
-      <div class="modal" @click.stop>
+      <div
+        ref="statusModalRef"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="status-modal-title"
+        tabindex="-1"
+        @click.stop
+      >
         <div class="modal-header">
-          <h3>熔断状态 - {{ fuseStatusData.service_name }}</h3>
-          <button class="modal-close" @click="closeStatusModal">
+          <h3 id="status-modal-title">熔断状态 - {{ fuseStatusData.service_name }}</h3>
+          <button class="modal-close" aria-label="关闭熔断状态弹窗" @click="closeStatusModal">
             <svg
               width="20"
               height="20"
@@ -411,6 +435,7 @@
   import { createApiClient } from '@/utils/api/index'
   import { createAdminClient } from '@/utils/api/admin'
   import { useUserStore } from '@/stores/user'
+  import { useDialogA11y } from '@/composables/useDialogA11y'
 
   const userStore = useUserStore()
   const api = createApiClient(userStore)
@@ -433,6 +458,9 @@
 
   // 熔断配置表单
   const showFuseModal = ref(false)
+  const fuseModalRef = ref(null)
+  const renameModalRef = ref(null)
+  const statusModalRef = ref(null)
   const fuseSaving = ref(false)
   const currentService = ref(null)
   const fuseForm = ref({
@@ -610,6 +638,10 @@
     showStatusModal.value = false
     fuseStatusData.value = {}
   }
+
+  useDialogA11y(fuseModalRef, showFuseModal, closeFuseModal)
+  useDialogA11y(renameModalRef, showRenameModalFlag, closeRenameModal)
+  useDialogA11y(statusModalRef, showStatusModal, closeStatusModal)
 
   // 健康检查
   async function checkServiceHealth(service) {

@@ -53,4 +53,22 @@ describe('user store 注销清理', () => {
 
     expect(localStorage.getItem('systemLogsState')).toBeNull()
   })
+
+  it('clearUser 清除会话正文、流式恢复、离线队列、图片与 AiCloud 会话（FRESCAN-55）', () => {
+    localStorage.setItem('chatState', JSON.stringify({ conversationHistory: [{ prompt: 'secret' }] }))
+    localStorage.setItem('streamRequestState', JSON.stringify({ isStreaming: true }))
+    localStorage.setItem('offlineMessageQueue', JSON.stringify([{ prompt: 'secret' }]))
+    localStorage.setItem('aicloud_session_id', 'session_old')
+    localStorage.setItem('navigationState', JSON.stringify({ showAicloud: true }))
+    sessionStorage.setItem('image-generate-session-v1', JSON.stringify({ prompt: 'secret' }))
+
+    useUserStore().clearUser()
+
+    expect(localStorage.getItem('chatState')).toBeNull()
+    expect(localStorage.getItem('streamRequestState')).toBeNull()
+    expect(localStorage.getItem('offlineMessageQueue')).toBeNull()
+    expect(localStorage.getItem('aicloud_session_id')).toBeNull()
+    expect(localStorage.getItem('navigationState')).toBeNull()
+    expect(sessionStorage.getItem('image-generate-session-v1')).toBeNull()
+  })
 })

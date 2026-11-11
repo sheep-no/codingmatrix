@@ -32,12 +32,12 @@
     </div>
     <div class="users-filters" :class="{ collapsed: !showFilters }">
       <div class="filter-group">
-        <label>搜索</label>
-        <input v-model="userFilters.keyword" type="text" placeholder="用户名或邮箱..." @input="debouncedFetchUsers" />
+        <label for="um-keyword">搜索</label>
+        <input id="um-keyword" v-model="userFilters.keyword" type="text" placeholder="用户名或邮箱..." @input="debouncedFetchUsers" />
       </div>
       <div class="filter-group">
-        <label>权限</label>
-        <select v-model="userFilters.permission_level" @change="fetchUsers">
+        <label for="um-filter-permission_level">权限</label>
+        <select id="um-filter-permission_level" v-model="userFilters.permission_level" @change="fetchUsers">
           <option value="">全部</option>
           <option value="normal">普通用户</option>
           <option value="admin">管理员</option>
@@ -45,8 +45,8 @@
         </select>
       </div>
       <div class="filter-group">
-        <label>排序</label>
-        <select v-model="userFilters.sort_by" @change="fetchUsers">
+        <label for="um-sort_by">排序</label>
+        <select id="um-sort_by" v-model="userFilters.sort_by" @change="fetchUsers">
           <option value="id">ID</option>
           <option value="username">用户名</option>
           <option value="email">邮箱</option>
@@ -54,8 +54,8 @@
         </select>
       </div>
       <div class="filter-group">
-        <label>方向</label>
-        <select v-model="userFilters.sort_order" @change="fetchUsers">
+        <label for="um-sort_order">方向</label>
+        <select id="um-sort_order" v-model="userFilters.sort_order" @change="fetchUsers">
           <option value="desc">降序</option>
           <option value="asc">升序</option>
         </select>
@@ -133,28 +133,35 @@
     </div>
 
     <!-- 创建用户对话框 -->
-    <div v-if="showCreateUserDialog" class="modal-overlay" @click.self="showCreateUserDialog = false">
-      <div class="modal-content">
+    <div v-if="showCreateUserDialog" class="modal-overlay" @click.self="closeCreateUserDialog">
+      <div
+        ref="createUserDialogRef"
+        class="modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-user-dialog-title"
+        tabindex="-1"
+      >
         <div class="modal-header">
-          <h3>创建用户</h3>
-          <button class="close-btn" @click="showCreateUserDialog = false">&times;</button>
+          <h3 id="create-user-dialog-title">创建用户</h3>
+          <button class="close-btn" aria-label="关闭创建用户对话框" @click="closeCreateUserDialog">&times;</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>用户名 *</label>
-            <input v-model="createUserForm.username" type="text" placeholder="请输入用户名" />
+            <label for="um-create-username">用户名 *</label>
+            <input id="um-create-username" v-model="createUserForm.username" type="text" placeholder="请输入用户名" />
           </div>
           <div class="form-group">
-            <label>邮箱 *</label>
-            <input v-model="createUserForm.email" type="email" placeholder="请输入邮箱" />
+            <label for="um-create-email">邮箱 *</label>
+            <input id="um-create-email" v-model="createUserForm.email" type="email" placeholder="请输入邮箱" />
           </div>
           <div class="form-group">
-            <label>密码 * (至少6位)</label>
-            <input v-model="createUserForm.password" type="password" placeholder="请输入密码" />
+            <label for="um-create-password">密码 * (至少6位)</label>
+            <input id="um-create-password" v-model="createUserForm.password" type="password" placeholder="请输入密码" />
           </div>
           <div class="form-group">
-            <label>权限级别</label>
-            <select v-model="createUserForm.permission_level">
+            <label for="um-create-permission_level">权限级别</label>
+            <select id="um-create-permission_level" v-model="createUserForm.permission_level">
               <option value="normal">普通用户</option>
               <option value="admin">管理员</option>
               <option value="superadmin">超级管理员</option>
@@ -163,7 +170,7 @@
           <p v-if="createUserError" class="error-message">{{ createUserError }}</p>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showCreateUserDialog = false">取消</button>
+          <button class="btn-cancel" @click="closeCreateUserDialog">取消</button>
           <button class="btn-primary" :disabled="isCreatingUser" @click="handleCreateUser">
             {{ isCreatingUser ? '创建中...' : '创建' }}
           </button>
@@ -172,24 +179,31 @@
     </div>
 
     <!-- 编辑用户对话框 -->
-    <div v-if="showEditUserDialog" class="modal-overlay" @click.self="showEditUserDialog = false">
-      <div class="modal-content">
+    <div v-if="showEditUserDialog" class="modal-overlay" @click.self="closeEditUserDialog">
+      <div
+        ref="editUserDialogRef"
+        class="modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-user-dialog-title"
+        tabindex="-1"
+      >
         <div class="modal-header">
-          <h3>编辑用户</h3>
-          <button class="close-btn" @click="showEditUserDialog = false">&times;</button>
+          <h3 id="edit-user-dialog-title">编辑用户</h3>
+          <button class="close-btn" aria-label="关闭编辑用户对话框" @click="closeEditUserDialog">&times;</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>用户名</label>
-            <input v-model="editUserForm.username" type="text" placeholder="请输入用户名" />
+            <label for="um-edit-username">用户名</label>
+            <input id="um-edit-username" v-model="editUserForm.username" type="text" placeholder="请输入用户名" />
           </div>
           <div class="form-group">
-            <label>邮箱</label>
-            <input v-model="editUserForm.email" type="email" placeholder="请输入邮箱" />
+            <label for="um-edit-email">邮箱</label>
+            <input id="um-edit-email" v-model="editUserForm.email" type="email" placeholder="请输入邮箱" />
           </div>
           <div class="form-group">
-            <label>权限级别</label>
-            <select v-model="editUserForm.permission_level">
+            <label for="um-edit-permission_level">权限级别</label>
+            <select id="um-edit-permission_level" v-model="editUserForm.permission_level">
               <option value="normal">普通用户</option>
               <option value="admin">管理员</option>
               <option value="superadmin">超级管理员</option>
@@ -198,7 +212,7 @@
           <p v-if="editUserError" class="error-message">{{ editUserError }}</p>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showEditUserDialog = false">取消</button>
+          <button class="btn-cancel" @click="closeEditUserDialog">取消</button>
           <button class="btn-primary" :disabled="isUpdatingUser" @click="handleUpdateUser">
             {{ isUpdatingUser ? '更新中...' : '更新' }}
           </button>
@@ -207,22 +221,29 @@
     </div>
 
     <!-- 重置密码对话框 -->
-    <div v-if="showResetPasswordDialog" class="modal-overlay" @click.self="showResetPasswordDialog = false">
-      <div class="modal-content">
+    <div v-if="showResetPasswordDialog" class="modal-overlay" @click.self="closeResetPasswordDialog">
+      <div
+        ref="resetPasswordDialogRef"
+        class="modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reset-password-dialog-title"
+        tabindex="-1"
+      >
         <div class="modal-header">
-          <h3>重置密码</h3>
-          <button class="close-btn" @click="showResetPasswordDialog = false">&times;</button>
+          <h3 id="reset-password-dialog-title">重置密码</h3>
+          <button class="close-btn" aria-label="关闭重置密码对话框" @click="closeResetPasswordDialog">&times;</button>
         </div>
         <div class="modal-body">
           <p class="reset-user-info">为用户 <strong>{{ resetPasswordUser?.username }}</strong> 重置密码</p>
           <div class="form-group">
-            <label>新密码 * (至少6位)</label>
-            <input v-model="resetPasswordForm.new_password" type="password" placeholder="请输入新密码" />
+            <label for="um-new_password">新密码 * (至少6位)</label>
+            <input id="um-new_password" v-model="resetPasswordForm.new_password" type="password" placeholder="请输入新密码" />
           </div>
           <p v-if="resetPasswordError" class="error-message">{{ resetPasswordError }}</p>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showResetPasswordDialog = false">取消</button>
+          <button class="btn-cancel" @click="closeResetPasswordDialog">取消</button>
           <button class="btn-primary" :disabled="isResettingPassword" @click="handleResetPassword">
             {{ isResettingPassword ? '重置中...' : '重置' }}
           </button>
@@ -231,18 +252,25 @@
     </div>
 
     <!-- 删除用户确认对话框 -->
-    <div v-if="showDeleteConfirmDialog" class="modal-overlay" @click.self="showDeleteConfirmDialog = false">
-      <div class="modal-content modal-sm">
+    <div v-if="showDeleteConfirmDialog" class="modal-overlay" @click.self="closeDeleteConfirmDialog">
+      <div
+        ref="deleteConfirmDialogRef"
+        class="modal-content modal-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-dialog-title"
+        tabindex="-1"
+      >
         <div class="modal-header">
-          <h3>确认删除</h3>
-          <button class="close-btn" @click="showDeleteConfirmDialog = false">&times;</button>
+          <h3 id="delete-confirm-dialog-title">确认删除</h3>
+          <button class="close-btn" aria-label="关闭删除确认对话框" @click="closeDeleteConfirmDialog">&times;</button>
         </div>
         <div class="modal-body">
           <p class="delete-confirm-text">确定要删除用户 <strong>{{ deleteUserTarget?.username }}</strong> 吗？</p>
           <p class="delete-warning">此操作不可恢复</p>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showDeleteConfirmDialog = false">取消</button>
+          <button class="btn-cancel" @click="closeDeleteConfirmDialog">取消</button>
           <button class="btn-danger" :disabled="isDeletingUser" @click="handleDeleteUser">
             {{ isDeletingUser ? '删除中...' : '删除' }}
           </button>
@@ -257,6 +285,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '@/utils/api/index'
 import { useUserStore } from '@/stores/user'
+import { useDialogA11y } from '@/composables/useDialogA11y'
 
 const userStore = useUserStore()
 
@@ -294,6 +323,21 @@ const resetPasswordUser = ref(null)
 const showDeleteConfirmDialog = ref(false)
 const isDeletingUser = ref(false)
 const deleteUserTarget = ref(null)
+
+const createUserDialogRef = ref(null)
+const editUserDialogRef = ref(null)
+const resetPasswordDialogRef = ref(null)
+const deleteConfirmDialogRef = ref(null)
+
+const closeCreateUserDialog = () => { showCreateUserDialog.value = false }
+const closeEditUserDialog = () => { showEditUserDialog.value = false }
+const closeResetPasswordDialog = () => { showResetPasswordDialog.value = false }
+const closeDeleteConfirmDialog = () => { showDeleteConfirmDialog.value = false }
+
+useDialogA11y(createUserDialogRef, showCreateUserDialog, closeCreateUserDialog)
+useDialogA11y(editUserDialogRef, showEditUserDialog, closeEditUserDialog)
+useDialogA11y(resetPasswordDialogRef, showResetPasswordDialog, closeResetPasswordDialog)
+useDialogA11y(deleteConfirmDialogRef, showDeleteConfirmDialog, closeDeleteConfirmDialog)
 
 // 获取用户列表
 const fetchUsers = async () => {

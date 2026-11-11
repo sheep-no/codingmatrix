@@ -1,6 +1,7 @@
 <script setup>
   import { onMounted, onBeforeUnmount, ref } from 'vue'
   import { initTheme } from '@/utils/theme'
+  import { useToast } from '@/composables/useToast'
   import ErrorBoundary from '@/components/ErrorBoundary.vue'
   import AppLoading from '@/components/AppLoading.vue'
 
@@ -8,6 +9,11 @@
   const initializationStatus = ref('loading')
   const initializationError = ref('')
   const appLoadingRef = ref(null)
+  const { error: showError } = useToast()
+
+  const handleSessionExpired = (event) => {
+    showError(event?.detail?.message || '会话已过期，请重新登录')
+  }
 
   const initialize = async (isRetry = false) => {
     initializationStatus.value = 'loading'
@@ -26,8 +32,14 @@
     }
   }
 
-  onMounted(() => initialize())
-  onBeforeUnmount(() => appLoadingRef.value?.reset())
+  onMounted(() => {
+    initialize()
+    window.addEventListener('session-expired', handleSessionExpired)
+  })
+  onBeforeUnmount(() => {
+    appLoadingRef.value?.reset()
+    window.removeEventListener('session-expired', handleSessionExpired)
+  })
 </script>
 
 <template>

@@ -138,22 +138,22 @@
         <div v-if="currentDataSource" class="panel-card">
           <h3 class="card-title">字段配置</h3>
           <div class="field-group">
-            <label>X 轴</label>
-            <select v-model="config.xAxis" @change="updateChart">
+            <label for="chart-xAxis">X 轴</label>
+            <select id="chart-xAxis" v-model="config.xAxis" @change="updateChart">
               <option value="">选择字段</option>
               <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
-            <label>Y 轴</label>
-            <select v-model="config.yAxis" @change="updateChart">
+            <label for="chart-yAxis">Y 轴</label>
+            <select id="chart-yAxis" v-model="config.yAxis" @change="updateChart">
               <option value="">选择字段</option>
               <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
-            <label>聚合</label>
-            <select v-model="config.aggregate" @change="updateChart">
+            <label for="chart-aggregate">聚合</label>
+            <select id="chart-aggregate" v-model="config.aggregate" @change="updateChart">
               <option value="sum">求和</option>
               <option value="avg">平均值</option>
               <option value="count">计数</option>
@@ -168,13 +168,13 @@
         <div v-if="dataSources.length > 0" class="panel-card">
           <h3 class="card-title">样式</h3>
           <div class="field-group">
-            <label>标题</label>
-            <input v-model="config.title" type="text" placeholder="图表标题" @input="updateChart" />
+            <label for="chart-title">标题</label>
+            <input id="chart-title" v-model="config.title" type="text" placeholder="图表标题" @input="updateChart" />
           </div>
           <div class="field-group">
-            <label>颜色</label>
+            <label for="chart-color">颜色</label>
             <div class="color-picker">
-              <input v-model="config.color" type="color" @input="updateChart" />
+              <input id="chart-color" v-model="config.color" type="color" @input="updateChart" />
               <span>{{ config.color }}</span>
             </div>
           </div>

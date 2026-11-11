@@ -258,35 +258,42 @@
       </div>
 
       <!-- 自定义角色创建表单 -->
-      <div v-if="showCharacterForm" class="character-form-overlay" @click.self="showCharacterForm = false">
-        <div class="character-form">
-          <h3>创建自定义角色</h3>
+      <div v-if="showCharacterForm" class="character-form-overlay" @click.self="closeCharacterForm">
+        <div
+          ref="characterFormRef"
+          class="character-form"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="character-form-title"
+          tabindex="-1"
+        >
+          <h3 id="character-form-title">创建自定义角色</h3>
           <div class="form-field">
-            <label>角色名称 <span class="required">*</span></label>
-            <input v-model="newCharacter.name" type="text" maxlength="50" placeholder="给角色起个名字" />
+            <label for="character-name">角色名称 <span class="required">*</span></label>
+            <input id="character-name" v-model="newCharacter.name" type="text" maxlength="50" placeholder="给角色起个名字" />
           </div>
           <div class="form-field">
-            <label>描述</label>
-            <input v-model="newCharacter.description" type="text" maxlength="200" placeholder="一句话描述角色" />
+            <label for="character-description">描述</label>
+            <input id="character-description" v-model="newCharacter.description" type="text" maxlength="200" placeholder="一句话描述角色" />
           </div>
           <div class="form-field">
-            <label>性格</label>
-            <input v-model="newCharacter.personality" type="text" maxlength="200" placeholder="例如：温柔、活泼、傲娇" />
+            <label for="character-personality">性格</label>
+            <input id="character-personality" v-model="newCharacter.personality" type="text" maxlength="200" placeholder="例如：温柔、活泼、傲娇" />
           </div>
           <div class="form-field">
-            <label>说话风格</label>
-            <input v-model="newCharacter.speaking_style" type="text" maxlength="200" placeholder="例如：语气温柔，常用语气词" />
+            <label for="character-speaking_style">说话风格</label>
+            <input id="character-speaking_style" v-model="newCharacter.speaking_style" type="text" maxlength="200" placeholder="例如：语气温柔，常用语气词" />
           </div>
           <div class="form-field">
-            <label>开场白</label>
-            <textarea v-model="newCharacter.greeting" rows="2" maxlength="200" placeholder="角色的第一句话"></textarea>
+            <label for="character-greeting">开场白</label>
+            <textarea id="character-greeting" v-model="newCharacter.greeting" rows="2" maxlength="200" placeholder="角色的第一句话"></textarea>
           </div>
           <div class="form-field">
-            <label>头像颜色</label>
-            <input v-model="newCharacter.avatar_color" type="color" />
+            <label for="character-avatar_color">头像颜色</label>
+            <input id="character-avatar_color" v-model="newCharacter.avatar_color" type="color" />
           </div>
           <div class="form-actions">
-            <button class="form-cancel" @click="showCharacterForm = false">取消</button>
+            <button class="form-cancel" @click="closeCharacterForm">取消</button>
             <button class="form-submit" :disabled="!newCharacter.name.trim()" @click="createCharacter">创建</button>
           </div>
         </div>
@@ -302,6 +309,7 @@
   import { useUserStore } from '@/stores/user'
   import { useGirlAiCompanion } from '@/composables/useGirlAiCompanion'
   import { useApiKeyStore } from '@/stores/apikey'
+  import { useDialogA11y } from '@/composables/useDialogA11y'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -430,6 +438,11 @@
 
   // 自定义角色表单
   const showCharacterForm = ref(false)
+  const characterFormRef = ref(null)
+  const closeCharacterForm = () => {
+    showCharacterForm.value = false
+  }
+  useDialogA11y(characterFormRef, showCharacterForm, closeCharacterForm)
   const newCharacter = ref({
     name: '',
     description: '',

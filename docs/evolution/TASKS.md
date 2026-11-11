@@ -242,6 +242,25 @@
 
 > 第 164 轮去重后新增活跃问题 22 项：P1 8 项、P2 13 项、P3 1 项；另有未接入方法问题 2 项；FRESCAN-23 为既有问题扩展。Backlog 使用 `#1370-#1391`。
 
+## I.8 前端四批次复扫（第 165 轮）
+
+| 轮次 | 批次 | 范围 | 状态 | 结果 | 详细文档 |
+|------|------|------|------|------|---------|
+| 165 | 一 | 组件、视图与模板交互 | ✅ 已完成 | 新增管理台登出绕过、登录不刷新历史、弹窗语义、工具未接线 4 项；复核 FRESCAN-35 为误判 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 二 | API 客户端与后端契约 | ✅ 已完成 | 新增 aicloud 命名空间缺失、searchKnowledge 同名覆盖、回滚参数对象化、GitHub token 取值 4 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 三 | 构建、CI、容器和 Nginx | ✅ 已完成 | 新增 nginx 账号缺失 [P0 待实测]、`/api/` WS 未透传 Upgrade、CI 不跑单测、单镜像/Compose 拓扑漂移 4 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+| 165 | 四 | 会话边界、缓存与图片历史 | ✅ 已完成 | 新增注销残留 6 类缓存、ChatDatabase 未导出、图片历史存 base64、权限门禁、标签关联、契约形状与图片页裸 fetch 7 项 | [frontend_batch_rescan_165.md](modules/frontend_batch_rescan_165.md) |
+
+> 第 165 轮去重后新增问题 19 项：P0 1 项、P1 6 项、P2 9 项、P3 3 项；其中 FRESCAN-64 属未接入/接线事项，按结构记录。旧编号 2 项判定失效（FRESCAN-24、FRESCAN-35），1 项部分失效（FRESCAN-25）。Backlog 使用 `#1392-#1410`，累计 P0 2、P1 53、P2 490、P3 817，Backlog 共 1410 项。
+
+> 阶段 0 修复（2026-11-10）：FRESCAN-53 管理台登出改为 `api.logout()` + `userStore.clearUser()`；FRESCAN-59 删除会话改用已导出的 `chatDB` 单例；FRESCAN-52 在镜像内显式创建 `nginx` 账号。受影响单测 12 条通过，回退源码态新增 3 条用例失败；Docker 构建与 `nginx -t` 仍待有 Docker 的环境复验。
+
+> 阶段 1 修复（2026-11-10）：FRESCAN-54 绑定左栏登录/登出并刷新历史；FRESCAN-55 `clearUser()` 补齐六类跨账户缓存与导航状态清理；FRESCAN-56 恢复 `api.aicloud` 命名空间；FRESCAN-57 根级 `searchKnowledge` 回到 agent 端点并归一 `{ results }`；FRESCAN-58 回滚改传字符串标签并显式关闭分支删除。新增 9 条用例，全量 63 文件 / 297 用例通过，构建成功；回退源码态上述 9 条用例全部失败。
+
+> 阶段 2 修复（2026-11-10）：FRESCAN-60 `/api/` 补 `proxy_http_version 1.1`、Upgrade 透传与长读超时；FRESCAN-61 图片历史改存文件名并由 `image_history_refs` 统一解析，资源端点增加历史表归属兜底；FRESCAN-62 能力中心按 `userStore.isAdmin` 门禁知识库与沙箱；FRESCAN-66 CI 改跑 `lint:check` 与 `test:run` 并扩展触发路径；FRESCAN-70 图片页五处 `fetch` 收敛到 `api.kolors.*`，客户端补 `kolors` 命名空间，历史图走认证 blob。新增 14 条前端用例与 5 条后端用例，全量 66 文件 / 311 用例通过，构建成功；回退源码态前端 18 条、后端 1 条用例失败。Nginx 101 握手与 CI 实际变红仍待环境复验。
+
+> 阶段 3 修复（2026-11-10）：FRESCAN-63 新增 `useDialogA11y` composable 并为 8 个弹窗补齐 `role`/`aria-modal`/`aria-labelledby`/Escape/Tab 循环/焦点回归；FRESCAN-64 `TaskQueue` 加入左栏工具菜单，其余工具统一走独立路由或 AdminPanel，卸载首页挂载并删除 navigation 死标志与 `bottominput.vue` 死分支；FRESCAN-65 `base.js` 导出 `handleSessionExpired()` 统一 `clearUser()` 与 `session-expired` 事件，`github.js` 改用 `getValidToken()`；FRESCAN-67 五个表单页补齐 98 处 `label for`/控件 `id`；FRESCAN-68 AiCloud 历史失败抛错并在页面显示 `role="alert"` 失败态与重试；FRESCAN-69 运行镜像删除内置 Nginx，只保留 Uvicorn 与 `EXPOSE 8080`，两套 Compose 统一由独立 Nginx 代理 `api:8080`，宿主机 `scripts/start.sh` 安装本地上游配置；另修正 FRESCAN-50/51 两处未接入客户端参数契约。新增 4 个测试文件并扩展 4 个既有测试，全量 70 文件 / 330 用例通过，lint 0 error，构建成功，后端 compose 一致性 23 条通过；回退源码态各阶段 3 用例失败。容器实测与 CI 实际变红仍待环境复验。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

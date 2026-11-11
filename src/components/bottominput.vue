@@ -22,15 +22,11 @@
       <div v-if="showConfig" class="config-panel" role="group" aria-label="输入配置">
         <div class="config-row">
           <!-- 深度思考开关 -->
-          <label
-            class="config-item"
-              :class="{ disabled: projectGeneratorMode, on: useReasoning }"
-          >
+          <label class="config-item" :class="{ on: useReasoning }">
             <input
               v-model="useReasoning"
               type="checkbox"
               class="config-checkbox"
-              :disabled="projectGeneratorMode"
               aria-describedby="reasoning-tooltip"
             />
             <span class="config-label">深度思考</span>
@@ -38,7 +34,7 @@
           </label>
           <label class="config-item" :class="{ on: searchMode !== 'off' }">
             <span class="config-label">联网</span>
-            <select v-model="searchMode" class="config-select" aria-label="联网模式" :disabled="projectGeneratorMode" title="自动判断：代码和讲解类问题不搜；始终开启：每次都搜">
+            <select v-model="searchMode" class="config-select" aria-label="联网模式" title="自动判断：代码和讲解类问题不搜；始终开启：每次都搜">
               <option value="auto">自动判断</option>
               <option value="on">始终开启</option>
               <option value="off">关闭</option>
@@ -46,7 +42,7 @@
           </label>
           <label class="config-item" :class="{ on: searchMode !== 'off' && searchDepth === 'multi', disabled: searchMode === 'off' }">
             <span class="config-label">搜索深度</span>
-            <select v-model="searchDepth" class="config-select" aria-label="搜索深度" :disabled="projectGeneratorMode || searchMode === 'off'" title="浅搜索一轮；多轮根据首轮结果再搜索一轮">
+            <select v-model="searchDepth" class="config-select" aria-label="搜索深度" :disabled="searchMode === 'off'" title="浅搜索一轮；多轮根据首轮结果再搜索一轮">
               <option value="shallow">浅搜索</option>
               <option value="multi">多轮搜索（两轮）</option>
             </select>
@@ -125,8 +121,8 @@
         />
         <div class="composer-actions">
         <span class="composer-summary">
-          {{ projectGeneratorMode ? '项目模式' : useReasoning ? '深度思考' : '标准回答' }}
-          <span v-if="!projectGeneratorMode"> · {{ searchMode === 'off' ? '联网关闭' : searchMode === 'on' ? '联网开启' : '按需联网' }}{{ searchMode !== 'off' && searchDepth === 'multi' ? ' · 两轮搜索' : '' }}</span>
+          {{ useReasoning ? '深度思考' : '标准回答' }}
+          <span> · {{ searchMode === 'off' ? '联网关闭' : searchMode === 'on' ? '联网开启' : '按需联网' }}{{ searchMode !== 'off' && searchDepth === 'multi' ? ' · 两轮搜索' : '' }}</span>
         </span>
         <!-- 发送/取消按钮 -->
         <template v-if="!isStreaming">
@@ -248,9 +244,6 @@
   const attachedFiles = ref([])
   const associations = ref([])
   let associationFetchTimer = null
-
-  // 监听 navigation store 的 ProjectGenerator 状态
-  const projectGeneratorMode = computed(() => navigationStore.showProjectGenerator)
 
   let fileCounter = 0
 

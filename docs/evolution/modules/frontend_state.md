@@ -11,7 +11,7 @@
 > - FESTATE-04、FESTATE-05 超出本轮修复范围：涉及 `src/composables/useAgentStreaming.js`、`src/composables/useAgentBackend.js`，属于 Agent 子系统，本轮不处理。
 > - FESTATE-02 本次修复：`src/components/index.vue` 把 `handleSendMessage` 注册为离线队列发送回调（`setSendCallback`），并在鉴权与 API Key 校验后、真正发起请求前判断 `isOnline`，断网时改为 `queueMessage` 入队。`src/composables/useOfflineQueue.js` 同步修正三处：`flushQueue` 失败时按原顺序保留失败消息及其后续消息（原实现会丢弃后续消息）、`restoreQueue` 不再在恢复时删除 localStorage 备份（保证未发送前的持久性）、挂载时若已在线则延后补发恢复队列。新增 `src/composables/useOfflineQueue.test.js`，并在 `src/components/index.test.js` 补断网入队与回调注册用例；回退源码后 4 个新用例全部失败。
 > - FESTATE-03 本次修复：`src/components/SystemLogs.vue` 的自动保存 `watch` 改为引用 `toRefs(logsStore)` 得到的 refs，不再对 Pinia setup store 已解包属性误取 `.value`；新增 `src/components/SystemLogs.test.js`（新增日志后写入 localStorage）。回退修复后该用例失败。
-> - FESTATE-06 本次修复：`src/stores/navigation.js` 的 `activeTool` 补上 `projectGenerator` 分支；同时删除 `src/components/ImageGenerator.vue` 中对只读 computed `activeTool` 的无效赋值（该赋值在开发态触发只读告警且不生效，`showImageGenerator = true` 已足以驱动 `activeTool`）。新增 `src/stores/navigation.test.js`，回退后 `projectGenerator` 用例失败。
+> - FESTATE-06 本次修复：最初在 `activeTool` 补上 `projectGenerator` 分支；第 165 轮阶段 3 复核后该状态与首页挂载一同删除（`ProjectGenerator` 走 `/agent` 路由），`navigation.js` 不再保留 `projectGenerator` 标志，`navigation.test.js` 改为断言该标志为 undefined。
 > - FESTATE-07 已修复：`src/stores/github.js` 现仅持久化 `githubUsername`/`useGithub`，`githubToken` 为内存 ref，且 `purgeStoredToken()` 清理历史遗留 token。原文描述已不成立。
 
 ## 扫描边界与证据标记
@@ -30,7 +30,7 @@
 |---|---|---|---|
 | `src/stores/user.js:5` | 登录状态、权限、tokenManager 委托、用户资料恢复 | 活跃 | `src/main.js:9,28`、`src/router/index.js:2,105`、多个视图/组件、`useAuth` |
 | `src/stores/apikey.js:16` | API Key token 元数据、公钥、模型覆盖、后端同步 | 活跃 | `AgentDashboard.vue:127`、`components/index.vue:158`、设置页、图片/PPT/Aicloud/项目生成器 |
-| `src/stores/navigation.js:36` | 工具面板、折叠状态及 localStorage 导航状态 | 活跃 | `components/index.vue:156`、`bottominput.vue:230`、`ImageGenerator.vue:481` |
+| `src/stores/navigation.js` | 工具面板、折叠状态及 localStorage 导航状态 | 活跃 | `components/index.vue`、`bottominput.vue`（第 165 轮阶段 3 后仅保留 nginxConfig/dockerConfig/virtualGirl/taskQueue） |
 | `src/stores/providers.js:14` | 动态供应商列表、模型同步、离线缓存 | 活跃 | `AgentDashboard.vue:128`、`DynamicProviderManager.vue:123` |
 | `src/stores/logs.js:4` | 系统日志、过滤器、连接状态、日志 localStorage | 活跃 | `SystemLogs.vue:159` |
 | `src/stores/github.js:31` | GitHub 用户名/token/开关配置 | 活跃 | `GithubConfigPanel.vue:81`、`ProjectGenerator.vue` 导入链 |
@@ -161,6 +161,7 @@ UI 子组件
 - **影响**：任何依赖 `activeTool` 做当前工具识别、埋点或恢复的调用方会得到错误结果。当前全库没有生产消费 `activeTool`，因此属于未接入契约缺陷。
 - **证据**：实码可证；当前影响范围待接入方出现后实测。
 - **建议**：将 `projectGenerator` 纳入 activeTool，或删除未使用的统一状态接口并保留单一导航来源。
+- **当前状态**：已按第二种方向收口。第 165 轮阶段 3 从首页卸载 `ProjectGenerator` 并删除 `showProjectGenerator` 标志与 `activeTool` 分支，`ProjectGenerator` 统一由 `/agent` 路由进入。
 
 ### FESTATE-07 [P2] GitHub token 同时以可逆编码和 Pinia 明文状态持久化
 

@@ -16,7 +16,6 @@ function getStoredToolState() {
 const initialState = getStoredToolState() || {}
 
 function getDefaultValue(key) {
-  if (key === 'showProjectGenerator') return false
   return Boolean(initialState[key] || false)
 }
 
@@ -26,12 +25,7 @@ export const useNavigationStore = defineStore(
     const showNginxConfig = ref(getDefaultValue('showNginxConfig'))
     const showDockerConfig = ref(getDefaultValue('showDockerConfig'))
     const showVirtualGirl = ref(getDefaultValue('showVirtualGirl'))
-    const showServiceManager = ref(getDefaultValue('showServiceManager'))
-    const showProjectGenerator = ref(false)
     const showTaskQueue = ref(getDefaultValue('showTaskQueue'))
-    const showImageGenerator = ref(getDefaultValue('showImageGenerator'))
-    const showEphemeralWorkflow = ref(getDefaultValue('showEphemeralWorkflow'))
-    const showAicloud = ref(getDefaultValue('showAicloud'))
 
     const isCollapsed = ref(initialState.isCollapsed || false)
     const isBottomInputCollapsed = ref(
@@ -44,19 +38,12 @@ export const useNavigationStore = defineStore(
       showNginxConfig,
       showDockerConfig,
       showVirtualGirl,
-      showServiceManager,
-      showTaskQueue,
-      showImageGenerator,
-      showEphemeralWorkflow,
-      showAicloud
+      showTaskQueue
     }
 
     function showTool(toolName) {
       hideAllTools()
       switch (toolName) {
-        case 'projectGenerator':
-          showProjectGenerator.value = true
-          break
         case 'nginxConfig':
           showNginxConfig.value = true
           break
@@ -66,20 +53,8 @@ export const useNavigationStore = defineStore(
         case 'virtualGirl':
           showVirtualGirl.value = true
           break
-        case 'serviceManager':
-          showServiceManager.value = true
-          break
         case 'taskQueue':
           showTaskQueue.value = true
-          break
-        case 'imageGenerator':
-          showImageGenerator.value = true
-          break
-        case 'ephemeralWorkflow':
-          showEphemeralWorkflow.value = true
-          break
-        case 'aicloud':
-          showAicloud.value = true
           break
       }
       saveNavigationToStorage()
@@ -87,9 +62,6 @@ export const useNavigationStore = defineStore(
 
     function hideTool(toolName) {
       switch (toolName) {
-        case 'projectGenerator':
-          showProjectGenerator.value = false
-          break
         case 'nginxConfig':
           showNginxConfig.value = false
           break
@@ -99,27 +71,14 @@ export const useNavigationStore = defineStore(
         case 'virtualGirl':
           showVirtualGirl.value = false
           break
-        case 'serviceManager':
-          showServiceManager.value = false
-          break
         case 'taskQueue':
           showTaskQueue.value = false
-          break
-        case 'imageGenerator':
-          showImageGenerator.value = false
-          break
-        case 'ephemeralWorkflow':
-          showEphemeralWorkflow.value = false
-          break
-        case 'aicloud':
-          showAicloud.value = false
           break
       }
       saveNavigationToStorage()
     }
 
     function hideAllTools() {
-      showProjectGenerator.value = false
       Object.values(toolRefs).forEach(ref => {
         ref.value = false
       })
@@ -151,11 +110,7 @@ export const useNavigationStore = defineStore(
           showNginxConfig: Boolean(showNginxConfig.value),
           showDockerConfig: Boolean(showDockerConfig.value),
           showVirtualGirl: Boolean(showVirtualGirl.value),
-          showServiceManager: Boolean(showServiceManager.value),
           showTaskQueue: Boolean(showTaskQueue.value),
-          showImageGenerator: Boolean(showImageGenerator.value),
-          showEphemeralWorkflow: Boolean(showEphemeralWorkflow.value),
-          showAicloud: Boolean(showAicloud.value),
           isCollapsed: Boolean(isCollapsed.value),
           isBottomInputCollapsed: Boolean(isBottomInputCollapsed.value),
           timestamp: Date.now()
@@ -173,7 +128,6 @@ export const useNavigationStore = defineStore(
           const state = JSON.parse(savedState)
           Object.keys(state).forEach(key => {
             if (key === 'timestamp') return
-            if (key === 'showProjectGenerator') return
             if (toolRefs[key]) {
               toolRefs[key].value = Boolean(state[key])
             } else if (key === 'isCollapsed') {
@@ -196,15 +150,10 @@ export const useNavigationStore = defineStore(
     }
 
     const activeTool = computed(() => {
-      if (showProjectGenerator.value) return 'projectGenerator'
       if (showNginxConfig.value) return 'nginxConfig'
       if (showDockerConfig.value) return 'dockerConfig'
       if (showVirtualGirl.value) return 'virtualGirl'
-      if (showServiceManager.value) return 'serviceManager'
       if (showTaskQueue.value) return 'taskQueue'
-      if (showImageGenerator.value) return 'imageGenerator'
-      if (showEphemeralWorkflow.value) return 'ephemeralWorkflow'
-      if (showAicloud.value) return 'aicloud'
       return null
     })
 
@@ -212,12 +161,7 @@ export const useNavigationStore = defineStore(
       showNginxConfig,
       showDockerConfig,
       showVirtualGirl,
-      showServiceManager,
-      showProjectGenerator,
       showTaskQueue,
-      showImageGenerator,
-      showEphemeralWorkflow,
-      showAicloud,
       isCollapsed,
       isBottomInputCollapsed,
       activeTool,

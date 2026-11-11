@@ -19,7 +19,7 @@ export function createSseParser({ onEvent, onParseError } = {}) {
   const dispatchFrame = (frame) => {
     if (frame === '') return
     let eventName = 'message'
-    let dataLines = []
+    const dataLines = []
     let lastEventId = null
     for (const rawLine of frame.split(/\r\n|\n|\r/)) {
       if (rawLine === '' || rawLine.startsWith(':')) continue

@@ -43,6 +43,7 @@ from app.services.image_resource_service import (
     generation_concurrency,
     get_or_create_generation,
 )
+from app.services.image_history_refs import normalize_image_references
 from app.db.database import get_db
 from app.db.add_history import save_history_to_db
 from app.models.history import History
@@ -206,7 +207,7 @@ async def save_image_generation_history(
             user_id=str(user_id),
             prompt=prompt,
             negative_prompt=negative_prompt if negative_prompt else None,
-            image_urls=list(image_paths),
+            image_urls=normalize_image_references(image_paths),
             generation_type=generation_type,
             params=params,
             seed=seed,
@@ -373,6 +374,16 @@ async def get_generated_resource(
                 break
         except (ValueError, TypeError):
             continue
+    if not owned:
+        image_records = await db.execute(
+            select(ImageGenerationHistory.image_urls).where(
+                ImageGenerationHistory.user_id == str(token["sub"]),
+            )
+        )
+        owned = any(
+            filename in (image_urls or [])
+            for image_urls in image_records.scalars()
+        )
     if not owned or not target.is_file():
         raise HTTPException(status_code=404, detail="图片不存在")
     return FileResponse(target, headers={"Cache-Control": "private, no-store"})
@@ -480,7 +491,7 @@ async def text_to_image_api(
                     user_id=user_id,
                     prompt=request.prompt,
                     negative_prompt=request.negative_prompt,
-                    image_paths=result.get("images", result["paths"]),
+                    image_paths=result["paths"],
                     generation_type="text-to-image",
                     params={
                         "width": request.width,
@@ -650,7 +661,7 @@ async def image_to_image_api(
                 user_id=user_id,
                 prompt=request.prompt,
                 negative_prompt=request.negative_prompt,
-                image_paths=result.get("images", result["paths"]),
+                image_paths=result["paths"],
                 generation_type="image-to-image",
                 params={
                     "width": request.width or 1024,
@@ -873,7 +884,7 @@ async def generate_avatar_api(
                 user_id=user_id,
                 prompt=prompt,
                 negative_prompt="",
-                image_paths=result.get("images", result["paths"]),
+                image_paths=result.get("paths", []),
                 generation_type="avatar",
                 params={"style": style},
                 seed=None,
@@ -909,7 +920,7 @@ async def generate_landscape_api(
                 user_id=user_id,
                 prompt=prompt,
                 negative_prompt="",
-                image_paths=result.get("images", result["paths"]),
+                image_paths=result.get("paths", []),
                 generation_type="landscape",
                 params={"style": style},
                 seed=None,
@@ -945,7 +956,7 @@ async def generate_icon_api(
                 user_id=user_id,
                 prompt=prompt,
                 negative_prompt="",
-                image_paths=result.get("images", result["paths"]),
+                image_paths=result.get("paths", []),
                 generation_type="icon",
                 params={"style": style},
                 seed=None,

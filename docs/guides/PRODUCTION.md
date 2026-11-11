@@ -49,7 +49,7 @@
 
 ## 当前 Docker 配置
 
-`Dockerfile` 是三阶段文件：Node 20 Alpine 前端构建、Python 3.11 slim 后端依赖、Python 3.11 slim 运行时。运行时创建 `appuser`，安装 `curl` 和 `nginx`，暴露 80、8080，并以内置命令启动 Nginx 和 2 个 Uvicorn worker（CMD 内以 `su appuser` 降权）。
+`Dockerfile` 是三阶段文件：Node 20 Alpine 前端构建、Python 3.11 slim 后端依赖、Python 3.11 slim 运行时。运行时只创建 `appuser`、安装 `curl`，暴露 `8080`，CMD 以 `su appuser` 降权后启动 2 个 Uvicorn worker。Nginx 不进入运行镜像，由基础与生产 Compose 中的独立 `nginx:alpine` 服务提供。
 
 两份编排的 `command` 都会覆盖该 CMD，其中的 `su appuser` 不再执行，因此非 root 启动需要编排显式声明：`docker-compose.prod.yml` 的 api/celery/scheduler 均设置 `user: appuser`。本地 `docker-compose.yml` 使用 bind mount（`./logs`、`./data`、`./uploads` 等属主为宿主用户），切到 `appuser` 会失去写权限，故保持默认 root 运行。
 
@@ -184,7 +184,7 @@ curl -i http://127.0.0.1:8080/api/v1/health
 
 ## Nginx 与 Vite
 
-`configs/nginx.conf` 使用 `/workspace/src/dist` 作为静态根目录，80 端口提供 SPA fallback；`/api/` 和 `/ws/` 代理到 `api_backend`。Compose 上游为 `api:8080`，Dockerfile 内置 Nginx 使用的本地上游为 `127.0.0.1:8080`。Nginx 设置 100 MB 请求体上限、Gzip、常见安全响应头和隐藏文件拒绝规则。
+`configs/nginx.conf` 使用 `/workspace/src/dist` 作为静态根目录，80 端口提供 SPA fallback；`/api/` 和 `/ws/` 代理到 `api_backend`。运行镜像只承载 FastAPI（`8080`），Nginx 在两套 Compose 中都是独立服务，upstream 固定为 `api:8080`。Nginx 设置 100 MB 请求体上限、Gzip、常见安全响应头和隐藏文件拒绝规则。
 
 `src/vite.config.js` 的开发服务器监听 `0.0.0.0:3000`，允许 `localhost`、`127.0.0.1` 和 `.monkeycode-ai.online`，Vite `/api/v1`、`/api/v2` 代理目标是 `http://localhost:8000`。该开发代理与 Compose API 的 8080 端口属于不同运行拓扑，不能混用。
 

@@ -56,4 +56,27 @@ describe('ServiceManager', () => {
     expect(wrapper.text()).toContain('进程签名：')
     expect(wrapper.text()).toContain('熔断状态：')
   })
+
+  it('opens fuse dialog with dialog semantics and closes on Escape', async () => {
+    getServices.mockResolvedValue({
+      services: [{ name: 'api', port: 8000, restart_cmd: 'restart', process_signature: 'uvicorn' }],
+      learned: 1,
+      enabled: 1
+    })
+    const wrapper = mount(ServiceManager, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('button[title="熔断配置"]').trigger('click')
+
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.attributes('aria-modal')).toBe('true')
+    expect(dialog.attributes('aria-labelledby')).toBe('fuse-modal-title')
+    expect(wrapper.get('#fuse-modal-title').exists()).toBe(true)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
 })

@@ -132,6 +132,18 @@ start_nginx() {
         return 1
     fi
 
+    # configs/nginx.conf 通过 /etc/nginx/conf.d/upstream.conf 注入上游，
+    # 宿主机拓扑需把本地上游（127.0.0.1:8080）安装到该固定路径。
+    local upstream_src="$PROJECT_DIR/configs/nginx-upstream-local.conf"
+    local upstream_dst="/etc/nginx/conf.d/upstream.conf"
+    if [ -f "$upstream_src" ]; then
+        if [ -w "$(dirname "$upstream_dst")" ] || [ "$(id -u)" -eq 0 ]; then
+            install -m 644 "$upstream_src" "$upstream_dst"
+        else
+            log_warn "无法写入 $upstream_dst，请以 root 运行或手动安装 $upstream_src"
+        fi
+    fi
+
     if [ ! -f "$PROJECT_DIR/configs/nginx.conf" ]; then
         log_warn "configs/nginx.conf 不存在，使用默认配置"
         nginx

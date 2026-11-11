@@ -9,22 +9,39 @@ describe('navigation store activeTool', () => {
     setActivePinia(createPinia())
   })
 
-  it('showTool(projectGenerator) 会被 activeTool 反映（FESTATE-06）', () => {
+  it('showTool(taskQueue) 会被 activeTool 反映', () => {
     const store = useNavigationStore()
 
-    store.showTool('projectGenerator')
+    store.showTool('taskQueue')
 
-    expect(store.showProjectGenerator).toBe(true)
-    expect(store.activeTool).toBe('projectGenerator')
+    expect(store.showTaskQueue).toBe(true)
+    expect(store.activeTool).toBe('taskQueue')
   })
 
   it('activeTool 为只读 computed，不应被赋值覆盖', () => {
     const store = useNavigationStore()
 
-    store.showTool('imageGenerator')
-    expect(store.activeTool).toBe('imageGenerator')
+    store.showTool('virtualGirl')
+    expect(store.activeTool).toBe('virtualGirl')
 
-    store.activeTool = 'projectGenerator'
-    expect(store.activeTool).toBe('imageGenerator')
+    store.activeTool = 'taskQueue'
+    expect(store.activeTool).toBe('virtualGirl')
+  })
+
+  it('已卸载工具的历史导航状态不会在恢复时重新挂载（FRESCAN-64）', () => {
+    localStorage.setItem('navigationState', JSON.stringify({
+      showImageGenerator: true,
+      showAicloud: true,
+      showProjectGenerator: true,
+      showTaskQueue: true
+    }))
+    const store = useNavigationStore()
+
+    store.restoreNavigationFromStorage()
+
+    expect(store.showTaskQueue).toBe(true)
+    expect(store.showImageGenerator).toBeUndefined()
+    expect(store.showAicloud).toBeUndefined()
+    expect(store.showProjectGenerator).toBeUndefined()
   })
 })
