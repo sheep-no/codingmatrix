@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   CloudConnection,
   CloudConnectionError,
+  SESSION_RECOVERY_THROTTLE_MS,
+  shouldRecoverSession,
 } from "../dist/connection.js";
 import { MemoryResultStorage, ResultStore } from "../dist/result-store.js";
 
@@ -273,6 +275,26 @@ test("classifies authentication failures without retrying", async () => {
     (error) => error instanceof CloudConnectionError && error.code === "authentication_failed",
   );
   assert.equal(attempts, 1);
+});
+
+test("recovers the session on 401 and 410 but not on other failures", () => {
+  const now = 1_000_000;
+  const unauthenticated = new CloudConnectionError("authentication_failed", "expired", 401);
+  const gone = new CloudConnectionError("request_failed", "expired", 410);
+  const serverError = new CloudConnectionError("request_failed", "boom", 500);
+
+  assert.equal(shouldRecoverSession(unauthenticated, 0, now), true);
+  assert.equal(shouldRecoverSession(gone, 0, now), true);
+  assert.equal(shouldRecoverSession(serverError, 0, now), false);
+  assert.equal(shouldRecoverSession(new Error("boom"), 0, now), false);
+});
+
+test("throttles session recovery after a recent attempt", () => {
+  const now = 1_000_000;
+  const gone = new CloudConnectionError("request_failed", "expired", 410);
+
+  assert.equal(shouldRecoverSession(gone, now - SESSION_RECOVERY_THROTTLE_MS + 1, now), false);
+  assert.equal(shouldRecoverSession(gone, now - SESSION_RECOVERY_THROTTLE_MS - 1, now), true);
 });
 
 test("surfaces the backend error message for non-retryable failures", async () => {

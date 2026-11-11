@@ -12,7 +12,7 @@ import { ApprovalBridge } from "./approval-bridge.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
 import { ValidationRunner } from "./validation-runner.js";
 import { WorkspaceAuthorization } from "./workspace-authorization.js";
-import { CloudConnection, CloudConnectionError } from "./connection.js";
+import { CloudConnection, shouldRecoverSession } from "./connection.js";
 import { discoverWorkspaceSkills, WorkspaceSkillRoot } from "./skill-discovery.js";
 import { ResultStore, ResultStorage } from "./result-store.js";
 import { dispatchWorkbenchRequest } from "./workbench-requests.js";
@@ -400,13 +400,10 @@ async function startCloudConnection(
         await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
       }
       // A 30-minute Host session expiry returns 410. Re-handshake instead of
-      // retrying with the dead session id forever.
-      if (
-        startId === connectionStartId &&
-        error instanceof CloudConnectionError &&
-        error.status === 410 &&
-        Date.now() - lastSessionRecoveryAt > 30_000
-      ) {
+      // retrying with the dead session id forever. A 401 means the access
+      // token is no longer accepted; re-handshake re-reads the configured
+      // token so an externally refreshed value takes effect without a reload.
+      if (startId === connectionStartId && shouldRecoverSession(error, lastSessionRecoveryAt)) {
         lastSessionRecoveryAt = Date.now();
         void reconnectConfiguredSession()
           .catch(async () => {
