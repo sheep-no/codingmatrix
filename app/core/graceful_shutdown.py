@@ -259,9 +259,9 @@ class GracefulShutdownManager:
 
     def restore_signal_handlers(self):
         """恢复原始信号处理器"""
-        if self._original_sigterm_handler:
+        if self._original_sigterm_handler is not None:
             signal.signal(signal.SIGTERM, self._original_sigterm_handler)
-        if self._original_sigint_handler:
+        if self._original_sigint_handler is not None:
             signal.signal(signal.SIGINT, self._original_sigint_handler)
         logger.info("信号处理器已恢复")
 

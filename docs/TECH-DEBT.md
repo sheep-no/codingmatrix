@@ -513,6 +513,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.60% → 73.46%`，覆盖行 48057 → 48549，语句总数 63697 → 63706，覆盖分支 13105 → 13350（总分支 20550 → 20556），新增 4 个测试文件共 190 项，全量 `6439 → 6628 passed, 2 skipped`。
 
+### 后端缺陷扫描第二十一轮：关闭恢复与系统负载快照缺陷（2026-11-11）
+
+补测 `app/core/graceful_shutdown.py`（153 语句、37.71%，此前无测试）与 `app/utils/system_load.py`（106 语句、52.34%），修复 2 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 健康感知路由取负载快照必然崩溃：`get_load_snapshot` 把 `is_draining` 当方法调用 `is_draining()`，而它是属性，稳定抛 `TypeError: 'bool' object is not callable`；`dynamic_model_router` 在 `enable_health_aware_routing` 开启时每轮路由都会走到这里 | `app/utils/system_load.py`（`get_load_snapshot`） | 已解决；改为直接读取属性。回归 `tests/unit/test_system_load.py::TestSnapshot::test_is_draining_property_is_not_called`，回退后 `TypeError` |
+| P2 | `SIG_DFL` 原处理器无法还原：`restore_signal_handlers` 用真值判断 `if self._original_sigterm_handler:`，而 `signal.SIG_DFL` 等于 0，导致原本为「默认处理」的处理器恢复被静默跳过 | `app/core/graceful_shutdown.py`（`restore_signal_handlers`） | 已解决；改为 `is not None`。回归 `tests/unit/test_graceful_shutdown.py::TestSignalHandlers::test_restore_sigterm_with_default_handler`，回退后失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.46% → 73.66%`，覆盖行 48549 → 48687，语句总数 63706 不变，覆盖分支 13350 → 13384（总分支 20556 不变），新增 2 个测试文件共 67 项，全量 `6628 → 6692 passed, 2 skipped`。`graceful_shutdown.py` 37.71% → 100.00%（153/153 行、22/22 分支），`system_load.py` 52.34% → 100.00%（106/106 行、22/22 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

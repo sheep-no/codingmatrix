@@ -61,8 +61,8 @@ class SystemLoadMonitor:
         # 采集活跃请求数（需要从中间件或请求上下文获取）
         active_requests = await self._get_active_requests()
         
-        # 获取 Drain 模式状态
-        is_drain_mode = self.shutdown_manager.is_draining()
+        # 获取 Drain 模式状态（is_draining 是属性）
+        is_drain_mode = self.shutdown_manager.is_draining
         
         # 获取各模型队列深度（需要从 executor 或模型路由器获取）
         model_queue_depths = await self._get_model_queue_depths()
