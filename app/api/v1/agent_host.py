@@ -22,6 +22,8 @@ router = APIRouter()
 
 SUPPORTED_PROTOCOL_VERSION = 1
 CAPABILITIES = {"workspace", "file", "terminal", "diagnostics", "validation", "skill_runtime"}
+# Sessions idle longer than this expire; authenticated traffic slides the window.
+HOST_SESSION_TTL = timedelta(minutes=30)
 HOST_EVENT_KINDS = {"approval_request", "progress_event", "diagnostic_event", "tool_result"}
 _sessions: dict[str, dict[str, Any]] = {}
 logger = logging.getLogger(__name__)
@@ -523,7 +525,7 @@ async def agent_host_handshake(
 
     _prune_expired_sessions()
 
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    expires_at = datetime.now(timezone.utc) + HOST_SESSION_TTL
     session_id = str(uuid4())
     policy = {
         "local_execution_enabled": True,
@@ -564,7 +566,7 @@ async def agent_host_handshake(
     )
 
 
-def _get_session(session_id: str, token: dict) -> dict[str, Any]:
+def _get_session(session_id: str, token: dict, touch: bool = True) -> dict[str, Any]:
     session = _sessions.get(session_id)
     restored = session is None
     session = session or _session_store.load(session_id)
@@ -573,6 +575,10 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
     if datetime.now(timezone.utc) >= session["expires_at"]:
         _sessions.pop(session_id, None)
         raise HTTPException(status_code=410, detail="agent host session expired")
+    if touch:
+        # Any authenticated Host traffic proves the extension is still alive,
+        # so the 30-minute window slides instead of expiring mid-poll.
+        session["expires_at"] = datetime.now(timezone.utc) + HOST_SESSION_TTL
     session.setdefault("skills", {})
     session.setdefault("control_status", "active")
     session.setdefault("in_flight_actions", [])
