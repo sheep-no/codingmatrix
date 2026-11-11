@@ -464,6 +464,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`71.12% → 71.56%`，覆盖行 47213 → 47458，语句总数 63670 → 63699，覆盖分支 12675 → 12831，新增 152 个用例（`6071 → 6223 passed`）。`architect.py` 69.12% → 96.78%，`language_detector.py` 79.68% → 83.18%。
 
+### 后端缺陷扫描第十七轮：文件工具路径穿越与搜索解析缺陷（2026-11-11）
+
+补测 `app/agent/tools.py`（657 语句、60.95%、缺失 247 行），修复补测暴露的 3 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `_tool_regex_replace` 路径穿越：`root/../outside.txt` 的 `Path` 只在词法层面比较字符串前缀，`relative_to(root)` 通过校验，实际读写落到项目外的文件 | `app/agent/tools.py`（`_tool_regex_replace`） | 已解决；先用 `os.path.normpath` 消掉 `..`，再对 glob 命中的每个文件按 `resolve()` 真实路径复核。回归 `tests/unit/test_tools_branches.py::test_regex_replace_rejects_traversal`，回退后失败 |
+| P2 | grep 上下文行被整行丢弃：`grep -C` 输出的上下文行是 `file-line-content`，解析只按 `:` 切分，命中行之外的上下文永远进不了结果 | `app/agent/tools.py`（`_tool_search_files`） | 已解决；改用 `^(.*?)[:-](\d+)[:-](.*)$` 同时接受 `:` 与 `-` 分隔。回归 `test_search_skips_separator_lines_and_parses_context_numbers`，回退后失败 |
+| P2 | 版本号文件名分支不可达：`filename.startswith('=')` 的通用非法名判定排在 `^=\d` 版本号判定之前，`=1.2.3` 永远拿不到版本号提示 | `app/agent/tools.py`（`_tool_write_file`） | 已解决；版本号判定前移。回归 `test_version_like_filename_is_rejected`，回退后失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`71.56% → 72.00%`，覆盖行 47458 → 47703，语句总数 63699 → 63693，覆盖分支 12831 → 12948，新增 113 个用例（`6223 → 6336 passed`）。`tools.py` 60.95% → 100.00%（657/657 行、262/262 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

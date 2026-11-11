@@ -486,9 +486,13 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
                         replacement: str, recursive: bool = False) -> dict:
     """基于正则表达式的批量替换"""
     try:
+        import os
+
         root = Path(project_path).resolve()
-        full_path = root / path if not Path(path).is_absolute() else Path(path).resolve()
-        # 安全检查：明确路径或 glob 根必须在 project_root 内
+        raw = Path(path)
+        # normpath 必须在词法层面消掉 `..`：Path.relative_to 只比较字符串前缀，
+        # `root/../outside.txt` 会通过检查却实际改写项目外的文件。
+        full_path = Path(os.path.normpath(str(raw if raw.is_absolute() else root / raw)))
         try:
             full_path.relative_to(root)
         except ValueError:
@@ -498,6 +502,8 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
             files = [Path(f) for f in glob.glob(str(full_path), recursive=recursive) if Path(f).is_file()]
         else:
             files = [full_path] if full_path.is_file() else []
+        # glob 与符号链接都可能把实际文件指到项目外，逐个按真实路径复核。
+        files = [f for f in files if f.resolve().is_relative_to(root)]
 
         if not files:
             return {"success": False, "error": f"未匹配到文件: {path}"}
@@ -709,8 +715,6 @@ def _tool_run_command(project_path: str, command: str, cwd: str | None = None, t
             command_parts = shlex.split(command, posix=True)
         except ValueError as exc:
             return {"success": False, "error": f"安全限制: 命令解析失败: {exc}"}
-        if not command_parts:
-            return {"success": False, "error": "安全限制: 命令不能为空"}
 
         executable = Path(command_parts[0]).name.lower()
         shell_interpreters = {"sh", "bash", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh"}
@@ -868,24 +872,18 @@ def _tool_search_files(
                     continue
                 # 解析 grep 输出格式: file:line_number:content 或 file-line_number-content
                 # 也处理 rg 格式: file:line_number:content
-                parts = line.split(':', 2)
-                if len(parts) >= 3:
-                    file_path = parts[0]
+                # grep -C 的上下文行是 file-line-content，匹配行是
+                # file:line:content；两种分隔符都要解析，否则上下文行会被丢弃。
+                parsed = re.match(r'^(.*?)[:-](\d+)[:-](.*)$', line)
+                if parsed:
+                    file_path, line_no, content = parsed.groups()
                     # 移除 work_dir 前缀，得到相对路径
                     if file_path.startswith(str(work_dir)):
                         file_path = file_path[len(str(work_dir)):].lstrip('/')
-                    try:
-                        line_no = int(parts[1])
-                    except ValueError:
-                        # 上下文行用 - 分隔
-                        try:
-                            line_no = int(parts[1].replace('-', ''))
-                        except (ValueError, AttributeError):
-                            line_no = 0
                     matches.append({
                         "file": file_path,
-                        "line_number": line_no,
-                        "content": parts[2].strip() if len(parts) > 2 else "",
+                        "line_number": int(line_no),
+                        "content": content.strip(),
                     })
 
         return {
@@ -941,10 +939,10 @@ def _tool_write_file(project_path: str, path: str, content: str) -> dict:
 
         # 文件名验证：拒绝无效文件名
         filename = Path(path).name
-        if not filename or filename in ('.', '..') or filename.startswith('=') or re.search(r'[<>:"|?*]', filename):
-            return {"success": False, "error": f"无效的文件名: '{filename}'。文件名不能为 '.' 或 '..'，不能以 '=' 开头，不能包含特殊字符"}
         if re.match(r'^=\d', filename):
             return {"success": False, "error": f"无效的文件名: '{filename}'。这看起来像版本号，不是有效的文件名"}
+        if not filename or filename in ('.', '..') or filename.startswith('=') or re.search(r'[<>:"|?*]', filename):
+            return {"success": False, "error": f"无效的文件名: '{filename}'。文件名不能为 '.' 或 '..'，不能以 '=' 开头，不能包含特殊字符"}
 
         full_path = _safe_join(project_path, path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
