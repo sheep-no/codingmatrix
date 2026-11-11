@@ -564,6 +564,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.98% → 74.10%`，覆盖行 48872 → 48958，语句总数 63706 → 63727，覆盖分支 13462 → 13504（总分支 20556 → 20566），新增 1 个测试文件 `test_visual_modifier.py`（21 项）并在既有解析器测试补 4 项，全量 `6777 → 6804 passed, 2 skipped`。`visual_modifier.py` 21.67% → 100.00%（90/90 行、30/30 分支），`modify_intent_parser.py` → 100.00%（146/146 行、72/72 分支）。
 
+### 后端缺陷扫描第二十六轮：缓存淘汰重复删除崩溃（2026-11-11）
+
+补测 `app/agent/fix_pattern_cache.py`（159 语句、45.32%，此前仅反模式判定被判过）与 `app/agent/strategy_evaluator.py`（158 语句、41.74%，此前仅数据类默认值被判过），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 同一条目同时触发过期归档与容量淘汰时抛 `KeyError`：`_apply_decay_and_cleanup` 先把超过 60 天未命中的签名加入删除列表，容量超限时又把同一批低优先级条目追加进去，随后逐条 `del self.patterns[signature]`，第二次删除命中已删键直接崩溃；调用点 `add_pattern`/`update_pattern_success` 都没有捕获，写入失败会让本轮修复模式登记整体中断 | `app/agent/fix_pattern_cache.py`（`_apply_decay_and_cleanup`） | 已解决；删除前用 `dict.fromkeys` 对删除列表去重，日志按去重后数量统计。回归 `tests/unit/test_fix_pattern_cache.py::TestDecayAndCleanup::test_expired_entry_also_evicted_by_capacity_is_safe`，回退后抛 `KeyError: 'expired'` |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`74.10% → 74.38%`，覆盖行 48958 → 49112，语句总数 63727 不变，覆盖分支 13504 → 13588（总分支 20566 不变），新增 2 个测试文件共 69 项，全量 `6804 → 6866 passed, 2 skipped`。`fix_pattern_cache.py` 45.32% → 100.00%（159/159 行、44/44 分支），`strategy_evaluator.py` 41.74% → 100.00%（158/158 行、60/60 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

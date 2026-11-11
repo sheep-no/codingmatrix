@@ -196,12 +196,16 @@ class FixPatternCache:
             logger.info(f"缓存触发容量上限 ({len(self.patterns)} > {self.max_size})，计划淘汰 {excess_count} 个条目")
 
         # 执行删除
-        for signature in patterns_to_remove:
+        # 过期归档与 LRU 淘汰可能命中同一条目，去重后再删除
+        for signature in dict.fromkeys(patterns_to_remove):
             del self.patterns[signature]
 
         if patterns_to_remove:
             self._save_cache()
-            logger.info(f"清理 {len(patterns_to_remove)} 个缓存条目，剩余 {len(self.patterns)} 个")
+            logger.info(
+                f"清理 {len(dict.fromkeys(patterns_to_remove))} 个缓存条目，"
+                f"剩余 {len(self.patterns)} 个"
+            )
 
     def _tokenize(self, text: str) -> list[str]:
         tokens = text.lower().split()
