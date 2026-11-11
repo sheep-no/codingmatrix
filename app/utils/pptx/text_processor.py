@@ -80,10 +80,14 @@ def smart_split_line(text: str, max_chars: int) -> List[str]:
             if len(test_line) > max_chars:
                 if current_line:
                     lines.append(current_line.strip())
-                # 如果单词本身超过限制，强制截断
+                # 如果单词本身超过限制，按 max_chars 分段保留全部内容
                 if len(word) > max_chars:
-                    lines.append(word[:max_chars])
-                    current_line = ""
+                    chunks = [
+                        word[index:index + max_chars]
+                        for index in range(0, len(word), max_chars)
+                    ]
+                    lines.extend(chunks[:-1])
+                    current_line = chunks[-1]
                 else:
                     current_line = word
             else:
@@ -206,8 +210,12 @@ def prevent_text_overflow_simple(
 
 def truncate_text(text: str, max_length: int = 200) -> str:
     """截断文本到指定长度"""
+    if max_length <= 0:
+        return ""
     if not text or len(text) <= max_length:
         return text
+    if max_length <= 3:
+        return "." * max_length
     return text[:max_length - 3] + "..."
 
 

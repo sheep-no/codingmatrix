@@ -122,53 +122,53 @@ class FastApiCrudRenderer:
             if not field.required or field.default is not None:
                 arguments.append(f"default={field.default!r}")
             columns.append(f"    {field.name} = Column({', '.join(arguments)})")
-        return dedent(
-            f'''\
-            from sqlalchemy import Column, Integer, {", ".join(imports)}
-
-            from {database_module} import Base
-
-
-            class {self.ir.entity_name}(Base):
-                __tablename__ = "{self.ir.resource_name}"
-
-            {chr(10).join(columns)}
-            '''
-        ).replace("\n            id =", "\n    id =").replace("\n            ", "\n")
+        lines = [
+            f"from sqlalchemy import Column, Integer, {', '.join(imports)}",
+            "",
+            f"from {database_module} import Base",
+            "",
+            "",
+            f"class {self.ir.entity_name}(Base):",
+            f'    __tablename__ = "{self.ir.resource_name}"',
+            "",
+            *columns,
+            "",
+        ]
+        return "\n".join(lines)
 
     def _render_schema(self) -> str:
-        create_fields = "\n".join(
+        create_fields = [
             f"    {field.name}: {_python_annotation(field)}{_schema_default(field)}"
             for field in self.ir.fields
-        )
-        update_fields = "\n".join(
+        ]
+        update_fields = [
             f"    {field.name}: {_python_type(field.type)} | None = None"
             for field in self.ir.fields
-        )
-        response_fields = "\n".join(
+        ]
+        response_fields = [
             f"    {field.name}: {_python_type(field.type)}{' | None' if field.nullable else ''}"
             for field in self.ir.fields
-        )
-        return dedent(
-            f'''\
-            from pydantic import BaseModel, ConfigDict
-
-
-            class {self.ir.entity_name}Create(BaseModel):
-            {create_fields}
-
-
-            class {self.ir.entity_name}Update(BaseModel):
-            {update_fields}
-
-
-            class {self.ir.entity_name}Response(BaseModel):
-                model_config = ConfigDict(from_attributes=True)
-
-                id: int
-            {response_fields}
-            '''
-        ).replace("\n            ", "\n")
+        ]
+        lines = [
+            "from pydantic import BaseModel, ConfigDict",
+            "",
+            "",
+            f"class {self.ir.entity_name}Create(BaseModel):",
+            *create_fields,
+            "",
+            "",
+            f"class {self.ir.entity_name}Update(BaseModel):",
+            *update_fields,
+            "",
+            "",
+            f"class {self.ir.entity_name}Response(BaseModel):",
+            "    model_config = ConfigDict(from_attributes=True)",
+            "",
+            "    id: int",
+            *response_fields,
+            "",
+        ]
+        return "\n".join(lines)
 
     def _render_repository(self) -> str:
         database_module = _module_name(self.layout.database)

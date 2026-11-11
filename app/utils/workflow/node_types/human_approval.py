@@ -112,8 +112,13 @@ class HumanApprovalNode(TaskNodeBase):
                 if result is None:
                     result = default_option
 
-                approved = result.get("approved", False) if isinstance(result, dict) else result == "approve"
-                selected_option = result.get("option", result) if isinstance(result, dict) else result
+                if isinstance(result, dict):
+                    approved = bool(result.get("approved", False))
+                    fallback_option = "approve" if approved else "reject"
+                    selected_option = result.get("option", fallback_option)
+                else:
+                    approved = result == "approve"
+                    selected_option = result
 
                 logger.info(f"[{self.node_id}] 审批完成 | option={selected_option} | approved={approved}")
 

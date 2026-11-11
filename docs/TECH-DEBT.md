@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：补齐本地依赖后，`PYTHONPATH=/workspace REDIS_URL=redis://localhost:6379/0 python3 -m pytest tests/unit tests/integration -q -p no:randomly --timeout=300` → `5359 passed, 2 skipped, 0 failed`（收集 5361，176s，第九轮修复后）。剩余 2 项为 `tests/unit/test_dynamic_adapter.py` 中显式 `@pytest.mark.skip` 的流式响应 mock，属设计性跳过。
+回归：补齐本地依赖后，`PYTHONPATH=/workspace REDIS_URL=redis://localhost:6379/0 python3 -m pytest tests/unit tests/integration -q -p no:randomly --timeout=300` → `5463 passed, 2 skipped, 0 failed`（收集 5465，186s，第十轮补测后）。剩余 2 项为 `tests/unit/test_dynamic_adapter.py` 中显式 `@pytest.mark.skip` 的流式响应 mock，属设计性跳过。
 
 补齐的本地测试依赖：`redis-server 7.0.15`（`127.0.0.1:6379`，测试使用 db 0 与 db 15）、`faiss-cpu 1.16.0`、`libreoffice-impress 7.4.7.2`、`poppler-utils 22.12.0`。补齐前无 Redis 时 unit 有 6 项失败、integration 有 5 项跳过；补 faiss 前 `test_v5_1_requirement_deep.py` 1 项跳过；补 LibreOffice/poppler 前 `test_ppt_feature_repairs.py` 1 项跳过。
 
@@ -358,6 +358,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P2 | `src/dist/index.html` 不存在（前端未构建）时，`GET /`、SPA 历史路由 `GET /{full_path:path}` 均返回 500。`FileResponse` 构造阶段不校验文件存在，缺失在 ASGI 发送阶段抛 `RuntimeError`，把可预期的「未构建」状态变成服务端错误 | `app/main.py`（`serve_vue`、`serve_vue_routes`） | 已解决；新增 `_dist_index_or_404()`，缺失产物时抛 404（`前端静态资源未构建`），API 路由不受影响。回归 `tests/unit/test_static_spa_path_traversal.py` 新增 2 项（端到端 `/`、`/some/spa/route`、`/missing-asset.js` 均 404 + 协程直调），回退源码后 2 项精确失败 |
 
 真实验证：Uvicorn `:8000` 下 `/`、`/some/spa/route`、`/missing.js` 由 500 变为 404，`/api/v1/health`、`/api/docs` 仍 200。
+
+### 后端缺陷扫描第十轮：覆盖率补测暴露的生成与安全缺陷（2026-11-11）
+
+以「提高覆盖率并修复补测中暴露的真实缺陷」为目标，对 0%–30% 覆盖的纯逻辑模块补测，修复 5 处缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 确定性 CRUD 渲染器生成的 `models.py` / `schemas.py` 首行即 `IndentationError`：`_render_model` / `_render_schema` 用 `dedent` 拼接多行字段块，字段行缩进未被统一，生成项目无法导入 | `app/agent/constrained_generation.py` | 已解决；改为显式行列表拼接。回归 `tests/unit/test_constrained_generation.py` 23 项（含真实生成六文件并执行其自带 CRUD 测试），回退后 5 项失败 |
+| P1 | 安全检测漏掉经典 bash fork bomb：`MALICIOUS_PATTERNS` 写死无空格形态 `:(){:\|:&\};:`，带空格的 `:(){ :\|:& };:` 与自定义函数名变体均不命中，沙箱读写内容检查可被绕过 | `app/utils/aicloud/content_analyzer.py` | 已解决；正则改用反向引用匹配自递归 `name(){ name\|name& };`，并排除 `foo() { bar \| baz & }` 误报。回归 `tests/unit/test_aicloud_content_analyzer.py` 40 项（含误报防护），回退后 3 项失败 |
+| P2 | `truncate_text(text, max_length<3)` 用 `text[:max_length-3]` 负切片，结果反而变长（`max_length=2` 返回 8 字符） | `app/utils/pptx/text_processor.py` | 已解决；`max_length<=0` 返回空串，`<=3` 只返回对应数量的点。回归 `tests/unit/test_pptx_text_processor.py` 25 项，回退后 3 项失败 |
+| P2 | `smart_split_line` 遇到超长英文单词只保留前 `max_chars` 个字符，剩余内容直接丢弃 | `app/utils/pptx/text_processor.py` | 已解决；按 `max_chars` 分段保留整词。回归同上文件，回退后 1 项失败 |
+| P2 | 人工审批回调返回 dict 但缺 `option` 键时，`selected_option = result.get("option", result)` 回退成整个 dict，下游按字符串处理拿到非预期结构 | `app/utils/workflow/node_types/human_approval.py` | 已解决；按 `approved` 推导 `approve`/`reject` 字符串选项。回归 `tests/unit/test_human_approval_node.py` 16 项，回退后 1 项失败 |
+
+覆盖率变化（`--cov=app`，unit + integration）：`67.56% → 68.06%`，覆盖语句 42964 → 43377，新增 104 个用例（`5359 → 5463 passed`）。四个目标模块：`constrained_generation.py` 0% → 97.9%，`content_analyzer.py` 20.75% → 100%，`text_processor.py` 12.5% → 96.3%，`human_approval.py` 18.2% → 97.4%。
 
 ### 本轮逐文件验证（2026-09-27）
 
