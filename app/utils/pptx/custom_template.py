@@ -16,6 +16,27 @@ from app.utils.pptx.templates import TemplateConfig, TemplateCategory
 logger = logging.getLogger(__name__)
 
 
+def _placeholder_type_name(placeholder_format) -> str:
+    """把 python-pptx 的占位符类型规范化为小写语义名。
+
+    `str(ph.type)` 的实际形态是 ``"TITLE (1)"`` / ``"OBJECT (7)"``，直接与
+    ``"title"`` / ``"obj"`` 比较会让真实模板全部识别失败。这里只取枚举名，
+    并额外兼容调用方传入的裸字符串。
+    """
+    raw = getattr(placeholder_format, "type", None)
+    if raw is None:
+        return ""
+    name = getattr(raw, "name", None)
+    if name:
+        return str(name).lower()
+    text = str(raw)
+    return text.split("(", 1)[0].strip().lower()
+
+
+_TITLE_PLACEHOLDERS = {"title", "center_title", "subtitle", "sub_title"}
+_BODY_PLACEHOLDERS = {"body", "content", "object", "obj"}
+
+
 class CustomTemplateParser:
     """自定义模板解析器 - 从 .pptx 母版中提取配置"""
 
@@ -230,7 +251,9 @@ class CustomTemplateParser:
             theme = slide.theme
             if hasattr(theme, "_element"):
                 el = theme._element
-                font_scheme = el.find(qn("a:fontScheme"))
+                # 真实主题结构是 theme -> themeElements -> fontScheme，
+                # 只查直接子节点会恒为 None，字体永远取默认值。
+                font_scheme = el.find(".//" + qn("a:fontScheme"))
                 if font_scheme is not None:
                     maj_font = font_scheme.find(qn("a:majorFont"))
                     min_font = font_scheme.find(qn("a:minorFont"))
@@ -316,9 +339,9 @@ class CustomTemplateParser:
                 ph_info = self._get_placeholder_info(shape)
                 if ph_info:
                     info["placeholders"].append(ph_info)
-                    if ph_info.get("type") in ("title", "centerTitle", "subTitle"):
+                    if ph_info.get("type") in _TITLE_PLACEHOLDERS:
                         info["has_title"] = True
-                    if ph_info.get("type") in ("body", "content", "obj"):
+                    if ph_info.get("type") in _BODY_PLACEHOLDERS:
                         info["has_content"] = True
 
             margins = self._detect_margins(shapes)
@@ -336,9 +359,7 @@ class CustomTemplateParser:
                 return None
 
             ph = shape.placeholder_format
-            ph_type = None
-            if hasattr(ph, "type"):
-                ph_type = str(ph.type) if ph.type is not None else "unknown"
+            ph_type = _placeholder_type_name(ph) or "unknown"
 
             left = 0.0
             top = 0.0
@@ -374,15 +395,15 @@ class CustomTemplateParser:
             try:
                 if shape.is_placeholder:
                     ph = shape.placeholder_format
-                    ph_type = str(ph.type) if ph.type is not None else ""
+                    ph_type = _placeholder_type_name(ph)
 
-                    if ph_type in ("title", "centerTitle", "subTitle"):
+                    if ph_type in _TITLE_PLACEHOLDERS:
                         if shape.left:
                             margins["title_margin_left"] = shape.left.inches
                         if shape.top and shape.height:
                             margins["title_margin_bottom"] = shape.top.inches + shape.height.inches + 0.2
 
-                    if ph_type in ("body", "content"):
+                    if ph_type in _BODY_PLACEHOLDERS:
                         if shape.left:
                             margins["body_margin_left"] = shape.left.inches
                         if shape.top:
@@ -431,17 +452,18 @@ class CustomTemplateParser:
             page_size = Inches(1.5).emu
 
             if shape.shape_type and hasattr(shape, "fill"):
-                pos = shape.position if hasattr(shape, "position") else None
-
-                if pos:
-                    if pos.top < top_threshold:
+                # python-pptx 的 Shape 没有 `position` 属性，旧实现用 hasattr
+                # 探测后恒为假，页眉/页脚条检测永远不会触发。
+                top = getattr(shape, "top", None)
+                if top is not None:
+                    if top < top_threshold:
                         color = self._get_fill_color(shape)
                         if color:
                             decorations["has_header_bar"] = True
                             decorations["header_bar_color"] = color
 
                     slide_h = Emu(int(self._slide_height * 914400))
-                    if pos.top > slide_h - bottom_threshold:
+                    if top > slide_h - bottom_threshold:
                         color = self._get_fill_color(shape)
                         if color:
                             decorations["has_footer_bar"] = True
@@ -525,9 +547,9 @@ class CustomTemplateParser:
                     if ph:
                         result["placeholders"].append(ph)
 
-                        if ph.get("type") in ("title", "centerTitle", "subTitle"):
+                        if ph.get("type") in _TITLE_PLACEHOLDERS:
                             has_title = True
-                        if ph.get("type") in ("body", "content"):
+                        if ph.get("type") in _BODY_PLACEHOLDERS:
                             has_body = True
                 else:
                     result["decoration_shapes"].append({
@@ -709,12 +731,11 @@ class TemplateValidator:
                 for shape in layout.shapes:
                     if shape.is_placeholder:
                         ph = shape.placeholder_format
-                        if hasattr(ph, "type") and ph.type is not None:
-                            t = str(ph.type).lower()
-                            if "title" in t:
-                                found_title = True
-                            if t in ("body", "content", "obj"):
-                                found_body = True
+                        t = _placeholder_type_name(ph)
+                        if t in _TITLE_PLACEHOLDERS:
+                            found_title = True
+                        if t in _BODY_PLACEHOLDERS:
+                            found_body = True
 
         if found_title:
             missing.remove("title")
@@ -767,12 +788,11 @@ class TemplateValidator:
                     for shape in layout.shapes:
                         if shape.is_placeholder:
                             ph = shape.placeholder_format
-                            if hasattr(ph, "type") and ph.type is not None:
-                                t = str(ph.type).lower()
-                                if "title" in t:
-                                    has_title = True
-                                if t in ("body", "content", "obj"):
-                                    has_body = True
+                            t = _placeholder_type_name(ph)
+                            if t in _TITLE_PLACEHOLDERS:
+                                has_title = True
+                            if t in _BODY_PLACEHOLDERS:
+                                has_body = True
 
                 if has_title:
                     score += 0.15
@@ -990,10 +1010,10 @@ class TemplateConverter:
         """在布局上添加顶部装饰条"""
         try:
             bar_height = Inches(0.12)
-            header_bar = layout.shapes.add_shape(
-                1,
+            header_bar = self._add_layout_autoshape(
+                layout, "HeaderBar",
                 Inches(0), Inches(0),
-                Inches(config.slide_width), bar_height
+                Inches(config.slide_width), bar_height,
             )
             header_bar.fill.solid()
             header_bar.fill.fore_color.rgb = RGBColor.from_string(config.primary_color)
@@ -1005,10 +1025,10 @@ class TemplateConverter:
         """在布局上添加底部装饰条"""
         try:
             footer_height = Inches(0.08)
-            footer_bar = layout.shapes.add_shape(
-                1,
+            footer_bar = self._add_layout_autoshape(
+                layout, "FooterBar",
                 Inches(0), Inches(config.slide_height) - footer_height,
-                Inches(config.slide_width), footer_height
+                Inches(config.slide_width), footer_height,
             )
             footer_bar.fill.solid()
             footer_bar.fill.fore_color.rgb = RGBColor.from_string(config.secondary_color)
@@ -1019,7 +1039,8 @@ class TemplateConverter:
     def _add_page_number_on_layout(self, layout, config: TemplateConfig):
         """在布局上添加页码占位符"""
         try:
-            page_text = layout.shapes.add_textbox(
+            page_text = self._add_layout_textbox(
+                layout, "PageNumber",
                 Inches(config.slide_width) - Inches(1.2),
                 Inches(config.slide_height) - Inches(0.45),
                 Inches(1.0), Inches(0.3)
@@ -1038,8 +1059,8 @@ class TemplateConverter:
         """在布局上添加角标装饰"""
         try:
             decor_size = Inches(1.5)
-            decor = layout.shapes.add_shape(
-                1,
+            decor = self._add_layout_autoshape(
+                layout, "CornerDecor",
                 Inches(config.slide_width) - decor_size,
                 Inches(config.slide_height) - decor_size - Inches(0.3),
                 decor_size, decor_size
@@ -1050,6 +1071,37 @@ class TemplateConverter:
             decor.line.fill.background()
         except Exception as e:
             logger.debug(f"在 layout 上添加角标装饰失败：{e}")
+
+    @staticmethod
+    def _add_layout_autoshape(layout, name: str, left, top, width, height):
+        """在布局的 spTree 上添加矩形。
+
+        `LayoutShapes` 只有只读迭代接口，没有 `add_shape` / `add_textbox`；
+        直接调用会在 except 中静默失败，装饰配置永远不会落盘。
+        """
+        from pptx.shapes.autoshape import Shape
+
+        tree = layout.shapes._spTree
+        element = tree.add_autoshape(
+            tree.max_shape_id + 1,
+            name,
+            "rect",
+            int(left), int(top), int(width), int(height),
+        )
+        return Shape(element, layout.shapes)
+
+    @staticmethod
+    def _add_layout_textbox(layout, name: str, left, top, width, height):
+        """在布局的 spTree 上添加文本框（`LayoutShapes` 无 add_textbox）。"""
+        from pptx.shapes.autoshape import Shape
+
+        tree = layout.shapes._spTree
+        element = tree.add_textbox(
+            tree.max_shape_id + 1,
+            name,
+            int(left), int(top), int(width), int(height),
+        )
+        return Shape(element, layout.shapes)
 
     def merge_configs(self, base: TemplateConfig, custom: TemplateConfig) -> TemplateConfig:
         """合并两个模板配置，custom 的优先级高于 base

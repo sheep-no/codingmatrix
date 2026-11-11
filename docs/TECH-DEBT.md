@@ -410,6 +410,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`69.71% → 69.95%`，覆盖语句 46407 → 46574，新增 45 个用例（`5751 → 5796 passed`）。`visual_analyzer.py` 57.53% → 98.84%（无遗漏语句，剩余部分分支为循环回边）。
 
+### 后端缺陷扫描第十三轮：自定义模板解析与装饰缺陷（2026-11-11）
+
+补测 `app/utils/pptx/custom_template.py`（49.03%，缺失 287 行），修复模板解析链路的 6 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 占位符类型用 `str(ph.type)` 与 `"title"` / `"obj"` 精确比较，而真实值是 `"TITLE (1)"` / `"OBJECT (7)"`，真实模板全部被判为 `blank`，标题、正文、边距、必要元素、兼容性评分一并失效 | `app/utils/pptx/custom_template.py`（`extract_layout_info`、`_get_placeholder_info`、`_detect_margins`、`analyze_slide_master`、`check_required_elements`、`get_compatibility_score`） | 已解决；新增 `_placeholder_type_name()` 归一化枚举名，配套 `_TITLE_PLACEHOLDERS` / `_BODY_PLACEHOLDERS`。回归 `tests/unit/test_ppt_custom_template_branches.py`，回退后 7 项失败 |
+| P1 | `SlideLayout.shapes`（`LayoutShapes`）没有 `add_shape` / `add_textbox`，装饰添加全部抛错后被 `except` 静默吞掉，页眉条、页脚条、页码、角标永不生效 | `app/utils/pptx/custom_template.py`（`TemplateConverter`） | 已解决；新增 `_add_layout_autoshape` / `_add_layout_textbox`，走 `layout.shapes._spTree.add_autoshape(...)` / `add_textbox(...)` 再包装 `Shape`。回归同上，回退后 1 项失败 |
+| P2 | 页眉/页脚条检测用 `hasattr(shape, "position")` 探测，python-pptx 的 `Shape` 无该属性，条件恒为假 | `app/utils/pptx/custom_template.py`（`_analyze_shape_for_decoration`） | 已解决；改用 `shape.top` 与画布高度比较。回归同上，回退后 1 项失败 |
+| P2 | 主题字体用 `el.find(qn("a:fontScheme"))` 只查直接子节点，真实结构是 `theme → themeElements → fontScheme`，主题字体永远取默认值 | `app/utils/pptx/custom_template.py`（`_extract_from_theme_fonts`） | 已解决；改为 `.//` 后代查找。回归同上，回退后 1 项失败 |
+| P3 | 兼容性评分缺少边界用例：无母版、超大画布（部分尺寸得分）、主题缺失时评分路径未验证 | `app/utils/pptx/custom_template.py`（`get_compatibility_score`） | 已补充边界回归，无母版返回 0.2、15% 部分尺寸得分 0.08 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`69.95% → 70.47%`，覆盖行 46574 → 46859，语句总数 63623 → 63642，覆盖分支 12283 → 12447，新增 86 个用例（`5796 → 5882 passed`）。`custom_template.py` 49.03% → 93.00%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
