@@ -44,6 +44,26 @@ class TestModifyIntentParser:
         assert len(intent.targets) > 0
         assert intent.targets[0].slide_number == 5
 
+    def test_parse_slide_number_chinese_numerals(self):
+        """中文数字页码应限定到对应幻灯片，不能退化成全部页"""
+        cases = {
+            "修改第三页的字体为微软雅黑": 3,
+            "第二页的背景改成蓝色": 2,
+            "第十二页标题字号改成24": 12,
+            "第九十九页字体改成黑体": 99,
+            "第一百零二页字体改成黑体": 102,
+        }
+        for text, expected in cases.items():
+            intent = self.parser.parse(text)
+            assert intent.targets, text
+            assert {t.slide_number for t in intent.targets} == {expected}, text
+
+    def test_parse_slide_number_chinese_ten_forms(self):
+        """十、十五、二十等写法应正确换算"""
+        assert self.parser.parse("第十页字体改成黑体").targets[0].slide_number == 10
+        assert self.parser.parse("第十五张背景改成蓝色").targets[0].slide_number == 15
+        assert self.parser.parse("第二十页字体改成黑体").targets[0].slide_number == 20
+
     def test_parse_no_slide_number(self):
         """测试没有指定幻灯片编号"""
         intent = self.parser.parse("把标题改成微软雅黑")
@@ -73,6 +93,13 @@ class TestModifyIntentParser:
         assert len(intent.targets) > 0
         target = intent.targets[0]
         assert target.property_name == "size"
+
+    def test_parse_size_without_size_keyword(self):
+        """仅有 pt 单位时也应补充 size 修改类型"""
+        intent = self.parser.parse("第3页20pt")
+        assert intent.targets
+        assert intent.targets[0].property_name == "size"
+        assert intent.targets[0].property_value == "20"
 
     def test_parse_element_type_title(self):
         """测试目标元素类型 - 标题"""
@@ -207,3 +234,22 @@ class TestModifyTarget:
         assert target.element_type == "title"
         assert target.property_name == "font"
         assert target.property_value == "微软雅黑"
+
+
+class TestChineseNumeralHelper:
+    """中文数字换算的防御性路径"""
+
+    def test_invalid_character_returns_none(self):
+        assert ModifyIntentParser._chinese_to_int("三abc") is None
+
+
+class TestConfidenceDefensivePaths:
+    """置信度计算的防御性分支"""
+
+    def test_no_targets_scores_zero(self):
+        intent = ModifyIntent(raw_text="x")
+        assert ModifyIntentParser()._calculate_confidence(intent) == 0.0
+
+    def test_targets_without_property_or_value(self):
+        intent = ModifyIntent(raw_text="x", targets=[ModifyTarget(slide_number=1)])
+        assert ModifyIntentParser()._calculate_confidence(intent) == 0.3

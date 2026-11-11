@@ -49,6 +49,9 @@ class ModifyIntentParser:
         r"第(\d+)节",
     ]
 
+    # 中文数字页码，如「第三页」「第十二张」
+    CHINESE_NUMERAL_PATTERN = r"[一二三四五六七八九十百零〇两]+"
+
     # 修改类型关键词
     MODIFY_KEYWORDS = {
         "font": ["字体", "字型", "font"],
@@ -159,7 +162,42 @@ class ModifyIntentParser:
         for pattern in self.SLIDE_PATTERNS:
             matches = re.findall(pattern, text)
             numbers.extend(int(m) for m in matches)
+
+        chinese_patterns = [
+            rf"第({self.CHINESE_NUMERAL_PATTERN})页",
+            rf"第({self.CHINESE_NUMERAL_PATTERN})张",
+            rf"第({self.CHINESE_NUMERAL_PATTERN})节",
+            rf"幻灯片\s*({self.CHINESE_NUMERAL_PATTERN})",
+        ]
+        for pattern in chinese_patterns:
+            matches = re.findall(pattern, text)
+            numbers.extend(
+                value for value in (self._chinese_to_int(m) for m in matches)
+                if value is not None
+            )
         return list(set(numbers))
+
+    @staticmethod
+    def _chinese_to_int(text: str) -> Optional[int]:
+        """将一到九百九十九的中文数字转换为整数"""
+        digits = {
+            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+            "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+        }
+        total = 0
+        current = 0
+        for char in text:
+            if char in digits:
+                current = digits[char]
+            elif char == "十":
+                total += (current or 1) * 10
+                current = 0
+            elif char == "百":
+                total += (current or 1) * 100
+                current = 0
+            else:
+                return None
+        return total + current
 
     def _extract_modify_types(self, text: str) -> List[str]:
         """提取修改类型"""

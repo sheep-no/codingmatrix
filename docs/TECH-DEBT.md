@@ -554,6 +554,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.89% → 73.98%`，覆盖行 48825 → 48872，语句总数 63706 不变，覆盖分支 13432 → 13462（总分支 20556 不变），新增 1 个测试文件 19 项，全量 `6758 → 6777 passed, 2 skipped`。`code_reviewer.py` 38.60% → 100.00%（80/80 行、34/34 分支）。
 
+### 后端缺陷扫描第二十五轮：中文页码退化为全部页（2026-11-11）
+
+补测 `app/utils/pptx/visual_modifier.py`（90 语句、21.67%）与 `app/utils/pptx/modify_intent_parser.py`（146 语句），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 中文页码被当成「所有页」：模块文档与错误提示示例都写「修改第三页的字体为微软雅黑」，但 `SLIDE_PATTERNS` 只匹配 `\d+`，中文数字页码解析结果为空，`parse` 走无页码分支生成 `slide_number=None`，`PPTModifier` 随即把字体/颜色改动应用到整份 PPT。用户明确要求改单页时会被全量改写 | `app/utils/pptx/modify_intent_parser.py`（`_extract_slide_numbers`） | 已解决；新增中文数字页码匹配与 `_chinese_to_int` 换算（覆盖一到九百九十九，支持「十」「十二」「二十」「一百零二」）。回归 `tests/unit/test_ppt_modify_intent_parser.py::TestModifyIntentParser::test_parse_slide_number_chinese_numerals` 与 `test_parse_slide_number_chinese_ten_forms`，回退后 3 项失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.98% → 74.10%`，覆盖行 48872 → 48958，语句总数 63706 → 63727，覆盖分支 13462 → 13504（总分支 20556 → 20566），新增 1 个测试文件 `test_visual_modifier.py`（21 项）并在既有解析器测试补 4 项，全量 `6777 → 6804 passed, 2 skipped`。`visual_modifier.py` 21.67% → 100.00%（90/90 行、30/30 分支），`modify_intent_parser.py` → 100.00%（146/146 行、72/72 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
