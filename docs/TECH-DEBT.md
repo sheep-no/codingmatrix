@@ -534,6 +534,16 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.66% → 73.79%`，覆盖行 48687 → 48766，语句总数 63706 不变，覆盖分支 13384 → 13415（总分支 20556 不变），新增 1 个测试文件 36 项，全量 `6692 → 6728 passed, 2 skipped`。`file_processing.py` 38.10% → 99.21%（94/94 行；`73->82` 分支不可达，operation 白名单已排除未覆盖的 else 路径）。报告阶段 coverage 7.17.2 本轮改为漏计 `app/agent/adapters/python.py`（392 语句），从同一份 `.coverage` 重新生成 JSON 后已恢复计入，上表数值取自重新生成结果。
 
+### 后端缺陷扫描第二十三轮：Python 服务临时名称取错路径段（2026-11-11）
+
+补测 `app/utils/service_config_manager.py`（103 语句、37.98%），修复 1 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | Python 服务临时名称取首个路径段：正则 `/([\w-]+)/` 命中紧邻根目录的一段，`/var/www/app/main.py` 得到「Python应用:var」、`/srv/my-app/main.py` 得到「Python应用:srv」，真正项目目录永远显示不出来；Windows 反斜杠路径完全不匹配，回退成 `python:8000` | `app/utils/service_config_manager.py`（`_generate_temp_name`） | 已解决；改为匹配脚本名之前的最后一段目录（`[\\/]([\w-]+)[\\/][^\\/]+$`），同时接受正反斜杠。回归 `tests/unit/test_service_config_manager.py::TestGetOrCreate` 中 3 项路径用例，回退后全部失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`73.79% → 73.89%`，覆盖行 48766 → 48825，语句总数 63706 不变，覆盖分支 13415 → 13432（总分支 20556 不变），新增 1 个测试文件 30 项，全量 `6728 → 6758 passed, 2 skipped`。`service_config_manager.py` 37.98% → 100.00%（103/103 行、26/26 分支）。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

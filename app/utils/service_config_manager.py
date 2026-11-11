@@ -151,7 +151,9 @@ class ServiceConfigManager:
         elif 'nginx' in name_lower:
             return f"Nginx代理:{port}"
         elif 'python' in name_lower:
-            match = re.search(r'/([\w-]+)/', cmdline)
+            # 取脚本所在目录名：/var/www/app/main.py -> app，
+            # 兼容 Windows 反斜杠路径；单段相对路径不臆造项目名。
+            match = re.search(r'[\\/]([\w-]+)[\\/][^\\/]+$', cmdline)
             if match:
                 app_name = match.group(1)
                 return f"Python应用:{app_name}"
