@@ -89,3 +89,35 @@ def test_encoded_traversal_request_does_not_leak(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert "SECRET-TRAVERSAL-MARKER" not in response.text
     assert "id=app" in response.text
+
+
+def test_missing_index_returns_404_instead_of_500(tmp_path, monkeypatch):
+    """前端产物未构建时，根路径与 SPA 兜底都应返回 404，而非发送阶段 500。
+
+    `FileResponse` 构造时不校验文件存在，真正缺失会在 ASGI 发送阶段抛
+    `RuntimeError`，导致本可预期的「未构建」状态变成 500。
+    """
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    monkeypatch.setattr(main, "DIST_PATH", str(dist))
+
+    client = TestClient(main.app, raise_server_exceptions=False)
+
+    for path in ("/", "/some/spa/route", "/missing-asset.js"):
+        response = client.get(path)
+        assert response.status_code == 404, f"{path} -> {response.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_missing_index_raises_http_404(tmp_path, monkeypatch):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    monkeypatch.setattr(main, "DIST_PATH", str(dist))
+
+    with pytest.raises(HTTPException) as error:
+        await main.serve_vue()
+    assert error.value.status_code == 404
+
+    with pytest.raises(HTTPException) as error:
+        await main.serve_vue_routes("some/spa/route")
+    assert error.value.status_code == 404

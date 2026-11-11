@@ -274,7 +274,7 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P1 | `20260425_add_user_management_indexes.py` 结尾调用全仓库不存在的 `if_exists_exists(op, 'system_logs')`。空库靠 `env.py` 的 metadata 旁路绕过整条历史链，测试测不到；任何 `alembic_version` 停在 `a1b2c3d4e5f6` 的既有库执行 `alembic upgrade head` 会 `NameError` 中断，后续迁移全部无法应用 | `migrations/versions/20260425_add_user_management_indexes.py` | 已解决；改为 `_has_table('system_logs')` 显式判断后再建/删索引（离线 `--sql` 按存在处理）。回归 `tests/unit/test_alembic_bootstrap.py` 新增 2 项（含 `system_logs` 与不含），回退源码后两条均失败 |
 | P2 | 多条迁移在 `--sql` 离线模式下调用 `sa.inspect(op.get_bind())`，`MockConnection` 无反射能力，`alembic upgrade head --sql` 在 `20260908_add_github_user_config` 处抛 `NoInspectionAvailable`，CI/审计无法导出变更 SQL | `migrations/versions/20260908_add_github_user_config.py`、`20260918_add_knowledge_tags.py`、`20260918_unique_tasks_task_id.py`、`20261109_add_github_verified_at.py` | 已解决；四处补 `op.get_context().as_sql` 分支，离线只产出 DDL，在线保留反射判断。回归 `tests/unit/test_alembic_bootstrap.py` 新增 1 项参数化（MySQL/PostgreSQL 两方言），断言脚本含 `github_user_configs`、`verified_at` 与 head；回退源码后两条均报 `NoInspectionAvailable` 失败 |
 
-回归：补齐本地依赖后，`PYTHONPATH=/workspace REDIS_URL=redis://localhost:6379/0 python3 -m pytest tests/unit tests/integration -q -p no:randomly --timeout=300` → `5355 passed, 2 skipped, 0 failed`（收集 5357，198s）。剩余 2 项为 `tests/unit/test_dynamic_adapter.py` 中显式 `@pytest.mark.skip` 的流式响应 mock，属设计性跳过。
+回归：补齐本地依赖后，`PYTHONPATH=/workspace REDIS_URL=redis://localhost:6379/0 python3 -m pytest tests/unit tests/integration -q -p no:randomly --timeout=300` → `5359 passed, 2 skipped, 0 failed`（收集 5361，176s，第九轮修复后）。剩余 2 项为 `tests/unit/test_dynamic_adapter.py` 中显式 `@pytest.mark.skip` 的流式响应 mock，属设计性跳过。
 
 补齐的本地测试依赖：`redis-server 7.0.15`（`127.0.0.1:6379`，测试使用 db 0 与 db 15）、`faiss-cpu 1.16.0`、`libreoffice-impress 7.4.7.2`、`poppler-utils 22.12.0`。补齐前无 Redis 时 unit 有 6 项失败、integration 有 5 项跳过；补 faiss 前 `test_v5_1_requirement_deep.py` 1 项跳过；补 LibreOffice/poppler 前 `test_ppt_feature_repairs.py` 1 项跳过。
 
@@ -350,6 +350,14 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 | P3 | `ConcurrentLimitManager._change_log` 每次热调整都 `append` 且永不裁剪，`GET /concurrent-limits/history?limit=` 无上界，长期运行内存与响应体持续增长 | `app/utils/dynamic_concurrent.py`、`app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；日志保留最近 500 条，读取时再按 `1..500` 钳制，端点加同样约束。回归同上文件，回退后日志上限用例失败 |
 
 扫描方式：用 AST 提取全部路由的 (method, path) 声明序列，按方法逐条比对「后续同方法路径可被前面的 `{param}` 模式命中」的形态。修复后全应用命中 0 处；跨方法同名路径（如 `DELETE /pptx/history/{task_id}` 与 `GET /pptx/history/stats`）不构成遮蔽。
+
+### 后端缺陷扫描第九轮：静态产物缺失导致根路径 500（2026-11-11）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | `src/dist/index.html` 不存在（前端未构建）时，`GET /`、SPA 历史路由 `GET /{full_path:path}` 均返回 500。`FileResponse` 构造阶段不校验文件存在，缺失在 ASGI 发送阶段抛 `RuntimeError`，把可预期的「未构建」状态变成服务端错误 | `app/main.py`（`serve_vue`、`serve_vue_routes`） | 已解决；新增 `_dist_index_or_404()`，缺失产物时抛 404（`前端静态资源未构建`），API 路由不受影响。回归 `tests/unit/test_static_spa_path_traversal.py` 新增 2 项（端到端 `/`、`/some/spa/route`、`/missing-asset.js` 均 404 + 协程直调），回退源码后 2 项精确失败 |
+
+真实验证：Uvicorn `:8000` 下 `/`、`/some/spa/route`、`/missing.js` 由 500 变为 404，`/api/v1/health`、`/api/docs` 仍 200。
 
 ### 本轮逐文件验证（2026-09-27）
 

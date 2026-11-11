@@ -366,10 +366,24 @@ if os.path.isdir(STATIC_PATH):
 else:
     app.mount("/static", StaticFiles(directory=DIST_PATH), name="static")
 
+def _dist_index_or_404() -> FileResponse:
+    """返回 SPA 首页；前端产物未构建时给出明确的 404。
+
+    `FileResponse` 构造阶段不校验文件存在，缺失会在 ASGI 发送阶段抛
+    `RuntimeError` 变成 500。这里提前判断，让「未构建前端」这一预期状态
+    返回可理解的 404。
+    """
+    index_path = Path(DIST_PATH) / "index.html"
+    if not index_path.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="前端静态资源未构建")
+    return FileResponse(index_path)
+
+
 # 根路径返回Vue首页
 @app.get("/", response_class=FileResponse)
 async def serve_vue():
-    return FileResponse(os.path.join(DIST_PATH, "index.html"))
+    return _dist_index_or_404()
 
 
 # 处理Vue Router的history模式路由
@@ -388,4 +402,4 @@ async def serve_vue_routes(full_path: str):
         return FileResponse(candidate)
 
     # 其他路径返回 index.html，让 Vue Router 处理
-    return FileResponse(dist_root / "index.html")
+    return _dist_index_or_404()
