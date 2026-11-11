@@ -174,3 +174,11 @@
 - 安全：所有验证与终端工作目录映射到已授权 workspace；真实文件系统路径检查覆盖目录符号链接和悬空叶节点符号链接；插件停用、会话取消和连接替换均会终止活动本地动作。
 - 稳定性：相同 session/message 的并发动作合并执行，失败动作允许服务端重投，动作缓存保持有界；连接 generation 隔离旧轮询，重连和停用释放 poll timer、Skill timer 与 watcher；流式响应按需单次消费，避免 SSE 全量重复缓存。
 - 验收证据：`npm --prefix vscode-extension test` 通过（75/75）；`npm --prefix vscode-extension run e2e` 通过（退出码 0），使用 VS Code `1.136.1` 和真实 Extension Host 验证扩展构建、发现、激活、工作台命令和兼容性握手；`git diff --check` 通过。
+
+### VSCODE-017 Host 会话滑动续期与重连恢复
+
+- 状态：`completed`
+- 优先级：`P1`
+- 修改：Host 会话 TTL 收敛为 `HOST_SESSION_TTL`，`_get_session(touch=True)` 在任意已认证请求通过校验后滑动刷新 `expires_at`；插件轮询遇 401/410 均触发 30 秒节流的重握手，重读设置中的 `apiUrl`/`accessToken`。
+- 边界：过期会话不会被复活，仍返回 410；访问令牌自动刷新依赖后端 refresh 契约，插件当前只能重读人工更新后的配置。
+- 验收证据：`test_agent_host_api.py` 30 passed（新增滑动续期、过期仍 410 两例），关联后端回归 90 passed；插件 `npm test` 126 passed；真实后端 `GET /api/v1/agent/host/sessions/{id}/actions` 后 `expires_at` 由 `00:47:34` 滑至 `00:47:55`。
