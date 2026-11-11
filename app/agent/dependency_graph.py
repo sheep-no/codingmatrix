@@ -698,7 +698,11 @@ class DependencyGraph:
                 priority=nf.get("priority", old_node.priority),
                 description=nf.get("description", "")
             )
-            new_paths.append(nf_path)
+            # add_file 会拒绝带空格/特殊字符/裸包名的路径。旧实现无条件
+            # 追加，导致重构“成功”返回一个不在图中的路径，后续入边会被
+            # 重定向到不存在的节点。
+            if nf_path in self.nodes:
+                new_paths.append(nf_path)
 
         # 将旧文件的出边（依赖）转移到新文件
         # 根据 import_mapping 决定每个新文件依赖哪些旧依赖
@@ -1916,16 +1920,18 @@ class DependencyGraph:
             if file_path.endswith(init_file_name):
                 pkg = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
                 return f"{pkg} 包初始化文件"
-        elif 'database' in file_path.lower():
+
+        # 旧实现把这几条规则挂在 `elif` 上，导致存在语言适配器时只要
+        # 不是包入口文件就直接返回 None，缺失文件的描述全部丢失。
+        if 'database' in file_path.lower():
             return "数据库连接配置"
-        elif 'config' in file_path.lower():
+        if 'config' in file_path.lower():
             return "配置文件"
-        elif 'schema' in file_path.lower():
+        if 'schema' in file_path.lower():
             return "数据模式定义"
-        elif 'core' in file_path.lower():
+        if 'core' in file_path.lower():
             return "核心模块"
-        else:
-            return "自动补充的模块文件"
+        return "自动补充的模块文件"
 
     def _infer_file_priority(self, file_path: str) -> int:
         """推断文件优先级（1-5，越小越优先）

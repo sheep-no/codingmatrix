@@ -424,6 +424,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`69.95% → 70.47%`，覆盖行 46574 → 46859，语句总数 63623 → 63642，覆盖分支 12283 → 12447，新增 86 个用例（`5796 → 5882 passed`）。`custom_template.py` 49.03% → 93.00%。
 
+### 后端缺陷扫描第十四轮：依赖图推断与重构缺陷（2026-11-11）
+
+补测 `app/agent/dependency_graph.py`（1951 行、1065 语句，77.62%），修复补测暴露的 2 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `_infer_file_description` 的规则链挂在 `elif` 上：一旦进入语言适配器分支，`database` / `config` / `schema` / `core` 等规则全部被跳过。构造带适配器且文件不是包入口时，补齐的缺失文件描述恒为 `None` | `app/agent/dependency_graph.py`（`_infer_file_description`） | 已解决；规则链改为独立 `if`，仅包入口判定留在适配器分支内。回归 `tests/unit/test_dependency_graph_branches.py`，回退后 1 项失败 |
+| P2 | `refactor_file` 对 `add_file` 拒绝的非法新路径仍追加到返回值，重构返回「成功」但该路径不在图中，随后入边被重定向到不存在的节点 | `app/agent/dependency_graph.py`（`refactor_file`） | 已解决；仅在 `nf_path in self.nodes` 时计入。回归同上，回退后 1 项失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`70.47% → 70.77%`，覆盖行 46859 → 47014，语句总数 63642 → 63643，覆盖分支 12447 → 12547，新增 87 个用例（`5882 → 5969 passed`）。`dependency_graph.py` 77.62% → 92.03%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
