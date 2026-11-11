@@ -57,6 +57,23 @@ export class CloudConnectionError extends Error {
   }
 }
 
+// A 401 or 410 means the session id/token pair is unusable, so the caller must
+// re-handshake instead of polling with dead credentials. Throttle the attempt
+// so a backend that keeps rejecting does not spin a re-handshake every second.
+export const SESSION_RECOVERY_THROTTLE_MS = 30_000;
+
+export function shouldRecoverSession(
+  error: unknown,
+  lastRecoveryAt: number,
+  now: number = Date.now(),
+): boolean {
+  return (
+    error instanceof CloudConnectionError &&
+    (error.status === 401 || error.status === 410) &&
+    now - lastRecoveryAt > SESSION_RECOVERY_THROTTLE_MS
+  );
+}
+
 type QueuedResult = {
   result: LocalValidationResult;
   context?: ResultSubmissionContext;
