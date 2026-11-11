@@ -233,24 +233,25 @@ class ModelAdapter:
         """从响应中提取工具调用"""
         tool_calls = []
 
-        patterns = [
-            r'```(?:json)?\s*(\{[\s\S]*?\})\s*```',
-            r'"tool_calls"\s*:\s*\[([\s\S]*?)\]',
-        ]
+        def absorb(data) -> None:
+            if isinstance(data, dict) and "tool_calls" in data:
+                tool_calls.extend(data["tool_calls"])
+            elif isinstance(data, list):
+                tool_calls.extend(data)
 
-        for pattern in patterns:
-            matches = re.findall(pattern, text)
-            for match in matches:
+        # 代码块整体解析：正则非贪婪匹配会在嵌套对象的内层 `}` 处截断，
+        # 因此不能对代码块内容再做对象/数组的子模式切分。
+        for block in re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', text):
+            try:
+                absorb(json.loads(block))
+            except json.JSONDecodeError:
+                continue
+
+        # 无代码块时回退到裸 `"tool_calls": [...]` 片段，捕获的是数组内部元素。
+        if not tool_calls:
+            for match in re.findall(r'"tool_calls"\s*:\s*\[([\s\S]*?)\]', text):
                 try:
-                    if match.startswith('{'):
-                        data = json.loads(match)
-                    else:
-                        data = json.loads(f'[{match}]')
-
-                    if isinstance(data, dict) and "tool_calls" in data:
-                        tool_calls.extend(data["tool_calls"])
-                    elif isinstance(data, list):
-                        tool_calls.extend(data)
+                    absorb(json.loads(f'[{match}]'))
                 except json.JSONDecodeError:
                     continue
 
@@ -258,7 +259,11 @@ class ModelAdapter:
         unique_calls = []
         for call in tool_calls:
             call_id = call.get("id", "")
-            if call_id and call_id not in seen_ids:
+            # 缺少 id 的调用无法去重，直接保留；否则这类合法工具调用会被整条丢弃。
+            if not call_id:
+                unique_calls.append(call)
+                continue
+            if call_id not in seen_ids:
                 seen_ids.add(call_id)
                 unique_calls.append(call)
 

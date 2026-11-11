@@ -182,10 +182,6 @@ class MultiModelAgent:
             async with sem:
                 return await coro_factory(*args, **kwargs)
 
-        if task_type is None:
-            task_type = self.router.route_by_content(task, files)
-            await emit("task_routed", {"task_type": task_type.value})
-
         if use_dynamic_routing:
             model = await self.router.route_dynamic(task_type)
         else:

@@ -476,6 +476,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`71.56% → 72.00%`，覆盖行 47458 → 47703，语句总数 63699 → 63693，覆盖分支 12831 → 12948，新增 113 个用例（`6223 → 6336 passed`）。`tools.py` 60.95% → 100.00%（657/657 行、262/262 分支）。
 
+### 后端缺陷扫描第十八轮：多模型编排与响应解析缺陷（2026-11-11）
+
+补测 `app/agent/multi_model_agent.py`（10.07%）与 `app/adapter/model_adapter.py`（15.79%），修复补测暴露的 3 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 工具调用缺 `id` 时被整条丢弃：`_extract_tool_calls` 只在 `call_id` 非空时保留，而 OpenAI 兼容流式响应常省略 `id`，解析结果永远为空 | `app/adapter/model_adapter.py`（`_extract_tool_calls`） | 已解决；无 `id` 的调用直接保留，有 `id` 的才参与去重。回归 `tests/unit/test_model_adapter_branches.py`，回退后 1 项失败 |
+| P1 | `"tool_calls": [...]` 裸片段永远解析失败：该正则捕获的是数组内部元素，却按 `{...}` 对象解析，`isinstance(dict)` 不含 `tool_calls` 时整条丢弃 | `app/adapter/model_adapter.py`（`_extract_tool_calls`） | 已解决；数组体按 `[match]` 解析，并抽出 `absorb()` 统一吸收 dict/list。回归同上，回退后 1 项失败 |
+| P2 | 代码块解析被嵌套 `}` 截断：非贪婪 `\{[\s\S]*?\}` 在第一个内层对象结束处截止，含完整工具调用的代码块无法解析 | `app/adapter/model_adapter.py`（`_extract_tool_calls`） | 已解决；改为整体提取代码块后 `json.loads`，同时支持对象与裸数组两种形态。回归同上，回退后 1 项失败 |
+
+同时删除 `MultiModelAgent.process` 中第二处 `if task_type is None` 死分支：首个同条件块已赋值，该分支恒不执行（HEAD 版本覆盖率上限 97.84%，删除后可达 100%）。
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.00% → 72.29%`，覆盖行 47703 → 47891，语句总数 63693 → 63695，覆盖分支 12948 → 13011，新增 42 个用例（`6336 → 6378 passed`）。`multi_model_agent.py` 10.07% → 100.00%，`model_adapter.py` 15.79% → 100.00%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
