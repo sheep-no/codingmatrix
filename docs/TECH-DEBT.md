@@ -490,6 +490,17 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.00% → 72.29%`，覆盖行 47703 → 47891，语句总数 63693 → 63695，覆盖分支 12948 → 13011，新增 42 个用例（`6336 → 6378 passed`）。`multi_model_agent.py` 10.07% → 100.00%，`model_adapter.py` 15.79% → 100.00%。
 
+### 后端缺陷扫描第十九轮：错误恢复契约与围栏解析缺陷（2026-11-11）
+
+补测 `app/agent/error_recovery.py`（340 语句、46.06%、缺失 162 行），修复补测暴露的 2 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 降级链为空时返回字典缺 `success` 键：`fix_from_test_logs` 走「用户禁用/未配置降级链」早退路径时只返回 `total/fixed/failures`，调用方按统一契约读 `result["success"]` 直接 `KeyError` | `app/agent/error_recovery.py`（`fix_from_test_logs`） | 已解决；早退分支补齐 `success=False` 与 `message`。回归 `tests/unit/test_error_recovery_branches.py::test_empty_fallback_chain_returns_failure_summary`，回退后失败 |
+| P2 | 外层 JSON 围栏误匹配内层代码块：` ```(?:json)?\s*([\s\S]*?)\s*``` ` 会把修复内容里的 ```python 代码块当成外层围栏，截出半截内容后 `json.loads` 失败，合法修复响应连续 3 次被判失败 | `app/agent/error_recovery.py`（`fix_from_test_logs`） | 已解决；围栏正则要求分隔符后换行、只接受 `json` 或无语言标记。回归 `test_fenced_content_is_unwrapped_before_write`，回退后失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`72.29% → 72.60%`，覆盖行 47891 → 48057，语句总数 63695 → 63697，覆盖分支 13011 → 13105，新增 61 个用例（`6378 → 6439 passed`）。`error_recovery.py` 46.06% → 98.97%（342/342 行，行覆盖 100%）。报告阶段 coverage 7.17.2 偶发报 `architect.py` AST 递归告警而漏计该文件，从同一份 `.coverage` 数据重新生成 JSON 后已包含 `architect.py`（800 语句），上表数值取自重新生成结果。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

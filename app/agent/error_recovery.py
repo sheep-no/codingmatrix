@@ -616,6 +616,8 @@ class ErrorRecoveryLoop:
 
         if not self.MODEL_FALLBACK_CHAIN:
             logger.warning("降级链为空（用户禁用或未配置），跳过测试日志修复")
+            recovery_results["success"] = False
+            recovery_results["message"] = "降级链为空，跳过测试日志修复"
             return recovery_results
 
         # 路径穿越校验的基准目录，解析一次即可（阻塞 stat 放到工作线程）
@@ -669,7 +671,11 @@ class ErrorRecoveryLoop:
                     self._record_llm_cost(response, current_model)
 
                     raw = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', raw)
+                    # 只接受 ```json 或无语言标记的围栏。宽松的 ```(?:json)?
+                    # 会误匹配内层 ```python 代码块，导致合法修复响应解析失败。
+                    json_match = re.search(
+                        r'```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```', raw
+                    )
                     if json_match:
                         raw = json_match.group(1)
 
