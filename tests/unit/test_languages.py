@@ -63,6 +63,15 @@ def test_negated_python_falls_back_to_go():
     assert result.language == "go"
 
 
+def test_frontend_and_backend_languages_are_split_without_framework_names():
+    result = LanguageDetector.detect("构建 Vue 前端和 Python 后端")
+
+    assert result.language == "javascript"
+    assert result.frontend_language == "javascript"
+    assert result.backend_language == "python"
+    assert result.all_languages == ["javascript", "python"]
+
+
 def test_java_spring_boot_profile_exposes_toolchain_commands():
     profile = DEFAULT_PROFILES.require("java", "spring-boot")
 

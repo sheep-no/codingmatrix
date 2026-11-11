@@ -456,12 +456,13 @@ language 字段要求：
     def _normalize_file_plan_item(cls, item: Any, language: str) -> dict | None:
         if isinstance(item, str) and item.strip():
             path = item.strip().replace("\\", "/")
+            inferred = cls._infer_language_from_path(path)
             return {
                 "path": path,
                 "description": "",
                 "priority": 3,
                 "file_type": "unknown",
-                "language": language,
+                "language": inferred or language,
                 "imports": [],
             }
         if not isinstance(item, dict):
@@ -486,9 +487,23 @@ language 字段要求：
         normalized.setdefault("description", "")
         normalized.setdefault("priority", 3)
         normalized.setdefault("file_type", "unknown")
-        normalized.setdefault("language", language)
+        if not normalized.get("language"):
+            # In a mixed-language project the plan-wide default is the frontend
+            # language, so each extensionless entry keeps it while .py/.go files
+            # must fall back to their own language.
+            normalized["language"] = cls._infer_language_from_path(path) or language
         normalized.setdefault("imports", [])
         return normalized
+
+    @classmethod
+    def _infer_language_from_path(cls, path: str) -> str | None:
+        from app.agent.adapters import LanguageAdapterRegistry
+
+        try:
+            detected = LanguageAdapterRegistry.detect_language({path: ""})
+        except Exception:
+            return None
+        return None if detected in ("", "generic", "unknown") else detected
 
     @classmethod
     def _normalize_file_plan(cls, items: Any, language: str) -> list[dict]:
@@ -565,6 +580,14 @@ language 字段要求：
         text = value.strip()
         if not text:
             return value
+        # A JSON-quoted scalar ("b.py") is a serialized string, not prose; the
+        # surrounding quotes must go so file-plan fields keep their raw value.
+        if text.startswith('"'):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return value
+            return parsed if isinstance(parsed, str) else value
         looks_like_json = text[0] in "{[" or text.startswith("```")
         if not looks_like_json:
             return value
@@ -671,8 +694,8 @@ language 字段要求：
                     imports = self._parse_jsonish(item["imports"])
                     if isinstance(imports, list):
                         item["imports"] = imports
-                    elif item["imports"].strip():
-                        item["imports"] = [item["imports"]]
+                    elif isinstance(imports, str) and imports.strip():
+                        item["imports"] = [imports]
                     else:
                         item["imports"] = []
         return architecture
@@ -931,8 +954,6 @@ language 字段要求：
         )
 
         for path in explicit_paths:
-            if path in planned_paths:
-                continue
             lower_path = path.lower()
             if "/models/" in f"/{lower_path}":
                 file_type, description, priority = "model", "数据模型", 2
@@ -948,6 +969,17 @@ language 字段要求：
                 imports = [candidate for candidate in planned_paths if "/models/" in f"/{candidate.lower()}" and candidate.endswith(f".{extension}")]
             elif path == "main.py" or path == "main.js" or path == "main.ts":
                 imports = [candidate for candidate in planned_paths if "/services/" in f"/{candidate.lower()}" and candidate.endswith(f".{extension}")]
+
+            if path in planned_paths:
+                # The entry point already exists in the default plan; wire the
+                # explicit modules into it instead of discarding those imports.
+                if imports:
+                    existing = next(
+                        item for item in architecture["file_plan"] if item["path"] == path
+                    )
+                    merged = list(dict.fromkeys([*existing.get("imports", []), *imports]))
+                    existing["imports"] = merged
+                continue
 
             architecture["file_plan"].append({
                 "path": path,
@@ -992,15 +1024,19 @@ language 字段要求：
         # 格式 1: "from xxx import yyy"
         match = re.match(r'^from\s+([\w.]+)\s+import\s+', import_str)
         if match:
-            return match.group(1)
+            # Leading dots mean a package-relative import; treating ".relative"
+            # as an absolute module invents a file that the plan never had.
+            module = match.group(1)
+            return None if module.startswith(".") else module
 
         # 格式 2: "import xxx"
         match = re.match(r'^import\s+([\w.]+)', import_str)
         if match:
-            return match.group(1)
+            module = match.group(1)
+            return None if module.startswith(".") else module
 
         # 格式 3: 已经是模块路径（只包含字母、数字、点、下划线）
-        if re.match(r'^[\w.]+$', import_str):
+        if re.match(r'^[\w.]+$', import_str) and not import_str.startswith("."):
             return import_str
 
         return None
@@ -1146,13 +1182,20 @@ language 字段要求：
         try:
             estimated = int(estimated)
         except (TypeError, ValueError):
-            estimated = 0
+            # A malformed estimate cannot prove the project is a one-file
+            # program, so it must not trigger boilerplate skipping.
+            return False
         return str(level).lower() == "simple" and estimated <= 1
 
     @staticmethod
     def _path_module_forms(path: str, language: str | None) -> list[str]:
         """Equivalent module strings for a planned path, in decreasing specificity."""
-        posix = path.replace("\\", "/").lstrip("./")
+        posix = path.replace("\\", "/")
+        # 只剥掉前缀 "./"，不能用 lstrip("./")：它按字符集删除，会把
+        # `.gitignore` 变成 `gitignore`、把 `../main.py` 变成 `main.py`，
+        # 严格文件集重写导入时就会指向错误的文件。
+        while posix.startswith("./"):
+            posix = posix[2:]
         if not posix:
             return []
         stem = posix
@@ -1165,7 +1208,10 @@ language 字段要求：
                 break
         forms = [path, posix, stem, "./" + stem]
         if (language or "").lower() in {"python", "py"}:
-            forms.insert(3, stem.replace("/", "."))
+            # Dotted module form goes before the slash form: for a single-segment
+            # path both collapse to the same "utils", and import statements must
+            # win that collision (app.utils over app/utils).
+            forms.insert(2, stem.replace("/", "."))
         return [form for form in forms if form]
 
     @classmethod

@@ -473,6 +473,24 @@ class LanguageDetector:
                     backend_lang = "go"
                     break
 
+        # A language word next to a backend marker is an explicit backend
+        # declaration even when no framework is named ("Vue 前端 + Python 后端").
+        if backend_lang is None:
+            backend_pattern = (
+                r"\b(python|java|golang|go|rust|typescript|javascript|js|ts)\b"
+                r"\s*(?:后端|backend|back-end|服务端|server)"
+                r"|(?:后端|backend|back-end|服务端|server)\b"
+                r"\s*(?:用|使用|基于|是|[:：])?\s*"
+                r"\b(python|java|golang|go|rust|typescript|javascript|js|ts)\b"
+            )
+            match = cls._positive_regex(requirement_lower, backend_pattern)
+            if match:
+                backend_lang = match.group(1) or match.group(2)
+                if backend_lang in ("js", "ts"):
+                    backend_lang = "javascript"
+                if backend_lang == "golang":
+                    backend_lang = "go"
+
         # 如果前端和后端语言不同，认为是全栈项目
         if frontend_lang and backend_lang and frontend_lang != backend_lang:
             return True, frontend_lang, backend_lang

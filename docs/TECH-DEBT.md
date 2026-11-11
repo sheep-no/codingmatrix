@@ -449,6 +449,21 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`70.77% → 71.12%`，覆盖行 47014 → 47213，语句总数 63643 → 63670，覆盖分支 12547 → 12675，新增 102 个用例（`5969 → 6071 passed`）。`cross_validator.py` 76.04% → 96.64%。
 
+### 后端缺陷扫描第十六轮：架构师路径重写与混合语言推断缺陷（2026-11-11）
+
+补测 `app/agent/architect.py`（780 语句、69.12%、缺失 209 行），修复补测暴露的 6 处真实缺陷：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `_path_module_forms` 用 `lstrip("./")` 按字符集剥前缀：`.gitignore` 变成 `gitignore`、`../main.py` 变成 `main.py`。严格文件集生效后重写导入会指向错误文件 | `app/agent/architect.py`（`_path_module_forms`） | 已解决；改为仅循环剥离字面量 `./` 前缀。回归 `tests/unit/test_architect_branches.py`，回退后 1 项失败 |
+| P1 | Python 模块形态与斜杠形态同长时顺序错误：单段路径的 `utils` 与 `app/utils` 冲突，导入语句被改写成斜杠路径 `from app/utils import x`，生成代码无法导入 | `app/agent/architect.py`（`_path_module_forms`） | 已解决；点号形态插到斜杠形态之前，让导入语句优先匹配。回归同上，回退后 1 项失败 |
+| P1 | 混合项目所有文件都被填成前端语言：`构建 Vue 前端和 Python 后端` 只按首个关键词返回 javascript，`app/api.py` 也被标成 javascript，生成阶段按错误语言套模板 | `app/agent/language_detector.py`（`_detect_fullstack_languages`）、`app/agent/architect.py`（`_normalize_file_plan_item`、`_infer_language_from_path`） | 已解决；后端标记旁的 Python/Go 等语言词参与后端语言推断，文件语言按扩展名推断后再回退到计划默认值。回归 `tests/unit/test_languages.py` 与 `test_architect_branches.py`，回退后 1 项失败 |
+| P2 | 包相对导入被当成绝对模块：`from .relative import x` 解析成 `.relative`，完整性补全据此虚构计划外文件 | `app/agent/architect.py`（`_parse_import_to_module`） | 已解决；前导点的相对导入返回 `None`。回归同上，回退后 1 项失败 |
+| P2 | JSON 字符串形态的 `imports` 未解包：`"b.py"` 原样保留引号，依赖解析拿不到模块名 | `app/agent/architect.py`（`_parse_jsonish`、`_coerce_architecture_fields`） | 已解决；引号标量先经 `json.loads` 解包，字符串分支改用解包结果。回归同上，回退后 1 项失败 |
+| P2 | 非数字的 `estimated_files` 被当作 0：`simple` + `"many"` 被判定为单文件项目，`_skip_boilerplate_files` 误跳过必要的样板文件 | `app/agent/architect.py`（`_skip_boilerplate_files`） | 已解决；无法转换成整数时直接返回 False。回归同上，回退后 1 项失败 |
+
+覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`71.12% → 71.56%`，覆盖行 47213 → 47458，语句总数 63670 → 63699，覆盖分支 12675 → 12831，新增 152 个用例（`6071 → 6223 passed`）。`architect.py` 69.12% → 96.78%，`language_detector.py` 79.68% → 83.18%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
