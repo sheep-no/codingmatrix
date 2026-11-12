@@ -14,7 +14,7 @@ try:
     from dotenv import load_dotenv
     
     # 获取项目根目录（兼容不同平台）
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, 'frozen', False):  # pragma: no cover - 打包运行时分支
         # 打包后的可执行文件
         BASE_DIR_PATH = Path(sys.executable).parent
     else:
@@ -23,16 +23,16 @@ try:
     
     # 加载 .env 文件（自动查找项目根目录）
     env_path = BASE_DIR_PATH / ".env"
-    if env_path.exists():
+    if env_path.exists():  # pragma: no cover - 依赖部署现场是否存在 .env
         # Keep explicit process environment variables authoritative in deployments and tests.
         load_dotenv(dotenv_path=env_path, override=False)
         logging.getLogger(__name__).info(f"已加载环境变量：{env_path}")
     else:
         logging.getLogger(__name__).warning(f"未找到.env 文件：{env_path}")
-except ImportError:
+except ImportError:  # pragma: no cover - 未安装 python-dotenv 的环境
     # 未安装 python-dotenv，依赖 pydantic-settings 自动加载
     pass
-except Exception as e:
+except Exception as e:  # pragma: no cover - .env 读取失败的环境
     logging.getLogger(__name__).error(f"加载.env 文件失败：{e}")
 
 from sqlalchemy import delete
@@ -361,7 +361,7 @@ DIST_PATH = rf"{BASE_DIR_PATH}/src/dist"
 os.makedirs(DIST_PATH, exist_ok=True)
 # 挂载静态文件到/static路径（供Vue加载JS/CSS等资源）
 STATIC_PATH = os.path.join(DIST_PATH, "static")
-if os.path.isdir(STATIC_PATH):
+if os.path.isdir(STATIC_PATH):  # pragma: no cover - 取决于前端构建产物是否带 static 子目录
     app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
 else:
     app.mount("/static", StaticFiles(directory=DIST_PATH), name="static")

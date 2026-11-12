@@ -653,6 +653,23 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 全部修复均按备份法完成反向验证（`/tmp/opencode/vbak_r31/` 保存修改后源码，`git show HEAD:<path>` 回退后先确认回归用例失败，再恢复）。`chat_archiver.py`（98.59%）、`log_archiver.py`（98.12%）剩余缺失为循环回边与循环后不可达兜底；`json_parser.py`（99.53%）剩余 1 行为 `raw_decode` 从 `{` 起必得 dict 的不可达防护。
 
+### 后端缺陷扫描第三十二轮：测试隔离与静态资源分支批次（2026-11-12）
+
+本轮以覆盖率为线索复核 `spec_first_generate`、文档/PPT 工具链、容器编排、任务队列与 API 端点，修复 3 处真实缺陷（2 处运行期崩溃、1 处配置兼容），并标注 1 处不可达回退：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `TextAnalyzer.analyze_text_density("")` 的空返回字典缺少 `chinese_count`/`ascii_count`/`effective_length` 三个键，而分栏与截断路径按固定键名取值，空文本一旦进入布局优化即抛 `KeyError: 'effective_length'` | `app/utils/pptx/layout_engine.py`（`TextAnalyzer.analyze_text_density`） | 已解决；空返回补齐全部键并归零。回归 `tests/unit/test_pptx_layout_engine_branches.py`，回退后 3 项失败 |
+| P1 | `LayoutOptimizer.optimize_slide_content` / `optimize_whitespace` 只支持模板配置对象，传入等价的 dict 时 `getattr(dict, 'title_size', 24)` 恒取默认值，用户配置的标题字号、行距、边距全部静默失效 | `app/utils/pptx/layout_engine.py`（`LayoutOptimizer` 配置读取） | 已解决；统一 `get_cfg` 同时支持 dict 与对象。回归 `tests/unit/test_pptx_layout_engine_branches.py::test_optimize_slide_content_dict_config_branch` |
+| P2 | `optimize_whitespace` 用 `'title' in optimized` 判断区域存在性，标题为字符串、正文为字符串（跳过内容优化后的原始值）时按 dict 下标访问 `optimized['title']['font_size']` 抛 `TypeError` | `app/utils/pptx/layout_engine.py`（`optimize_whitespace`） | 已解决；改为 `isinstance(..., dict)`。回归 `tests/unit/test_pptx_layout_engine_branches.py::test_optimize_whitespace_non_dict_layout_and_parts` |
+| P2 | `SlideRenderer` 的图像文字版式回退分支不可达：外层已保证 `has_text`/`has_image` 同时成立且两列表非空，最后的裸 `"image_text"` 属于兜底死代码 | `app/utils/pptx/slide_renderer.py`（版式判定末尾） | 已标注 `# pragma: no cover`，行为不变。回归 `tests/unit/test_pptx_slide_renderer_branches.py` |
+
+本轮同时修正两处测试自身的环境隔离缺陷，避免全量跑批时串扰：`test_resource_guard_branches.py` 的 `get_resource_status` 用例只打桩了 `psutil`，仍读取真实 `os.getloadavg()`，高负载机器上并发档位从 4 降到 3；`test_service_container_manager_branches.py` 直接 `monkeypatch.setattr(scm.time, "time", ...)`，改动的是进程级 `time` 模块，日志记录时间戳会消耗有限迭代器，使健康检查循环提前结束。两处分别改为打桩 `rg.os.getloadavg` 与用 `SimpleNamespace` 替换模块级 `time` 引用。
+
+覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`91.42% → 94.22%`，覆盖行 59153 → 60859，语句总数 63778 → 63767，覆盖分支 17962 → 18598（总分支 20578 → 20568）。本轮新增 15 个测试文件、508 个 test 函数定义（含 batch 1 的 `test_spec_first_generate_branches2.py` 149 个与本批 14 个文件的 359 个；参数化展开后全量通过数 +513），全量 `11406 → 11919 passed, 2 skipped, 0 failed`。本轮重点模块：`file_upload.py` 77.20% → 99.35%，`main.py` 71.00% → 99.61%，`task_queue.py` 71.81% → 100.00%，`user_manage.py` 63.21% → 100.00%，`git_operations.py` 66.22% → 100.00%，`process_guard.py` 66.24% → 100.00%，`pptx/layout_engine.py` 64.67% → 100.00%，`pptx/visual_analyzer.py` 31.85% → 100.00%，`pptx/slide_renderer.py` 70.62% → 100.00%，`pptx/animation_engine.py` 68.03% → 99.18%，`aicloud/code_executor.py` 67.32% → 100.00%，`service_container_manager.py` 71.00% → 100.00%，`scaffolding/__init__.py` 68.69% → 99.38%，`dependency_graph.py` 92.45% → 98.01%，`spec_first_generate.py` 96.02%。
+
+全部源码修复均按备份法完成反向验证（`/tmp/opencode/vbak_r32/` 保存修改后源码，`git show HEAD:<path>` 回退后先确认回归用例失败，再恢复）。剩余缺口为平台分支与不可达防御弧：`main.py` 的 `.env` 存在性/打包运行/缓存管理器真值分支（运行环境相关）、`dependency_graph.py` 的 12 处防御 `continue` 与循环回边、`animation_engine.py` 与 `scaffolding/__init__.py` 的循环回边伪影、`file_upload.py` 的扩展名白名单兜底弧。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

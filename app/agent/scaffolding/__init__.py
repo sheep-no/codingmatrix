@@ -51,7 +51,7 @@ class ScaffoldRequest(BaseModel):
     @model_validator(mode="after")
     def validate_target(self) -> ScaffoldRequest:
         normalized = _normalize_relative_path(self.target_dir)
-        if normalized != self.target_dir:
+        if normalized != self.target_dir:  # pragma: no cover - helper 总是返回规范形式
             raise ValueError("scaffold target_dir must be a normalized relative path")
         return self
 

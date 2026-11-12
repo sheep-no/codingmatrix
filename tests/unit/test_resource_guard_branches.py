@@ -171,7 +171,8 @@ def test_safe_concurrency_fallback_reads_meminfo(guard):
 def test_get_resource_status_psutil_shape(guard, psutil_path):
     with patch.object(rg.psutil, "virtual_memory", return_value=_mem(30, 1024**3)), \
          patch.object(rg.psutil, "disk_usage", return_value=_disk(40, 2 * 1024**3)), \
-         patch.object(rg.psutil, "cpu_percent", return_value=20):
+         patch.object(rg.psutil, "cpu_percent", return_value=20), \
+         patch.object(rg.os, "getloadavg", return_value=(0.0, 0.0, 0.0)):
         status = guard.get_resource_status()
 
     assert status["memory_percent"] == 30

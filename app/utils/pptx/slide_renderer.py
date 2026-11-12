@@ -335,7 +335,7 @@ class SlideRenderer:
                 else:
                     return "left_image_right_text"
 
-            return "image_text"
+            return "image_text"  # pragma: no cover - has_text/has_image 已保证列表非空
 
         if has_text:
             return "content"

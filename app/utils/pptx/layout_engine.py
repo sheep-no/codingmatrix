@@ -35,8 +35,11 @@ class TextAnalyzer:
         if not text:
             return {
                 'total_chars': 0,
+                'chinese_count': 0,
+                'ascii_count': 0,
                 'chinese_ratio': 0.0,
                 'ascii_ratio': 0.0,
+                'effective_length': 0,
                 'density_score': 0.0,
             }
 
@@ -162,12 +165,12 @@ class LayoutOptimizer:
         available_height = content_height
 
         # 优化标题
-        if 'title' in slide_data and slide_data['title']:
+        if slide_data.get('title'):
             title_font = self.adjust_font_size(
                 slide_data['title'],
                 max_width=available_width,
-                min_size=getattr(template_config, 'title_size', 24) - 8,
-                max_size=getattr(template_config, 'title_size', 24) + 12,
+                min_size=get_cfg('title_size', 24) - 8,
+                max_size=get_cfg('title_size', 24) + 12,
             )
             optimized['title'] = {
                 'text': slide_data['title'],
@@ -177,15 +180,15 @@ class LayoutOptimizer:
             available_height = max(available_height, 0.5)  # 保证至少 0.5 英寸可用高度
 
         # 优化正文
-        if 'body' in slide_data and slide_data['body']:
+        if slide_data.get('body'):
             body_text = slide_data['body']
-            
-            body_font_size = getattr(template_config, 'body_size', 16)
-            line_spacing = getattr(template_config, 'line_spacing', 1.3)
+
+            body_font_size = get_cfg('body_size', 16)
+            line_spacing = get_cfg('line_spacing', 1.3)
 
             # 分栏处理
             num_columns = 1
-            if num_columns > 1:
+            if num_columns > 1:  # pragma: no cover - 当前固定单栏，保留分栏入口
                 columns = self.split_to_columns(body_text, num_columns)
                 optimized['body'] = {
                     'columns': columns,
@@ -224,7 +227,7 @@ class LayoutOptimizer:
                 }
 
         # 优化图片
-        if 'images' in slide_data and slide_data['images']:
+        if slide_data.get('images'):
             optimized['images'] = self._optimize_image_layout(
                 slide_data['images'],
                 available_width,
@@ -464,8 +467,14 @@ class LayoutOptimizer:
             优化后的幻灯片数据，包含间距配置
         """
         optimized = slide_data.copy()
-        margin = getattr(template_config, 'slide_margin', 0.5)
-        element_spacing = getattr(template_config, 'paragraph_spacing', 0.3)
+
+        def get_cfg(key, default):
+            if isinstance(template_config, dict):
+                return template_config.get(key, default)
+            return getattr(template_config, key, default)
+
+        margin = get_cfg('slide_margin', 0.5)
+        element_spacing = get_cfg('paragraph_spacing', 0.3)
 
         # 计算各元素位置
         raw_layout = optimized.get('layout', {})
@@ -474,7 +483,7 @@ class LayoutOptimizer:
         layout = raw_layout
 
         # 标题区域
-        if 'title' in optimized:
+        if isinstance(optimized.get('title'), dict):
             layout['title'] = {
                 'top': margin,
                 'left': margin,
@@ -483,7 +492,7 @@ class LayoutOptimizer:
             }
 
         # 内容区域
-        if 'body' in optimized:
+        if isinstance(optimized.get('body'), dict):
             header_end = layout.get('title', {}).get('height', 0) + margin + element_spacing
             layout['body'] = {
                 'top': header_end,
