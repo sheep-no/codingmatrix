@@ -228,6 +228,16 @@ def test_dependency_manifest_reads_cargo(tmp_path):
     assert manifest.allows("serde")
 
 
+def test_dependency_manifest_cargo_skips_non_mapping_section(tmp_path):
+    (tmp_path / "Cargo.toml").write_text(
+        'dev-dependencies = 3\n[dependencies]\nserde = "1.0"\n',
+        encoding="utf-8",
+    )
+    manifest = scaffolding._read_dependency_manifest(tmp_path)
+    assert manifest.allows("serde")
+    assert manifest.allows("3") is False
+
+
 def test_dependency_manifest_reads_go_mod(tmp_path):
     (tmp_path / "go.mod").write_text(
         "module example.com/app\n\nrequire (\n    github.com/gin-gonic/gin v1.10.0\n"
@@ -256,3 +266,16 @@ def test_dependency_manifest_reads_pom(tmp_path):
     (tmp_path / "pom.xml").write_text("<project", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid scaffold pom.xml"):
         scaffolding._read_dependency_manifest(tmp_path)
+
+
+def test_dependency_manifest_pom_skips_incomplete_coordinates(tmp_path):
+    (tmp_path / "pom.xml").write_text(
+        "<project><dependencies>"
+        "<dependency><groupId>g</groupId></dependency>"
+        "<dependency><artifactId>a</artifactId></dependency>"
+        "<dependency><groupId>org.x</groupId><artifactId>y</artifactId></dependency>"
+        "</dependencies></project>",
+        encoding="utf-8",
+    )
+    manifest = scaffolding._read_dependency_manifest(tmp_path)
+    assert manifest.allows("org.x:y")

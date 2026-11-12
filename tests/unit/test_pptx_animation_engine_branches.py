@@ -68,6 +68,18 @@ def test_apply_transition_creates_and_replaces(monkeypatch):
     assert transition.get("spd") == "slow"
 
 
+def test_apply_transition_keeps_unrelated_children():
+    engine = AnimationEngine()
+    slide = _Slide()
+    assert engine.apply_slide_transition(slide, TransitionEffect.FADE, 1.0) is True
+    transition = slide._element.find(f"{P}transition")
+    etree.SubElement(transition, f"{P}unrelated")
+
+    assert engine.apply_slide_transition(slide, TransitionEffect.FADE, 1.0) is True
+    names = [etree.QName(child).localname for child in transition]
+    assert "unrelated" in names
+
+
 def test_apply_transition_unknown_effect(monkeypatch):
     engine = AnimationEngine()
     slide = _Slide()
@@ -219,6 +231,12 @@ def test_set_default_transition_variants():
     assert engine.set_default_transition(_prs([slide]), TransitionEffect.FADE) is False
 
 
+def test_set_default_transition_ignores_false_results(monkeypatch):
+    engine = AnimationEngine()
+    monkeypatch.setattr(engine, "apply_slide_transition", lambda *a, **k: False)
+    assert engine.set_default_transition(_prs([_Slide()]), TransitionEffect.FADE) is False
+
+
 def test_animate_slide_sequence_variants():
     engine = AnimationEngine()
     slide = _Slide()
@@ -266,12 +284,29 @@ def test_presets_all_themes_and_case_insensitive():
         ] in list(TransitionEffect)
 
 
+def test_presets_reject_unknown_theme():
+    with pytest.raises(ValueError, match="Unknown theme"):
+        AnimationPresets.get_preset_for_theme("neon")
+
+
 def test_presets_apply_fade_transition_failure(monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(AnimationEngine, "set_default_transition", boom)
     assert AnimationPresets.apply_fade_transition(_prs([])) is False
+
+
+def test_presets_apply_fade_transition_success(monkeypatch):
+    engine = AnimationEngine()
+    monkeypatch.setattr(engine, "set_default_transition", lambda *a, **k: True)
+
+    class _FakeEngine:
+        def __new__(cls):
+            return engine
+
+    monkeypatch.setattr(module, "AnimationEngine", _FakeEngine)
+    assert AnimationPresets.apply_fade_transition(_prs([_Slide()])) is True
 
 
 def test_presets_apply_professional_full_flow(monkeypatch):

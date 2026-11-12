@@ -145,6 +145,8 @@ def test_cleanup_stale_user_chunks_swallows_oserror(tmp_path, monkeypatch):
 
 
 def test_validate_file_upload_rejects_empty_oversized_and_bad_extension():
+    file_upload.validate_file_upload(_upload(name="ok.txt"))
+
     empty = _upload(content=b"")
     with pytest.raises(HTTPException) as exc:
         file_upload.validate_file_upload(empty)
@@ -271,6 +273,25 @@ async def test_init_chunked_returns_existing_file(tmp_path, monkeypatch):
     )
     assert result["status"] == "exists"
     assert result["file_id"] == "5"
+
+
+@pytest.mark.asyncio
+async def test_init_chunked_without_metadata_starts_empty(tmp_path, monkeypatch):
+    chunks = tmp_path / ".chunks"
+    monkeypatch.setattr(file_upload, "CHUNKS_DIR", chunks)
+    monkeypatch.setattr(file_upload, "_cleanup_stale_user_chunks", lambda p: None)
+
+    class _FixedUUID:
+        def __str__(self):
+            return "fresh"
+
+    monkeypatch.setattr(file_upload.uuid, "uuid4", lambda: _FixedUUID())
+
+    result = await file_upload.init_chunked_upload(
+        "a.txt", file_upload.CHUNK_SIZE + 1, "hash", None, {"sub": "1"}, _DB()
+    )
+    assert result["status"] == "new"
+    assert result["uploaded_chunks"] == []
 
 
 @pytest.mark.asyncio
