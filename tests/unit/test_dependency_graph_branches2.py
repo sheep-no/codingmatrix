@@ -105,6 +105,125 @@ def test_non_list_dependency_and_import_fields_are_ignored(monkeypatch):
     assert graph.adjacency["b.py"] == set()
 
 
+def test_database_plan_ignores_non_list_imports_and_empty_import_entries(monkeypatch):
+    graph = DependencyGraph()
+    monkeypatch.setattr(graph, "_auto_add_dependencies", lambda *a, **k: None)
+    from app.agent.generation_plan import GenerationPlan
+
+    monkeypatch.setattr(
+        GenerationPlan, "from_architecture",
+        classmethod(lambda cls, architecture, **kwargs: (_ for _ in ()).throw(ValueError("legacy"))),
+    )
+    graph.build_from_architecture(
+        {
+            "file_plan": [
+                {"path": "app/db.py", "file_type": "database", "imports": "app/models.py"},
+                {"path": "app/models.py", "file_type": "model"},
+                {"path": "app/other.py", "file_type": "utils", "imports": ["", "app/other.py"]},
+            ]
+        }
+    )
+    assert graph.adjacency["app/db.py"] == set()
+
+
+def test_contract_graph_reuses_existing_layer_edges():
+    def plan():
+        return [
+            {
+                "path": "app/db.py", "file_type": "database",
+                "dependencies": ["app/models.py"],
+                "contract": {"required_imports": []},
+            },
+            {"path": "app/models.py", "file_type": "model"},
+            {"path": "app/schemas.py", "file_type": "schema"},
+            {"path": "app/repository.py", "file_type": "repository"},
+            {"path": "app/entry.py", "file_type": "entry"},
+        ]
+
+    graph = DependencyGraph()
+    for entry in plan():
+        graph.add_file(entry["path"], file_type=entry["file_type"])
+    graph.add_dependency("app/entry.py", "app/repository.py")
+    graph.add_dependency("app/db.py", "app/models.py")
+    graph.add_dependency("app/schemas.py", "app/models.py")
+    graph.add_dependency("app/repository.py", "app/schemas.py")
+
+    graph.build_from_architecture({"file_plan": plan()})
+
+    assert "app/repository.py" in graph.adjacency["app/entry.py"]
+    assert "app/models.py" not in graph.adjacency["app/db.py"]
+    assert "app/models.py" not in graph.nodes["app/db.py"].dependencies
+    assert "app/models.py" in graph.adjacency["app/schemas.py"]
+    assert "app/schemas.py" in graph.adjacency["app/repository.py"]
+
+
+def test_contract_graph_cleans_database_edge_seeded_before_build():
+    graph = DependencyGraph()
+    graph.add_file("app/db.py", file_type="database")
+    graph.add_file("app/models.py", file_type="model")
+    graph.add_dependency("app/db.py", "app/models.py")
+
+    graph.build_from_architecture(
+        {
+            "file_plan": [
+                {
+                    "path": "app/models.py", "file_type": "model",
+                    "contract": {"required_imports": []},
+                },
+                {"path": "app/entry.py", "file_type": "entry"},
+            ]
+        }
+    )
+
+    assert "app/models.py" not in graph.adjacency["app/db.py"]
+    assert graph.nodes["app/db.py"].dependencies == []
+
+
+def test_build_from_specs_skips_empty_service_path(monkeypatch):
+    graph = DependencyGraph()
+    monkeypatch.setattr(graph, "_path_to_service_file", lambda path: "")
+    graph.build_from_specs({"openapi": {"paths": {"/items": {}}, "components": {}}})
+    assert "app/api/items.py" in graph.nodes
+
+
+def test_break_cycles_removes_dependency_list_entry():
+    graph = DependencyGraph()
+    graph.add_file("a.py")
+    graph.add_file("b.py")
+    for source, target in (("a.py", "b.py"), ("b.py", "a.py")):
+        graph.adjacency[source].add(target)
+        graph.reverse_adjacency[target].add(source)
+        graph.nodes[source].dependencies.append(target)
+
+    graph.get_generation_order()
+
+    remaining = set(graph.nodes["a.py"].dependencies) | set(graph.nodes["b.py"].dependencies)
+    assert remaining == {"b.py"} or remaining == {"a.py"}
+
+
+def test_generation_layers_ignores_missing_adjacency_dependency():
+    graph = DependencyGraph()
+    graph.add_file("a.py")
+    graph.adjacency["a.py"].add("ghost.py")
+    assert graph.get_generation_layers() == [["a.py"]]
+
+
+def test_context_package_skips_spec_without_storage_or_terminology():
+    graph = DependencyGraph()
+    graph.add_file("models.py", file_type="model")
+    package = graph.get_context_package_for_file(
+        "models.py", {}, project_spec={"model": {"misc": "value"}}
+    )
+    assert "project_spec" not in package
+
+
+def test_dependency_summary_skips_nodes_without_dependencies():
+    graph = DependencyGraph()
+    graph.add_file("lonely.py")
+    graph.adjacency["lonely.py"]
+    assert graph.get_dependency_summary() == {}
+
+
 def test_self_and_empty_explicit_dependencies_are_skipped():
     graph = DependencyGraph()
     graph.build_from_architecture(
@@ -268,6 +387,19 @@ def test_auto_add_dependencies_replaces_reverse_edge_and_skips_self():
 
     assert "models.py" in graph.adjacency["service.py"]
     assert "service.py" not in graph.adjacency["models.py"]
+
+
+def test_auto_add_dependencies_refuses_cycle():
+    graph = DependencyGraph()
+    graph.add_file("service.py", file_type="service")
+    graph.add_file("models.py", file_type="model")
+    graph.add_file("utils.py", file_type="utils")
+    graph.add_dependency("models.py", "utils.py")
+    graph.add_dependency("utils.py", "service.py")
+
+    graph._auto_add_dependencies(set())
+
+    assert "models.py" not in graph.adjacency["service.py"]
 
 
 def test_generation_order_handles_missing_dependencies_and_cycles(monkeypatch):

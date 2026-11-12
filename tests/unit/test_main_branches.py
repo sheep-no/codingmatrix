@@ -476,6 +476,42 @@ async def test_lifespan_closes_existing_cache_manager(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_lifespan_skips_close_when_cache_manager_absent(monkeypatch):
+    shutdown = _ShutdownManager()
+    app = SimpleNamespace(state=SimpleNamespace())
+    guardian = _Guardian()
+
+    import app.utils.cache as cache_module
+
+    monkeypatch.setattr(cache_module, "_cache_manager", None)
+    monkeypatch.setattr(module, "shutdown_manager", shutdown)
+    monkeypatch.setattr(module, "settings", SimpleNamespace(
+        REDIS_URL=None, ENABLE_SCHEDULER=False, ENV="development"
+    ))
+    monkeypatch.setattr(module, "_validate_production_config_files", lambda: None)
+    monkeypatch.setattr(module.Path, "mkdir", lambda *a, **k: None)
+
+    async def fake_cache(redis_url=None):
+        return _Cache()
+
+    async def fake_none():
+        return None
+
+    monkeypatch.setattr(module, "get_cache_manager", fake_cache)
+    monkeypatch.setattr(module, "_warm_up_database_pool", fake_none)
+    monkeypatch.setattr(module, "run_async_migrations", fake_none)
+    monkeypatch.setattr(module, "_restore_user_providers", fake_none)
+    monkeypatch.setattr(module, "_cleanup_http_client", fake_none)
+    monkeypatch.setattr(module, "AsyncSmartGuardian", lambda **kwargs: guardian)
+
+    ctx = module.lifespan(app)
+    async with ctx:
+        pass
+
+    assert shutdown.shutdown_called is True
+
+
+@pytest.mark.asyncio
 async def test_drain_mode_middleware_blocks_when_draining(monkeypatch):
     shutdown = _ShutdownManager()
     shutdown.is_draining = True

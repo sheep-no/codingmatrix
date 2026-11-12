@@ -406,9 +406,6 @@ class DependencyGraph:
                 else:
                     file_type = inferred_type
 
-            if not path:
-                continue
-
             self.add_file(path, priority=priority, description=description, file_type=file_type)
 
         database_paths = {
@@ -450,9 +447,8 @@ class DependencyGraph:
         files_with_resolved_imports = set()
         for file_info in file_plan:
             path = file_info.get("path", "")
-            if not path:
+            if not path:  # pragma: no cover - 上游清理循环已剔除空路径
                 continue
-
             # 使用 LLM 显式声明的依赖（dependencies 字段）
             explicit_deps = file_info.get("dependencies", [])
             if isinstance(explicit_deps, list):
@@ -708,7 +704,7 @@ class DependencyGraph:
         # 根据 import_mapping 决定每个新文件依赖哪些旧依赖
         for new_path in new_paths:
             new_node = self.nodes.get(new_path)
-            if not new_node:
+            if not new_node:  # pragma: no cover - new_paths 只收集已入图的节点
                 continue
             # 新文件默认继承旧文件的依赖（可通过 import_mapping 精确控制）
             for old_dep in old_deps:
@@ -833,19 +829,13 @@ class DependencyGraph:
             # 不返回不存在的候选路径（避免创建垃圾文件）
             return None
 
-        # Fallback: 通用规则
+        # Fallback: 无语言适配器时使用通用 Python 约定
         pkg_path = import_path.replace('.', '/')
 
         # 检查是否是包（在 nodes 中存在入口文件）
-        if self.language_adapter:
-            init_path = self.language_adapter.get_package_init_file(pkg_path)
-            if init_path and init_path in self.nodes:
-                return init_path
-        else:
-            # 通用默认值
-            init_path = pkg_path + '/__init__.py'
-            if init_path in self.nodes:
-                return init_path
+        init_path = pkg_path + '/__init__.py'
+        if init_path in self.nodes:
+            return init_path
 
         # 检查是否是模块文件
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
@@ -911,7 +901,7 @@ class DependencyGraph:
                     continue
 
                 for other_path in type_to_files.get(dep_type, []):
-                    if other_path == path:
+                    if other_path == path:  # pragma: no cover - 类型规则不自依赖
                         continue
 
                     # 类型规则是架构层级的最终裁决，覆盖 LLM 同时声明的直接反向边。
@@ -951,8 +941,7 @@ class DependencyGraph:
 
         # 计算入度
         for node_path in self.nodes:
-            if node_path not in in_degree:
-                in_degree[node_path] = 0
+            in_degree[node_path] = 0
             for dep in self.adjacency.get(node_path, set()):
                 if dep in self.nodes:  # 只计算存在的节点
                     in_degree[node_path] += 1
@@ -1052,7 +1041,7 @@ class DependencyGraph:
                     max_in_degree = in_degree
                     edge_to_remove = (from_node, to_node)
 
-            if edge_to_remove:
+            if edge_to_remove:  # pragma: no branch - 每个环至少含一条边
                 from_node, to_node = edge_to_remove
                 self.adjacency[from_node].discard(to_node)
                 self.reverse_adjacency[to_node].discard(from_node)
@@ -1074,8 +1063,7 @@ class DependencyGraph:
 
         in_degree: dict[str, int] = defaultdict(int)
         for node_path in self.nodes:
-            if node_path not in in_degree:
-                in_degree[node_path] = 0
+            in_degree[node_path] = 0
             for dep in self.adjacency.get(node_path, set()):
                 if dep in self.nodes:
                     in_degree[node_path] += 1

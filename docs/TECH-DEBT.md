@@ -670,6 +670,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 全部源码修复均按备份法完成反向验证（`/tmp/opencode/vbak_r32/` 保存修改后源码，`git show HEAD:<path>` 回退后先确认回归用例失败，再恢复）。剩余缺口为平台分支与不可达防御弧：`main.py` 的 `.env` 存在性/打包运行/缓存管理器真值分支（运行环境相关）、`dependency_graph.py` 的 12 处防御 `continue` 与 21 条循环/提前返回弧。`animation_engine.py` 单文件运行残余 `568->574` 循环回边，全量运行已被其他用例覆盖至 100%。
 
+### 后端缺陷扫描第三十三轮：依赖图死代码收敛与覆盖率收口（2026-11-12）
+
+本轮以「可覆盖性实测」复核上一轮列出的残余弧，逐条写探针确认后再处理。`dependency_graph.py` 有两处结构性死代码：`_import_to_file_path` 在 `language_adapter` 存在时已在函数前半段直接 `return None`，后半段「有适配器就用适配器包入口」的分支永远不可达；`build_from_architecture` 的第一个循环里 `if not path: continue` 也是重复防御，因为上游清理循环已把空路径从 `file_plan` 中剔除，且 `add_file` 自身对空路径直接返回。两处按最小改动收敛，行为保持不变。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P3 | 不可达的适配器包入口回退分支长期占用覆盖率缺口，掩盖真实缺口 | `app/agent/dependency_graph.py`（`_import_to_file_path`） | 已解决；删除 4 行不可达分支，改为统一的 `__init__.py` 回退。回归 `tests/unit/test_dependency_graph_branches2.py::test_import_to_file_path_without_adapter_resolves_init_and_module` |
+| P3 | 重复的空路径防御 `continue` 与 `add_file` 自身判空重叠 | `app/agent/dependency_graph.py`（`build_from_architecture`） | 已解决；删除重复防御，空路径仍由 `add_file` 拦截。回归 `tests/unit/test_dependency_graph_branches2.py::test_non_list_dependency_and_import_fields_are_ignored` |
+| P3 | 两处入度初始化 `if node not in in_degree` 恒真（`nodes` 与 `in_degree` 同源），属冗余分支 | `app/agent/dependency_graph.py`（`get_generation_order` / `get_generation_layers`） | 已解决；直接赋值 `in_degree[node_path] = 0`。回归同一文件拓扑排序与分层用例 |
+
+补充的 9 项依赖图回归用例覆盖：契约图复用既有层间边、数据库→模型反向边预置后清理、无服务路径的 OpenAPI 规格、环检测删除 `dependencies` 列表项、分层排序忽略幽灵依赖、空 project_spec 跳过、空依赖摘要、类型规则拒绝成环、非 list imports。`main.py` 补 1 项 `_cache_manager is None` 的生命周期用例，消除全量运行时的跨文件状态弧。
+
+覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`94.22% → 94.26%`，覆盖行 60858 → 60856，语句总数 63767 → 63753，覆盖分支 18603 → 18607（总分支 20568 → 20550）。全量 `11926 → 11936 passed, 2 skipped, 0 failed`。本轮目标模块：`dependency_graph.py` 98.01% → 100.00%，`main.py` 99.61% → 100.00%，`file_upload.py`、`pptx/animation_engine.py`、`scaffolding/__init__.py` 保持 100.00%。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
