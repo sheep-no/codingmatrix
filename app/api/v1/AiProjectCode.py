@@ -111,11 +111,11 @@ async def update_model_stats(
             else:
                 stats.failure_count += 1
 
+            # success_count/failure_count 刚被自增，总数至少为 1
             total_requests = stats.success_count + stats.failure_count
-            if total_requests > 0:
-                stats.avg_execution_time = (
-                    (stats.avg_execution_time * (total_requests - 1) + execution_time) / total_requests
-                )
+            stats.avg_execution_time = (
+                (stats.avg_execution_time * (total_requests - 1) + execution_time) / total_requests
+            )
 
             stats.last_used_at = datetime.now(timezone.utc)
         else:
@@ -320,9 +320,6 @@ async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
 
                 rel_path = file_path.relative_to(project_dir)
                 stat = file_path.stat()
-
-                if file_path.name.startswith('.'):
-                    continue
 
                 suffix = file_path.suffix.lower()
                 file_type = PROJECT_MIME_TYPES.get(suffix, 'text/plain')
@@ -665,13 +662,18 @@ async def delete_user_upload(project_name: str, token: dict = Depends(verify_tok
     """删除用户上传的项目"""
     user_id = int(token.get("sub"))
     safe_name = _sanitize_project_name(project_name)
-    target_dir = Path(USER_UPLOADS_DIR).resolve() / str(user_id) / safe_name
+    # `.`/`..` 能通过 sanitize 的字符白名单，但解析后分别指向用户根目录与其父级，
+    # 必须在拼路径前拒绝，仅靠 is_relative_to 的字典序比较拦不住 `..`。
+    if safe_name in (".", ".."):
+        raise HTTPException(status_code=403, detail="无权操作该路径")
+
+    user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
+    target_dir = (user_uploads_base / safe_name).resolve()
 
     if not target_dir.exists():
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
-    if not target_dir.is_relative_to(user_uploads_base):
+    if target_dir == user_uploads_base or not target_dir.is_relative_to(user_uploads_base):
         raise HTTPException(status_code=403, detail="无权操作该路径")
 
     try:

@@ -57,7 +57,9 @@ class FrontendEngineer(Specialist):
             return 'frontend_component'
         if tokens & {'test', 'tests', 'spec', 'specs'}:
             return 'test'
-        if path_lower.endswith(('.js', '.ts', '.jsx', '.tsx')):
+        if path_lower.endswith(
+            ('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.vue', '.svelte')
+        ):
             return 'frontend_component'
         return 'unknown'
 

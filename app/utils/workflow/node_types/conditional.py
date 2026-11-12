@@ -201,12 +201,13 @@ class ConditionalNode(TaskNodeBase):
             return compare_value
 
         try:
-            if isinstance(var_value, int):
+            # bool 是 int 的子类，必须先判断，否则布尔分支永远不可达。
+            if isinstance(var_value, bool):
+                return str(compare_value).lower() in ("true", "1", "yes")
+            elif isinstance(var_value, int):
                 return int(compare_value)
             elif isinstance(var_value, float):
                 return float(compare_value)
-            elif isinstance(var_value, bool):
-                return str(compare_value).lower() in ("true", "1", "yes")
             elif isinstance(var_value, list):
                 if isinstance(compare_value, str):
                     import json

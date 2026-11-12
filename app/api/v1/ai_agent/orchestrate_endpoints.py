@@ -1901,9 +1901,23 @@ async def search_sessions(
             # 尝试多种解析方式
             import re
             # 尝试 JSON 格式
-            json_match = re.search(r'\{[^{}]*"scores"[^{}]*\}', content, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
+            # 提示词要求的输出是嵌套对象 {"scores": {...}}；用 [^{}]* 无法跨过
+            # 内层花括号，会把合法响应误判为解析失败并丢掉全部相关性分数。
+            data = None
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict) and "scores" in parsed:
+                    data = parsed
+            except ValueError:
+                pass
+            if data is None:
+                json_match = re.search(r'\{.*"scores".*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        data = json.loads(json_match.group())
+                    except ValueError:
+                        data = None
+            if data is not None:
                 scores_dict = data.get("scores", {})
                 for sid, score in scores_dict.items():
                     scores[sid] = max(0, min(1, float(score)))
@@ -1912,13 +1926,12 @@ async def search_sessions(
                 for line in content.strip().split("\n"):
                     if ":" in line:
                         parts = line.split(":")
-                        if len(parts) >= 2:
-                            session_id = parts[0].strip()
-                            try:
-                                score = float(parts[-1].strip())
-                                scores[session_id] = max(0, min(1, score))
-                            except ValueError:
-                                pass
+                        session_id = parts[0].strip()
+                        try:
+                            score = float(parts[-1].strip())
+                            scores[session_id] = max(0, min(1, score))
+                        except ValueError:
+                            pass
         except Exception as e:
             logger.warning(f"LLM 评分失败: {e}")
         

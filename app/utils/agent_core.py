@@ -1274,53 +1274,55 @@ async def create_project_file(
     if lock_key not in _file_locks:
         _file_locks[lock_key] = asyncio.Lock()
 
-    async with _file_locks[lock_key]:
-        try:
-            import aiofiles
+    lock = _file_locks[lock_key]
+    try:
+        async with lock:
+            try:
+                import aiofiles
 
-            # 记录更多路径信息
-            path = _resolve_project_write_path(file_path, output_dir)
-            logger.debug(f"解析的Path对象: {path}")
-            logger.debug(f"绝对路径: {path.absolute()}")
-            logger.debug(f"当前工作目录: {Path.cwd()}")
+                # 记录更多路径信息
+                path = _resolve_project_write_path(file_path, output_dir)
+                logger.debug(f"解析的Path对象: {path}")
+                logger.debug(f"绝对路径: {path.absolute()}")
+                logger.debug(f"当前工作目录: {Path.cwd()}")
 
-            # 检查文件是否存在
-            if path.exists():
-                logger.warning(f"文件已存在: {file_path}")
-                logger.debug(f"文件大小: {path.stat().st_size} 字节")
-                if not overwrite:
-                    logger.warning(f"文件已存在且不允许覆盖: {file_path}")
-                    return {"status": "skipped", "message": f"文件已存在: {file_path}"}
+                # 检查文件是否存在
+                if path.exists():
+                    logger.warning(f"文件已存在: {file_path}")
+                    logger.debug(f"文件大小: {path.stat().st_size} 字节")
+                    if not overwrite:
+                        logger.warning(f"文件已存在且不允许覆盖: {file_path}")
+                        return {"status": "skipped", "message": f"文件已存在: {file_path}"}
 
-            # 创建目录
-            logger.debug(f"创建父目录: {path.parent}")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"父目录创建成功，是否存在: {path.parent.exists()}")
+                # 创建目录
+                logger.debug(f"创建父目录: {path.parent}")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"父目录创建成功，是否存在: {path.parent.exists()}")
 
-            # 写入文件
-            logger.debug(f"开始写入文件: {file_path}")
-            async with aiofiles.open(str(path), 'w', encoding="utf-8") as f:
-                await f.write(extracted_content)
+                # 写入文件
+                logger.debug(f"开始写入文件: {file_path}")
+                async with aiofiles.open(str(path), 'w', encoding="utf-8") as f:
+                    await f.write(extracted_content)
 
-            logger.info(f"文件创建成功: {file_path}, 大小: {len(extracted_content)} 字符")
+                logger.info(f"文件创建成功: {file_path}, 大小: {len(extracted_content)} 字符")
 
-            # 验证文件是否真的创建成功
-            if path.exists():
-                actual_size = path.stat().st_size
-                logger.debug(f"文件实际大小: {actual_size} 字节")
-                if actual_size == len(extracted_content):
-                    logger.debug("文件大小验证成功")
-                else:
-                    logger.warning(f"文件大小不匹配，预期: {len(extracted_content)}, 实际: {actual_size}")
+                # 验证文件是否真的创建成功
+                if path.exists():
+                    actual_size = path.stat().st_size
+                    logger.debug(f"文件实际大小: {actual_size} 字节")
+                    if actual_size == len(extracted_content):
+                        logger.debug("文件大小验证成功")
+                    else:
+                        logger.warning(f"文件大小不匹配，预期: {len(extracted_content)}, 实际: {actual_size}")
 
-            return {"status": "success", "file_path": str(path)}
-        except Exception as e:
-            logger.error(f"创建文件失败: {file_path}, 错误: {str(e)}", exc_info=True)
-            return {"status": "error", "message": str(e)}
-        finally:
-            # 清理不再使用的锁，防止内存泄漏
-            if lock_key in _file_locks and not _file_locks[lock_key].locked():
-                del _file_locks[lock_key]
+                return {"status": "success", "file_path": str(path)}
+            except Exception as e:
+                logger.error(f"创建文件失败: {file_path}, 错误: {str(e)}", exc_info=True)
+                return {"status": "error", "message": str(e)}
+    finally:
+        # 锁在退出 async with 后才释放，必须在此之后清理，否则永远不会命中。
+        if _file_locks.get(lock_key) is lock and not lock.locked():
+            del _file_locks[lock_key]
 
 
 @ToolRegistry.register("list_directory", "列出目录结构")
@@ -2458,8 +2460,17 @@ class ProjectGeneratorAgent(BaseModel):
             # 如果是创建文件工具，根据文件类型切换模型
             if tool_name == "create_project_file":
                 args = call["function"].get("arguments", {})
-                file_path = args.get("file_path", "")
-                if file_path:
+                # arguments 可能是 JSON 字符串（LLM 常见输出），这里先安全解析，
+                # 否则后面的参数校验还没执行就会因 str.get 直接抛异常。
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                file_path = args.get("file_path", "") if isinstance(args, dict) else ""
+                # file_path 由 LLM 生成，可能是数字等非字符串值；交给后续
+                # pydantic 校验统一拒绝，这里只对字符串做模型预选。
+                if isinstance(file_path, str) and file_path:
                     selected_model = self._select_model_for_file(file_path)
                     await self._progress_callback(ProgressType.STATUS, {
                         "message": f"创建文件: {file_path}, 使用模型: {selected_model}",

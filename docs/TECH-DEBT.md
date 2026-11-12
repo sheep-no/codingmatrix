@@ -604,6 +604,37 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov-branch`，unit + integration）：`75.01% → 75.46%`，覆盖行 49470 → 49756，语句总数 63731 不变，覆盖分支 13760 → 13858（总分支 20566 不变），新增 2 个测试文件共 58 项，全量 `7080 → 7138 passed, 2 skipped`。`traditional_generate.py` 21.28% → 100.00%（206/206 行、76/76 分支），`Controller.py` 12.71% → 100.00%（151/151 行、30/30 分支）。
 
+### 后端缺陷扫描第三十轮：依赖升级、路径与状态收敛批次（2026-11-12）
+
+本轮以覆盖率为线索逐个模块做缺陷复核，覆盖 API、Agent 编排、工具链与 PPT 服务，修复 18 处真实缺陷（2 处安全类、4 处 500/崩溃类、12 处功能与死代码类）：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `inpaint` 的 mask 权限校验被嵌在 `if not uploaded_temp_paths:` 内：multipart 上传原图后该条件为假，mask 路径完全跳过归属校验，可读取并使用他人文件 | `app/api/v1/kolors_api.py`（`inpaint_api`） | 已解决；mask 校验提升到上传分支之外，仅保留“上传文件本身免校验”。回归 `tests/unit/test_kolors_api_branches.py` |
+| P1 | 图片缓存文件名直接拼接检索词，`../../escape` 一类关键词可把文件写到缓存目录之外 | `app/utils/visual/image_manager.py`（`_save_image_bytes`） | 已解决；关键词按字母数字与 ` -_` 白名单清洗并截断 40 字符，空串回退 `image`。回归 `tests/unit/test_image_manager_branches.py::test_save_image_bytes_sanitizes_keyword_path` |
+| P1 | `delete_user_upload` 对 `project_name="."` 解析后等于用户上传根目录，`is_relative_to` 对相等路径返回真，删除操作会清空该用户全部上传项目 | `app/api/v1/AiProjectCode.py`（`delete_user_upload`） | 已解决；拒绝 `.`/`..`，并在 `is_relative_to` 之外显式拒绝 `target_dir == user_uploads_base`。回归 `tests/unit/test_ai_project_code_branches.py` |
+| P1 | `ProbabilitySampler` 在 opentelemetry-sdk 1.29 已移除，import 失败被外层 `except ImportError` 当作“包未安装”吞掉，追踪整体静默禁用 | `app/agent/tracing.py`（provider 初始化） | 已解决；新增 `_make_sampler`，优先 `ParentBasedTraceIdRatio`，旧版回退 `ProbabilitySampler`。回归 `tests/unit/test_tracing_branches.py`（含模块重载用例） |
+| P1 | `create_project_file` 的锁清理写在 `async with lock` 块内的 `finally`，此时锁仍被持有，`locked()` 恒为真，锁永不删除；并发写同一路径会持续累积 `asyncio.Lock` | `app/utils/agent_core.py`（`create_project_file`） | 已解决；`try/finally` 移到 `async with` 之外，并校验字典中的锁对象仍是当前实例后再删除。回归 `tests/unit/test_agent_core_branches.py` |
+| P1 | `create_project_file` 工具调用的 `arguments` 常为 JSON 字符串，直接 `.get()` 抛 `AttributeError`，参数校验尚未执行就中断整轮生成 | `app/utils/agent_core.py`（`ProjectGeneratorAgent` 工具分派） | 已解决；字符串先 `json.loads` 并校验为 dict，非字符串 `file_path` 交给后续 pydantic 校验。回归 `tests/unit/test_agent_core_generate_branches.py` |
+| P2 | 会话搜索评分正则 `\{[^{}]*"scores"[^{}]*\}` 无法跨过内层花括号，提示词要求的 `{"scores": {...}}` 恒解析失败，全部相关性分数被丢弃 | `app/api/v1/ai_agent/orchestrate_endpoints.py`（`search_sessions`） | 已解决；先整体 `json.loads`，失败再退化为贪婪正则，两层都校验 dict 形状。回归 `tests/unit/test_orchestrate_endpoints_branches.py::test_search_sessions_scores_and_sorts` |
+| P2 | 同步 PDF 返回 `preview_url=None`，而响应模型声明 `preview_url: str`，pydantic 校验失败使成功生成变成 500 | `app/api/v1/aiGeneratorPptx.py`（`PPTGenerationResponse`） | 已解决；改为 `Optional[str] = None`。回归 `tests/unit/test_ppt_api_extra_branches.py` |
+| P2 | `SyncResponse.message` 为必填，同步失败分支只传 `count`/`error`，失败路径本身抛响应校验错误 | `app/api/v1/providers.py`（`sync_models`） | 已解决；失败分支补齐 `message`。回归 `tests/unit/test_providers_api_branches.py::test_sync_failure_records_error` |
+| P2 | 导入工作流执行从未把记录置为 running，记录状态永久停留在初始值；客户端断开后执行任务继续运行，done 回调还会覆盖记录状态 | `app/api/v1/workflow.py`（`execute_imported_workflow`） | 已解决；加锁标记 running，`add_done_callback` 只更新仍属于当前执行器的记录，generator 关闭时取消 executor 与任务。回归 `tests/unit/test_workflow_api_branches.py` |
+| P2 | `close_http_client` 在客户端已关闭时跳过清空，模块继续持有失效实例；后续复用会拿到已关闭连接池 | `app/utils/aicloud/http_client.py`（`close_http_client`） | 已解决；无论是否已关闭都清空实例与事件循环引用。回归 `tests/unit/test_aicloud_http_client_branches.py` |
+| P2 | `context_lengths` 为 `None` 时先归一化为 `{}` 再入参，但日志仍对原始参数取 `keys()`，抛 `AttributeError` 使配置更新在保存后失败 | `app/services/apikey_manager.py`（`update_context_lengths`） | 已解决；日志改用已归一化的 `meta.context_lengths`。回归 `tests/unit/test_apikey_manager_branches.py` |
+| P3 | `bool` 是 `int` 子类，`isinstance(var_value, int)` 先命中，布尔分支永远不可达；布尔变量与字符串比较被按整数解析 | `app/utils/workflow/node_types/conditional.py`（`_coerce_compare_value`） | 已解决；布尔判断前置。回归 `tests/unit/test_workflow_node_types_branches.py::test_int_float_bool_convert` |
+| P3 | 备份列表只匹配 `*.backup` 后缀，实际部署产物 `app.conf.backup.YYYYMMDD_HHMMSS` 全部不可见 | `app/api/v2/nginx_api.py`（`list_backups`） | 已解决；改为名字含 `.backup`。回归 `tests/unit/test_nginx_api_branches.py` |
+| P3 | `#include`/`#import` 被注释过滤规则吞掉，C/C++ 依赖图缺失；`from pkg import x` 先被裸 import 规则命中，模块名取成 `x` | `app/agent/adapters/generic.py`（`parse_imports`） | 已解决；预处理指令排除在注释之外，`from ... import` 规则前置。回归 `tests/unit/test_generic_adapter_branches.py` |
+| P3 | Rust `use core::mem` 的路径分隔符未参与标准库判定，`core`/`std` 前缀漏判；带返回类型标注或 `:` 的通用函数声明无法识别 | `app/agent/adapters/generic.py`（`_looks_like_stdlib`/`extract_definitions`） | 已解决；先按 `::` 切分，函数声明正则加入 `:` 结尾。回归 `tests/unit/test_generic_adapter_branches.py` |
+| P3 | 前端文件类型推断只认 `.js/.ts/.jsx/.tsx`，`.mjs`/`.cjs`/`.vue`/`.svelte` 一律归为 unknown | `app/agent/frontend_engineer.py`（`_infer_file_type`） | 已解决；扩展名集合补齐。回归 `tests/unit/test_frontend_engineer_branches.py` |
+| P3 | 用户偏好提取丢弃超过 100 字符的值，长偏好被静默忽略 | `app/api/v1/GirlAi.py`（`_extract_user_preferences`） | 已解决；保留完整值。回归 `tests/unit/test_girlai_api_branches.py` |
+
+死代码清理（覆盖率复核中确认不可达或重复，删除后行为不变）：`app/utils/json_parser.py` 的 `_looks_like_json_array`（平衡括号定位后字符串必然以 `[` 开头、以 `]` 结尾）、`app/api/v1/AiProjectCode.py` 的隐藏文件二次判断（外层已按路径段过滤）与 `avg_execution_time` 的 `total_requests > 0` 守卫（自增后总数至少为 1）、`app/agent/models.py` 中位于首个 REASONING 分支之后的重复 REASONING 判断。
+
+覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`83.41% → 88.54%`，覆盖行 54679 → 57598，语句总数 63775 不变，覆盖分支 15676 → 17087（总分支 20578 不变），新增 67 个测试文件共 1472 项，全量 `8752 → 10224 passed, 2 skipped, 0 failed`。本轮重点模块：`tracing.py` 63.07% → 100.00%，`consistency_checker.py` 52.29% → 100.00%，`github_remote.py` 52.63% → 100.00%，`resource_config.py` 53.57% → 100.00%，`conditional.py` 54.29% → 100.00%，`llm_call.py` 52.89% → 100.00%，`http_request.py` 55.84% → 100.00%，`orchestrator_files.py` 79.37% → 100.00%，`session_manager.py` 60.31% → 100.00%，`ppt_state_service.py` 69.43% → 100.00%，`aiGeneratorPptx.py` 59.93% → 96.67%，`agent/utils.py` 69.81% → 99.64%，`web_search.py` 74.12% → 99.30%，`incremental_modify.py` 62.96% → 99.83%，`dynamic_model_router.py` 73.58% → 99.23%。
+
+新增测试暴露并修复了一处测试间污染：`test_dynamic_model_router_branches.py` 的非 `monkeypatch` 断言依赖模块级 `MODEL_ID_TO_KEY`/`MODEL_PROVIDER_MAP` 缓存，测试结束后未还原，导致后续成本用例读到空映射、单价为 0。该文件已加 autouse fixture 保存并还原五个模块级映射全局，合跑 `107 passed`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

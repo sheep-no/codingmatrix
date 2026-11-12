@@ -522,6 +522,15 @@ async def execute_imported_workflow(
                 node_timeout=300,
                 max_concurrent=3,
             )
+            def _mark_running():
+                record = _workflows.get(workflow_id)
+                if record is not None:
+                    record["executor"] = executor
+                    record["status"] = "running"
+                    record["updated_at"] = datetime.now().isoformat()
+
+            async with _workflows_lock:
+                _mark_running()
 
             event_queue = asyncio.Queue()
 
@@ -550,18 +559,45 @@ async def execute_imported_workflow(
                 on_node_complete=on_node_complete,
             ))
 
-            async for event in _drain_event_queue(event_queue):
-                yield event
+            def record_terminal(task):
+                record = _workflows.get(workflow_id)
+                if record is not None and record.get("executor") is executor:
+                    if task.cancelled():
+                        record["status"] = "cancelled"
+                    elif task.exception() is not None:
+                        record["status"] = "failed"
+                    else:
+                        record["status"] = task.result()["status"]
+                    record["updated_at"] = datetime.now().isoformat()
+            executor_task.add_done_callback(record_terminal)
 
-            while not executor_task.done():
+            try:
                 async for event in _drain_event_queue(event_queue):
                     yield event
-                await asyncio.sleep(0.05)
 
-            async for event in _drain_event_queue(event_queue):
-                yield event
+                while not executor_task.done():
+                    async for event in _drain_event_queue(event_queue):
+                        yield event
+                    await asyncio.sleep(0.05)
 
-            result = await executor_task
+                async for event in _drain_event_queue(event_queue):
+                    yield event
+
+                result = await executor_task
+
+                def _mark_finished():
+                    record = _workflows.get(workflow_id)
+                    if record is not None:
+                        record["status"] = result["status"]
+                        record["updated_at"] = datetime.now().isoformat()
+
+                async with _workflows_lock:
+                    _mark_finished()
+            finally:
+                # 客户端断开（generator 关闭）时取消仍在运行的执行
+                if not executor_task.done():
+                    executor.cancel()
+                    executor_task.cancel()
 
             yield json.dumps({
                 "event": "workflow_completed",

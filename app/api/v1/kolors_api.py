@@ -759,29 +759,28 @@ async def inpaint_api(
 
         # Step 1: 验证原图权限（跳过上传文件的权限检查）
         if not uploaded_temp_paths:
-            if image_path:
-                result = await db.execute(
-                    select(File).where(
-                        _literal_contains(File.file_path, image_path),
-                        File.user_id == user_id,
-                        File.is_deleted == 0
-                    )
+            result = await db.execute(
+                select(File).where(
+                    _literal_contains(File.file_path, image_path),
+                    File.user_id == user_id,
+                    File.is_deleted == 0
                 )
-                file_record = result.scalar_one_or_none()
-                
-                if not file_record:
+            )
+            file_record = result.scalar_one_or_none()
+
+            if not file_record:
+                raise HTTPException(
+                    status_code=403,
+                    detail="无权访问该参考图片"
+                )
+
+            # 验证会话隔离
+            if request.conversation_id and file_record.conversation_id:
+                if str(file_record.conversation_id) != str(request.conversation_id):
                     raise HTTPException(
                         status_code=403,
-                        detail="无权访问该参考图片"
+                        detail="无权访问该参考图片（可能属于其他会话）"
                     )
-                
-                # 验证会话隔离
-                if request.conversation_id and file_record.conversation_id:
-                    if str(file_record.conversation_id) != str(request.conversation_id):
-                        raise HTTPException(
-                            status_code=403,
-                            detail="无权访问该参考图片（可能属于其他会话）"
-                        )
             
             # Step 2: 验证 mask 图片权限（如果有）
             if mask_path:

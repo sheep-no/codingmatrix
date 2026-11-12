@@ -162,6 +162,9 @@ class GenericLanguageAdapter(LanguageAdapter):
         patterns = [
             # C/C++ #include
             (r'#include\s+[<"]([^>"]+)[>"]', False),
+            # from xxx import (Python 风格) 必须早于裸 import，否则会误取
+            # "from mypkg.sub import thing" 中的 thing 作为模块名
+            (r'\bfrom\s+([\w.]+)\s+import', False),
             # import xxx (大多数语言)
             (r'\bimport\s+["\']?([\w./@-]+)["\']?', False),
             # require('xxx')
@@ -170,8 +173,6 @@ class GenericLanguageAdapter(LanguageAdapter):
             (r'\busing\s+([\w.]+)\s*;', False),
             # use xxx (Rust)
             (r'\buse\s+([\w:]+)', False),
-            # from xxx import (Python 风格)
-            (r'\bfrom\s+([\w.]+)\s+import', False),
             # Go import
             (r'\bimport\s+["\']([^"\']+)["\']', False),
         ]
@@ -179,8 +180,10 @@ class GenericLanguageAdapter(LanguageAdapter):
         for line in content.split('\n'):
             stripped = line.strip()
 
-            # 跳过注释
-            if stripped.startswith(('//', '#', '/*')):
+            # 跳过注释；#include 是 C/C++ 预处理导入，不属于注释
+            if stripped.startswith(('//', '#', '/*')) and not stripped.startswith(
+                ('#include', '#import')
+            ):
                 continue
 
             for pattern, is_relative in patterns:
@@ -206,7 +209,7 @@ class GenericLanguageAdapter(LanguageAdapter):
             return True
         # 常见标准库前缀
         stdlib_prefixes = ['std', 'system', 'core', 'posix', 'win32']
-        top = module.split('/')[0].split('.')[0].lower()
+        top = module.split('/')[0].split('::')[0].split('.')[0].lower()
         return top in stdlib_prefixes
 
     def resolve_import_to_file(self, import_info: ImportInfo, current_file: str) -> list[str]:
@@ -333,7 +336,7 @@ class GenericLanguageAdapter(LanguageAdapter):
 
             # 函数定义（通用模式）
             func_match = re.match(
-                r'^(?:(?:public|private|protected|static|async|virtual|override|fn|func|def|function|sub|void|int|string|bool)\s+)*(\w+)\s*\([^)]*\)\s*(?:{|\b(?:begin|do)\b)',
+                r'^(?:(?:public|private|protected|static|async|virtual|override|fn|func|def|function|sub|void|int|string|bool)\s+)*(\w+)\s*\([^)]*\)\s*(?:{|:|\b(?:begin|do)\b)',
                 stripped
             )
             if func_match:

@@ -385,7 +385,7 @@ async def _extract_user_preferences(
                 match = re.search(pattern, user_message)
                 if match:
                     value = match.group(1).strip()
-                    if value and len(value) <= 100:
+                    if value:
                         extracted[key] = value
                     break
 

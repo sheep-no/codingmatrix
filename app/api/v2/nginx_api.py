@@ -530,7 +530,8 @@ async def list_backups(
     try:
         backups = []
         for filename in os.listdir(backup_dir):
-            if filename.endswith('.backup'):
+            # deploy 生成的是 app.conf.backup.YYYYMMDD_HHMMSS，历史备份是 *.backup
+            if ".backup" in filename:
                 filepath = os.path.join(backup_dir, filename)
                 backups.append({
                     "name": filename,

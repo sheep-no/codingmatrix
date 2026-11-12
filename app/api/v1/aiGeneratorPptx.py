@@ -438,7 +438,7 @@ class PPTGenerationResponse(BaseModel):
     output_format: str
     created_at: str
     download_url: str
-    preview_url: str
+    preview_url: Optional[str] = None
     slides: Optional[List[Dict[str, Any]]] = None
 
 # =============================================================================

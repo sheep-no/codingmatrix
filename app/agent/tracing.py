@@ -100,16 +100,30 @@ def _make_batch_processor(exporter):
     )
 
 
+def _make_sampler(rate: float):
+    """构造采样器，兼容新旧版 OpenTelemetry SDK。
+
+    ``ProbabilitySampler`` 在 opentelemetry-sdk 1.29 已被移除，继续直接 import
+    会抛 ImportError 并被下面的 except 当作「包未安装」静默禁用追踪。
+    新版优先使用父级感知的比率采样器，旧版回退到 ProbabilitySampler。
+    """
+    try:
+        from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatio
+    except ImportError:
+        from opentelemetry.sdk.trace.sampling import ProbabilitySampler
+        return ProbabilitySampler(rate=rate)
+    return ParentBasedTraceIdRatio(rate)
+
+
 if _otel_enabled:
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.sampling import ProbabilitySampler
 
         resource = Resource.create({"service.name": _service_name})
         _tracer_provider = TracerProvider(
-            sampler=ProbabilitySampler(rate=_sampling_rate),
+            sampler=_make_sampler(_sampling_rate),
             resource=resource,
         )
 

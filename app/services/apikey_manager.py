@@ -534,7 +534,10 @@ class APIKeyManager:
         meta.context_lengths = context_lengths or {}
         self._save_meta(user_id, token, meta)
 
-        logger.info(f"用户 {user_id} 更新 Key {token[:8]}... context_lengths: {list(context_lengths.keys())}")
+        logger.info(
+            f"用户 {user_id} 更新 Key {token[:8]}... "
+            f"context_lengths: {list(meta.context_lengths.keys())}"
+        )
         return True
 
     def update_fallback_preference(

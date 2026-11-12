@@ -204,7 +204,11 @@ async def sync_models(request: Request, pid: str, token: dict = Depends(verify_t
         error_msg = str(e)
         provider.sync_error = error_msg
         logger.error(f"模型同步失败 ({provider.name}): {error_msg}")
-        return SyncResponse(count=len(provider.models), error=error_msg)
+        return SyncResponse(
+            count=len(provider.models),
+            error=error_msg,
+            message=f"模型同步失败: {error_msg}",
+        )
 
 
 @router.post("/{pid}/test", summary="测试连接")

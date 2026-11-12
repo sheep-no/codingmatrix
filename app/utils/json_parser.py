@@ -132,9 +132,7 @@ class RobustJSONParser:
 
         end = _find_balanced_end(text, start, '[', ']')
         if end != -1:
-            candidate = text[start:end + 1]
-            if self._looks_like_json_array(candidate):
-                return candidate
+            return text[start:end + 1]
         return None
 
     def _looks_like_json(self, text: str) -> bool:
@@ -145,11 +143,6 @@ class RobustJSONParser:
         starts_correctly = text.startswith('{')
         has_balanced = text.count('{') == text.count('}')
         return starts_correctly and has_balanced
-
-    def _looks_like_json_array(self, text: str) -> bool:
-        """检查文本是否看起来像 JSON 数组"""
-        text = text.strip()
-        return text.startswith('[') and text.endswith(']')
 
     def _fix_common_errors(self, text: str) -> str:
         """修复常见的 JSON 错误。

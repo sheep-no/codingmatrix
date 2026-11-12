@@ -359,7 +359,11 @@ class ImageManager:
         """保存图片字节到本地"""
         _ensure_cache_dir()
         try:
-            filename = f"{keyword}_{uuid.uuid4().hex[:8]}.jpg"
+            # 关键词来自检索词，必须清洗，避免 "../" 造成缓存目录外的写入
+            safe_keyword = "".join(
+                c for c in keyword if c.isalnum() or c in (' ', '-', '_')
+            ).strip() or "image"
+            filename = f"{safe_keyword[:40]}_{uuid.uuid4().hex[:8]}.jpg"
             local_path = IMAGE_CACHE_DIR / filename
             
             with open(local_path, "wb") as f:

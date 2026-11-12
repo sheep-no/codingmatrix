@@ -370,9 +370,6 @@ class ModelRouter:
         if any(k in content_lower for k in ["代码", "编写", "写一个", "写段代码", "写个函数", "写个程序"]):
             return TaskType.CODE_GENERATION
 
-        if any(k in content_lower for k in ["推理", "reasoning", "思考", "分析", " reasoning"]):
-            return TaskType.REASONING
-
         if len(content) < 30:
             return TaskType.FAST_RESPONSE
 

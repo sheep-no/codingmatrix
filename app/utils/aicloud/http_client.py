@@ -45,10 +45,13 @@ async def get_http_client() -> httpx.AsyncClient:
 async def close_http_client():
     """关闭 HTTP 客户端"""
     global _http_client, _http_client_loop
-    if _http_client and not _http_client.is_closed:
+    if _http_client is None:
+        return
+    if not _http_client.is_closed:
         await _http_client.aclose()
-        _http_client = None
-        _http_client_loop = None
+    # 即使客户端已关闭也要清空引用，避免后续调用误用失效的连接池。
+    _http_client = None
+    _http_client_loop = None
 
 
 async def call_with_retry(
