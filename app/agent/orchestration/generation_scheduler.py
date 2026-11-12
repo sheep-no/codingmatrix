@@ -516,15 +516,20 @@ class GenerationScheduler:
                     model_diagnostic = getattr(exc, "diagnostic", None)
                     if isinstance(model_diagnostic, dict):
                         code = str(model_diagnostic.get("code") or "generation_failed")
-                        message = str(model_diagnostic.get("message") or exc)
+                        message = str(
+                            model_diagnostic.get("message") or exc or exc.__class__.__name__
+                        )
                         if code == "model_timeout":
                             self._fail_node(node, GenerationNodeStatus.TIMED_OUT, code, message)
                             break
+                    else:
+                        code = "generation_failed"
+                        message = str(exc) or exc.__class__.__name__
                     node.diagnostics = (
                         *node.diagnostics,
                         ArtifactDiagnostic(
-                            code="generation_failed",
-                            message=str(exc),
+                            code=code,
+                            message=message,
                             path=path,
                             details={"attempt": attempt},
                         ),

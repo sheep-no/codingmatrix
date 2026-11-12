@@ -643,7 +643,7 @@ class ReActEngine:
                 })
                 raise
 
-        return self._build_final_result(task)
+        return await self._build_final_result(task)
 
     async def _run_with_heartbeat(self, coro, tracker: HeartbeatTracker):
         """带心跳监控的协程执行
@@ -831,7 +831,7 @@ class ReActEngine:
             or reflection.get("task_complete", False)
         )
         if should_stop:
-            return self._build_final_result(task)
+            return await self._build_final_result(task)
 
         return None  # 继续下一轮
 

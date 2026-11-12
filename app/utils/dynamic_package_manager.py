@@ -265,6 +265,8 @@ class DynamicPackageManager:
         if not self.llm_eval_fn:
             return self._heuristic_evaluate(package_name)
 
+        # 模板中的 JSON 示例是字面内容，必须转义花括号，否则 f-string
+        # 会在构造 prompt 时抛 ValueError，LLM 评估永远无法执行。
         prompt = f"""请评估以下 Python 包是否可以安全安装到开发环境中：
 
 包名：{package_name}
@@ -277,12 +279,12 @@ class DynamicPackageManager:
 
 请返回 JSON 格式的评估结果：
 ```json
-{
+{{
     "is_safe": true/false,
     "risk_level": "safe/low_risk/medium_risk/high_risk",
     "reason": "评估原因说明",
     "category": "web/database/ai/security/utility/messaging/search/unknown"
-}
+}}
 ```
 
 注意：

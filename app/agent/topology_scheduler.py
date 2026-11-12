@@ -262,6 +262,12 @@ class TopologyScheduler:
 
                 parallelism_samples.append(active_count)
 
+                if not self._running_tasks:
+                    # 队列竞态下可能 qsize>0 但 get_nowait 取空，此时没有任务可等；
+                    # asyncio.wait 对空集合会直接抛 ValueError。
+                    await asyncio.sleep(0.01)
+                    continue
+
                 done, _ = await asyncio.wait(
                     self._running_tasks,
                     timeout=0.5,

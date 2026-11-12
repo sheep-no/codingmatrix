@@ -635,6 +635,24 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 新增测试暴露并修复了一处测试间污染：`test_dynamic_model_router_branches.py` 的非 `monkeypatch` 断言依赖模块级 `MODEL_ID_TO_KEY`/`MODEL_PROVIDER_MAP` 缓存，测试结束后未还原，导致后续成本用例读到空映射、单价为 0。该文件已加 autouse fixture 保存并还原五个模块级映射全局，合跑 `107 passed`。
 
+### 后端缺陷扫描第三十一轮：编排容错与评估链路收敛批次（2026-11-12）
+
+本轮继续以覆盖率为线索逐个模块复核，覆盖 Agent 编排、语言适配、PPT 任务与工具链，修复 5 处真实缺陷（4 处崩溃/状态类、1 处评估链路不可达）：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 拓扑调度就绪队列存在竞态：`qsize() > 0` 之后 `get_nowait()` 可能先被其他协程取空，`asyncio.wait(self._running_tasks)` 对空集合直接抛 `ValueError`，整轮拓扑调度以异常结束 | `app/agent/topology_scheduler.py`（`run` 主循环） | 已解决；等待前检查 `_running_tasks` 是否为空，空则让出一次事件循环后重试。回归 `tests/unit/test_topology_scheduler_branches.py`，回退后抛 `ValueError: Set of Tasks/Futures is empty` |
+| P1 | `ReActEngine` 在两处返回点调用 `_build_final_result(task)` 漏掉 `await`，协程对象被直接当作最终结果返回，调用方拿到 coroutine 而非结果字典，序列化或字段访问时崩溃并触发 `coroutine was never awaited` | `app/agent/react_engine.py`（`run` 正常结束、`_should_stop` 早停分支） | 已解决；两处补齐 `await`。回归 `tests/unit/test_react_engine_branches.py`，回退后断言失败 |
+| P1 | 流式用量统计把上游 chunk 的 `data` 反序列化后直接当 dict 使用，`choices`/字符串/数组形态的合法 SSE 负载会命中 `AttributeError: ... has no attribute 'get'`，整条流式响应中断 | `app/utils/aicloud/llm_caller.py`（`_stream_usage_tokens`） | 已解决；反序列化结果非 dict 时按 0 token 返回。回归 `tests/unit/test_llm_caller_branches.py` |
+| P2 | `GenerationScheduler` 的失败诊断使用 `str(exc)` 直接构造 `ArtifactDiagnostic.message`，而该字段有 pydantic `min_length=1`；部分异常（如 `TimeoutError()`、`RuntimeError()`）的字符串表示为空，诊断构造再次抛 `ValidationError`，掩盖原始失败原因并使节点状态停在中间态 | `app/agent/orchestration/generation_scheduler.py`（节点失败分支） | 已解决；消息为空时回退到异常类名，同时统一 `code` 的默认值。回归 `tests/unit/test_orchestration_generation_scheduler_branches.py`，回退后抛 `ValidationError` |
+| P2 | `DynamicPackageManager._ai_evaluate_package` 的 prompt 是 f-string，但正文包含未转义的 JSON 示例花括号，格式化阶段就抛 `ValueError: Invalid format specifier`，LLM 安全评估从未真正调用，且被外层 `except Exception` 静默降级为启发式评估 | `app/utils/dynamic_package_manager.py`（`_ai_evaluate_package`） | 已解决；JSON 示例花括号转义为 `{{`/`}}`。回归 `tests/unit/test_dynamic_package_manager_branches.py`，回退后 4 项失败 |
+
+另有契约收敛一处：`IntegrityValidator` 在无适配器时回退分支仍通过 `self.language_adapter.extensions` / `get_package_init_file` 取值，而该分支的成立前提正是适配器缺失，等价于把 `None` 当适配器用；现统一收敛为 Python 约定（`.py`、包内模块前缀）。回归 `tests/unit/test_integrity_validator_branches.py`。
+
+覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`88.54% → 91.42%`，覆盖行 57598 → 59153，语句总数 63775 → 63778，覆盖分支 17087 → 17962（总分支 20578 不变），新增 27 个测试文件共 1182 项，全量 `10224 → 11406 passed, 2 skipped, 0 failed`。本轮重点模块：`topology_scheduler.py` 66.49% → 100.00%，`integrity_validator.py` 65.95% → 100.00%，`react_engine.py` 75.62% → 100.00%，`llm_caller.py` 78.53% → 100.00%，`agent_host.py` 84.14% → 100.00%，`skill_registry.py` 53.80% → 100.00%，`ppt_tasks.py` 56.74% → 100.00%，`custom_skill_manager.py` 60.53% → 100.00%，`dynamic_package_manager.py` 65.84% → 100.00%，`pptx/templates/base.py` 58.52% → 100.00%，`code_patcher.py` 77.17% → 99.75%，`synthesis_validation.py` 87.72% → 100.00%，`api_contract_checker.py` 85.90% → 99.74%，`boilerplate.py` 74.23% → 99.74%。
+
+全部修复均按备份法完成反向验证（`/tmp/opencode/vbak_r31/` 保存修改后源码，`git show HEAD:<path>` 回退后先确认回归用例失败，再恢复）。`chat_archiver.py`（98.59%）、`log_archiver.py`（98.12%）剩余缺失为循环回边与循环后不可达兜底；`json_parser.py`（99.53%）剩余 1 行为 `raw_decode` 从 `{` 起必得 dict 的不可达防护。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

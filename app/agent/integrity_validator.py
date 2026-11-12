@@ -242,7 +242,7 @@ class IntegrityValidator:
                         ))
             else:
                 # Fallback: 通用导入检查
-                extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
+                extensions = {'.py'}
                 file_ext = Path(file_path).suffix
                 if file_ext not in extensions:
                     continue
@@ -310,20 +310,14 @@ class IntegrityValidator:
             candidates = self.language_adapter.resolve_import_to_file(imp, "")
             return any(c in files for c in candidates)
 
-        # Fallback: 通用检查
-        extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
+        # Fallback: 通用检查（无适配器时只有 Python 约定可判定）
+        extensions = {'.py'}
         pkg_path = module.replace('.', '/')
 
         # 检查各种可能的文件路径
         for ext in extensions:
             file_path = f"{pkg_path}{ext}"
             if file_path in files:
-                return True
-
-        # 检查是否是包（入口文件）
-        if self.language_adapter:
-            init_file = self.language_adapter.get_package_init_file(pkg_path)
-            if init_file in files:
                 return True
 
         # 检查是否是包内的模块

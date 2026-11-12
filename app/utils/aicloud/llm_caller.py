@@ -83,6 +83,8 @@ def _stream_usage_tokens(chunk: Any) -> int:
         parsed = json.loads(payload)
     except (json.JSONDecodeError, TypeError):
         return 0
+    if not isinstance(parsed, dict):
+        return 0
     usage = parsed.get("usage") or {}
     return int(usage.get("total_tokens") or 0)
 
