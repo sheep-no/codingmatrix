@@ -713,6 +713,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 反向验证：分别回退 HTML 分支、`PDF` 分支与输出格式白名单，对应回归用例均失败（HTML 两条、格式校验 3 条参数化、PDF 一条），恢复后全绿。受影响套件 `350 passed`，`ppt`/`image_upgrader`/`specialist_base` 关键词范围 `1160 passed`。
 
+### 后端缺陷扫描第三十六轮：版本化响应头丢失与代码任务模型调用断链（2026-11-13）
+
+本轮补测三个高缺口模块时，其中两个模块的补测直接暴露了既有缺陷。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `deprecated` 装饰器为返回普通值的处理函数构造了带 `Deprecation`/`Sunset`/`Link` 头的 `JSONResponse`，但末尾 `return result` 返回原始值；FastAPI 收到裸 dict 后重建响应，废弃响应头全部丢失，客户端无法感知接口已废弃。返回 `(Response, status, headers)` 形态时同样丢状态码与自定义头 | `app/api/__init__.py`（`deprecated`） | 已解决；统一 `return response`，并把 tuple 中的状态码与自定义头合并到最终响应。回归 `test_plain_value_is_wrapped_in_json_response_with_headers`、`test_tuple_result_uses_first_response`、`test_plain_tuple_keeps_status_and_headers` |
+| P1 | `generate_code`、`_agent_modify`、`_agent_fix_from_test_logs` 三处 `from app.api.v1.Aicode import call_siliconflow_api` 导入的符号在 `Aicode.py` 中从未存在（自初始提交起即如此），两个 Celery 任务每次执行都以 `ImportError` 失败 | `app/tasks/code_tasks.py` | 已解决；抽出 `_call_code_model` 统一走 `app.utils.call_llm` + `DEFAULT_CODE_MODEL`，并把 `choices[0].message.content` 与扁平的 `content` 两种响应形态都规整为 `{"content": str}` |
+| P3 | `modify_with_test` 的重试循环以 `while retry_count <= max_retries` 表达，失败分支必然在 `retry_count == max_retries` 时走 `else` 并 `break`，循环条件耗尽不可达 | `app/tasks/code_tasks.py`（`_execute`） | 已用 `# pragma: no branch` 精确标注为「无正常耗尽出口」，未使用整段 `no cover` |
+
+补测范围：`app/api/__init__.py` 18.42% → 100.00%（版本路由缓存与隔离、三种返回值形态的废弃头、中间件同版本/旧版本/非版本路径、`create_versioned_app_setup`）；`app/tasks/code_tasks.py` 74.52% → 100.00%（生成任务搜索分支与超时、路径规范化与越界判定、依赖图影响面、测试映射合并与损坏 YAML、`_run_tests` 的 IsolatedTestRunner 成功/失败与 subprocess 回退/超时/异常）；`app/utils/system_config.py` 58.04% → 100.00%（配置加载三种分支、保存失败吞掉、角色默认值四种历史布局、并发管理器委托、用户覆盖增删、点路径读写、活跃会话查询与 DB 异常）。
+
+反向验证：回退 `deprecated` 的 `return response` 后，6 条废弃头用例全部失败；回退 `_call_code_model` 为旧的 `call_siliconflow_api` 导入后，6 条生成用例全部失败；恢复后全绿。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

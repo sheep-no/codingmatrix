@@ -81,11 +81,24 @@ def deprecated(
             elif isinstance(result, tuple) and len(result) >= 1:
                 if isinstance(result[0], Response):
                     response = result[0]
+                    if len(result) > 1 and isinstance(result[1], int):
+                        response.status_code = result[1]
+                    if len(result) > 2 and isinstance(result[2], dict):
+                        response.headers.update(result[2])
 
             if response is None:
                 from fastapi.responses import JSONResponse
 
-                response = JSONResponse(content=result) if not isinstance(result, Response) else result
+                # 直接返回原始值会让 FastAPI 重建响应，废弃头会丢失；
+                # 这里显式构造响应并把 tuple 的状态码与自定义头带过去。
+                if isinstance(result, tuple) and result:
+                    response = JSONResponse(content=result[0])
+                    if len(result) > 1 and isinstance(result[1], int):
+                        response.status_code = result[1]
+                    if len(result) > 2 and isinstance(result[2], dict):
+                        response.headers.update(result[2])
+                else:
+                    response = JSONResponse(content=result)
 
             response.headers["Deprecation"] = f"version={since_version}"
             if removal_version:
@@ -93,7 +106,7 @@ def deprecated(
             if alternative:
                 response.headers["Link"] = f'<{alternative}>; rel="successor-version"'
 
-            return result
+            return response
 
         wrapper.__deprecated__ = True  # type: ignore
         wrapper.__deprecation_info__ = {  # type: ignore

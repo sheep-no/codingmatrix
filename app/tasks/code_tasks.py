@@ -20,6 +20,29 @@ from app.tasks.exceptions import AgentTaskTimeoutError
 logger = logging.getLogger(__name__)
 
 
+async def _call_code_model(prompt: str) -> dict:
+    """调用统一模型入口生成代码，并把响应规整成 {"content": str}。
+
+    历史上这里导入的 ``Aicode.call_siliconflow_api`` 从未存在，任务一执行就会
+    ImportError；统一走 ``app.utils.call_llm`` 才能命中多供应商适配层。
+    """
+    from app.agent.models import DEFAULT_CODE_MODEL
+    from app.utils import call_llm
+
+    result = await call_llm(model=DEFAULT_CODE_MODEL, prompt=prompt, stream=False)
+    if not isinstance(result, dict):
+        return {"content": ""}
+
+    content = result.get("content")
+    if isinstance(content, str):
+        return {"content": content}
+
+    choices = result.get("choices") or []
+    message = (choices[0] or {}).get("message") if choices else None
+    content = (message or {}).get("content")
+    return {"content": content if isinstance(content, str) else ""}
+
+
 @celery_app.task(
     bind=True,
     base=BaseTask,
@@ -43,7 +66,6 @@ def generate_code(self, task_id: str, prompt: str, language: str, user_id: int, 
         dict with generated code
     """
     async def _execute():
-        from app.api.v1.Aicode import call_siliconflow_api
         from app.utils.web_search import FreeWebSearch
 
         progress_cb = self._get_progress_callback(task_id, user_id)
@@ -60,7 +82,7 @@ def generate_code(self, task_id: str, prompt: str, language: str, user_id: int, 
             full_prompt = prompt
 
         await progress_cb.update(60, "调用 AI 模型...")
-        result = await call_siliconflow_api(full_prompt)
+        result = await _call_code_model(full_prompt)
 
         await progress_cb.update(100, "生成完成")
         return {
@@ -158,7 +180,9 @@ def modify_with_test(
         retry_count = 0
         test_logs = []
         progress_denominator = max(1, max_retries)
-        while retry_count <= max_retries:
+        # 失败分支一定会走到 retry_count == max_retries 的 else 出口并 break，
+        # 因此循环条件耗尽不会发生。
+        while retry_count <= max_retries:  # pragma: no branch
             await progress_cb.update(
                 50 + int(40 * retry_count / progress_denominator),
                 f"运行测试 (第 {retry_count + 1}/{max_retries + 1} 轮)..."
@@ -325,8 +349,6 @@ async def _agent_modify(requirement: str, target_files: list[str], affected_file
     """调用 Agent 执行代码修改"""
     # 这里调用 AI 模型生成代码
     # 简化版：实际应调用 MultiModelAgent 或 ProjectGeneratorAgent
-    from app.api.v1.Aicode import call_siliconflow_api
-
     prompt = f"""
     需求: {requirement}
     目标文件: {', '.join(target_files)}
@@ -338,15 +360,13 @@ async def _agent_modify(requirement: str, target_files: list[str], affected_file
     3. 不要遗漏关联文件的修改
     """
 
-    result = await call_siliconflow_api(prompt)
+    result = await _call_code_model(prompt)
     return {"content": result.get("content", ""), "status": "completed"}
 
 
 async def _agent_fix_from_test_logs(test_logs: list[dict], original_result: dict,
                                     progress_cb, **kwargs) -> dict:
     """根据测试日志调用 Agent 修复"""
-    from app.api.v1.Aicode import call_siliconflow_api
-
     last_log = test_logs[-1]
     error_info = last_log.get("error", "未知错误")
 
@@ -359,7 +379,7 @@ async def _agent_fix_from_test_logs(test_logs: list[dict], original_result: dict
     请分析错误原因并重新修改代码。
     """
 
-    result = await call_siliconflow_api(prompt)
+    result = await _call_code_model(prompt)
     return {"content": result.get("content", ""), "status": "fixed", "retry": len(test_logs)}
 
 
