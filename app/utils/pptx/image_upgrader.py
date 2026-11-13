@@ -276,7 +276,7 @@ class PexelsImageSearch:
                         continue
                     logger.error("Pexels 网络请求异常: %s", e)
                     return []
-            else:
+            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
                 return []
 
             results = []
@@ -339,7 +339,7 @@ class PexelsImageSearch:
                         continue
                     logger.error("Pexels 网络请求异常: %s", e)
                     return []
-            else:
+            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
                 return []
 
             photos = data.get("photos", [])
@@ -475,7 +475,7 @@ class PixabayImageSearch:
                         continue
                     logger.error("Pixabay 网络请求异常: %s", e)
                     return []
-            else:
+            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
                 return []
 
             results = []
@@ -668,7 +668,7 @@ class UnsplashImageSearch:
                         continue
                     logger.error("Unsplash 网络请求异常: %s", e)
                     return []
-            else:
+            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
                 return []
 
             results = []

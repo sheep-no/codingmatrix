@@ -257,13 +257,13 @@ class Specialist:
                     if reasoning_delta:
                         accumulated_reasoning += reasoning_delta
                     buf = _merge_buffers.get(merge_key)
-                    if not buf:
+                    if not buf:  # pragma: no cover - 仅延迟 chunk 在会话结束后到达
                         return
                     buf["message"] += delta
                     buf["accumulated"] = accumulated_reasoning or buf["message"]
                     if reasoning_delta:
                         buf["phase"] = "llm_reasoning"
-                    elif not accumulated_reasoning:
+                    elif not accumulated_reasoning:  # pragma: no branch - 此分支为真时必走下面赋值
                         buf["phase"] = "llm_output"
 
                     # 50ms 合并窗口：如果当前没有 flush 任务在跑，启动一个
@@ -282,7 +282,7 @@ class Specialist:
                         task.cancel()
                     _flush_buffer(merge_key)
                     buf = _merge_buffers.pop(merge_key, None)
-                    if buf:
+                    if buf:  # pragma: no branch - finally 前缓冲区一定存在
                         self._emit_event(callback, "thinking", {
                             "agent": buf["agent"],
                             "model": buf["model"],

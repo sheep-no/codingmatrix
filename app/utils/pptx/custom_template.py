@@ -170,8 +170,7 @@ class CustomTemplateParser:
 
         if color_freq:
             sorted_colors = sorted(color_freq.items(), key=lambda x: x[1], reverse=True)
-            if len(sorted_colors) >= 1:
-                colors["primary_color"] = sorted_colors[0][0]
+            colors["primary_color"] = sorted_colors[0][0]
             if len(sorted_colors) >= 2:
                 colors["secondary_color"] = sorted_colors[1][0]
             if len(sorted_colors) >= 3:

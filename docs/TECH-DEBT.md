@@ -684,6 +684,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`94.22% → 94.26%`，覆盖行 60858 → 60856，语句总数 63767 → 63753，覆盖分支 18603 → 18607（总分支 20568 → 20550）。全量 `11926 → 11936 passed, 2 skipped, 0 failed`。本轮目标模块：`dependency_graph.py` 98.01% → 100.00%，`main.py` 99.61% → 100.00%，`file_upload.py`、`pptx/animation_engine.py`、`scaffolding/__init__.py` 保持 100.00%。
 
+### 后端缺陷扫描第三十四轮：PPT 长文本请求契约与生成上下文可测性（2026-11-13）
+
+本轮以「先实测可覆盖性、再判定不可达」的方式收口 PPT 生成链路，修复 1 处真实缺陷，并把两处长期存在于闭包内的上下文拼装逻辑提取为模块级函数：
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `generate_ppt_from_file` 把截断到 30000 字符的文件正文直接拼进 `topic` 再构造 `PPTGenerationRequest`，而该模型 `topic` 的 `max_length` 为 5000，长文件上传后必然返回 422，文件生成入口对真实长文档完全不可用 | `app/api/v1/aiGeneratorPptx.py`（`generate_ppt_from_file`） | 已解决；先按合法占位值构造请求，再对服务端拼装的 `topic` 赋值（赋值不触发字段校验）。回归 `tests/unit/test_ppt_api_branch_gaps.py::test_generate_from_file_truncates_long_content` 断言正文含截断提示 |
+| P3 | `generate_ppt_task` 的会话历史/素材上下文拼装内嵌在任务闭包里，`TestClient` 启动的 portal 线程会让覆盖追踪对闭包后半段失效，缺口无法通过测试消除 | `app/api/v1/aiGeneratorPptx.py`（`run_ppt_generation`） | 已解决；抽出 `_build_generation_context`，端点只做一次调用与 topic 赋值，逻辑可直接单测 |
+| P3 | `output_format` 的 `else` 回退在 `OutputFormat` 枚举与表单默认值共同约束下不可达；Pexels/Pixabay/Unsplash 三处 `for ... else` 的最后一次重试必然 `return`，`else` 分支永不可达；WebSocket `finally` 中 `close()` 的裸 `except` 仅在连接已断开时触发 | `app/api/v1/aiGeneratorPptx.py`、`app/utils/pptx/image_upgrader.py` | 已标注 `# pragma: no cover` 并保留原行为，静态推理确认不可覆盖 |
+
+补测集中在三处：`aiGeneratorPptx.py` 新增取消清理、Markdown/HTML 输出、材料与历史上下文、模板与历史边界用例；`custom_template.py` 覆盖占位符几何缺失、主题字体缺失、颜色槽位缺失、兼容性评分各档位、装饰开关组合与配置合并回退；`image_upgrader.py` 覆盖缓存淘汰边界、三图源重试耗尽、质量分档位、批量生成单张失败与搜索降级链。另把 `extract_colors` 中恒真的 `len(sorted_colors) >= 1` 判断收敛为直接赋值。
+
+覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`94.26% → 95.03%`，覆盖行 60856 → 61210，语句总数 63753 → 63742，覆盖分支 18607 → 18871（总分支 20550 → 20530）。全量 `11936 → 12173 passed, 2 skipped, 0 failed`（475.60s）。本轮目标模块：`api/v1/aiGeneratorPptx.py` 96.67% → 100.00%，`pptx/custom_template.py` 93.00% → 100.00%，`pptx/image_upgrader.py` 91.65% → 99.88%。`image_upgrader.py` 剩余 1 条弧（`731->755`）为随机图片重试循环回边，属循环结构伪影。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

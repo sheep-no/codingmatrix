@@ -2315,6 +2315,33 @@ def generate_preview_html(ppt_id: str) -> str:
 # =============================================================================
 
 
+async def _build_generation_context(
+    db: AsyncSession,
+    user_id: str,
+    conversation_id,
+    material_file_ids,
+    session_id,
+) -> str:
+    """拼装会话历史与素材上下文，供生成任务使用。"""
+    context_parts = []
+    if conversation_id:
+        try:
+            history_context = await compress_conversation_history(
+                db, int(user_id), int(conversation_id), max_messages=5
+            )
+            if history_context:
+                context_parts.append(f"\n[对话历史]\n{history_context}")
+        except Exception as e:
+            logger.warning(f"获取会话历史失败: {e}")
+
+    material_context = await _build_material_context(
+        db, user_id, material_file_ids, session_id
+    )
+    if material_context:
+        context_parts.append(material_context)
+    return "".join(context_parts)
+
+
 @router.post("/pptx/generate_task", response_model=TaskResponse)
 async def generate_ppt_task(
     req: PPTGenerationRequest,
@@ -2388,28 +2415,10 @@ async def generate_ppt_task(
             
             # 1. 构建完整 Prompt
             full_prompt = req.topic
-            context_parts = []
-            
-            # 会话历史
-            if conversation_id:
-                try:
-                    history_context = await compress_conversation_history(
-                        db, int(user_id), int(conversation_id), max_messages=5
-                    )
-                    if history_context:
-                        context_parts.append(f"\n[对话历史]\n{history_context}")
-                except Exception as e:
-                    logger.warning(f"获取会话历史失败: {e}")
-
-            # 素材文件
-            material_context = await _build_material_context(
-                db, user_id, material_file_ids, req.session_id
+            context = await _build_generation_context(
+                db, user_id, conversation_id, material_file_ids, req.session_id
             )
-            if material_context:
-                context_parts.append(material_context)
-            
-            if context_parts:
-                req.topic = f"{full_prompt}\n\n{''.join(context_parts)}"
+            req.topic = f"{full_prompt}\n\n{context}" if context else full_prompt
 
             # 2. 生成大纲
             await update_progress(progress=20, message="正在生成 PPT 大纲...")
@@ -2502,7 +2511,7 @@ async def generate_ppt_task(
             elif req.output_format == OutputFormat.MARKDOWN:
                 await update_progress(progress=60, message="正在生成 Markdown 格式...")
                 await generate_markdown_ppt(filepath, outline, req)
-            else:
+            else:  # pragma: no cover - OutputFormat 枚举已穷尽
                 # 默认回退到 PPTX
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress, user_id=user_id)
 
@@ -2877,7 +2886,7 @@ async def update_ppt_task(
                 await update_progress(progress=60, message="正在生成 Markdown...")
                 merged_outline = {"title": new_title, "slides": new_slides}
                 await generate_markdown_ppt(filepath, merged_outline, new_req)
-            else:
+            else:  # pragma: no cover - OutputFormat 枚举已穷尽
                 await update_progress(progress=50, message="正在渲染 PPTX...")
                 merged_outline = {"title": new_title, "slides": new_slides}
                 await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
@@ -3481,13 +3490,16 @@ async def generate_ppt_from_file(
     if extra_prompt:
         topic += f"\n\n用户要求: {extra_prompt}"
 
+    # 文件正文由服务端截断到 30000 字符，可能超过请求模型对用户输入
+    # 设置的 5000 字上限；先按正常规则校验其它字段，再写入服务端拼装的 topic。
     req = PPTGenerationRequest(
-        topic=topic,
+        topic="文件解析结果",
         template=template,
         slide_count=slide_count,
         output_format=output_format,
         api_key_token=api_key_token,
     )
+    req.topic = topic
 
     async def run_file_ppt_generation(task_id: str, **kwargs):
         _register_ppt_owner(task_id, user_id)
@@ -3528,7 +3540,7 @@ async def generate_ppt_from_file(
             elif output_format == "markdown":
                 await update_progress(progress=60, message="正在生成 Markdown 格式...")
                 await generate_markdown_ppt(filepath, outline, req)
-            else:
+            else:  # pragma: no cover - Form 默认值已限定为 pptx/html/markdown
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
 
             result = {
@@ -3922,10 +3934,10 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
                 "type": "error",
                 "error": "服务器发生错误，请稍后重试"
             })
-        except:
+        except:  # pragma: no cover - 已断开连接时 close 会再次抛错
             pass
     finally:
         try:
             await websocket.close()
-        except:
+        except:  # pragma: no cover - 连接已关闭时 close 会再次抛错
             pass
