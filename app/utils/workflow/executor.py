@@ -436,20 +436,25 @@ class WorkflowExecutor:
                     )
                     self._running_tasks[node_id] = task
 
-                if running:
+                # 走到这里时 running 必非空：可执行节点会在上面的 while 中至少加入一个
+                if running:  # pragma: no branch
                     done, pending = await asyncio.wait(
                         self._running_tasks.values(),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     for task in done:
-                        node_id = None
-                        for nid, t in self._running_tasks.items():
-                            if t == task:
-                                node_id = nid
-                                break
+                        # task 必然取自 _running_tasks.values()，直接反查即可
+                        node_id = next(
+                            (
+                                nid
+                                for nid, running_task in self._running_tasks.items()
+                                if running_task is task
+                            ),
+                            None,
+                        )
 
-                        if node_id:
+                        if node_id:  # pragma: no branch
                             if task.cancelled():
                                 # 任务被 cancel() 主动取消，本次执行按取消收尾
                                 self._running_tasks.pop(node_id, None)

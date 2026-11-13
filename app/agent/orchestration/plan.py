@@ -148,7 +148,8 @@ def normalize_plan_path(path: str) -> str:
     if not parts:
         raise ValueError("file path must identify a file")
     normalized = PurePosixPath(*parts).as_posix()
-    if normalized.endswith("/"):
+    # PurePosixPath 由非空 parts 构造，as_posix() 不会以 "/" 结尾
+    if normalized.endswith("/"):  # pragma: no cover
         raise ValueError("file path must identify a file")
     return normalized
 

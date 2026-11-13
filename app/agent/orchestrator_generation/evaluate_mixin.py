@@ -334,7 +334,8 @@ class EvaluationMixin:
             if not json_match:
                 raise RuntimeError(f"{eval_type} evaluation was not valid JSON")
             parsed = json.loads(json_match.group())
-            if not isinstance(parsed, dict):
+            # 正则命中的子串必以 "{" 开头、以 "}" 结尾，合法 JSON 只可能是 object
+            if not isinstance(parsed, dict):  # pragma: no cover
                 raise RuntimeError(
                     f"{eval_type} evaluation was not a JSON object: {type(parsed).__name__}"
                 )

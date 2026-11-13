@@ -479,7 +479,8 @@ class LanguageDetector:
             backend_pattern = (
                 r"\b(python|java|golang|go|rust|typescript|javascript|js|ts)\b"
                 r"\s*(?:后端|backend|back-end|服务端|server)"
-                r"|(?:后端|backend|back-end|服务端|server)\b"
+                # 中文标记后没有单词边界（下一个字仍是 \w），因此只对 ASCII 标记要求 \b
+                r"|(?:后端|服务端|backend\b|back-end\b|server\b)"
                 r"\s*(?:用|使用|基于|是|[:：])?\s*"
                 r"\b(python|java|golang|go|rust|typescript|javascript|js|ts)\b"
             )

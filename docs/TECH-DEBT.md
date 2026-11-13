@@ -727,6 +727,20 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 反向验证：回退 `deprecated` 的 `return response` 后，6 条废弃头用例全部失败；回退 `_call_code_model` 为旧的 `call_siliconflow_api` 导入后，6 条生成用例全部失败；恢复后全绿。
 
+### 后端缺陷扫描第三十七轮：全栈后端语言识别漏判与查询增强死分支清理（2026-11-13）
+
+本轮按覆盖率缺口 Top-N 补齐十个模块，其中两处补测直接暴露了实现问题。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P2 | 全栈后端语言识别的正则把 `\b` 加在中文标记之后（`(?:后端\|服务端\|...)\\b`）。中文与紧随的 ASCII 语言名之间不存在单词边界，导致「后端用 js」「后端是 python」这类明确后端声明永远不命中，`backend_language` 落空，全栈判定随之失效，下游按单语言处理 | `app/agent/language_detector.py`（`_detect_fullstack_languages`） | 已解决；改为中文标记不要求 `\b`、仅 ASCII 标记（`backend`/`back-end`/`server`）保留 `\b`。反向验证：回退该正则后 `test_backend_alias_js`、`test_backend_alias_golang`、`test_chinese_backend_marker_with_language_suffix`、`test_fullstack_different_languages` 四条用例全部失败，恢复后通过 |
+| P3 | `enhance_query` 在技术问题分支内重复了一次错误查询判断，但函数入口早已对错误查询提前 `return`，该分支连同其 `site:stackoverflow.com` 回退永不可达 | `app/utils/web_search_enhancements.py`（`enhance_query`） | 已删除死代码，行为不变（错误查询仍由入口分支处理） |
+| P3 | `normalize_plan_path` 末尾判断 `normalized.endswith("/")` 不可达：`PurePosixPath` 由已过滤的非空 parts 构造，`as_posix()` 不会产生尾部斜杠；穷举 `a/.`、`.//.`、`./` 等输入均验证不符 | `app/agent/orchestration/plan.py` | 已用 `# pragma: no cover` 精确标注为防御性冗余，保留代码以防上游改动 |
+
+补测范围（均达 100.00% 行 + 分支）：`app/agent/orchestrator_generation/evaluate_mixin.py` 65.56% → 100%（完整 evaluate 流程、静态拓扑、缺 assignment、架构与需求评价成功/失败、grade B/C/D、推荐上限 10、JSON 解析边界）；`app/agent/vector_index.py` 67.50% → 100%（真实 faiss、索引三态加载、build 筛选与 embedding 失败、add_project 非法拒绝、search 阈值与 id 缺失、文本截断、保存失败吞掉）；`app/services/unified_state_service.py` 75.38% → 100%（预留冲突重试、终态拒绝、幂等、artifact 归属、checkpoint 幂等）；`app/utils/workflow/executor.py` 81.19% → 100%（节点重试/超时/跳过/取消、审批注入、工厂异常、条件分支、取消与清理、卡死图检测）；`app/agent/language_detector.py` 83.18% → 100%（冲突证据、项目类型回退、中文模式四分支、全栈后端、LLM 同步包装三态、LLM 响应解析六分支）；`app/agent/orchestration/plan.py` 81.97% → 100%（计划校验器四类拒绝、优先级归一、路径归一五类拒绝、issue 收集全分支、依赖归一化）；`app/utils/AiCodeUtil.py` 58.06% → 100%（共享客户端创建/复用/替换/关闭、磁盘缓存命中/过期/损坏、内存缓存 TTL 失效、非 200 响应）；`app/utils/aicloud/audit_logger.py` 36.36% → 100%（文件读/写/网络记录可选字段、查询全条件组合、近期操作、清理仅删成功旧日志）；`app/utils/cache_decorator.py` 71.23% → 100%（身份提取七分支、参数序列化十类、键生成、条件缓存、Response 不落缓存、两种失效装饰器）；`app/utils/web_search_enhancements.py` 70.30% → 100%（各意图增强与已含站点短路、学校名提取、评分四类加分）。
+
+全量回归：`12531 passed, 2 skipped, 0 failed`（509.81s），总覆盖率 **95.89%**（覆盖行 61370 → 61724，分支 18927 → 19112），JSON 存 `/tmp/opencode/cov_r37_final.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

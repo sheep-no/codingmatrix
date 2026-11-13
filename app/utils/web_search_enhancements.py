@@ -92,11 +92,6 @@ def enhance_query(query: str, prompt: str = "", enable_enhance: bool = True) -> 
             if "official" not in query and "site:github.com" not in query:
                 return f"{query} official documentation OR site:github.com"
             return query
-        # 错误/异常
-        if is_error_query(query):
-            if "site:stackoverflow.com" not in query:
-                return f"{query} site:stackoverflow.com solutions error fix"
-            return query
         # 一般技术问题
         if "site:github.com" not in query and "site:stackoverflow.com" not in query:
             return f"{query} tutorial site:github.com OR site:stackoverflow.com"
