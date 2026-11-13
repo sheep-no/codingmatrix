@@ -366,6 +366,70 @@ class TestStreamingBranches:
         assert result == "plain"
         client.call.assert_awaited_once_with("p", "", False)
 
+    @pytest.mark.asyncio
+    async def test_late_chunk_after_stream_end_is_dropped(self):
+        specialist, client = _make_specialist()
+        events = []
+        saved = {}
+
+        async def fake_stream(p, s, on_chunk=None, thinking_budget=None):
+            saved["on_chunk"] = on_chunk
+            await on_chunk("CODE", "REASON")
+            return "CODE"
+
+        client.call_stream = fake_stream
+        engine = AsyncMock()
+
+        async def run(prompt, system):
+            return await engine_cls.call_args.kwargs["call_llm_fn"](prompt, system)
+
+        engine.run = run
+
+        with patch("app.agent.specialist_base.ReActEngine", return_value=engine) as engine_cls:
+            await specialist.call_llm_with_tools(
+                prompt="p",
+                enable_streaming_thinking=True,
+                callback=self._callback(events),
+            )
+
+        before = len(events)
+        # 会话结束后到达的迟到 chunk 必须被丢弃，不能再写回已弹出的缓冲区
+        await saved["on_chunk"]("LATE", "LATE-REASON")
+        assert len(events) == before
+
+    @pytest.mark.asyncio
+    async def test_content_only_chunk_is_streamed_as_thinking(self):
+        specialist, client = _make_specialist()
+        events = []
+
+        async def fake_stream(p, s, on_chunk=None, thinking_budget=None):
+            # 无 reasoning 的模型把首个正文 chunk 当思考流展示
+            await on_chunk("FIRST", "")
+            await on_chunk("SECOND", "")
+            return "FIRSTSECOND"
+
+        client.call_stream = fake_stream
+        engine = AsyncMock()
+
+        async def run(prompt, system):
+            return await engine_cls.call_args.kwargs["call_llm_fn"](prompt, system)
+
+        engine.run = run
+
+        with patch("app.agent.specialist_base.ReActEngine", return_value=engine) as engine_cls:
+            await specialist.call_llm_with_tools(
+                prompt="p",
+                enable_streaming_thinking=True,
+                callback=self._callback(events),
+            )
+
+        thinking = [e for e in events if e.get("type") == "thinking"]
+        text = "".join(e.get("message", "") for e in thinking)
+        # 无 reasoning 的模型，正文 chunk 全部作为思考流推送
+        assert "FIRST" in text
+        assert "SECOND" in text
+        assert thinking[-1]["phase"] == "llm_output"
+
 
 def test_react_engine_receives_heartbeat_timeout_default():
     specialist, client = _make_specialist()

@@ -276,7 +276,7 @@ class PexelsImageSearch:
                         continue
                     logger.error("Pexels 网络请求异常: %s", e)
                     return []
-            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
+            else:  # pragma: no cover - _MAX_RETRIES 固定为 3，循环必然 break/return
                 return []
 
             results = []
@@ -339,7 +339,7 @@ class PexelsImageSearch:
                         continue
                     logger.error("Pexels 网络请求异常: %s", e)
                     return []
-            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
+            else:  # pragma: no cover - _MAX_RETRIES 固定为 3，循环必然 break/return
                 return []
 
             photos = data.get("photos", [])
@@ -475,7 +475,7 @@ class PixabayImageSearch:
                         continue
                     logger.error("Pixabay 网络请求异常: %s", e)
                     return []
-            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
+            else:  # pragma: no cover - _MAX_RETRIES 固定为 3，循环必然 break/return
                 return []
 
             results = []
@@ -668,7 +668,7 @@ class UnsplashImageSearch:
                         continue
                     logger.error("Unsplash 网络请求异常: %s", e)
                     return []
-            else:  # pragma: no cover - 最后一次重试必然 return，不会完整走完循环
+            else:  # pragma: no cover - _MAX_RETRIES 固定为 3，循环必然 break/return
                 return []
 
             results = []
@@ -728,7 +728,8 @@ class UnsplashImageSearch:
 
             try:
                 photo = None
-                for attempt in range(self._MAX_RETRIES):
+                # 每次迭代都以 break 结束，循环不存在正常耗尽出口
+                for attempt in range(self._MAX_RETRIES):  # pragma: no branch
                     try:
                         with httpx.Client(timeout=10.0) as client:
                             resp = client.get(

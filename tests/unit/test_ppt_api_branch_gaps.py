@@ -495,14 +495,35 @@ async def test_generate_task_markdown_output(direct_db, output, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generate_task_html_falls_back_to_pptx(direct_db, output, monkeypatch):
+async def test_generate_task_html_uses_html_renderer(direct_db, output, monkeypatch):
     captured = _capture_task(monkeypatch)
     _patch_outline_render(monkeypatch)
     req = pptx.PPTGenerationRequest(prompt="主题", slide_count=5, output_format="html")
     await pptx.generate_ppt_task(req, token={"sub": USER_ID}, db=direct_db)
     result = await captured["func"]("t1")
     assert result["filename"].endswith(".html")
-    pptx.generate_pptx_file_enhanced.assert_awaited()
+    pptx.generate_html_ppt.assert_awaited()
+    pptx.generate_pptx_file_enhanced.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_task_pptx_is_not_overwritten_by_html(direct_db, output, monkeypatch):
+    captured = _capture_task(monkeypatch)
+    _patch_outline_render(monkeypatch)
+
+    async def render(filepath, *_args, **_kwargs):
+        filepath.write_bytes(b"PK-PPTX")
+
+    async def render_html(filepath, *_args, **_kwargs):
+        raise AssertionError("PPTX 输出不应调用 HTML 渲染器")
+
+    monkeypatch.setattr(pptx, "generate_pptx_file_enhanced", render)
+    monkeypatch.setattr(pptx, "generate_html_ppt", render_html)
+    req = pptx.PPTGenerationRequest(prompt="主题", slide_count=5)
+    await pptx.generate_ppt_task(req, token={"sub": USER_ID}, db=direct_db)
+    result = await captured["func"]("t1")
+    assert result["filename"] == "t1.pptx"
+    assert (output / "t1.pptx").read_bytes() == b"PK-PPTX"
 
 
 @pytest.mark.asyncio
@@ -512,12 +533,9 @@ async def test_generate_task_cancel_cleans_partial_file(direct_db, output, monke
 
     async def render(filepath, *_args, **_kwargs):
         filepath.write_text("partial")
-
-    async def cancelled(*_args, **_kwargs):
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(pptx, "generate_pptx_file_enhanced", render)
-    monkeypatch.setattr(pptx, "generate_html_ppt", cancelled)
     req = pptx.PPTGenerationRequest(prompt="主题", slide_count=5)
     await pptx.generate_ppt_task(req, token={"sub": USER_ID}, db=direct_db)
     assert await captured["func"]("t1") is None
@@ -554,6 +572,40 @@ def test_update_task_missing_snapshot_with_owner(client, fake_db, output):
         f"/api/v1/pptx/{task_id}/update", json={"prompt": "增量", "slide_count": 5}
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_task_pdf_renders_pptx_then_converts(direct_db, output, monkeypatch):
+    task_id = str(uuid.uuid4())
+    _owner(output, task_id)
+    (output / f"{task_id}_slides.json").write_text(
+        json.dumps({"slides": [{"title": "旧页"}]}), encoding="utf-8"
+    )
+    captured = _capture_task(monkeypatch)
+    monkeypatch.setattr(
+        pptx, "generate_ppt_outline",
+        AsyncMock(return_value={"slides": [{"title": "新页"}]}),
+    )
+
+    async def render(filepath, *_args, **_kwargs):
+        filepath.write_bytes(b"PK-PPTX")
+
+    async def convert(source, target):
+        target.write_bytes(b"%PDF-1.4")
+
+    monkeypatch.setattr(pptx, "generate_pptx_file_enhanced", render)
+    monkeypatch.setattr(pptx, "_convert_pptx_to_pdf", convert)
+    response = await pptx.update_ppt_task(
+        task_id,
+        pptx.PPTGenerationRequest(prompt="增量", slide_count=5, output_format="pdf"),
+        token={"sub": USER_ID},
+        db=direct_db,
+    )
+    assert response.task_id
+    result = await captured["func"](task_id)
+    assert result["filename"] == f"{task_id}.pdf"
+    assert result["download_url"].endswith("?format=pdf")
+    assert (output / f"{task_id}.pdf").read_bytes() == b"%PDF-1.4"
 
 
 def test_modify_missing_pptx_returns_404(client, output):
@@ -659,6 +711,20 @@ def test_generate_from_file_finally_handles_missing_temp(client, monkeypatch, tm
     )
     assert resp.status_code == 200
     assert asyncio.run(captured["func"]("t1"))["ppt_id"] == "t1"
+
+
+@pytest.mark.parametrize("output_format", ["pdf", "docx", "pptx "])
+def test_generate_from_file_rejects_unsupported_output_format(
+    client, monkeypatch, tmp_path, output_format
+):
+    monkeypatch.setattr(pptx, "BASE_DIR", tmp_path)
+    resp = client.post(
+        "/api/v1/pptx/generate_from_file",
+        files={"file": ("a.txt", b"data", "text/plain")},
+        data={"output_format": output_format},
+    )
+    assert resp.status_code == 400
+    assert "不支持的输出格式" in resp.json()["message"]
 
 
 def test_upload_custom_template_reraises_http_exception(client, monkeypatch, tmp_path):

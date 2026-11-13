@@ -292,3 +292,32 @@ def test_websocket_disconnect_is_handled(client, monkeypatch):
         ws.receive_json()
         ws.close()
     assert json.dumps({"ok": True})
+
+
+class _FailingSocket:
+    """Socket whose sends and close both raise, mimicking a dropped connection."""
+
+    def __init__(self):
+        self.query_params = {}
+        self.accept = AsyncMock()
+        self.send_json = AsyncMock(side_effect=RuntimeError("发送失败"))
+        self.close = AsyncMock(side_effect=RuntimeError("已关闭"))
+        self.receive_text = AsyncMock(side_effect=RuntimeError("boom"))
+
+
+@pytest.mark.asyncio
+async def test_websocket_error_and_close_failures_are_swallowed(monkeypatch):
+    task_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        pptx, "verify_token_ws",
+        AsyncMock(return_value=(True, {"sub": USER_ID}, 1000, "")),
+    )
+    monkeypatch.setattr(pptx, "_verify_ppt_owner", lambda *_args: None)
+    _patch_events(monkeypatch)
+    _patch_manager(monkeypatch, [RuntimeError("boom")])
+
+    socket = _FailingSocket()
+    await pptx.ppt_progress_websocket(socket, task_id)
+
+    assert socket.send_json.await_count >= 1
+    assert socket.close.await_count == 1

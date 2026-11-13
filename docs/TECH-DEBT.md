@@ -692,11 +692,26 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 |---|---|---|---|
 | P1 | `generate_ppt_from_file` 把截断到 30000 字符的文件正文直接拼进 `topic` 再构造 `PPTGenerationRequest`，而该模型 `topic` 的 `max_length` 为 5000，长文件上传后必然返回 422，文件生成入口对真实长文档完全不可用 | `app/api/v1/aiGeneratorPptx.py`（`generate_ppt_from_file`） | 已解决；先按合法占位值构造请求，再对服务端拼装的 `topic` 赋值（赋值不触发字段校验）。回归 `tests/unit/test_ppt_api_branch_gaps.py::test_generate_from_file_truncates_long_content` 断言正文含截断提示 |
 | P3 | `generate_ppt_task` 的会话历史/素材上下文拼装内嵌在任务闭包里，`TestClient` 启动的 portal 线程会让覆盖追踪对闭包后半段失效，缺口无法通过测试消除 | `app/api/v1/aiGeneratorPptx.py`（`run_ppt_generation`） | 已解决；抽出 `_build_generation_context`，端点只做一次调用与 topic 赋值，逻辑可直接单测 |
-| P3 | `output_format` 的 `else` 回退在 `OutputFormat` 枚举与表单默认值共同约束下不可达；Pexels/Pixabay/Unsplash 三处 `for ... else` 的最后一次重试必然 `return`，`else` 分支永不可达；WebSocket `finally` 中 `close()` 的裸 `except` 仅在连接已断开时触发 | `app/api/v1/aiGeneratorPptx.py`、`app/utils/pptx/image_upgrader.py` | 已标注 `# pragma: no cover` 并保留原行为，静态推理确认不可覆盖 |
+| P3 | `output_format` 的 `else` 回退在 `OutputFormat` 枚举与表单默认值共同约束下不可达；Pexels/Pixabay/Unsplash 三处 `for ... else` 的最后一次重试必然 `return`，`else` 分支永不可达；WebSocket `finally` 中 `close()` 的裸 `except` 仅在连接已断开时触发 | `app/api/v1/aiGeneratorPptx.py`、`app/utils/pptx/image_upgrader.py` | **该条结论有误，已撤销**。见第三十五轮：`else` 回退实际承载 HTML/PDF 分支，WebSocket 两处 `except` 可用假 socket 直测覆盖；仅 `for ... else` 保持不可达 |
 
 补测集中在三处：`aiGeneratorPptx.py` 新增取消清理、Markdown/HTML 输出、材料与历史上下文、模板与历史边界用例；`custom_template.py` 覆盖占位符几何缺失、主题字体缺失、颜色槽位缺失、兼容性评分各档位、装饰开关组合与配置合并回退；`image_upgrader.py` 覆盖缓存淘汰边界、三图源重试耗尽、质量分档位、批量生成单张失败与搜索降级链。另把 `extract_colors` 中恒真的 `len(sorted_colors) >= 1` 判断收敛为直接赋值。
 
 覆盖率变化（`--cov=app --cov=src --cov-branch`，unit + integration）：`94.26% → 95.03%`，覆盖行 60856 → 61210，语句总数 63753 → 63742，覆盖分支 18607 → 18871（总分支 20550 → 20530）。全量 `11936 → 12173 passed, 2 skipped, 0 failed`（475.60s）。本轮目标模块：`api/v1/aiGeneratorPptx.py` 96.67% → 100.00%，`pptx/custom_template.py` 93.00% → 100.00%，`pptx/image_upgrader.py` 91.65% → 99.88%。`image_upgrader.py` 剩余 1 条弧（`731->755`）为随机图片重试循环回边，属循环结构伪影。
+
+### 后端缺陷扫描第三十五轮：撤销错误 pragma 并修复 PPT 输出格式分派（2026-11-13）
+
+复核第三十四轮标注的「不可覆盖」结论时发现该结论部分错误：三处 `# pragma: no cover` 中有两处掩盖了真实缺陷，一处描述的校验根本不存在。本轮以探针实测逐条推翻，修复后反向验证回退即失败。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | `generate_ppt_task` 缺少 `OutputFormat.HTML` 分支，HTML 请求落到 `else` 走 PPTX 渲染器；同时 `PPTX` 分支内混入了 `generate_html_ppt` 调用，每次 PPTX 生成的 `.pptx` 都被 HTML 文本覆盖为损坏文件（探针实测文件头为 `<!DOCTYPE html>`） | `app/api/v1/aiGeneratorPptx.py`（`run_ppt_generation`） | 已解决；补齐 `HTML` 独立分支，`else` 收敛为 PPTX 默认输出并移除覆盖调用。回归 `test_generate_task_html_uses_html_renderer`、`test_generate_task_pptx_is_not_overwritten_by_html` |
+| P1 | `update_ppt_task` 增量更新接受 `output_format=pdf`，但 `OutputFormat` 枚举含 `PDF`；原 `else` 分支用 PPTX 渲染器写出 `.pdf` 文件，产出为 PPTX 字节流；`ext_map` 也缺 PDF，下载地址错标为 `format=pptx` | `app/api/v1/aiGeneratorPptx.py`（`update_ppt_task`） | 已解决；补 `PDF` 分支（先渲染 PPTX 再 `_convert_pptx_to_pdf`）并补全 `ext_map`。回归 `test_update_task_pdf_renders_pptx_then_converts` |
+| P2 | `generate_ppt_from_file` 的 `output_format: str = Form(default="pptx")` 无任何枚举约束，注释却声称「Form 默认值已限定为 pptx/html/markdown」；传入 `pdf`/`docx` 静默按 PPTX 处理并返回 200 | `app/api/v1/aiGeneratorPptx.py`（`generate_ppt_from_file`） | 已解决；新增 `_PPT_FILE_OUTPUT_FORMATS` 白名单并在入口校验，非法值返回 400。回归 `test_generate_from_file_rejects_unsupported_output_format` |
+| P3 | 第三十四轮把 WebSocket 两处裸 `except`（发送错误消息失败、`close()` 失败）标为不可覆盖；实际上用 send/close 均抛错的假 socket 直接调用 handler 即可覆盖 | `app/api/v1/aiGeneratorPptx.py`（`ppt_progress_websocket`） | 已解决；删除两处 pragma。回归 `test_websocket_error_and_close_failures_are_swallowed` |
+| P3 | 第三十四轮把 `image_upgrader.py` 的 `731->755` 记为「循环回边伪影」；该弧是 `break` 成功后的正常出口，属可覆盖，真正不可达的是四处 `for ... else` | `app/utils/pptx/image_upgrader.py` | 已解决；改用 `for ...  # pragma: no branch` 精确标注「循环无正常耗尽出口」，模块达 100.00% |
+| P3 | 第三十四轮把 `specialist_base.py` 的缓冲缺失保护标为不可覆盖（「仅延迟 chunk 在会话结束后到达」）；该场景用捕获的 `on_chunk` 在流结束后调用即可复现 | `app/agent/specialist_base.py`（`streaming_call_llm`） | 已解决；删除 pragma 并补 `test_late_chunk_after_stream_end_is_dropped`，模块达 100.00% |
+
+反向验证：分别回退 HTML 分支、`PDF` 分支与输出格式白名单，对应回归用例均失败（HTML 两条、格式校验 3 条参数化、PDF 一条），恢复后全绿。受影响套件 `350 passed`，`ppt`/`image_upgrader`/`specialist_base` 关键词范围 `1160 passed`。
 
 ### 本轮逐文件验证（2026-09-27）
 

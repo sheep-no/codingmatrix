@@ -2502,17 +2502,14 @@ async def generate_ppt_task(
                 pptx_filepath = output_dir / f"{task_id}.pptx"
                 await generate_pptx_file_enhanced(pptx_filepath, outline, req, update_progress=update_progress)
                 await _convert_pptx_to_pdf(pptx_filepath, filepath)
-            elif req.output_format == OutputFormat.PPTX:
-                # 使用高级视觉决策逻辑生成 PPTX
-                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress, user_id=user_id)
-
+            elif req.output_format == OutputFormat.HTML:
                 await update_progress(progress=60, message="正在生成 HTML 格式...")
                 await generate_html_ppt(filepath, outline, req)
             elif req.output_format == OutputFormat.MARKDOWN:
                 await update_progress(progress=60, message="正在生成 Markdown 格式...")
                 await generate_markdown_ppt(filepath, outline, req)
-            else:  # pragma: no cover - OutputFormat 枚举已穷尽
-                # 默认回退到 PPTX
+            else:
+                # PPTX 为默认输出，使用高级视觉决策逻辑
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress, user_id=user_id)
 
             if quality_mode == "refined":
@@ -2874,10 +2871,12 @@ async def update_ppt_task(
             output_id = task_id
             filepath = output_dir / f"{output_id}.{new_req.output_format.value}"
 
-            if new_req.output_format == OutputFormat.PPTX:
+            if new_req.output_format == OutputFormat.PDF:
                 await update_progress(progress=50, message="正在渲染 PPTX...")
                 merged_outline = {"title": new_title, "slides": new_slides}
-                await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
+                pptx_filepath = output_dir / f"{output_id}.pptx"
+                await generate_pptx_file_enhanced(pptx_filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
+                await _convert_pptx_to_pdf(pptx_filepath, filepath)
             elif new_req.output_format == OutputFormat.HTML:
                 await update_progress(progress=60, message="正在生成 HTML...")
                 merged_outline = {"title": new_title, "slides": new_slides}
@@ -2886,7 +2885,7 @@ async def update_ppt_task(
                 await update_progress(progress=60, message="正在生成 Markdown...")
                 merged_outline = {"title": new_title, "slides": new_slides}
                 await generate_markdown_ppt(filepath, merged_outline, new_req)
-            else:  # pragma: no cover - OutputFormat 枚举已穷尽
+            else:
                 await update_progress(progress=50, message="正在渲染 PPTX...")
                 merged_outline = {"title": new_title, "slides": new_slides}
                 await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
@@ -2898,7 +2897,7 @@ async def update_ppt_task(
             _register_ppt_owner(output_id, user_id)
             logger.info(f"更新大纲快照 | task_id={output_id} | slides={len(new_slides)}")
 
-            ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md"}
+            ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md", OutputFormat.PDF: "pdf"}
             ext = ext_map.get(new_req.output_format, "pptx")
 
             result = {
@@ -3407,6 +3406,9 @@ _PPT_FILE_EXTENSIONS = {
     ".csv", ".log", ".rst", ".html", ".css",
 }
 
+# 文件上传端点支持的输出格式，与 Form 参数文档保持一致
+_PPT_FILE_OUTPUT_FORMATS = {"pptx", "html", "markdown"}
+
 
 async def _stream_upload_to_path(file: UploadFile, destination: Path, max_size: int) -> int:
     """Persist an upload in bounded chunks and return its byte count."""
@@ -3445,6 +3447,12 @@ async def generate_ppt_from_file(
     流程: 上传文件 → 解析内容 → AI 生成大纲 → 生成 PPT
     """
     user_id = token.get("sub", "anonymous")
+
+    if output_format not in _PPT_FILE_OUTPUT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的输出格式: {output_format}。支持: {', '.join(sorted(_PPT_FILE_OUTPUT_FORMATS))}",
+        )
 
     # 验证文件扩展名
     filename = file.filename or "unknown"
@@ -3532,15 +3540,13 @@ async def generate_ppt_from_file(
             ext = ext_map.get(output_format, "pptx")
             filepath = output_dir / f"{task_id}.{ext}"
 
-            if output_format == "pptx":
-                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
-            elif output_format == "html":
+            if output_format == "html":
                 await update_progress(progress=60, message="正在生成 HTML 格式...")
                 await generate_html_ppt(filepath, outline, req)
             elif output_format == "markdown":
                 await update_progress(progress=60, message="正在生成 Markdown 格式...")
                 await generate_markdown_ppt(filepath, outline, req)
-            else:  # pragma: no cover - Form 默认值已限定为 pptx/html/markdown
+            else:
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
 
             result = {
@@ -3934,10 +3940,10 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
                 "type": "error",
                 "error": "服务器发生错误，请稍后重试"
             })
-        except:  # pragma: no cover - 已断开连接时 close 会再次抛错
+        except:
             pass
     finally:
         try:
             await websocket.close()
-        except:  # pragma: no cover - 连接已关闭时 close 会再次抛错
+        except:
             pass

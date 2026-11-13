@@ -257,7 +257,7 @@ class Specialist:
                     if reasoning_delta:
                         accumulated_reasoning += reasoning_delta
                     buf = _merge_buffers.get(merge_key)
-                    if not buf:  # pragma: no cover - 仅延迟 chunk 在会话结束后到达
+                    if not buf:
                         return
                     buf["message"] += delta
                     buf["accumulated"] = accumulated_reasoning or buf["message"]
