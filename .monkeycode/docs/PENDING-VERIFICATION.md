@@ -28,7 +28,8 @@
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 501 passed（2026-11-10） | `flutter test --no-pub --concurrency=1` |
+| Flutter 全量测试 | 501 passed + 1 skipped（2026-11-14；skip 为需 `LIVE_BACKEND_URL` 的真实后端用例） | `flutter test --no-pub --concurrency=1` |
+| Flutter 真实后端认证链路 | 登录、鉴权头、Host 会话访问、本地登出清空全部通过（2026-11-14） | `LIVE_BACKEND_URL=http://127.0.0.1:8000 flutter test test/live_backend_auth_test.dart` |
 | Flutter 静态分析 | No issues found | `flutter analyze lib test` |
 | Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、35 个测试文件 | `flutter_client/` |
 | 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
@@ -36,7 +37,8 @@
 | 弹层控制器修复在 HEAD 产物上复验 | 用 `flutter run -d linux` 重新编译（`kernel_blob.bin` mtime 15:40 晚于最后一次源码改动）后重跑：六处弹层逐个开关共约 14 次，含「创建用户」空字段提交得 HTTP 422 失败路径连续 4 次、编辑用户、重置密码空提交、限流配置读取→保存→重开核对、沙箱配置、MCP 编辑，`flutter run` 日志始终 20 行、无 `disposed` / `_dependents` / `Unhandled exception` | 实跑记录见下文「Linux 实跑记录」；`/tmp/terminal_*.log` 中 `flutter run` 输出 |
 | Provider 测试连接错误文案 | 设计内行为，非缺陷：`ProviderKeyClient.test()` 丢弃后端 `message`，页面统一显示「Provider Key 测试失败，请重试」。既有测试 `test/provider_key_test.dart:551`「测试连接网络断开显示测试失败」明确断言不出现 `connection lost` 与 `sensitive-token`，即刻意不向 UI 回显后端/网络细节。与 `dynamic_provider_client.dart:68`、`github_controller.dart:125-126` 展示后端原文的做法不同，属产品选择，不改 | `test/provider_key_test.dart:551-583` |
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
-| VS Code 插件单测 | 126 passed / 0 fail（2026-11-11） | `npm test`（tsc + `node --test test/*.test.mjs`） |
+| VS Code 插件单测 | 126 passed / 0 fail（2026-11-14） | `npm test`（tsc + `node --test test/*.test.mjs`） |
+| VS Code 插件会话恢复路径 | 真实后端实测 401/404/410 三条路径均触发重握手，30 秒节流生效（2026-11-14） | `/tmp/opencode/live_client_e2e.mjs`、`live_410_check.mjs` 调用 `dist/connection.js`；404 为后端重启/会话清理后的真实返回 |
 | VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
 | VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
 | VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
