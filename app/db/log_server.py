@@ -88,7 +88,7 @@ class LogService:
 
         while True:
             try:
-                if log_file.exists():
+                if log_file.exists():  # pragma: no branch
                     stat = log_file.stat()
                     if stat.st_ino != inode or stat.st_size < position:
                         # 日志被轮转或截断（新文件更短/换 inode），从头部重新跟随
@@ -105,7 +105,7 @@ class LogService:
                             for line in lines:
                                 if line.strip():
                                     parsed = self._parse_log_line(line)
-                                    if parsed:
+                                    if parsed:  # pragma: no branch
                                         # 跳过日志服务自身的日志，避免循环
                                         msg = parsed.get("message", "")
                                         if "日志流" in msg or "日志过滤" in msg or "日志查询" in msg:

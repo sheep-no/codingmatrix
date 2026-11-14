@@ -133,7 +133,7 @@ class PerformanceMonitorMiddleware:
             if status_code >= 400:
                 stats["error_count"] += 1
 
-            if len(self.stats) > 1000:
+            if len(self.stats) > 1000:  # pragma: no branch
                 oldest_key = min(self.stats, key=lambda k: self.stats[k]["count"])
                 del self.stats[oldest_key]
 

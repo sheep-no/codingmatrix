@@ -280,7 +280,7 @@ class ChatArchiver:
                     delay = base_delay * (2 ** attempt)
                     await asyncio.sleep(delay)
             
-            return self._fallback_summary(messages)
+            return self._fallback_summary(messages)  # pragma: no cover - 循环内末次重试必返回
 
     def _build_conversation_text(self, messages: List[ChatHistory]) -> str:
         """

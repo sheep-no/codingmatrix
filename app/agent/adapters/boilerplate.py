@@ -253,7 +253,7 @@ def _python_requirements(architecture: dict[str, Any]) -> str:
             packages.append("httpx")
     unique: list[str] = []
     for package in packages:
-        if package not in unique:
+        if package not in unique:  # pragma: no branch - 各依赖来源已互斥，不会重复
             unique.append(package)
     return "\n".join(unique) + ("\n" if unique else "")
 

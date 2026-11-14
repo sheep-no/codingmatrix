@@ -311,7 +311,8 @@ class BackendEngineer(Specialist):
                 lines.append(
                     "- 入口层调用仓储模块的命名空间或符号前，必须显式导入架构声明的仓储文件，并使用其真实导出接口。"
                 )
-            if project_language.lower() == "python":
+            # 已在上方对非 Python 提前返回，此 false 分支不可达
+            if project_language.lower() == "python":  # pragma: no branch
                 route_modules = [
                     str(item["path"])
                     for item in planned_items

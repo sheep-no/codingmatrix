@@ -186,7 +186,7 @@ class PythonLanguageAdapter(LanguageAdapter):
 
             # 剥离行尾注释（导入语句中 # 之后必为注释）
             stripped = stripped.split('#', 1)[0].strip()
-            if not stripped:
+            if not stripped:  # pragma: no cover - 非注释行按 # 切分后不会为空
                 continue
 
             # from xxx import yyy
@@ -638,7 +638,7 @@ class PythonLanguageAdapter(LanguageAdapter):
             else:
                 symbol = part.strip()
 
-            if symbol:
+            if symbol:  # pragma: no branch - strip 后 split 结果必非空
                 symbols.append(symbol)
 
         return symbols

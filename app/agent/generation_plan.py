@@ -261,7 +261,7 @@ def _match_plan_dependency(dependency: str, paths: set, index: dict) -> str | No
             if PurePosixPath(path).name in _PACKAGE_ENTRY_FILES:
                 return path
         for path in matches:
-            if path.startswith(prefix):
+            if path.startswith(prefix):  # pragma: no branch - matches are prefix-filtered
                 return path
     return None
 

@@ -94,8 +94,7 @@ class MetricsCollector:
             if elapsed_ms > threshold:
                 alert = f"性能告警：{module}.{metric_name} 耗时 {elapsed_ms:.0f}ms 超过阈值 {threshold:.0f}ms"
                 logger.warning(alert)
-                if module in self.module_metrics:
-                    self._append_alert(module, alert)
+                self._append_alert(module, alert)
         
         return elapsed_ms
     

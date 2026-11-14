@@ -451,8 +451,7 @@ class SpecFirstGenerateMixin:
             architecture["file_plan"] = project_plan.file_entries()
         except ValueError as exc:
             raise RuntimeError(f"generation plan could not be frozen: {exc}") from exc
-        if project_plan is not None:
-            project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        project_context["generation_plan"] = project_plan.model_dump(mode="json")
         allow_plan_expansion = project_plan.policy != "strict"
         if forced_file_count == 8:
             allow_plan_expansion = False
@@ -514,9 +513,6 @@ class SpecFirstGenerateMixin:
             dep_graph.save(str(dep_graph_path))
         else:
             logger.info(f"从磁盘加载依赖图: {len(dep_graph.nodes)} 个文件节点")
-            # 确保 file_plan 已定义
-            if 'file_plan' not in locals():
-                file_plan = architecture.get("file_plan", [])
             # 增量更新：添加新文件到依赖图
             new_files = []
             for file_info in file_plan:
@@ -953,10 +949,6 @@ class SpecFirstGenerateMixin:
                             files_skipped += 1
                         else:
                             files_generated += 1
-
-                        if not result["success"]:
-                            ctx.add_warning(f"文件 {file_path} 验证未完全通过")
-                            self.warnings.append(f"文件验证未完全通过: {file_path}")
 
                     description = result.get("description", f"生成 {file_path}")
                     self._report_file_event(file_path, content, description, file_type)
@@ -1672,8 +1664,7 @@ class SpecFirstGenerateMixin:
                     full_path.unlink()
                     logger.info(f"已删除文件: {full_path}")
                 # 从上下文中移除
-                if file_path in ctx.files:
-                    del ctx.files[file_path]
+                del ctx.files[file_path]
                 generated_files_dict.pop(file_path, None)
                 # 依赖图同步移除，否则后续完整性检查会把已删文件当缺失文件
                 dep_graph.remove_node(file_path)
@@ -1695,18 +1686,15 @@ class SpecFirstGenerateMixin:
         for file_path in files_to_fix:
             # 尝试修复文件名（移除空格）
             fixed_path = file_path.replace(' ', '')
-            if fixed_path != file_path:
-                full_path = self.output_dir / file_path
-                fixed_full_path = self.output_dir / fixed_path
-                if full_path.exists():
-                    fixed_full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.rename(fixed_full_path)
-                    logger.info(f"修复文件名: {file_path} -> {fixed_path}")
-                    # 更新上下文
-                    if file_path in ctx.files:
-                        ctx.files[fixed_path] = ctx.files.pop(file_path)
-                    if file_path in generated_files_dict:
-                        generated_files_dict[fixed_path] = generated_files_dict.pop(file_path)
+            full_path = self.output_dir / file_path
+            fixed_full_path = self.output_dir / fixed_path
+            if full_path.exists():
+                fixed_full_path.parent.mkdir(parents=True, exist_ok=True)
+                full_path.rename(fixed_full_path)
+                logger.info(f"修复文件名: {file_path} -> {fixed_path}")
+                # 更新上下文
+                ctx.files[fixed_path] = ctx.files.pop(file_path)
+                generated_files_dict[fixed_path] = generated_files_dict.pop(file_path)
 
         self._report_progress(
             "dynamic_topology_complete", total_files + 4, total_files + 5,
@@ -1725,8 +1713,7 @@ class SpecFirstGenerateMixin:
             if full_path.exists():
                 full_path.unlink()
                 logger.info(f"删除重复文件: {duplicated} (保留 {kept})")
-            if duplicated in ctx.files:
-                del ctx.files[duplicated]
+            del ctx.files[duplicated]
             generated_files_dict.pop(duplicated, None)
             # 依赖图同步移除，避免已删文件被后续完整性检查当成缺失文件
             dep_graph.remove_node(duplicated)
@@ -1837,8 +1824,7 @@ class SpecFirstGenerateMixin:
         # ============ 完整性验证结束 ============
 
         # ============ 项目完整性验证（补充缺失文件） ============
-        if 'file_plan' not in locals():
-            file_plan = architecture.get("file_plan", [])
+        file_plan = architecture.get("file_plan", [])
         final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files}
         completeness = await self._validate_project_completeness(file_plan, final_generated_dict)
         _require_project_complete(completeness)
@@ -1927,18 +1913,11 @@ class SpecFirstGenerateMixin:
 
     def _strip_output_dir_prefix(self, file_path: str) -> str:
         """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""
-        from pathlib import Path
         rel = getattr(self, '_relative_output_dir', None)
-        if rel and file_path.startswith(rel + "/"):
-            return file_path[len(rel) + 1:]
         if rel:
-            rel_path = Path(rel)
-            try:
-                rel_str = str(rel_path)
-                if file_path.startswith(rel_str + "/"):
-                    return file_path[len(rel_str) + 1:]
-            except Exception:
-                pass
+            rel_str = str(rel)
+            if file_path.startswith(rel_str + "/"):
+                return file_path[len(rel_str) + 1:]
         return file_path
 
     async def _infer_unknown_file_types(self, dep_graph, unknown_files: list, architecture: dict, language: str):

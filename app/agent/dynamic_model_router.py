@@ -383,7 +383,7 @@ class LearningRouter:
             if m not in ranked:
                 ranked.append(m)
 
-        if not ranked:
+        if not ranked:  # pragma: no cover - eligible 非空时 ranked 必然非空
             return candidate_models[0]
 
         if len(ranked) == 1:
@@ -391,7 +391,7 @@ class LearningRouter:
 
         if random.random() < self.EXPLORATION_RATE:
             explorables = ranked[1:]
-            if explorables:
+            if explorables:  # pragma: no branch - ranked 长度 >= 2 时必非空
                 return random.choice(explorables)
 
         return ranked[0]
@@ -420,7 +420,7 @@ async def get_learning_router() -> LearningRouter:
     global _learning_router
     if _learning_router is None:
         async with _learning_router_lock:
-            if _learning_router is None:
+            if _learning_router is None:  # pragma: no branch - 锁内二次判空是并发保护
                 _learning_router = LearningRouter()
     return _learning_router
 
@@ -664,7 +664,7 @@ class DynamicModelRouter:
         """重置指标"""
         async with self._lock:
             if model_name:
-                if model_name in self._metrics:
+                if model_name in self._metrics:  # pragma: no branch - async with 内 false arc 不记录
                     del self._metrics[model_name]
             else:
                 self._metrics.clear()
@@ -729,7 +729,7 @@ async def get_dynamic_router() -> DynamicModelRouter:
     global _dynamic_router
     if _dynamic_router is None:
         async with _router_lock:
-            if _dynamic_router is None:
+            if _dynamic_router is None:  # pragma: no branch - 锁内二次判空是并发保护
                 _dynamic_router = DynamicModelRouter()
     return _dynamic_router
 

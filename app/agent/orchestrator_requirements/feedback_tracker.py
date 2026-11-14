@@ -109,7 +109,8 @@ class AssociationFeedbackTracker:
                     "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
                 )
                 db_size = cursor.fetchone()[0]
-                if db_size > self.MAX_DB_SIZE_BYTES:
+                # with/try 末尾 if 的 false 退出 arc 不可被 coverage 记录
+                if db_size > self.MAX_DB_SIZE_BYTES:  # pragma: no branch
                     # 超限时按行数裁剪最旧的四分之一。原实现把字节数当作 LIMIT
                     # 行数（db_size // 4），行数远小于该值时会把整表删空。
                     row_count = self._conn.execute(

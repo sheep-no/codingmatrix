@@ -233,7 +233,10 @@ def extract_named_entity(query: str) -> str:
 def _strip_time_marks(text: str) -> str:
     cleaned = expand_relative_time(text or "")
     cleaned = re.sub(r"\d{4}年?", "", cleaned)
-    return re.sub(r"[至\s]+", "", cleaned)
+    cleaned = re.sub(r"[至\s]+", "", cleaned)
+    # 时间前缀展开后可能留下前导“的/之”（如“今年的清华” -> “的清华”）；
+    # 这些分隔词属于时间与实体的边界，应一并剥离。
+    return cleaned.lstrip("的之")
 
 
 def _is_entity_name(text: str) -> bool:
@@ -1245,20 +1248,21 @@ async def search_with_page_summaries(
     # 2. 并发抓取页面并生成摘要（用 max_concurrent_fetch 限流，避免 count 大时全量并发）
     semaphore = asyncio.Semaphore(search.max_concurrent_fetch)
 
+    async def _summarize_result(result: SearchResult) -> SearchResult:
+        page_text = await fetch_page_text(result.url, timeout=10.0)
+        if page_text:
+            summary = await summarize_page_with_llm(
+                page_text,
+                result.url,
+                max_length=max_summary_length
+            )
+            if summary:
+                result.summary = summary
+        return result
+
     async def process_result(result: SearchResult) -> SearchResult:
         async with semaphore:
-            page_text = await fetch_page_text(result.url, timeout=10.0)
-
-            if page_text:
-                summary = await summarize_page_with_llm(
-                    page_text,
-                    result.url,
-                    max_length=max_summary_length
-                )
-                if summary:
-                    result.summary = summary
-
-        return result
+            return await _summarize_result(result)
 
     # 并发处理（限制数量避免资源占用）
     tasks = [process_result(r) for r in results[:count]]

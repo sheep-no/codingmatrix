@@ -70,7 +70,8 @@ class FileProcessingNode(TaskNodeBase):
                     errors.append("Missing required parameter: path")
                 else:
                     self._operator._validate_path(self.params["path"], check_extension=False)
-            elif operation in ("copy", "move"):
+            # 非法 operation 已在上方提前返回，其余分支不可达
+            elif operation in ("copy", "move"):  # pragma: no branch
                 for key in ("source", "destination"):
                     if key not in self.params:
                         errors.append(f"Missing required parameter: {key}")

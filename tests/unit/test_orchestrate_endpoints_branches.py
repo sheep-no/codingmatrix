@@ -736,7 +736,7 @@ async def test_stream_returns_cancelled_when_client_already_gone(monkeypatch, tm
 
 @pytest.mark.asyncio
 async def test_stream_foreign_pending_owner_is_rejected(monkeypatch, tmp_path):
-    _patch_stream_common(monkeypatch, tmp_path)
+    db, _, _, _ = _patch_stream_common(monkeypatch, tmp_path)
     monkeypatch.setattr(
         endpoints, "_pending_stream_owners", {"1_busy": "99"}
     )
@@ -2789,3 +2789,35 @@ async def test_stream_reconnect_timeout_heartbeat_then_done(monkeypatch, tmp_pat
         ConnectedRequest(), {"sub": "1", "role": "user"}, db,
     )
     assert await _drain(response) == []
+
+
+@pytest.mark.asyncio
+async def test_stream_queue_timeout_detects_finished_generation(monkeypatch, tmp_path):
+    """A queue timeout after generation finishes must mark the stream complete."""
+    db, _, _, _ = _patch_stream_common(monkeypatch, tmp_path)
+    session_ids = []
+    original_register = endpoints._register_pending_stream
+
+    def _capture_register(session_id, user_id):
+        session_ids.append(session_id)
+        return original_register(session_id, user_id)
+
+    monkeypatch.setattr(endpoints, "_register_pending_stream", _capture_register)
+
+    async def fake_wait_for(awaitable, timeout):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        task = endpoints._active_tasks[session_ids[0]]["gen_task"]
+        while not task.done():
+            await asyncio.sleep(0)
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(endpoints.asyncio, "wait_for", fake_wait_for)
+    response = await endpoints.orchestrate_project_stream(
+        OrchestratorRequest(requirement="build", enable_skills=False),
+        ConnectedRequest(), {"sub": "1", "role": "user"}, db,
+    )
+    events = await _drain(response)
+
+    assert isinstance(events, list)
+    assert endpoints._active_tasks == {}

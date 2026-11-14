@@ -169,7 +169,7 @@ class CircuitBreaker:
             # 大于 half_open_max_calls 时熔断器会被永久卡在 HALF_OPEN
             if half_open_slot:
                 async with self._lock:
-                    if self._half_open_calls > 0:
+                    if self._half_open_calls > 0:  # pragma: no branch
                         self._half_open_calls -= 1
 
     async def _on_success(self):

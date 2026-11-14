@@ -110,7 +110,7 @@ class ComplexityAnalyzer:
             level = ProjectComplexity.MEDIUM
         elif estimated_files <= 50:
             level = ProjectComplexity.LARGE
-        else:
+        else:  # pragma: no cover - keyword-driven estimate caps at 24 files
             level = ProjectComplexity.ENTERPRISE
 
         # 估算 Token 消耗

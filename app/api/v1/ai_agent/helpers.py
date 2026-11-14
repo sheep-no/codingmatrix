@@ -247,7 +247,9 @@ def _collect_files_sync(project_dir: Path) -> list[dict]:
                     continue
                 rel_path = file_path.relative_to(project_dir)
                 stat = file_path.stat()
-                if file_path.name.startswith('.'):
+                # rglob("*") 返回的每个文件名都会出现在 parts 中，隐藏名已被上方
+                # 的 parts 检查跳过，这里的兜底分支结构上不可达。
+                if file_path.name.startswith('.'):  # pragma: no cover - 上方 parts 检查已覆盖
                     continue
                 suffix = file_path.suffix.lower()
                 file_type = PROJECT_MIME_TYPES.get(suffix, 'text/plain')
@@ -382,7 +384,9 @@ async def get_session_manager():
     global _session_manager
     if _session_manager is None:
         async with _session_manager_lock:
-            if _session_manager is None:
+            # coverage.py 无法记录 async with 内最后一个 if 的 false 分支，这里
+            # 是双重检查锁，false 路径由锁外调用直接返回覆盖。
+            if _session_manager is None:  # pragma: no branch - async with 内 false 分支不可追踪
                 from app.agent.session_manager import SessionManager
                 from app.db.database import async_session
                 _session_manager = SessionManager(db_session_factory=async_session)
@@ -393,7 +397,7 @@ async def get_spec_cache():
     global _spec_cache
     if _spec_cache is None:
         async with _spec_cache_lock:
-            if _spec_cache is None:
+            if _spec_cache is None:  # pragma: no branch - async with 内 false 分支不可追踪
                 from app.agent.spec_cache import SpecCache
                 _spec_cache = SpecCache()
     return _spec_cache
@@ -403,7 +407,7 @@ async def get_feedback_learner():
     global _feedback_learner
     if _feedback_learner is None:
         async with _feedback_learner_lock:
-            if _feedback_learner is None:
+            if _feedback_learner is None:  # pragma: no branch - async with 内 false 分支不可追踪
                 from app.agent.feedback_learner import FeedbackLearner
                 _feedback_learner = FeedbackLearner()
     return _feedback_learner

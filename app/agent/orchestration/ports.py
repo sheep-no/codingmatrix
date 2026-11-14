@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-class GenerationAgentPort(Protocol):
+class GenerationAgentPort(Protocol):  # pragma: no cover - structural typing stub
     """The generation-engine surface Core adapters are allowed to use."""
 
     output_dir: Path

@@ -246,7 +246,7 @@ def get_log_archiver() -> LogArchiver:
     global _log_archiver
     if _log_archiver is None:
         with _log_archiver_lock:
-            if _log_archiver is None:
+            if _log_archiver is None:  # pragma: no branch - 锁内二次判空是并发保护
                 _log_archiver = _build_log_archiver()
     return _log_archiver
 
@@ -277,4 +277,3 @@ async def run_archive_task():
     except Exception as e:
         logger.error(f"日志归档任务失败: {e}")
         return {"error": str(e)}
-

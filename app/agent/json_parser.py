@@ -100,7 +100,7 @@ def extract_first_json_object(text: str) -> dict | None:
             continue
         if isinstance(parsed, dict):
             return parsed
-        idx = text.find("{", idx + 1)
+        idx = text.find("{", idx + 1)  # pragma: no cover - 从 { 解码的结果必为 dict
     return None
 
 

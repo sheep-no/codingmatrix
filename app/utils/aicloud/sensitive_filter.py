@@ -165,7 +165,7 @@ def detect_sensitive_info(content: str) -> List[str]:
                 detected.append("Password")
             elif "api" in pattern_str:
                 detected.append("API Key")
-            elif "mongodb" in pattern_str:
+            elif "mongodb" in pattern_str:  # pragma: no branch - mongodb 是最后一条模式
                 detected.append("Database Credentials")
 
     return list(set(detected))

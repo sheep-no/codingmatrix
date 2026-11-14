@@ -122,7 +122,7 @@ async def get_or_create_generation(
 
     async with _flight_lock:
         task = _generation_flights.get(fingerprint)
-        if task is None:
+        if task is None:  # pragma: no branch - false arc jumps directly into the try block
             task = asyncio.create_task(owner())
             _generation_flights[fingerprint] = task
 

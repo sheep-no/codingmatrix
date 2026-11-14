@@ -78,9 +78,12 @@ class ContextIsolator:
         normalized_path = os.path.normpath(file_path)
 
         for pattern in PROTECTED_PATHS:
-            if pattern.endswith("/*/"):
-                prefix = pattern[:-3]
-                if normalized_path.startswith(prefix):
+            if any(char in pattern for char in "*?["):
+                # 通配符模式（如 /home/*/.ssh/）需要按 fnmatch 匹配，
+                # 同时兼容仅给出目录本身的情况。
+                if fnmatch.fnmatch(normalized_path, pattern.rstrip("/")):
+                    return True
+                if fnmatch.fnmatch(normalized_path, pattern.rstrip("/") + "/*"):
                     return True
             elif pattern.endswith("/"):
                 if normalized_path.startswith(pattern):
@@ -109,9 +112,6 @@ class ContextIsolator:
                 return True
             if "/" in pattern:
                 if normalized_path.endswith(pattern):
-                    return True
-                path_parts = normalized_path.split("/")
-                if pattern.lstrip("./") in path_parts:
                     return True
 
         return False

@@ -9,7 +9,7 @@ from typing import Any, Protocol
 from .models import RetrievalChunk, RetrievalRequest, RetrievalResult
 
 
-class Retriever(Protocol):
+class Retriever(Protocol):  # pragma: no cover - structural typing stub
     source_type: str
 
     async def retrieve(self, request: RetrievalRequest) -> Iterable[Any]: ...

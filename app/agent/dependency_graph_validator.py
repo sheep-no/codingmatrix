@@ -207,16 +207,7 @@ def _heuristic_file_candidates(dep: str) -> list[str]:
     if suffix not in _FILE_SUFFIXES:
         candidates.append(f"{module_path}.py")
         candidates.append(f"{module_path}/__init__.py")
-        if "/" in raw and raw != module_path:
-            candidates.append(f"{raw}.py")
-            candidates.append(f"{raw}/__init__.py")
-    seen = set()
-    unique: list[str] = []
-    for item in candidates:
-        if item and item not in seen:
-            seen.add(item)
-            unique.append(item)
-    return unique
+    return list(dict.fromkeys(item for item in candidates if item))
 
 
 def _package_prefix(path: str) -> str:

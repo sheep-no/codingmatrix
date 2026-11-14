@@ -304,7 +304,7 @@ async def get_cache_manager(
     global _cache_manager
     if _cache_manager is None:
         async with _init_lock:
-            if _cache_manager is None:
+            if _cache_manager is None:  # pragma: no branch - 锁内二次判空是并发保护
                 _cache_manager = RedisCacheManager(
                     redis_url=redis_url,
                     key_prefix=key_prefix,

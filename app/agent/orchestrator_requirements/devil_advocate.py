@@ -38,16 +38,16 @@ async def devil_advocate_review(
 3. 是否有需要额外补充但联想项中未提到的环节？
 
 请严格按照以下 JSON 格式输出，不要输出任何其他内容：
-{
+{{
   "challenges": [
-    {
+    {{
       "target_item": "被质疑的联想项内容",
       "challenge": "质疑内容 - 为什么这个项可能有问题或遗漏了什么",
       "severity": "high/medium/low",
       "suggestion": "补充建议"
-    }
+    }}
   ]
-}"""
+}}"""
 
     try:
         from app.utils import call_llm

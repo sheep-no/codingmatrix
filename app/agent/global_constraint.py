@@ -161,7 +161,7 @@ class GlobalConstraintParser:
 
         for statement in global_statements:
             constraint = self._classify_constraint(statement)
-            if constraint:
+            if constraint:  # pragma: no branch - _classify_constraint 始终返回约束
                 self.constraints.append(constraint)
 
         logger.info(f"解析全局约束: {len(self.constraints)} 个")

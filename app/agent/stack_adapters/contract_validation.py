@@ -23,6 +23,10 @@ def contracts_from_openapi(context: object) -> dict[str, list[dict[str, str]]]:
         if not isinstance(path, str) or not isinstance(operations, Mapping):
             continue
         for method, operation in operations.items():
+            # 畸形 OpenAPI 文档里 operations 的键可能不是字符串（如数字），
+            # 直接调用 lower() 会让整个投影抛 AttributeError。
+            if not isinstance(method, str):
+                continue
             if method.lower() not in {"get", "post", "put", "patch", "delete", "head", "options"}:
                 continue
             operation = operation if isinstance(operation, Mapping) else {}

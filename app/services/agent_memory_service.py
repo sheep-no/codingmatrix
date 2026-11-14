@@ -301,7 +301,7 @@ class AgentMemoryService:
                 stats.failure_count += 1
 
             total_requests = stats.success_count + stats.failure_count
-            if total_requests > 0:
+            if total_requests > 0:  # pragma: no branch - 上面刚增加计数，必大于 0
                 stats.avg_execution_time = (
                     (stats.avg_execution_time * (total_requests - 1) + execution_time) / total_requests
                 )

@@ -671,7 +671,8 @@ class FileOperator:
                         if self._should_skip_entry(Path(item.name)):
                             continue
                         child = build_tree(item, current_depth + 1)
-                        if child:
+                        # 子节点深度必不超过 max_depth，不会返回 None
+                        if child:  # pragma: no branch
                             children.append(child)
                 except PermissionError:
                     pass

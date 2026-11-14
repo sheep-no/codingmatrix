@@ -417,7 +417,8 @@ class ProjectProfiler:
             for layer_name, patterns in self.LAYER_PATTERNS.items():
                 if candidates.intersection(patterns):
                     rel_path = os.path.relpath(dirpath, root)
-                    if rel_path not in layers.get(layer_name, []):
+                    # os.walk 每个目录只访问一次，rel_path 不会重复。
+                    if rel_path not in layers.get(layer_name, []):  # pragma: no branch
                         layers.setdefault(layer_name, []).append(rel_path)
 
         return layers
@@ -473,7 +474,7 @@ class ProjectProfiler:
                     export_modules.append(rel_path)
             except Exception as e:
                 logger.debug(f"聚合导出检测失败 {path}: {e}")
-                continue
+                continue  # pragma: no cover - 循环体末尾的 continue 无额外指令
 
         return export_modules
 

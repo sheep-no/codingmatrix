@@ -13,7 +13,7 @@ from .models import OrchestrationState
 CURRENT_ORCHESTRATION_SCHEMA_VERSION = 1
 
 
-class OrchestrationStore(Protocol):
+class OrchestrationStore(Protocol):  # pragma: no cover - structural typing stub
     async def save(self, state: OrchestrationState) -> None: ...
 
     async def load_latest(self, task_id: str) -> OrchestrationState | None: ...

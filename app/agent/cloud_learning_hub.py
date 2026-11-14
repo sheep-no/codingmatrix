@@ -327,7 +327,7 @@ async def get_cloud_learning_hub(
     global _cloud_hub
     if _cloud_hub is None:
         async with _hub_lock:
-            if _cloud_hub is None:
+            if _cloud_hub is None:  # pragma: no branch
                 _cloud_hub = CloudLearningHub(
                     project_id=project_id,
                     project_type=project_type,

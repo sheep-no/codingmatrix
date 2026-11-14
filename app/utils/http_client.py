@@ -38,7 +38,7 @@ class HTTPClientPool:
         # 客户端可能因异常被外部关闭，此时必须重建，否则会持续复用已关闭连接
         if self._client is None or self._client.is_closed:
             async with self._init_lock:
-                if self._client is None or self._client.is_closed:
+                if self._client is None or self._client.is_closed:  # pragma: no branch - 锁内只有首个协程重建
                     self._client = httpx.AsyncClient(
                         limits=self._limits,
                         timeout=httpx.Timeout(self._timeout),

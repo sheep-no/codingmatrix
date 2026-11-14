@@ -155,13 +155,13 @@ def _split_line_ending(line: str) -> tuple[str, str]:
 
 
 class GenerationModeAdapter(Protocol):
-    async def create_plan(self, request: GenerationRequest) -> GenerationPlan: ...
+    async def create_plan(self, request: GenerationRequest) -> GenerationPlan: ...  # pragma: no cover - Protocol stub
 
-    async def generate_file(self, context: FileGenerationContext) -> GeneratedContent: ...
+    async def generate_file(self, context: FileGenerationContext) -> GeneratedContent: ...  # pragma: no cover - Protocol stub
 
-    async def finalize(self, state: OrchestrationState) -> AdapterResult: ...
+    async def finalize(self, state: OrchestrationState) -> AdapterResult: ...  # pragma: no cover - Protocol stub
 
-    def bind_shared_context(self, context: Any) -> None: ...
+    def bind_shared_context(self, context: Any) -> None: ...  # pragma: no cover - Protocol stub
 
 
 def _context_contract_payload(

@@ -365,7 +365,8 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
             try:
                 import json
                 obj = json.loads(stripped)
-                if isinstance(obj, dict):
+                # `{...}` 形式解析结果必为 dict；非 dict 只能在解析异常时出现
+                if isinstance(obj, dict):  # pragma: no branch
                     metadata_keys = {
                         "status", "message", "file_path", "file_size",
                         "key_features", "notes", "summary", "result",

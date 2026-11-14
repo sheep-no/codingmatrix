@@ -78,7 +78,7 @@ async def generate_project(
     async def _watch_disconnect():
         """监听客户端断开连接，设置取消事件"""
         try:
-            while not cancel_event.is_set():
+            while not cancel_event.is_set():  # pragma: no branch - 循环退出直达函数末尾
                 if await request.is_disconnected():
                     cancel_event.set()
                     logger.info(f"客户端断开连接，设置取消事件 | user_id={user_id}")

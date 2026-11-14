@@ -741,6 +741,24 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 全量回归：`12531 passed, 2 skipped, 0 failed`（509.81s），总覆盖率 **95.89%**（覆盖行 61370 → 61724，分支 18927 → 19112），JSON 存 `/tmp/opencode/cov_r37_final.json`。
 
+### 后端缺陷扫描第三十八轮：累积分支收口与六处真实缺陷修复（2026-11-14）
+
+本轮以 `cov_r43.json`（14625 passed / 0 行缺失 / 58 partial arcs）为权威基线，逐条归因剩余未覆盖分支。真实可达者补用例，结构性不可达者精确标注，最终全量语句与分支双 100%。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `devil_advocate_review` 的提示词是 f-string，其中 JSON 示例的裸 `{}` 会被当作格式字段解析。只要存在高置信度联想项就会抛 `ValueError: Invalid format specifier`，魔鬼代言人审视整条链路不可用 | `app/agent/orchestrator_requirements/devil_advocate.py` | 已解决；JSON 示例改为 `{{`/`}}` 转义。反向验证：回退后 `test_success_filters_and_limits` 失败，恢复后通过 |
+| P1 | `_run_dynamic_tests` 从失败聚类读取 `c.root_cause` / `c.suggested_fix`，但 `FailureCluster` 只有 `root_cause_hint`、`error_type`、`error_location`。命中聚类时抛 `AttributeError` 并被外层 `except` 吞成 `{"success": False}`，测试失败摘要丢失根因与修复建议 | `app/agent/orchestrator_testing.py` | 已解决；`root_cause` 由 `error_type @ error_location` 组装，`suggested_fix` 取 `root_cause_hint`。反向验证：回退后 `test_failed_tests_are_clustered_without_losing_summary` 失败 |
+| P2 | `contracts_from_openapi` 对 `operations` 的键直接调用 `method.lower()`。畸形 OpenAPI（如数字键）会让契约投影整体抛 `AttributeError`，连带该项目的契约校验失效 | `app/agent/stack_adapters/contract_validation.py` | 已解决；非 `str` 键跳过。反向验证：回退后 `test_contracts_from_openapi_skips_bad_entries` 抛 `AttributeError` |
+| P2 | `validate_result` 用 `node.type not in TaskType` 校验节点类型。Python 3.11 的 `EnumType.__contains__` 对非枚举值抛 `TypeError` 而非返回 `False`，非法类型的节点会让校验本身崩溃 | `app/utils/workflow/task_decomposer.py` | 已解决；改为 `isinstance(node.type, TaskType)`。反向验证：回退后 `test_validate_result_flags_invalid_node_type` 抛 `TypeError` |
+| P2 | 受保护路径里 `/*/` 通配段（如 `/home/*/.ssh/`）只按前缀比对，`/home/bob/.ssh/config` 这类真实路径判不中，SSH 私钥目录逃逸隔离 | `app/utils/aicloud/context_isolator.py` | 已解决；含 `*?[` 的模式改用 `fnmatch`，并兼容目录本身与子路径。反向验证：回退后 `test_block_protected_wildcard_home` 返回 `False` |
+| P3 | 时间前缀展开后残留前导「的/之」，`extract_named_entity("今年的清华大学 排名")` 得到 `的清华大学`，实体名带脏前缀 | `app/utils/web_search.py`（`_strip_time_marks`） | 已解决；清洗后 `lstrip("的之")`。反向验证：回退后 `test_extract_named_entity_returns_entity_for_time_prefix` 断言失败 |
+| P3 | `search_with_page_summaries` 的摘要逻辑嵌在 `async with` 内层，`async with` 退出会掩盖两个 `if` 的 false arc，覆盖率永久显示 partial；易被误判为缺测 | `app/utils/web_search.py` | 抽取 `_summarize_result` 在 semaphore 内调用，语义不变，两个分支可正常记录 |
+
+其余 31 个 partial arc 经探针（`/tmp/opencode/probe_tail/mod41–62.py`）逐条定性为 coverage.py 产物或结构性不可达：`async with` 尾 `if`、`while True` 取消循环、锁内二次判空、已由上游归一化后的兜底校验、Protocol stub、`os.walk` 单次访问去重等，均以 `# pragma: no branch` / `# pragma: no cover` 精确标注并附原因，未使用整段 `no cover`。
+
+全量回归：`14670 passed, 2 skipped, 0 failed`（1200.58s），`TOTAL 63657 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率 **100.00%**，JSON 存 `/tmp/opencode/cov_r44.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

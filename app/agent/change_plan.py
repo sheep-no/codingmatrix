@@ -241,7 +241,7 @@ class ChangePlan(BaseModel):
             for item in collapsed
         )
         paths = [item.path for item in normalized]
-        if len(paths) != len(set(paths)):
+        if len(paths) != len(set(paths)):  # pragma: no cover - collapse 已按 path 去重
             raise ValueError("change plan paths must be unique")
         known = set(snapshot.hashes())
         for item in normalized:

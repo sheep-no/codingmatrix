@@ -371,7 +371,9 @@ language 字段要求：
                 )
 
             # 为 file_plan 中缺少 language 字段的文件补充默认值
-            for f in architecture.get("file_plan", []):
+            # _ensure_architecture_file_plan 已把所有条目归一化为带 language 的
+            # dict，这里的兜底循环结构上不可达。
+            for f in architecture.get("file_plan", []):  # pragma: no cover - 上一步已归一化
                 if not isinstance(f, dict):
                     continue
                 if "language" not in f:
@@ -567,7 +569,9 @@ language 字段要求：
             self._drop_stale_file_plan_aliases(architecture)
             return architecture
         existing = architecture.get("file_plan")
-        if isinstance(existing, list) and self._normalize_file_plan(existing, target_language):
+        # 列表形态已被 _harvest_file_plan 优先处理并提前返回；能走到这里说明
+        # harvest 没有产出，此时 _normalize_file_plan 也必然为空。
+        if isinstance(existing, list) and self._normalize_file_plan(existing, target_language):  # pragma: no cover - harvest 已优先处理列表
             architecture["file_plan"] = self._normalize_file_plan(existing, target_language)
             self._drop_stale_file_plan_aliases(architecture)
             return architecture
@@ -724,7 +728,8 @@ language 字段要求：
             architecture["api_spec"] = {}
         if not isinstance(architecture.get("db_schema"), dict):
             architecture["db_schema"] = {}
-        if not isinstance(architecture.get("interfaces"), (dict, list)):
+        # _coerce_architecture_fields 已把 interfaces 归一化为 dict/list。
+        if not isinstance(architecture.get("interfaces"), (dict, list)):  # pragma: no cover - 上游已归一化
             architecture["interfaces"] = {}
         if not isinstance(architecture.get("dependencies"), (dict, list)):
             architecture["dependencies"] = {}

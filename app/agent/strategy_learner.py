@@ -394,6 +394,6 @@ async def get_strategy_learner() -> StrategyLearner:
     global _strategy_learner
     if _strategy_learner is None:
         async with _learner_lock:
-            if _strategy_learner is None:
+            if _strategy_learner is None:  # pragma: no branch - 锁内二次判空是并发保护
                 _strategy_learner = StrategyLearner()
     return _strategy_learner

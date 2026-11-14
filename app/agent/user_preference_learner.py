@@ -480,7 +480,7 @@ async def get_user_preference_learner(user_id: str = "default") -> UserPreferenc
 
     if user_id not in _user_preference_learners:
         async with _learner_lock:
-            if user_id not in _user_preference_learners:
+            if user_id not in _user_preference_learners:  # pragma: no branch - 锁内二次判空是并发保护
                 _user_preference_learners[user_id] = UserPreferenceLearner(user_id=user_id)
 
     return _user_preference_learners[user_id]

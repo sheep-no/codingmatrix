@@ -127,12 +127,12 @@ class WebSocketManager:
         # Clean up failed connections
         if failed_connections:
             async with self._lock:
-                if user_id in self._connections:
+                if user_id in self._connections:  # pragma: no branch - 锁内并发移除竞态
                     self._connections[user_id] = [
                         conn for conn in self._connections[user_id]
                         if conn not in failed_connections
                     ]
-                    if not self._connections[user_id]:
+                    if not self._connections[user_id]:  # pragma: no branch - 清空后必删键
                         del self._connections[user_id]
 
     async def send_task_update(

@@ -293,7 +293,7 @@ async def get_key_manager(private_key_path: str = None,
 
     if _key_manager is None:
         async with _key_lock:
-            if _key_manager is None:
+            if _key_manager is None:  # pragma: no branch - 锁内二次判空是并发保护
                 if not private_key_path and not public_key_path:
                     private_key_path, public_key_path = _default_key_paths()
                 _key_manager = RSAKeyManager(private_key_path, public_key_path)

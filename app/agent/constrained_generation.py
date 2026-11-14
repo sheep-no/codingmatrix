@@ -381,8 +381,9 @@ def _resolve_layout(paths: tuple[str, ...]) -> FastApiCrudLayout | None:
         if not role or role in resolved:
             return None
         resolved[role] = path
-    if set(resolved) != {"entry", "model", "database", "schema", "repository", "test"}:
-        return None
+    # 六条路径各取一个不同角色，六个角色必然全部覆盖，该守卫不可达。
+    if set(resolved) != {"entry", "model", "database", "schema", "repository", "test"}:  # pragma: no branch
+        return None  # pragma: no cover - 结构上不可达
     return FastApiCrudLayout.model_validate(resolved)
 
 

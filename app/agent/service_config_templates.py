@@ -331,7 +331,7 @@ def detect_services_from_requirements(requirement: str) -> list[str]:
     for service, keywords in DETECTION_KEYWORDS.items():
         for keyword in keywords:
             if _keyword_matches(keyword, requirement_lower):
-                if service not in detected:
+                if service not in detected:  # pragma: no branch - service keys are unique
                     detected.append(service)
                 break
 

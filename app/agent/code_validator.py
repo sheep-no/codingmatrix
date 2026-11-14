@@ -410,7 +410,7 @@ class CodeValidator:
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         top = alias.name.split('.')[0]
-                        if top:
+                        if top:  # pragma: no branch - Import alias 名称必非空
                             imports.add(top)
                 elif isinstance(node, ast.ImportFrom):
                     # 相对导入（level > 0）在项目包上下文外无法用 find_spec 判断，
@@ -418,7 +418,7 @@ class CodeValidator:
                     if node.level or not node.module:
                         continue
                     top = node.module.split('.')[0]
-                    if top:
+                    if top:  # pragma: no branch - 非相对 module 的首段必非空
                         imports.add(top)
 
             # 检查是否可以导入
@@ -447,7 +447,7 @@ class CodeValidator:
 
             # Cleanup added paths
             for p in added_paths:
-                if p in sys.path:
+                if p in sys.path:  # pragma: no branch - 仅移除本次追加的路径
                     sys.path.remove(p)
 
             return len(errors) == 0, errors
@@ -947,7 +947,7 @@ class CodeValidator:
             elif f.suffix == '.css':
                 ok, errs = await self.validate_css_syntax(f)
                 return errs if not ok else []
-            return []
+            return []  # pragma: no cover - 调用方只传 js/html/css 文件
 
         if js_files or html_files or css_files:
             frontend_results = await asyncio.gather(

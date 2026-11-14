@@ -102,7 +102,7 @@ class ScaffoldResult:
     plan: ScaffoldGenerationPlan | None = None
 
 
-class StackAdapter(Protocol):
+class StackAdapter(Protocol):  # pragma: no cover - structural typing stub
     stack_id: str
     aliases: tuple[tuple[str, str], ...]
 

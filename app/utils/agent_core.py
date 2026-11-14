@@ -117,7 +117,7 @@ class ConversationHistoryManager:
             self._data[session_id]["messages"] = messages
             self._data[session_id]["last_update"] = time.time()
             # 限制单个会话的消息数
-            if len(messages) > self.MAX_MESSAGES_PER_SESSION:
+            if len(messages) > self.MAX_MESSAGES_PER_SESSION:  # pragma: no branch - async with 末尾 false 退出 arc 不可记录
                 self._data[session_id]["messages"] = messages[-self.MAX_MESSAGES_PER_SESSION:]
     
     async def set_output_dir(self, session_id: str, output_dir: str):
@@ -137,7 +137,7 @@ class ConversationHistoryManager:
     async def clear_history(self, session_id: str):
         """清除对话历史"""
         async with self._lock:
-            if session_id in self._data:
+            if session_id in self._data:  # pragma: no branch - async with 末尾 false 退出 arc 不可记录
                 del self._data[session_id]
     
     async def has_history(self, session_id: str) -> bool:

@@ -46,8 +46,12 @@ class TestingMixin:
                 clusters = await self._cluster_test_failures(result.failed_tests, result.logs)
                 summary["failure_clusters"] = [
                     {
-                        "root_cause": c.root_cause,
-                        "suggested_fix": c.suggested_fix,
+                        # FailureCluster 只有 root_cause_hint（error_type +
+                        # error_location + 修复提示），并不存在 root_cause /
+                        # suggested_fix 字段；原字段名会让整个测试结果在
+                        # AttributeError 后被 except 吞成 {"success": False}。
+                        "root_cause": f"{c.error_type} @ {c.error_location}",
+                        "suggested_fix": c.root_cause_hint,
                         "test_count": len(c.tests),
                         "tests": c.tests[:5]  # 限制显示数量
                     }

@@ -299,7 +299,7 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
             continue
         if isinstance(obj, dict):
             return obj
-        start = text.find("{", start + 1)
+        start = text.find("{", start + 1)  # pragma: no cover - raw_decode 从 { 起必为 dict
     return None
 
 

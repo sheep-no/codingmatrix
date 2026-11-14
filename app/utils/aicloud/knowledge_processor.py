@@ -162,7 +162,7 @@ def chunk_text(
         
         # 移动起始位置，考虑重叠
         start = end - chunk_overlap
-        if start <= 0:
+        if start <= 0:  # pragma: no cover - overlap 已保证 start > 0
             start = end
     
     return chunks

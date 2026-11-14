@@ -339,7 +339,8 @@ class GenerationScheduler:
                     unresolved = [
                         path for path, node in self.nodes.items() if not node.status.is_terminal
                     ]
-                    if unresolved:
+                    # 循环条件保证至少有一个未终结节点，unresolved 必非空。
+                    if unresolved:  # pragma: no branch - 循环条件保证非空
                         self._block_paths(
                             unresolved,
                             code="scheduler_deadlock",
@@ -381,7 +382,8 @@ class GenerationScheduler:
         path = node.planned_file.path
         validation_feedback: tuple[str, ...] = ()
         try:
-            for attempt in range(1, self.max_retries + 2):
+            # 每次迭代都以 break 结束（成功、失败或超时），不会正常耗尽。
+            for attempt in range(1, self.max_retries + 2):  # pragma: no branch - 迭代必 break
                 node.attempts = attempt
                 remaining = file_deadline - loop.time()
                 if remaining <= 0:

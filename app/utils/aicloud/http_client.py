@@ -33,7 +33,7 @@ async def get_http_client() -> httpx.AsyncClient:
         async with _http_client_lock:
             current_loop = asyncio.get_running_loop()
             client_is_stale = _http_client_loop is not None and _http_client_loop is not current_loop
-            if _http_client is None or _http_client.is_closed or client_is_stale:
+            if _http_client is None or _http_client.is_closed or client_is_stale:  # pragma: no branch - 锁内二次检查仅防并发重建
                 _http_client = httpx.AsyncClient(
                     timeout=Timeout(300.0, connect=10.0),
                     limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
@@ -113,4 +113,3 @@ async def call_with_retry(
     if isinstance(last_error, httpx.Response):
         last_error.raise_for_status()
     raise RuntimeError("API request failed without an exception or response")
-

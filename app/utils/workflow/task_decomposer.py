@@ -279,7 +279,7 @@ class TaskDecomposer:
             errors.append("存在重复的节点 ID")
 
         for node in task_graph.nodes:
-            if node.type not in TaskType:
+            if not isinstance(node.type, TaskType):
                 errors.append(f"节点 {node.id} 有无效类型: {node.type}")
 
             for dep_id in node.depends_on:
