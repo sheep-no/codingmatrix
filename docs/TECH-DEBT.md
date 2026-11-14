@@ -759,6 +759,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 全量回归：`14670 passed, 2 skipped, 0 failed`（1200.58s），`TOTAL 63657 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率 **100.00%**，JSON 存 `/tmp/opencode/cov_r44.json`。
 
+### 后端缺陷扫描第三十九轮：测试挂死与全局单例污染（2026-11-14）
+
+客户端联调交回两个阻塞项：master 的 CI 因一个挂死用例卡住 5 小时以上，以及一个用例改写全局 RSA 单例导致后续用例连锁失败。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | `test_stream_background_callback_cleans_active_task` 把 `asyncio.wait_for` 打成恒抛 `TimeoutError`，同时 `_Task.done()` 恒为 `False`。`orchestrate_endpoints.py:1637` 的 `while True` 队列循环因此永不退出，单跑该用例即永久挂死；CI 又缺超时保底，master 直接卡住 | `tests/unit/test_batch27_gaps.py` | 已解决；改为首次超时走 `continue`、随后抛 `CancelledError` 进入后台分支，并真实断言完成回调清理 `_active_tasks`。复现：修前 `timeout 20` 退出码 124，修后 1.38s 通过 |
+| P1 | `test_crypto_uninitialised_state_guards` 用 `init_rsa_key_manager` 改写模块级单例后把 `_private_key`/`_public_key` 置空且不还原，后续 `APIKeyManager.store_key` 走到 `get_rsa_key_manager().public_key.encrypt` 报 `NoneType.encrypt` | `tests/unit/test_batch21_gaps.py` | 已解决；改用独立 `RSAKeyManager` 实例验证守卫，不再触碰模块单例。复现：修前 `test_store_key_writes_encrypted_envelope` 失败，修后通过 |
+| P2 | CI 的 test job 没有 `timeout-minutes`，pytest 也未传 `--timeout`，任何挂死用例都会让流水线无限运行 | `.github/workflows/ci.yml` | 已解决；job 级 `timeout-minutes: 60`，pytest 增加 `--timeout=600`，双层保底 |
+
+全量回归：`14670 passed, 2 skipped, 0 failed`（563.17s，较上轮 1200.58s 移除挂死等待），`TOTAL 63657 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_r45.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

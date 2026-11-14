@@ -118,9 +118,10 @@ def test_run_generated_file_javascript_uses_node(tmp_path, monkeypatch):
 
 
 def test_crypto_uninitialised_state_guards(tmp_path):
-    from app.utils.crypto import RSAKeyManager, init_rsa_key_manager
+    from app.utils.crypto import RSAKeyManager
 
-    manager = init_rsa_key_manager(key_dir=tmp_path / "keys", key_size=2048)
+    # 直接用独立实例验证守卫，避免改动模块级 RSA 单例后污染后续用例。
+    manager = RSAKeyManager(key_dir=tmp_path / "keys", key_size=2048)
     manager._private_key = None
     manager._public_key = None
     with pytest.raises(RuntimeError, match="私钥未初始化"):

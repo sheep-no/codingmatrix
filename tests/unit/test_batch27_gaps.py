@@ -475,9 +475,16 @@ async def test_stream_background_callback_cleans_active_task(monkeypatch, tmp_pa
 
     class _Task:
         def __init__(self):
+            self._done = False
             self.callbacks = []
 
         def done(self):
+            return self._done
+
+        def cancel(self):
+            pass
+
+        def cancelled(self):
             return False
 
         def add_done_callback(self, cb):
@@ -486,10 +493,17 @@ async def test_stream_background_callback_cleans_active_task(monkeypatch, tmp_pa
     task = _Task()
     monkeypatch.setattr(endpoints.asyncio, "create_task", lambda coro: task)
 
+    wait_calls = {"n": 0}
+
     async def fake_wait_for(awaitable, timeout):
         if hasattr(awaitable, "close"):
             awaitable.close()
-        raise asyncio.TimeoutError
+        wait_calls["n"] += 1
+        if wait_calls["n"] == 1:
+            # 首次超时且任务未结束：走 continue 后继续等待。
+            raise asyncio.TimeoutError
+        # 随后模拟客户端断开：跳出队列循环并进入 finally 的后台分支。
+        raise asyncio.CancelledError
 
     monkeypatch.setattr(endpoints.asyncio, "wait_for", fake_wait_for)
     db = _stream_db(_result(None))
@@ -501,13 +515,16 @@ async def test_stream_background_callback_cleans_active_task(monkeypatch, tmp_pa
         db,
     )
     await _drain(response)
-    endpoints._active_tasks["1_New"] = {"gen_task": task}
-    for session_id, active in list(endpoints._active_tasks.items()):
-        callbacks = active["gen_task"].callbacks
-        for cb in callbacks:
-            cb(active["gen_task"])
-    for active in endpoints._active_tasks.values():
-        assert active
+
+    # 生成任务尚未结束，应保留活跃记录并注册完成回调。
+    assert len(task.callbacks) == 1
+    session_id = next(iter(endpoints._active_tasks))
+    assert endpoints._active_tasks[session_id]["gen_task"] is task
+
+    # 任务结束后回调负责清理，避免 _active_tasks 泄漏。
+    task._done = True
+    task.callbacks[0](task)
+    assert session_id not in endpoints._active_tasks
 
 
 @pytest.mark.asyncio
