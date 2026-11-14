@@ -399,10 +399,11 @@ async function startCloudConnection(
       if (startId === connectionStartId) {
         await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
       }
-      // A 30-minute Host session expiry returns 410. Re-handshake instead of
-      // retrying with the dead session id forever. A 401 means the access
-      // token is no longer accepted; re-handshake re-reads the configured
-      // token so an externally refreshed value takes effect without a reload.
+      // A 30-minute Host session expiry returns 410 and a backend restart
+      // that pruned the session returns 404; both must re-handshake instead of
+      // retrying the dead session id forever. A 401 means the access token is
+      // no longer accepted, and re-handshake re-reads the configured token so
+      // an externally refreshed value takes effect without a reload.
       if (startId === connectionStartId && shouldRecoverSession(error, lastSessionRecoveryAt)) {
         lastSessionRecoveryAt = Date.now();
         void reconnectConfiguredSession()

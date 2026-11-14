@@ -57,10 +57,14 @@ export class CloudConnectionError extends Error {
   }
 }
 
-// A 401 or 410 means the session id/token pair is unusable, so the caller must
-// re-handshake instead of polling with dead credentials. Throttle the attempt
-// so a backend that keeps rejecting does not spin a re-handshake every second.
+// A 401, 404 or 410 means the session id/token pair is unusable, so the caller
+// must re-handshake instead of polling with dead credentials. A 404 happens
+// when the backend restarted or pruned the session, which must recover just
+// like an explicit expiry. Throttle the attempt so a backend that keeps
+// rejecting does not spin a re-handshake every second.
 export const SESSION_RECOVERY_THROTTLE_MS = 30_000;
+
+const RECOVERABLE_SESSION_STATUSES = new Set([401, 404, 410]);
 
 export function shouldRecoverSession(
   error: unknown,
@@ -69,7 +73,8 @@ export function shouldRecoverSession(
 ): boolean {
   return (
     error instanceof CloudConnectionError &&
-    (error.status === 401 || error.status === 410) &&
+    error.status !== undefined &&
+    RECOVERABLE_SESSION_STATUSES.has(error.status) &&
     now - lastRecoveryAt > SESSION_RECOVERY_THROTTLE_MS
   );
 }
