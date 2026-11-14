@@ -17,7 +17,7 @@
 | P1-1 | 高 | 插件 | 变更型 POST 在 408/429/5xx 自动重放，可能重复执行 | 已验证 | 已修 |
 | P1-2 | 高 | 插件 | 编排流 POST 在 5xx 被重放，缺少幂等保护 | 已验证 | 已修 |
 | P1-3 | 高 | 插件 | 畸形 SSE 帧直接中断整条事件流 | 已验证 | 已修 |
-| P1-4 | 高 | 插件 | 无令牌刷新、无重新握手，30 分钟后永久离线 | 静态判定 + 契约核对 + 真实 HTTP | 已修（410/401 重握手 + Host 会话滑动续期；令牌刷新待后端契约） |
+| P1-4 | 高 | 插件 | 无令牌刷新、无重新握手，30 分钟后永久离线 | 静态判定 + 契约核对 + 真实 HTTP | 已修（401/404/410 重握手 + Host 会话滑动续期；令牌刷新待后端契约） |
 | P1-5 | 高 | Flutter | 退出登录不调用服务端 `/logout`，令牌在 30 分钟内仍有效 | 已验证 | 已修 |
 | P2-1 | 中 | 插件 | 真实网络错误（ECONNREFUSED）不触发重试 | 已验证 | 已修 |
 | P2-2 | 中 | 插件 | webview 请求 pending 表无超时，条目泄漏且 Promise 永不结算 | 静态判定 | 已修 |
@@ -159,9 +159,16 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 **修复结果（2026-11-11）**
 
 - 后端：任意已认证 Host 请求都会滑动延长 `expires_at`（`_get_session(touch=True)`），常量收敛为 `HOST_SESSION_TTL`。插件默认 1 秒轮询一次，会话因此不再于 30 分钟边界过期。
-- 插件：`poll` 的 `catch` 对 401 与 410 都触发 30 秒节流的 `reconnectConfiguredSession()`，重握手会重读设置里的 `apiUrl`/`accessToken`，外部更新令牌后无需重载窗口。
+- 插件：`poll` 的 `catch` 对 401、404 与 410 都触发 30 秒节流的 `reconnectConfiguredSession()`，重握手会重读设置里的 `apiUrl`/`accessToken`，外部更新令牌后无需重载窗口。
 - 验证：`tests/unit/test_agent_host_api.py` 新增 2 例（滑动续期、过期仍 410），关联后端回归 90 passed；插件 126 passed。真实后端实测 `GET /sessions/{id}/actions` 后 `expires_at` 由 `00:47:34` 滑至 `00:47:55`。
 - 剩余：插件无 refresh token，无法自行刷新访问令牌；401 重握手只对「设置中已写入新令牌」有效，自动续期仍依赖后端提供可用的 refresh 契约。
+
+**补充修复（2026-11-14）**
+
+- 真实后端实测发现：后端重启或 `_prune_expired_sessions` 清理会话后，会话查询返回 404。插件原先只对 401/410 恢复，此路径会让插件永久离线。
+- `connection.ts` 新增 `RECOVERABLE_SESSION_STATUSES = Set([401, 404, 410])`，`shouldRecoverSession()` 改用集合判定并要求 `error.status` 存在，避免无状态码错误误触发重握手。
+- `test/connection.test.mjs` 补 401/404/410 判定与「无 status 不恢复」断言，126 passed。
+- 真实后端实测三条路径均触发恢复：401（无效令牌）、404（会话丢失）、410（磁盘强制过期后重启读盘），30 秒节流生效。
 
 ### P1-5 Flutter 退出不撤销服务端令牌
 
@@ -174,6 +181,13 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 **影响**: 退出后旧 access token 在剩余有效期（最长 30 分钟）内仍可用。
 
 **修复建议**: `logout()` 在清理本地状态前调用一次 `POST /api/v1/logout`（需 Bearer 与 `X-CSRF-Token`，`auth.py:517-521`），失败也继续本地清理；刷新竞态场景保持静默，仅补普通退出的调用。
+
+**修复结果（2026-11-14）**
+
+- 已实现 `logout({revokeRemote: true})`：先捕获令牌与 CSRF，再清理本地会话，最后尽力调用 `POST /api/v1/logout`，网络失败不影响本地登出。
+- 真实后端实测：客户端确实发出 `POST /api/v1/logout` 并收到 200，后端日志 `auth.logout:549 - 用户登出 | user_id=5 | revoked_tokens=0`。
+- 服务端吊销依赖 Redis denylist（`app/utils/token_denylist.py`）。本机无 Redis 时后端按设计 fail-open，`revoked_tokens=0` 是环境限制所致，客户端调用链完整。
+- 新增 `flutter_client/test/live_backend_auth_test.dart`（`LIVE_BACKEND_URL` 触发，默认跳过），覆盖 CSRF、登录、鉴权头、Host 会话访问与本地登出清理。
 
 ---
 

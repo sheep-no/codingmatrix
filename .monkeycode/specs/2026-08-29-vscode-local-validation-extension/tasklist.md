@@ -179,6 +179,7 @@
 
 - 状态：`completed`
 - 优先级：`P1`
-- 修改：Host 会话 TTL 收敛为 `HOST_SESSION_TTL`，`_get_session(touch=True)` 在任意已认证请求通过校验后滑动刷新 `expires_at`；插件轮询遇 401/410 均触发 30 秒节流的重握手，重读设置中的 `apiUrl`/`accessToken`。
+- 修改：Host 会话 TTL 收敛为 `HOST_SESSION_TTL`，`_get_session(touch=True)` 在任意已认证请求通过校验后滑动刷新 `expires_at`；插件轮询遇 401/404/410 均触发 30 秒节流的重握手，重读设置中的 `apiUrl`/`accessToken`。
 - 边界：过期会话不会被复活，仍返回 410；访问令牌自动刷新依赖后端 refresh 契约，插件当前只能重读人工更新后的配置。
 - 验收证据：`test_agent_host_api.py` 30 passed（新增滑动续期、过期仍 410 两例），关联后端回归 90 passed；插件 `npm test` 126 passed；真实后端 `GET /api/v1/agent/host/sessions/{id}/actions` 后 `expires_at` 由 `00:47:34` 滑至 `00:47:55`。
+- 补充（2026-11-14）：后端重启或 `_prune_expired_sessions` 清理会话后返回 404，此前不触发恢复会导致插件永久离线。`RECOVERABLE_SESSION_STATUSES = Set([401, 404, 410])`，`shouldRecoverSession()` 额外要求 `error.status` 存在。真实后端实测 401/404/410 三条路径均恢复且 30 秒节流生效；`test/connection.test.mjs` 补 404 与「无 status 不恢复」断言，126 passed。
