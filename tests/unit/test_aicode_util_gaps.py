@@ -158,6 +158,8 @@ class TestGetEmbeddingCachePaths:
         key = aicu._get_embedding_cache_key("stale", aicu.DEFAULT_EMBEDDING_MODEL)
         aicu._embedding_memory_cache[key] = [1.0]
         aicu._embedding_memory_expiry[key] = 0
+        # 固定为未配置 Key，确保走 401 分支而不是真实网络请求。
+        monkeypatch.setattr(aicu.settings, "SILICONFLOW_API_KEY", "")
         monkeypatch.setattr(aicu, "_load_embedding_from_disk", lambda cache_key: None)
 
         with pytest.raises(HTTPException):
@@ -170,6 +172,8 @@ class TestGetEmbeddingCachePaths:
         key = aicu._get_embedding_cache_key("orphan", aicu.DEFAULT_EMBEDDING_MODEL)
         aicu._embedding_memory_cache[key] = [1.0]
         aicu._embedding_memory_expiry.pop(key, None)
+        # 同上：显式清空 Key，避免 CI 的 .env 让测试发起真实请求。
+        monkeypatch.setattr(aicu.settings, "SILICONFLOW_API_KEY", "")
         monkeypatch.setattr(aicu, "_load_embedding_from_disk", lambda cache_key: None)
 
         with pytest.raises(HTTPException):

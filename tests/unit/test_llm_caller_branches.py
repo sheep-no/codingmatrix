@@ -428,12 +428,14 @@ class TestAdapterFactory:
             await llm_caller.get_adapter("unknown")
 
     @pytest.mark.asyncio
-    async def test_default_config_missing_raises(self):
+    async def test_default_config_missing_raises(self, monkeypatch):
         class Registry:
             def get(self, provider):
                 return None
 
         settings = SimpleNamespace(get_provider_registry=lambda: Registry())
+        # 显式替换模块级 settings，避免依赖运行环境中是否配置了平台 Key。
+        monkeypatch.setattr(llm_caller, "settings", settings)
 
         with pytest.raises(RuntimeError, match="not configured"):
             await llm_caller.get_adapter(ModelProvider.SILICONFLOW)

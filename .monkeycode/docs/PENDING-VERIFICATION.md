@@ -223,6 +223,9 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | `app/api/v1/agent_host.py:569` + `vscode-extension/src/extension.ts:398-416` | **2026-11-11 已修**。Host 会话改为滑动续期：`_get_session(touch=True)` 在任意已认证请求通过 owner 与过期校验后把 `expires_at` 重置为 `now + HOST_SESSION_TTL`，过期会话仍直接 410。插件 `poll` 的 401/410 都会触发 30 秒节流的 `reconnectConfiguredSession()`，重读设置中的 `apiUrl`/`accessToken` 并重握手。回归：`test_agent_host_api.py` 30 passed（新增滑动续期、过期仍 410 两例），关联后端 90 passed；插件 `npm test` 126 passed。真实后端实测 `GET /api/v1/agent/host/sessions/{id}/actions` 后 `expires_at` 由 `00:47:34` 滑至 `00:47:55`。剩余：插件无 refresh token，自动刷新访问令牌待后端 refresh 契约 |
 | `app/api/v1/ai_agent/schemas.py:157` + `flutter_client/`、`vscode-extension/` | **插件侧已修**：`enable_validation` 时请求体注入 `required_validation_scopes:["local_runtime"]`。Flutter 仍不发送该字段，其默认请求不会进入本地验证分支；Flutter 的本地验证属于独立排期 |
 | `.github/workflows/ci.yml` | **2026-11-14 已修**。job 缺 `timeout-minutes`、pytest 未设 `--timeout`，挂死用例会让 CI 无限运行（master 曾卡 5 小时以上）。现 job 级 `timeout-minutes: 60`，pytest 增加 `--timeout=600`，形成双层保底 |
+| `configs/requirements.txt` + `app/agent/vector_index.py` | **2026-11-14 已修**。`faiss` 顶部声明为可选依赖，`_create_empty_index` 内部却硬 `import faiss`；CI 未装 faiss，`load_or_create()` 抛 `ModuleNotFoundError`，向量索引不可用。现补 `faiss-cpu==1.16.0` 到生产依赖。反向验证：模拟缺失时 `TestLoadOrCreate` 3 例失败，安装后通过 |
+| `tests/unit/test_llm_caller_branches.py::TestAdapterFactory::test_default_config_missing_raises` | **2026-11-14 已修**。用例依赖「未配置平台 Key」，但未替换模块级 `settings`；CI 的 `.env` 设了 `SILICONFLOW_API_KEY=test_key`，`get_adapter` 拿到真实配置而不抛 `RuntimeError`。现显式 `monkeypatch.setattr(llm_caller, "settings", ...)` |
+| `tests/unit/test_aicode_util_gaps.py::TestGetEmbeddingCachePaths` | **2026-11-14 已修**。两个过期缓存用例依赖「Key 为空」走 401，CI 配 Key 后会发起真实 embedding 请求产生偶发 `Event loop is closed`。现显式清空 `aicu.settings.SILICONFLOW_API_KEY`。反向验证：阻断 HTTP 客户端后回退版本报 `network blocked`，修复版本通过 |
 
 ## 本地后端联调方法
 

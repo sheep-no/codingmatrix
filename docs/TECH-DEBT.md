@@ -771,6 +771,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 全量回归：`14670 passed, 2 skipped, 0 failed`（563.17s，较上轮 1200.58s 移除挂死等待），`TOTAL 63657 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_r45.json`。
 
+### 后端缺陷扫描第四十轮：CI 环境依赖缺口（2026-11-14）
+
+推送 `cd256773` 后 CI 跑完给出 5 个失败，本地全量 0 失败，说明失败源于 CI 环境与本地环境的差异。逐个定位后归为三类。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | `faiss` 在模块顶部被当作可选依赖（`except ImportError: faiss = None`），但 `_create_empty_index` 内部硬 `import faiss`。CI 未安装 faiss，`load_or_create()` 直接抛 `ModuleNotFoundError`，向量索引整条链路不可用；本地装了 `faiss-cpu` 故未暴露 | `configs/requirements.txt`、`app/agent/vector_index.py` | 已解决；把生产代码真实依赖 `faiss-cpu==1.16.0` 补入 `configs/requirements.txt`。反向验证：模拟 `faiss` 缺失时 `TestLoadOrCreate` 3 例失败，安装后 3 passed |
+| P2 | `test_default_config_missing_raises` 依赖「运行环境未配置平台 Key」，但模块级 `settings` 未被替换。CI 的 `.env` 写入 `SILICONFLOW_API_KEY=test_key`，`get_adapter` 拿到真实配置而不抛 `RuntimeError` | `tests/unit/test_llm_caller_branches.py` | 已解决；用例改用 `monkeypatch.setattr(llm_caller, "settings", settings)` 显式替换。反向验证：`SILICONFLOW_API_KEY=test_key` 下回退后 `DID NOT RAISE`，修复后通过 |
+| P2 | `test_expired_memory_entry_removed_before_disk_lookup` 与 `test_expired_memory_entry_without_expiry_record` 依赖「Key 为空」走 401 分支。CI 配置了测试 Key 后会发起真实 embedding 请求，任何网络抖动都表现为 `Event loop is closed` 之类的偶发失败 | `tests/unit/test_aicode_util_gaps.py` | 已解决；两例显式 `monkeypatch.setattr(aicu.settings, "SILICONFLOW_API_KEY", "")`。反向验证：用插件阻断 `get_http_client` 后回退版本报 `RuntimeError: network blocked`，修复版本走 401 分支通过 |
+
+CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`14670 passed, 2 skipped, 0 failed`（431.11s），未发现其他同类环境依赖失败。受影响 7 个测试文件 `167 passed`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
