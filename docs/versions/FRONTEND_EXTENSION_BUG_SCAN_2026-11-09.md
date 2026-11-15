@@ -206,6 +206,15 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 - 离线：`xvfb-run -a node e2e/run.mjs` → `[e2e] suite passed`，`REAL_EXIT=0`；扩展激活、5 个命令注册、工作台 webview 打开均成立。
 - 真实后端：注入 `CODINGMATRIX_E2E_API_URL` 与 `CODINGMATRIX_E2E_ACCESS_TOKEN` 后 → `[e2e] real backend checks passed`，`REAL_EXIT=0`；后端侧 `workspace_id=fixtures` 会话终态 `cancelled`，日志 3 次 `POST .../control` 对应 pause/resume/cancel。
 
+**Flutter Android release 构建**
+
+- 环境：Flutter 3.47.9 + JDK 17 + Android command line tools，SDK 装 `platforms;android-36`、`build-tools;36.0.0`、`ndk;28.2.13676358`。
+- 依赖全部升到 Flutter 3.47.9 的下限而不是绕过校验：Gradle 8.14.3、AGP 8.11.1、Kotlin 2.2.20；`app/build.gradle.kts` 加 `ndkVersion = flutter.ndkVersion` 固定单一 NDK。
+- 本机 `repo.maven.apache.org` 与 `storage.googleapis.com` 直连 TLS 握手失败，分别用 `maven.aliyun.com/repository/central` 与 `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn` 绕过。
+- 产物：`flutter build apk --release --no-pub --target-platform android-arm64` → `app-release.apk` 23.4MB，SHA-256 `8c41b452828741333e2b3723ae7e59c00b0a72b3627f0f2824a08e1dd1643208`。
+- 静态验收：`com.codingmatrix.agent` / `1.0.0`(1) / minSdk 24 / targetSdk 36 / compileSdk 36；`INTERNET` 权限、`allowBackup=false`、`usesCleartextTraffic=true`；v2 签名有效（debug keystore，仓库无 `key.properties`）；`flutter_secure_storage` 的 `FlutterSecureStoragePlugin` 与 `SecureStorageAndroid` 已进 dex。
+- 环境限制：无 `/dev/kvm`、CPU 无 `vmx`/`svm`、无 system-image，真机与模拟器运行验收未做，Android 侧结论止于构建与静态检查。
+
 ---
 
 ## P2 级
