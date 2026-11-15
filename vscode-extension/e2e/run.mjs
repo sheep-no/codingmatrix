@@ -26,17 +26,22 @@ for (const variable of ["NO_PROXY", "no_proxy"]) {
   process.env[variable] = [...new Set([...existing, ...localNoProxy])].join(",");
 }
 try {
+  const launchArgs = [
+    join(extensionRoot, "e2e", "fixtures"),
+    `--user-data-dir=${userDataDir}`,
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--proxy-server=direct://",
+    "--proxy-bypass-list=*",
+  ];
+  // Electron refuses to start as root unless the sandbox is disabled.
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    launchArgs.push("--no-sandbox");
+  }
   const exitCode = await runTests({
     extensionDevelopmentPath: extensionRoot,
     extensionTestsPath: join(extensionRoot, "e2e", "suite.mjs"),
-    launchArgs: [
-      join(extensionRoot, "e2e", "fixtures"),
-      `--user-data-dir=${userDataDir}`,
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--proxy-server=direct://",
-      "--proxy-bypass-list=*",
-    ],
+    launchArgs,
   });
   process.exitCode = exitCode;
 } finally {

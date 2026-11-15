@@ -28,9 +28,9 @@
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 501 passed + 1 skipped（2026-11-14；skip 为需 `LIVE_BACKEND_URL` 的真实后端用例） | `flutter test --no-pub --concurrency=1` |
-| Flutter 真实后端认证链路 | 登录、鉴权头、Host 会话访问、本地登出清空全部通过（2026-11-14） | `LIVE_BACKEND_URL=http://127.0.0.1:8000 flutter test test/live_backend_auth_test.dart` |
-| Flutter 静态分析 | No issues found | `flutter analyze lib test` |
+| Flutter 全量测试 | 501 passed + 1 skipped（2026-11-15 在 `99df836a` 复跑；skip 为需 `LIVE_BACKEND_URL` 的真实后端用例） | `flutter test --no-pub --concurrency=1`，`FTEST_EXIT=0` |
+| Flutter 真实后端认证链路 | 登录、鉴权头、Host 会话访问、本地登出清空全部通过（2026-11-15 复跑，`+1` 无 skip） | `LIVE_BACKEND_URL=http://127.0.0.1:8000 flutter test test/live_backend_auth_test.dart`，`LIVE_EXIT=0` |
+| Flutter 静态分析 | No issues found（2026-11-15 复跑） | `flutter analyze lib test`，`ANALYZE_EXIT=0` |
 | Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、35 个测试文件 | `flutter_client/` |
 | 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
 | 弹层控制器退场崩溃 | 已修并回归：管理员后台「创建用户」在提交失败（如后端 400）后关闭弹层会整屏红屏。根因是 `showDialog` 返回后立即 `dispose` 了 `TextEditingController`，退场动画期间 `TextField` 重建时 `addListener` 抛 `A TextEditingController was used after being disposed.`，级联为 `'_dependents.isEmpty': is not true.`。新增 `DialogControllers`（在子树的 `State.dispose()` 里释放，晚于退场动画），套用于 6 处弹层 | 回归测试 `test/admin_page_test.dart`「创建用户弹层随退场动画关闭时不释放仍在使用的控制器」；Linux 端实跑 400 场景不再红屏，显示「用户创建失败：请求失败（HTTP 400）…」，成功场景 `POST create_user` 200 且列表刷新 |
@@ -39,9 +39,9 @@
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
 | VS Code 插件单测 | 126 passed / 0 fail（2026-11-14） | `npm test`（tsc + `node --test test/*.test.mjs`） |
 | VS Code 插件会话恢复路径 | 真实后端实测 401/404/410 三条路径均触发重握手，30 秒节流生效（2026-11-14） | `/tmp/opencode/live_client_e2e.mjs`、`live_410_check.mjs` 调用 `dist/connection.js`；404 为后端重启/会话清理后的真实返回 |
-| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
-| VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
-| VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
+| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现（2026-11-15 在当前提交复跑） | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`，阶段标记 `[e2e] suite passed`） |
+| VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing (3s)`（2026-11-15 复跑）：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
+| VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过（2026-11-15 复跑：`[e2e] real backend checks passed`、`REAL_EXIT=0`） | `data/agent_host_sessions/dee0b0de-c973-4aed-9f5b-b06715490aa0.json` 中 `workspace_id=fixtures`、`control_status=cancelled`；后端日志 3 次 `POST /api/v1/agent/host/sessions/<id>/control` 对应 pause/resume/cancel |
 | VS Code 插件孤儿模块清理 | 删除生产代码零引用的 `src/compatibility.ts`（65 行）与 `src/status-view.ts`（177 行）及各自单测；两者只被自身测试 import，`compatibility` 的握手校验与生产实际逻辑（`agent-host.ts:204` 的 `protocol_version` 单值比对）不一致，且 `EXTENSION_VERSION` 与 `package.json` 版本重复。同时移除 e2e 里「自造对象自测」的假断言（它从未触及真实握手路径） | 单测 103 → 95；`rg` 全仓引用计数为 0；删后 tsc 退出 0、两套 e2e 仍通过 |
 | VS Code 插件重新打包 | `vsce package` 重建本地 vsix：包内 51 个 `dist/` 文件与当前源码 1:1，不再含已删模块（旧包为 9 月 7 日产物，`extension.js` 缺后续 52 行改动）。注意 tsc 不清理已删源码的 `dist/` 残留，打包前需手动清理 | `codingmatrix-local-validation-0.1.0.vsix`（54 files, 74.89 KB） |
 | VS Code 插件工作台事件解包 | 已修并回归：编排流混用两种封包。`PASSTHROUGH_SSE_EVENTS`（thinking、file、file_diff、step_detail、model_info、pipeline_mode 等）原样透传、字段在顶层，而 progress、done、error、critical_decisions 包在 `{type, data}`。webview 只读 `value.data`，透传帧因此全部丢载荷：thinking 退化成 `thinking：thinking`（`orchestrator_progress.py:282` 的 `message` 在顶层，实测单轮约 2000 行），progress 丢掉 `step`/`phase`/`percentage`。现按有无 `data` 解包、扩展文本回退链、过滤 heartbeat，并把消息列表上限设为 100 条（与 Flutter 客户端 `workbench_controller.dart:93,160` 一致） | 新增 `test/workbench-log.test.mjs` 3 项（自建最小 DOM 直接执行内联脚本，覆盖 heartbeat 过滤、thinking/progress/file/step_detail 解包、100 条上限）；单测 95 → 98；`xvfb-run -a node e2e/run.mjs` 仍退出 0 |
@@ -257,3 +257,11 @@ CODINGMATRIX_E2E_ACCESS_TOKEN=<access_token> \
 判定 e2e 是否真的覆盖了后端链路：缺少上述两个环境变量时 `e2e/suite.mjs` 会直接 `return` 且仍以退出码 0 结束，此时只证明扩展能加载与注册命令。真实覆盖要看 `data/agent_host_sessions/` 是否新增 `workspace_id=fixtures` 记录、且 `control_status` 终态为 `cancelled`。
 
 agent host 会话存 JSON 文件（目录可用 `AGENT_HOST_SESSION_DIR` 覆盖，已被 `.gitignore` 忽略）加内存字典，不在 SQLite 中。
+
+自 2026-11-15 起 `e2e/suite.mjs` 会在各阶段打印 `[e2e]` 标记（`suite start` / `extension activated` / `N commands registered` / `workbench webview panel opened` / `real backend checks start|passed|skipped` / `suite passed`），运行脚本用 `; echo "REAL_EXIT=$?"` 保留真实退出码，避免 `| tail` 掩盖结果。
+
+## VS Code e2e 缓存与运行库（2026-11-15）
+
+`@vscode/test-electron` 的下载通道在本环境单连接被限速到约 50KB/s，390MB 需约 2 小时，且中途会因超时被杀而留下无 `is-complete` 的半成品目录。可用做法：对 CDN 直链（`https://vscode.download.prss.microsoft.com/dbazure/download/stable/<commit>/code-stable-x64-<ts>.tar.gz`，支持 Range）做 64 路并发分块下载，实测总带宽约 2.7MB/s；拼装后校验总字节数须等于 `Content-Length`，解压到 `.vscode-test/vscode-linux-x64-<version>/`（`--strip-components=1`），再在缓存根目录写空的 `is-complete` 标记，`@vscode/test-electron` 便直接复用。
+
+以 root 运行 Electron 需追加 `--no-sandbox`；`e2e/run.mjs` 已按 `process.getuid() === 0` 自动补充。系统运行库需含 `libasound2`、`libnss3`、`libatk-bridge2.0-0`、`libgtk-3-0`、`libgbm1`、`libxkbcommon0`、`libxdamage1`、`libxfixes3`、`libxrandr2`、`libpango-1.0-0`、`libcairo2`（Debian 12 上包名为 `libasound2`，无 `libasound2t64`），缺失时 `code` 报 `error while loading shared libraries: libasound.so.2` 并以 127 退出。
