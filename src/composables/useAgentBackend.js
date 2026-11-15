@@ -5,7 +5,6 @@ import { toGithubRepoName } from '@/utils/api/github'
 
 export function useAgentBackend(projectApi, workspace, files, generation) {
   const { addLog } = workspace
-  const { generatedFiles, selectedFile } = files
   const githubStore = useGithubStore()
 
   // State
@@ -96,13 +95,13 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   }
 
   const saveProjectToBackend = async () => {
-    if (generatedFiles.value.length === 0) {
+    if (files.generatedFiles.length === 0) {
       ElMessage.warning('没有可保存的文件')
       return
     }
     const projectName = `项目_${workspace.formatTime(Date.now())}`
     try {
-      const projectData = generatedFiles.value.map(f => ({
+      const projectData = files.generatedFiles.map(f => ({
         path: f.path, content: f.content, name: f.path.split('/').pop()
       }))
       await projectApi.saveProject(projectName, '由 AI Agent 生成的项目', JSON.stringify(projectData))
@@ -128,7 +127,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     if (githubEnabled && typeof projectApi.saveProjectToGithub === 'function') {
       try {
         const filesMap = {}
-        for (const file of generatedFiles.value) {
+        for (const file of files.generatedFiles) {
           if (!file?.path || String(file.path).includes('..') || String(file.path).startsWith('/')) continue
           filesMap[file.path] = file.content == null ? '' : String(file.content)
         }
@@ -178,9 +177,9 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     }
     try {
       await projectApi.deleteProjectFile({ project_path: currentProjectPath, file_path: filePath })
-      const idx = generatedFiles.value.findIndex(f => f.path === filePath)
-      if (idx !== -1) generatedFiles.value.splice(idx, 1)
-      if (selectedFile.value?.path === filePath) selectedFile.value = null
+      const idx = files.generatedFiles.findIndex(f => f.path === filePath)
+      if (idx !== -1) files.generatedFiles.splice(idx, 1)
+      if (files.selectedFile?.path === filePath) files.selectedFile = null
       ElMessage.success(`文件 ${filePath} 已删除`)
     } catch (error) {
       console.error('删除文件失败:', error)
@@ -213,10 +212,10 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     performanceStats.value = {
       startTime: generation.startTime ? new Date(generation.startTime).toLocaleTimeString() : '未知',
       endTime: new Date().toLocaleTimeString(),
-      totalFiles: generatedFiles.value.length,
-      totalTokens: generatedFiles.value.reduce((sum, f) => sum + f.content.length, 0),
-      avgTokenPerFile: generatedFiles.value.length > 0
-        ? Math.round(generatedFiles.value.reduce((sum, f) => sum + f.content.length, 0) / generatedFiles.value.length)
+      totalFiles: files.generatedFiles.length,
+      totalTokens: files.generatedFiles.reduce((sum, f) => sum + f.content.length, 0),
+      avgTokenPerFile: files.generatedFiles.length > 0
+        ? Math.round(files.generatedFiles.reduce((sum, f) => sum + f.content.length, 0) / files.generatedFiles.length)
         : 0,
       stageTimings: (generation.workflowStages || []).map(s => ({ name: s.name, status: s.status, progress: s.progress })),
       modelCalls: Object.values(generation.modelAssignments || {}).reduce((sum, m) => sum + m.calls, 0),
@@ -346,7 +345,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       ElMessage.warning('请先启动会话以启用快照功能')
       return
     }
-    selectedFile.value = file
+    files.selectedFile = file
     await loadSnapshots(sessionId)
     showVersionHistoryModal.value = true
   }
