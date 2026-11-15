@@ -219,16 +219,24 @@ class TestLLMClientCall:
         mock_tracker.add_usage.assert_called_once()
 
     def test_model_config_exposes_cost_rates(self):
-        """LC1: get_model_config 必须暴露成本单价，否则成本追踪恒为 0。"""
+        """LC1: get_model_config 必须暴露成本单价字段，供成本追踪使用。"""
         client = LLMClient(model_name="deepseek-r1")
-        assert client.model_config["cost_per_1m_input"] > 0
-        assert client.model_config["cost_per_1m_output"] > 0
+        assert "cost_per_1m_input" in client.model_config
+        assert "cost_per_1m_output" in client.model_config
+        assert client.model_config["cost_per_1m_input"] >= 0
+        assert client.model_config["cost_per_1m_output"] >= 0
+
+    def test_free_model_config_has_zero_cost(self):
+        """免费模型在配置层单价为 0，避免前端与成本统计展示虚假价格。"""
+        client = LLMClient(model_name="deepseek-r1")
+        assert client.model_config["cost_per_1m_input"] == 0
+        assert client.model_config["cost_per_1m_output"] == 0
 
     @pytest.mark.asyncio
     @patch("app.agent.llm_client.get_dynamic_router")
     @patch("app.agent.llm_client.call_llm")
     async def test_record_usage_uses_registry_cost(self, mock_call_llm, mock_get_router):
-        """LC1: 真实模型配置下 cost_usd 应按注册表单价计算，不再恒为 0。"""
+        """LC1: cost_usd 应按配置单价换算，与单价是否为 0 无关。"""
         from app.agent.orchestrator_progress import CostTracker
 
         mock_get_router.return_value = AsyncMock()
@@ -239,13 +247,12 @@ class TestLLMClientCall:
 
         tracker = CostTracker()
         client = LLMClient(model_name="deepseek-r1", cost_tracker=tracker)
+        # 当前注册表模型均为免费，注入单价以验证换算公式本身
+        client._model_config["cost_per_1m_input"] = 1.0
+        client._model_config["cost_per_1m_output"] = 4.0
         await client.call("Hi")
 
-        expected = (
-            client.model_config["cost_per_1m_input"]
-            + client.model_config["cost_per_1m_output"]
-        )
-        assert tracker.total_cost_usd == pytest.approx(expected)
+        assert tracker.total_cost_usd == pytest.approx(5.0)
 
     @pytest.mark.asyncio
     @patch("app.agent.llm_client.LayeredModelRouter")

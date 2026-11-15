@@ -4,6 +4,10 @@ AI Cloud 模型注册表
 提供 SiliconFlow 内置模型目录；动态供应商的协议与路由能力由其他 Aicloud 模块提供。
 
 当前内置模型共 18 个，完整字段以 MODEL_REGISTRY 为准。
+
+价格与免费标记已于 2026-11-15 按硅基流动模型价格页（siliconflow.cn/pricing）
+逐条核对：当前 18 个内置模型全部为免费额度模型，成本字段统一归零。
+后续若新增付费模型，需同步更新 is_free 与 cost_per_1m_* 字段。
 """
 from dataclasses import dataclass, field
 from enum import Enum
@@ -59,8 +63,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.CODE, ModelCapability.REASONING],
         is_default=True,
-        cost_per_1m_input=1.0,
-        cost_per_1m_output=4.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["推理", "代码", "主力"]
     ),
     "qwen2.5-7b": ModelInfo(
@@ -72,8 +77,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=32768,
         capabilities=[ModelCapability.TEXT, ModelCapability.CODE],
-        cost_per_1m_input=0.7,
-        cost_per_1m_output=1.4,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["代码", "指令"]
     ),
     "qwen3-8b": ModelInfo(
@@ -85,8 +91,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=8192,
         max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.CODE],
-        cost_per_1m_input=0.35,
-        cost_per_1m_output=1.4,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["通用", "架构"]
     ),
     "qwen3.5-4b": ModelInfo(
@@ -98,8 +105,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=262144,
         capabilities=[ModelCapability.TEXT, ModelCapability.FAST, ModelCapability.VISION],
-        cost_per_1m_input=0.15,
-        cost_per_1m_output=0.6,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["快速", "轻量"]
     ),
     "glm-z1-9b": ModelInfo(
@@ -111,8 +119,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=8192,
         max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.REASONING],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=2.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["评测", "审查"]
     ),
     "deepseek-ocr": ModelInfo(
@@ -124,8 +133,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=2048,
         max_context=8192,
         capabilities=[ModelCapability.VISION],
-        cost_per_1m_input=1.0,
-        cost_per_1m_output=4.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["OCR", "视觉"]
     ),
     "glm-4-9b": ModelInfo(
@@ -137,8 +147,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=32768,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=2.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["通用", "对话"]
     ),
     "kolors": ModelInfo(
@@ -150,8 +161,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=1024,
         max_context=8192,
         capabilities=[],
-        cost_per_1m_input=1.0,
-        cost_per_1m_output=4.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["绘画", "生成"]
     ),
     "bge-m3": ModelInfo(
@@ -163,7 +175,8 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=512,
         max_context=8192,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
+        is_free=True,
+        cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["嵌入", "检索", "多语言"]
     ),
@@ -176,7 +189,8 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=512,
         max_context=8192,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
+        is_free=True,
+        cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["重排序", "检索"]
     ),
@@ -189,7 +203,8 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=512,
         max_context=512,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
+        is_free=True,
+        cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["嵌入", "中文", "检索"]
     ),
@@ -202,6 +217,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=8192,
         capabilities=[ModelCapability.VISION],
+        is_free=True,
         cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["OCR", "视觉"]
@@ -215,6 +231,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=4096,
         capabilities=[ModelCapability.TEXT],
+        is_free=True,
         cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["语音", "ASR"]
@@ -228,6 +245,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=4096,
         capabilities=[ModelCapability.TEXT],
+        is_free=True,
         cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["语音", "说话人"]
@@ -241,6 +259,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=4096,
         capabilities=[ModelCapability.TEXT],
+        is_free=True,
         cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["语音", "说话人分离"]
@@ -254,20 +273,22 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=4096,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
+        is_free=True,
+        cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["语音", "ASR", "多语言"]
     ),
-    "telespeech-asr": ModelInfo(
-        id="telespeech-asr",
-        name="TeleSpeech ASR",
-        model_key="TeleAI/TeleSpeechASR",
+    "xingchen-asr-v3.2": ModelInfo(
+        id="xingchen-asr-v3.2",
+        name="XingChen ASR V3.2",
+        model_key="XingChenAGI/XingChenASR-V3.2",
         provider=ModelProvider.SILICONFLOW,
-        description="中国电信语音识别模型，中文语音转文字",
+        description="星尘语音识别模型，中文语音转文字",
         max_tokens=4096,
         max_context=4096,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
+        is_free=True,
+        cost_per_1m_input=0.0,
         cost_per_1m_output=0.0,
         tags=["语音", "ASR", "中文"]
     ),
@@ -280,8 +301,9 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_tokens=4096,
         max_context=32768,
         capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=1.0,
+        is_free=True,
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
         tags=["翻译", "多语言"]
     ),
 }

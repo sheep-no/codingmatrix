@@ -20,6 +20,10 @@ TEST_PROMPT = "1+1=?"
 TEST_EXPECTED = "2"
 
 # 各供应商配置
+#
+# model 选用各供应商的免费额度模型，避免用付费模型探测导致免费 Key 被误判为无效：
+# - 硅基流动 Qwen/Qwen2.5-7B-Instruct 为免费模型（DisplayName 标注 Free）
+# - 智谱 glm-4-flash-250414 为官方免费文本模型；裸名 glm-4-flash 已不在当前模型清单中
 PROVIDER_CONFIGS = {
     "siliconflow": {
         "base_url": "https://api.siliconflow.cn/v1",
@@ -39,7 +43,7 @@ PROVIDER_CONFIGS = {
     },
     "glm": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-4-flash",
+        "model": "glm-4-flash-250414",
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
