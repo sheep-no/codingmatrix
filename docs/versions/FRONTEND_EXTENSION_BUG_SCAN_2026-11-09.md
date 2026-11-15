@@ -189,6 +189,23 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 - 服务端吊销依赖 Redis denylist（`app/utils/token_denylist.py`）。本机无 Redis 时后端按设计 fail-open，`revoked_tokens=0` 是环境限制所致，客户端调用链完整。
 - 新增 `flutter_client/test/live_backend_auth_test.dart`（`LIVE_BACKEND_URL` 触发，默认跳过），覆盖 CSRF、登录、鉴权头、Host 会话访问与本地登出清理。
 
+### 双端真实桌面运行验证（2026-11-15）
+
+此前 P1-4 / P1-5 的结论来自脚本级联调，Linux 桌面客户端与 VS Code 宿主的真实 GUI 运行受环境缺失阻塞。本机已补齐依赖并实跑，两端均通过。
+
+**Flutter Linux 桌面**
+
+- 依赖补齐：`xvfb xauth cmake ninja-build clang libgtk-3-dev libsecret-1-dev libjsoncpp-dev x11-utils imagemagick gnome-keyring libsecret-tools dbus-x11 xdotool`。
+- 构建：`flutter build linux --release` 成功。曾因 `build/linux/x64/release/CMakeCache.txt` 残留 `CMAKE_INSTALL_PREFIX=/usr/local` 导致产物装到系统目录而 bundle 缺文件；`linux/CMakeLists.txt:82` 只在 `CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT` 时为真，故显式 `cmake -DCMAKE_INSTALL_PREFIX=$PWD/bundle . && ninja install` 后 bundle 结构恢复正常。
+- 运行：`Xvfb :98 -ac -nolisten tcp` + `dbus-run-session` + `printf 'testpass\n' | gnome-keyring-daemon --unlock --components=secrets` 后启动 bundle，`xwininfo` 显示窗口 `CodingMatrix Agent` 1280x720 已映射。xdotool 填表登录成功后工作台渲染，历史页与模型页均取到真实后端数据（`GET /api/v1/models/` 200）。
+- 注意：默认 API 地址为 `http://127.0.0.1:8080`，本地后端在 8000，需在地址栏改为 `:8000` 才能登录。`xvfb-run -a` 自建隔离 Xauthority，外部 `xwininfo`/`import` 无法连接，需用固定 `Xvfb :98`。
+
+**VS Code 插件宿主 e2e**
+
+- 先按 `PENDING-VERIFICATION.md`「VS Code e2e 缓存与运行库」补齐 1.146.0 缓存与系统运行库。
+- 离线：`xvfb-run -a node e2e/run.mjs` → `[e2e] suite passed`，`REAL_EXIT=0`；扩展激活、5 个命令注册、工作台 webview 打开均成立。
+- 真实后端：注入 `CODINGMATRIX_E2E_API_URL` 与 `CODINGMATRIX_E2E_ACCESS_TOKEN` 后 → `[e2e] real backend checks passed`，`REAL_EXIT=0`；后端侧 `workspace_id=fixtures` 会话终态 `cancelled`，日志 3 次 `POST .../control` 对应 pause/resume/cancel。
+
 ---
 
 ## P2 级

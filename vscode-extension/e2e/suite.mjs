@@ -36,7 +36,11 @@ async function waitForBackendSession(apiUrl, accessToken, workspaceId) {
 async function runRealBackendChecks() {
   const apiUrl = process.env.CODINGMATRIX_E2E_API_URL;
   const accessToken = process.env.CODINGMATRIX_E2E_ACCESS_TOKEN;
-  if (!apiUrl || !accessToken) return;
+  if (!apiUrl || !accessToken) {
+    console.log("[e2e] real backend checks skipped (no credentials)");
+    return;
+  }
+  console.log("[e2e] real backend checks start");
 
   const settings = vscode.workspace.getConfiguration("codingmatrix.agent");
   await readBackendSessions(apiUrl, accessToken);
@@ -58,11 +62,14 @@ async function runRealBackendChecks() {
   await vscode.commands.executeCommand("codingmatrix.cancelAgentSession");
   await sleep(1000);
   assert.equal((await waitForBackendSession(apiUrl, accessToken, "fixtures")).control_status, "cancelled");
+  console.log("[e2e] real backend checks passed");
 }
 
 export async function run() {
+  console.log("[e2e] suite start");
   assert.ok(vscode.workspace.workspaceFolders?.length, "workspace folder should be open");
   assert.equal(vscode.workspace.workspaceFolders[0].name, "fixtures");
+  console.log("[e2e] workspace folder ok");
   const apiUrl = process.env.CODINGMATRIX_E2E_API_URL;
   const accessToken = process.env.CODINGMATRIX_E2E_ACCESS_TOKEN;
   if (apiUrl && accessToken) {
@@ -75,6 +82,7 @@ export async function run() {
   assert.ok(extension, "extension should be discovered from package.json");
   await extension.activate();
   assert.equal(extension.isActive, true);
+  console.log("[e2e] extension activated");
 
   // Every command advertised in package.json must exist at runtime, otherwise
   // the palette shows entries that fail when invoked.
@@ -85,6 +93,7 @@ export async function run() {
   for (const command of declaredCommands) {
     assert.ok(commands.includes(command), `declared command should be registered: ${command}`);
   }
+  console.log(`[e2e] ${declaredCommands.length} commands registered`);
   await vscode.commands.executeCommand("codingmatrix.openAgentWorkbench");
   let observedLabels = [];
   let workbenchTabs = [];
@@ -101,5 +110,7 @@ export async function run() {
     1,
     `workbench webview panel should be open, observed tabs: ${JSON.stringify(observedLabels)}`,
   );
+  console.log("[e2e] workbench webview panel opened");
   await runRealBackendChecks();
+  console.log("[e2e] suite passed");
 }
