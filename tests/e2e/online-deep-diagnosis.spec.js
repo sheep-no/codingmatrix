@@ -5,8 +5,8 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin } from './fixtures/auth.js'
 
-const ONLINE_URL = 'https://3000-9f66c22588b66963.monkeycode-ai.online'
-const API_URL = 'http://localhost:8000'
+// 预览域名会随会话变化，默认回到当前运行的 baseURL
+const ONLINE_URL = process.env.ONLINE_URL || process.env.BASE_URL || 'http://127.0.0.1:3000'
 
 test.describe('在线环境白屏深度诊断', () => {
   test('检查 Vue 应用状态和错误', async ({ page }) => {
@@ -27,7 +27,7 @@ test.describe('在线环境白屏深度诊断', () => {
     })
 
     // 登录
-    await apiLogin(page)  // apiLogin 使用默认的 localhost:3000 作为 frontend
+    await apiLogin(page, ONLINE_URL)
     await page.waitForTimeout(1000)
 
     // 导航到 /agent
@@ -60,6 +60,7 @@ test.describe('在线环境白屏深度诊断', () => {
     // 截图
     await page.screenshot({ path: 'test-results/online-deep-diagnosis.png', fullPage: true })
 
-    expect(pageContent.hasContent).toBeTruthy()
+    expect(pageContent.appChildNodes).toBeGreaterThan(0)
+    await expect(page.locator('.agent-page')).toBeVisible()
   })
 })

@@ -8,6 +8,8 @@ const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const BACKEND_URL = process.env.API_BASE || 'http://127.0.0.1:8000';
+const BACKEND_HOST = new URL(BACKEND_URL).hostname;
+const BACKEND_PORT = Number(new URL(BACKEND_URL).port) || 8000;
 const STATE_FILE = path.resolve(__dirname, '../../test-results/extreme-test-state.json');
 
 // 极限复杂度需求
@@ -124,6 +126,9 @@ const EXTREME_REQUIREMENT = `请生成一个完整的企业级在线博客内容
 请生成完整可运行的项目代码，所有文件必须完整，不要省略任何部分。`;
 
 // 通过 Node.js HTTP 登录获取 token（使用明文模式）
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 async function loginViaHttp() {
   return new Promise((resolve, reject) => {
     // 获取 CSRF Token
@@ -141,8 +146,8 @@ async function loginViaHttp() {
         });
 
         const req = http.request({
-          hostname: '127.0.0.1',
-          port: 8080,
+          hostname: BACKEND_HOST,
+          port: BACKEND_PORT,
           path: '/api/v1/login',
           method: 'POST',
           headers: {
@@ -203,6 +208,8 @@ function saveState(state) {
 }
 
 test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断点续传）', () => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
   test.describe.configure({ project: 'chromium' });
 
   test('生成复杂全栈项目（在线博客+管理系统）', async ({ page }) => {

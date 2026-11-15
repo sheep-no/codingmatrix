@@ -5,18 +5,16 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin, TEST_EMAIL, TEST_PASSWORD } from './fixtures/auth.js'
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8000'
-
 test.describe('Token 401 处理', () => {
-  test('无 token 访问受保护页面应该显示登录或拒绝', async ({ page }) => {
+  test('无 token 访问受保护页面应被重定向回首页', async ({ page }) => {
     // 不登录，直接访问 /agent
-    await page.goto('http://localhost:3000/agent')
+    await page.goto('/agent')
     await page.waitForLoadState('domcontentloaded')
-    await page.waitForTimeout(1000)
 
-    // 应该能看到页面（首页会自动弹出登录）
-    const hasAgentPage = await page.locator('.agent-page').count()
-    expect(hasAgentPage).toBeGreaterThan(0)
+    // 路由守卫应把匿名用户送回首页，并带上 redirect 查询参数
+    await expect(page).toHaveURL(/\/$|\/?redirect=/)
+    await expect(page.locator('.agent-page')).toHaveCount(0)
+    await expect(page.locator('#toolkit')).toBeVisible()
   })
 
   test('登录后 token 应该正确传递到 API 请求', async ({ page }) => {
@@ -24,7 +22,7 @@ test.describe('Token 401 处理', () => {
     await page.waitForTimeout(500)
 
     // 访问 /agent 并等待页面加载
-    await page.goto('http://localhost:3000/agent')
+    await page.goto('/agent')
     await page.waitForLoadState('load')
     await page.waitForTimeout(1000)
 
@@ -47,7 +45,7 @@ test.describe('Token 401 处理', () => {
     await page.waitForTimeout(500)
 
     // 访问 /agent
-    await page.goto('http://localhost:3000/agent')
+    await page.goto('/agent')
     await page.waitForLoadState('load')
     await page.waitForTimeout(1000)
 

@@ -1,10 +1,15 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@example.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
+
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
 
 test.describe('Agent 继续功能端到端测试', () => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
   test('简单需求：生成 → 停止 → 继续 → 停止 → 继续+变更', async ({ page }) => {
     test.setTimeout(600000); // 10 分钟超时
 
@@ -37,7 +42,7 @@ test.describe('Agent 继续功能端到端测试', () => {
       localStorage.setItem('access_token', token);
       localStorage.setItem('_token_expiry', String(expiry));
       localStorage.setItem('username', 'admin');
-      localStorage.setItem('email', 'admin@example.com');
+      localStorage.setItem('email', 'mr_yang@example.com');
       localStorage.setItem('permission_level', 'superadmin');
       localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
         token: 'test-siliconflow-token', provider: 'siliconflow',

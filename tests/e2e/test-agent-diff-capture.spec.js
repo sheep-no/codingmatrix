@@ -4,7 +4,12 @@ const { test, expect } = require('@playwright/test')
 /**
  * 测试 Agent 功能：捕获文件生成和 diff 对比过程
  */
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 test.describe('Agent 文件生成和 Diff 测试', () => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
   
   test('1. 捕获文件生成和 diff 过程', async ({ page }) => {
     // 监听所有网络请求
@@ -91,8 +96,8 @@ test.describe('Agent 文件生成和 Diff 测试', () => {
           },
           credentials: 'include',
           body: JSON.stringify({
-            email: 'admin@example.com',
-            password: 'admin123'
+            email: 'mr_yang@example.com',
+            password: '12345678'
           })
         })
         
@@ -120,7 +125,7 @@ test.describe('Agent 文件生成和 Diff 测试', () => {
     await page.evaluate((loginData) => {
       localStorage.setItem('access_token', loginData.token)
       localStorage.setItem('username', loginData.username || 'admin')
-      localStorage.setItem('email', 'admin@example.com')
+      localStorage.setItem('email', 'mr_yang@example.com')
       localStorage.setItem('permission_level', loginData.permission_level || 'superadmin')
       
       const mockApiKeys = [{

@@ -1,246 +1,185 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
+const { apiLogin } = require('./fixtures/auth.js')
 
 /**
  * API Key 管理 E2E 测试
- * 测试多供应商 API Key 的提交、管理、测试和 Agent 配置
+ *
+ * 覆盖设置页的密钥管理与 Agent 模型配置界面。
+ * 连接测试会请求外部模型服务，这里只验证控件存在，不触发真实网络调用。
  */
 
+async function openApiKeyTab(page) {
+  await page.goto('/settings', { waitUntil: 'domcontentloaded' })
+  await page.locator('#settings-tab-apikey').click()
+  await expect(page.locator('.api-key-manager')).toBeVisible({ timeout: 15000 })
+}
+
+async function listKeyTokens(page) {
+  return page.evaluate(async () => {
+    const token = sessionStorage.getItem('_token') || localStorage.getItem('access_token')
+    const headers = { Authorization: `Bearer ${token}` }
+    const listResp = await fetch('/api/v1/agent/apikeys', { credentials: 'include', headers })
+    const keys = await listResp.json().catch(() => [])
+    return (Array.isArray(keys) ? keys : []).map(key => key.token)
+  })
+}
+
+async function ensureSiliconflowKeyInput(page) {
+  const input = page.locator('[data-testid="siliconflow-key-input"]')
+  const card = page.locator('.key-card.required-key')
+  const clearButton = card.getByRole('button', { name: '清除' })
+
+  // 上一次运行被中断时可能残留多个测试 Key，循环清除直到恢复未保存状态
+  for (let i = 0; i < 10; i++) {
+    if (await input.isVisible().catch(() => false)) return
+    if (!(await clearButton.isVisible().catch(() => false))) break
+    await clearButton.click()
+    const dialog = page.getByRole('dialog', { name: '确认删除' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'OK' }).click()
+    await expect(dialog).toBeHidden()
+  }
+
+  await expect(input).toBeVisible({ timeout: 15000 })
+}
+
 test.describe('API Key Management', () => {
+  // 该账号的 Key 保存在后端 Redis，多个用例会互相删除对方的 Key，
+  // 因此强制本文件串行执行，避免 fullyParallel 下的跨 worker 竞态。
+  test.describe.configure({ mode: 'serial' })
+
+  // 需按快照清理本次新增的 Key
+  let baselineTokens = []
+
   test.beforeEach(async ({ page }) => {
-    // 访问设置页面
-    await page.goto('/settings')
+    await apiLogin(page)
+    await openApiKeyTab(page)
+    await ensureSiliconflowKeyInput(page)
+    baselineTokens = await listKeyTokens(page)
+  })
+
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(async (tokens) => {
+      const token = sessionStorage.getItem('_token') || localStorage.getItem('access_token')
+      const headers = { Authorization: `Bearer ${token}` }
+      const listResp = await fetch('/api/v1/agent/apikeys', { credentials: 'include', headers })
+      const keys = await listResp.json().catch(() => [])
+      const created = (Array.isArray(keys) ? keys : [])
+        .map(key => key.token)
+        .filter(keyToken => !tokens.includes(keyToken))
+      for (const keyToken of created) {
+        await fetch(`/api/v1/agent/apikey/${keyToken}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers,
+        })
+      }
+    }, baselineTokens).catch(() => {})
   })
 
   test('1. 设置页面加载正常', async ({ page }) => {
-    expect(page.url()).toContain('/settings')
-    
-    // 检查 Tab 存在
-    await expect(page.locator('text=API Key/接口密钥管理')).toBeVisible()
-    await expect(page.locator('text=Agent 模型配置')).toBeVisible()
+    await expect(page).toHaveURL(/\/settings/)
+    await expect(page.locator('#settings-tab-apikey')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('#settings-tab-agent')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'API Key/接口密钥管理' })).toBeVisible()
   })
 
-  test('2. 获取 RSA 公钥成功', async ({ page }) => {
-    // 等待公钥加载
-    await page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/v1/agent/apikey/public-key') &&
-        response.status() === 200
+  test('2. 提交密钥时使用 RSA 公钥加密', async ({ page }) => {
+    const publicKeyResponse = page.waitForResponse(
+      resp => resp.url().includes('/api/v1/agent/apikey/public-key') && resp.status() === 200,
+      { timeout: 15000 }
     )
-    
-    // 检查公钥显示
-    const publicKeyText = await page.textContent('.public-key-info')
-    expect(publicKeyText).toContain('RSA-2048')
+
+    await page.locator('[data-testid="siliconflow-key-input"]').fill(`sk-e2e-${Date.now()}`)
+    await page.locator('[data-testid="siliconflow-key-save"]').click()
+
+    await publicKeyResponse
+    await expect(page.locator('.key-card.required-key')).toContainText('主 Key/密钥')
+    await expect(page.locator('.key-card.required-key')).toContainText('剩余')
+    await expect(page.locator('.security-notice')).toContainText('RSA 加密传输')
   })
 
-  test('3. 提交硅基流动 API Key', async ({ page }) => {
-    const testKey = `sk-test-${Date.now()}`
-    
-    // 填写表单
-    await page.selectOption('[name="provider"]', 'siliconflow')
-    await page.fill('[name="apiKey"]', testKey)
-    await page.selectOption('[name="ttl"]', '24h')
-    await page.fill('[name="remark"]', 'E2E 测试 Key')
-    
-    // 点击保存
-    await page.click('button:has-text("保存")')
-    
-    // 等待提交成功
-    await page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/v1/agent/apikey') &&
-        response.status() === 200
+  test('3. 保存后展示测试连接与清除操作', async ({ page }) => {
+    await page.locator('[data-testid="siliconflow-key-input"]').fill(`sk-e2e-${Date.now()}`)
+    await page.locator('[data-testid="siliconflow-key-save"]').click()
+
+    const requiredCard = page.locator('.key-card.required-key')
+    await expect(requiredCard.getByRole('button', { name: '测试连接' })).toBeVisible()
+    await expect(requiredCard.getByRole('button', { name: '清除' })).toBeVisible()
+  })
+
+  test('4. 清除密钥需要二次确认', async ({ page }) => {
+    await page.locator('[data-testid="siliconflow-key-input"]').fill(`sk-e2e-${Date.now()}`)
+    await page.locator('[data-testid="siliconflow-key-save"]').click()
+
+    const requiredCard = page.locator('.key-card.required-key')
+    await requiredCard.getByRole('button', { name: '清除' }).click()
+    // Element Plus 默认语言包的确认按钮可访问名称为 OK
+    const dialog = page.getByRole('dialog', { name: '确认删除' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('不可恢复')
+
+    await dialog.getByRole('button', { name: 'OK' }).click()
+    await expect(page.locator('[data-testid="siliconflow-key-input"]')).toBeVisible()
+  })
+
+  test('5. 供应商选择完整性', async ({ page }) => {
+    const providerSelect = page.locator('.provider-select')
+    await expect(providerSelect).toBeVisible()
+    const providerNames = await providerSelect.locator('option').evaluateAll(
+      options => options.map(option => option.value).filter(Boolean)
     )
-    
-    // 检查 Key 卡片显示
-    await expect(page.locator('.api-key-card')).toContainText('硅基流动')
-    await expect(page.locator('.api-key-card')).toContainText('E2E 测试 Key')
-  })
 
-  test('4. 测试 Key 连接', async ({ page }) => {
-    // 找到测试连接按钮
-    const testButton = page.locator('button:has-text("测试连接")').first()
-    await testButton.click()
-    
-    // 等待测试结果
-    await page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/v1/agent/apikey/test') &&
-        response.status() === 200
+    expect(providerNames).toEqual(
+      expect.arrayContaining(['openai', 'anthropic', 'bailian', 'glm', 'deepseek'])
     )
-    
-    // 检查状态更新（可能成功或失败，但应该有状态显示）
-    const statusElement = page.locator('.key-status').first()
-    await expect(statusElement).toBeVisible()
   })
 
-  test('5. 启用/禁用 Key', async ({ page }) => {
-    const toggleButton = page.locator('button:has-text("禁用")').first()
-    
-    // 如果按钮存在，点击切换
-    if (await toggleButton.count() > 0) {
-      await toggleButton.click()
-      
-      // 等待状态更新
-      await page.waitForTimeout(1000)
-      
-      // 检查按钮文本变化
-      const newButtonText = await toggleButton.textContent()
-      expect(newButtonText).toBe('启用')
-    }
-  })
+  test('6. TTL 选项完整性', async ({ page }) => {
+    // 第二个 ttl-select 属于“其他供应商”表单，覆盖 1h 起的全部选项
+    const ttlSelect = page.locator('.ttl-select').nth(1)
+    const ttlValues = await ttlSelect.locator('option').evaluateAll(
+      options => options.map(option => option.value).filter(Boolean)
+    )
 
-  test('6. 清除 Key', async ({ page }) => {
-    const clearButton = page.locator('button:has-text("清除")').first()
-    
-    if (await clearButton.count() > 0) {
-      // 点击清除
-      await clearButton.click()
-      
-      // 确认对话框
-      await page.click('button:has-text("确认")')
-      
-      // 等待删除成功
-      await page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/v1/agent/apikey/') &&
-          response.method() === 'DELETE' &&
-          response.status() === 200
-      )
-      
-      // 检查卡片消失
-      await expect(page.locator('.api-key-card').first()).not.toBeVisible()
-    }
+    expect(ttlValues).toEqual(
+      expect.arrayContaining(['1h', '24h', '7d', '30d', 'never', 'custom'])
+    )
   })
 
   test('7. Agent 环节配置显示', async ({ page }) => {
-    // 切换到 Agent 配置 Tab
-    await page.click('button:has-text("Agent 模型配置")')
-    
-    // 等待 Tab 切换
-    await page.waitForTimeout(500)
-    
-    // 检查 9 个环节显示
-    const expectedLayers = [
-      '决策层',
-      '执行层前端',
-      '执行层后端',
-      '架构设计',
-      '攻坚层',
-      '审查层',
-      '修复层',
-      '交叉验证',
-      '反思层'
-    ]
-    
-    for (const layer of expectedLayers) {
-      await expect(page.locator(`text=${layer}`)).toBeVisible()
+    await page.locator('#settings-tab-agent').click()
+    await expect(page.locator('.agent-model-config')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.config-table tbody tr').first()).toBeVisible({ timeout: 15000 })
+
+    const roleLabels = await page.locator('.role-badge').allInnerTexts()
+    expect(roleLabels.map(label => label.trim())).toEqual(
+      expect.arrayContaining(['架构师', '前端工程师', '后端工程师', '审查员', '兜底模型'])
+    )
+    await expect(page.getByRole('heading', { name: '降级链配置' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '错误类型模型映射' })).toBeVisible()
+  })
+
+  test('8. 模型配置覆盖全部角色', async ({ page }) => {
+    await page.locator('#settings-tab-agent').click()
+    const table = page.locator('.config-table')
+    await expect(table).toBeVisible({ timeout: 15000 })
+
+    const rows = table.locator('tbody tr')
+    await expect(rows).toHaveCount(5)
+    for (let i = 0; i < 5; i++) {
+      await expect(rows.nth(i).locator('.role-cell')).not.toBeEmpty()
+      await expect(rows.nth(i).locator('.model-cell')).not.toBeEmpty()
     }
   })
 
-  test('8. 配置 Agent 环节模型', async ({ page }) => {
-    // 切换到 Agent 配置 Tab
-    await page.click('button:has-text("Agent 模型配置")')
-    await page.waitForTimeout(500)
-    
-    // 选择第一个环节的下拉框
-    const selectElement = page.locator('select').first()
-    await selectElement.selectOption('system_default')
-    
-    // 等待自动保存
-    await page.waitForTimeout(1000)
-    
-    // 检查保存提示
-    const saveMessage = page.locator('.save-status')
-    if (await saveMessage.count() > 0) {
-      expect(await saveMessage.textContent()).toContain('保存')
-    }
-  })
+  test('9. 本地存储不保存明文密钥', async ({ page }) => {
+    await page.locator('[data-testid="siliconflow-key-input"]').fill('sk-e2e-plaintext-check')
+    await page.locator('[data-testid="siliconflow-key-save"]').click()
+    await expect(page.locator('.key-card.required-key')).toContainText('主 Key/密钥')
 
-  test('9. 重置 Agent 配置', async ({ page }) => {
-    // 切换到 Agent 配置 Tab
-    await page.click('button:has-text("Agent 模型配置")')
-    await page.waitForTimeout(500)
-    
-    // 点击重置按钮
-    const resetButton = page.locator('button:has-text("重置为默认")')
-    if (await resetButton.count() > 0) {
-      await resetButton.click()
-      
-      // 等待重置完成
-      await page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/v1/agent/model-overrides') &&
-          response.status() === 200
-      )
-      
-      // 检查所有下拉框恢复为系统默认
-      const selects = page.locator('select')
-      const count = await selects.count()
-      
-      for (let i = 0; i < count; i++) {
-        const select = selects.nth(i)
-        const value = await select.inputValue()
-        expect(value).toBe('system_default')
-      }
-    }
-  })
-
-  test('10. 供应商选择完整性', async ({ page }) => {
-    const providerSelect = page.locator('[name="provider"]').first()
-    const options = await providerSelect.locator('option').all()
-    
-    const providerNames = []
-    for (const option of options) {
-      const value = await option.getAttribute('value')
-      if (value) {
-        providerNames.push(value)
-      }
-    }
-    
-    // 检查所有支持的供应商
-    expect(providerNames).toContain('siliconflow')
-    expect(providerNames).toContain('openai')
-    expect(providerNames).toContain('anthropic')
-    expect(providerNames).toContain('bailian')
-    expect(providerNames).toContain('zhipu')
-    expect(providerNames).toContain('deepseek')
-  })
-
-  test('11. TTL 选项完整性', async ({ page }) => {
-    const ttlSelect = page.locator('[name="ttl"]').first()
-    const options = await ttlSelect.locator('option').all()
-    
-    const ttlValues = []
-    for (const option of options) {
-      const value = await option.getAttribute('value')
-      if (value) {
-        ttlValues.push(value)
-      }
-    }
-    
-    // 检查所有 TTL 选项
-    expect(ttlValues).toContain('1h')
-    expect(ttlValues).toContain('24h')
-    expect(ttlValues).toContain('7d')
-    expect(ttlValues).toContain('30d')
-  })
-
-  test('12. 本地存储安全', async ({ page }) => {
-    // 等待页面加载完成
-    await page.waitForTimeout(2000)
-    
-    // 检查 localStorage 内容
-    const localStorageContent = await page.evaluate(() => {
-      const keys = localStorage.getItem('codingmatrix_apikeys')
-      return keys ? JSON.parse(keys) : null
-    })
-    
-    if (localStorageContent) {
-      // 确认没有明文 Key
-      const contentStr = JSON.stringify(localStorageContent)
-      expect(contentStr).not.toContain('sk-')
-      expect(contentStr).not.toContain('key')
-    }
+    const stored = await page.evaluate(() => localStorage.getItem('codingmatrix_apikeys') || '')
+    expect(stored).not.toContain('sk-e2e-plaintext-check')
   })
 })

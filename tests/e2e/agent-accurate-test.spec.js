@@ -7,6 +7,14 @@
 
 const { test, expect } = require('@playwright/test');
 
+// 真实 LLM 调用用例需要提供有效的硅基流动 Key，本地无凭证时跳过
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
+async function login(page) {
+  const { apiLogin } = await import('./fixtures/auth.js');
+  return apiLogin(page);
+}
+
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
 // 复杂的全栈项目需求
@@ -49,36 +57,14 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
   test.describe('认证流程', () => {
     test('应能成功登录并获取 Token', async ({ page }) => {
       console.log('\n=== 测试 1: 认证流程 ===');
-      
-      // 访问登录页面
-      await page.goto('http://localhost:3000');
-      await page.waitForLoadState('domcontentloaded');
-      await page.waitForTimeout(2000);
-      
-      // 查找并点击登录按钮
-      const loginButton = page.locator('button:has-text("登录"), .login-btn, [class*="login"]').first();
-      if (await loginButton.count() > 0) {
-        await loginButton.click();
-        await page.waitForTimeout(1000);
-      }
-      
-      // 填写登录表单
-      await page.fill('input[type="email"], input[placeholder*="邮箱"], [class*="email"]', 'mr_yang@example.com');
-      await page.fill('input[type="password"]', '12345678');
-      
-      // 点击登录
-      await page.click('button:has-text("登录"), [class*="login"]');
-      await page.waitForTimeout(3000);
-      
-      // 验证登录成功
-      const isLoggedIn = await page.evaluate(() => {
-        return !!localStorage.getItem('access_token') || 
-               !!document.querySelector('[class*="user"]') ||
-               document.body.textContent.includes('活跃');
-      });
-      
-      console.log('登录状态:', isLoggedIn);
-      expect(isLoggedIn).toBeTruthy();
+
+      await page.goto('/');
+      const result = await login(page);
+      expect(result.ok).toBeTruthy();
+      expect(result.token).toBeTruthy();
+
+      const storedToken = await page.evaluate(() => localStorage.getItem('access_token'));
+      expect(storedToken).toBe(result.token);
     });
   });
 
@@ -86,52 +72,23 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
   test.describe('Agent 界面交互', () => {
     test('应能打开 Agent 面板并输入需求', async ({ page }) => {
       console.log('\n=== 测试 2: Agent 界面交互 ===');
-      
-      // 先登录
-      await page.goto('http://localhost:3000');
-      await page.waitForLoadState('domcontentloaded');
-      await page.waitForTimeout(2000);
-      
-      // 尝试登录
-      const loginButton = page.locator('button:has-text("登录"), .login-btn').first();
-      if (await loginButton.count() > 0) {
-        await loginButton.click();
-        await page.waitForTimeout(500);
-        await page.fill('input[type="email"], [class*="email"]', 'mr_yang@example.com');
-        await page.fill('input[type="password"]', '12345678');
-        await page.click('button:has-text("登录"), [class*="login"]');
-        await page.waitForTimeout(2000);
-      }
-      
-      // 查找 Agent 相关按钮
-      const agentButton = page.locator('button:has-text("Agent"), button:has-text("AI"), [class*="agent"], [class*="ai"]').first();
-      
-      if (await agentButton.count() > 0) {
-        await agentButton.click();
-        await page.waitForTimeout(2000);
-        
-        // 验证 Agent 面板已打开
-        const isPanelOpen = await page.evaluate(() => {
-          return !!document.querySelector('[class*="agent"]') ||
-                 !!document.querySelector('[class*="chat"]') ||
-                 !!document.querySelector('textarea[placeholder*="任务"]') ||
-                 !!document.querySelector('textarea[placeholder*="输入"]');
-        });
-        
-        console.log('Agent 面板已打开:', isPanelOpen);
-        expect(isPanelOpen).toBeTruthy();
-      } else {
-        console.log('使用主输入框');
-        // 检查主输入框
-        const hasInput = await page.locator('textarea').first().isVisible();
-        expect(hasInput).toBeTruthy();
-      }
+
+      await page.goto('/');
+      await login(page);
+      await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+
+      const prompt = page.getByRole('textbox', { name: '项目需求' });
+      await expect(prompt).toBeVisible({ timeout: 15000 });
+      await prompt.fill('生成一个待办事项管理系统');
+      await expect(prompt).toHaveValue('生成一个待办事项管理系统');
+      await expect(page.getByRole('button', { name: '发送需求' })).toBeVisible();
     });
   });
 
   // 测试 3: 通过 API 直接测试 Agent 生成能力
   test.describe('Agent API 实际测试', () => {
     test('应能通过 API 生成简单项目', async ({ page }) => {
+      test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
       console.log('\n=== 测试 3: Agent API 实际测试 ===');
       
       // 先登录获取 Token
@@ -193,6 +150,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
     });
 
     test('应能通过 API 生成中等复杂度项目', async ({ page }) => {
+      test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
       test.setTimeout(300000); // 5 分钟超时
       
       console.log('\n=== 测试 4: 中等复杂度项目生成 ===');
@@ -257,6 +215,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
     });
 
     test('应能通过 API 生成复杂全栈项目', async ({ page }) => {
+      test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
       test.setTimeout(600000); // 10 分钟超时
       
       console.log('\n=== 测试 5: 复杂全栈项目生成 ===');
@@ -351,23 +310,10 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
   test.describe('复杂度分析测试', () => {
     test('应能分析不同复杂度的需求', async ({ page }) => {
       console.log('\n=== 测试 6: 复杂度分析 ===');
-      
-      // 获取 Token
-      let token = await page.evaluate(() => localStorage.getItem('access_token'));
-      if (!token) {
-        const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
-          data: { email: 'mr_yang@example.com', password: '12345678' }
-        });
-        if (loginResponse.status() === 200) {
-          token = (await loginResponse.json()).access_token;
-        }
-      }
-      
-      if (!token) {
-        test.skip();
-        return;
-      }
-      
+
+      await page.goto('/');
+      const { token } = await login(page);
+
       // 测试复杂度分析 API
       const response = await page.request.post(`${API_BASE}/api/v1/agent/analyze_complexity`, {
         headers: {
@@ -378,14 +324,15 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
           requirement: COMPLEX_REQUIREMENT
         }
       });
-      
+
       console.log('复杂度分析响应状态:', response.status());
-      
-      if (response.status() === 200) {
-        const data = await response.json();
-        console.log('复杂度分析结果:', JSON.stringify(data, null, 2));
-        expect(data.complexity || data.level).toBeDefined();
-      }
+      expect(response.status()).toBe(200);
+
+      const data = await response.json();
+      console.log('复杂度分析结果:', JSON.stringify(data, null, 2));
+      expect(data.level).toBeDefined();
+      expect(data.estimated_files).toBeGreaterThan(0);
+      expect(data.model_assignment).toBeDefined();
     });
   });
 });

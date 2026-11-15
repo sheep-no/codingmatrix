@@ -1,7 +1,11 @@
 const { test, expect } = require('@playwright/test')
 
+// 速度基准依赖真实模型长时生成，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 test.describe('Agent 多模型生成速度测试', () => {
   test.setTimeout(600000) // 10 分钟总超时
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
 
   // 登录并设置环境
   async function setupLogin(page) {
@@ -19,7 +23,10 @@ test.describe('Agent 多模型生成速度测试', () => {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfData.csrf_token
         },
-        body: JSON.stringify({ email: 'admin@example.com', password: 'admin123' })
+        body: JSON.stringify({
+          email: 'mr_yang@example.com',
+          password: '12345678',
+        })
       })
 
       const data = await loginResponse.json()

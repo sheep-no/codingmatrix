@@ -16,7 +16,8 @@ test.describe('Core E2E Tests', () => {
     const response = await page.goto('/');
     expect(response.ok()).toBeTruthy();
     await page.waitForLoadState('domcontentloaded');
-    expect(true).toBe(true); // Skip strict body visibility check
+    await expect(page.locator('.main-layout')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible();
   });
 
   test('路由导航测试 - 导航到登录页', async ({ page }) => {
@@ -28,9 +29,9 @@ test.describe('Core E2E Tests', () => {
   test('路由导航测试 - 导航到未定义路由应显示 404', async ({ page }) => {
     await page.goto('/non-existent-route-xyz');
     await page.waitForLoadState('domcontentloaded');
-    // 应用会重定向到首页，所以检查页面是否正常加载
-    const hasApp = await page.evaluate(() => !!document.querySelector('#app'));
-    expect(hasApp).toBeTruthy();
+    // 未定义路由由 catch-all 重定向到首页
+    await expect(page).toHaveURL(/\/$|\?/);
+    await expect(page.locator('.main-layout')).toBeVisible();
   });
 
   test('错误边界测试 - JavaScript 错误不应导致白屏', async ({ page }) => {
@@ -64,49 +65,27 @@ test.describe('Core E2E Tests', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const initialBg = await page.evaluate(() => {
-      return getComputedStyle(document.documentElement).getPropertyValue('background-color');
-    });
+    const html = page.locator('html');
+    const lightBtn = page.getByRole('radio', { name: '白天' })
+    const darkBtn = page.getByRole('radio', { name: '夜晚' })
 
-    const themeToggle = page.locator('[class*="theme"], [class*="dark"], button:has-text("主题"), button:has-text("Theme")');
-    const toggleCount = await themeToggle.count();
+    await lightBtn.click()
+    await expect(html).toHaveClass(/theme-light/)
+    await expect(lightBtn).toHaveAttribute('aria-checked', 'true')
 
-    if (toggleCount > 0) {
-      await themeToggle.first().click();
-      await page.waitForTimeout(500);
-
-      const newBg = await page.evaluate(() => {
-        return getComputedStyle(document.documentElement).getPropertyValue('background-color');
-      });
-
-      expect(newBg).not.toBeNull();
-    }
+    await darkBtn.click()
+    await expect(html).toHaveClass(/theme-dark/)
+    await expect(html).not.toHaveClass(/theme-light/)
+    await expect(darkBtn).toHaveAttribute('aria-checked', 'true')
   });
 
   test('主题切换测试 - 深色模式类名应切换', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const hasDarkClass = await page.evaluate(() => {
-      return document.documentElement.classList.contains('dark') ||
-             document.body.classList.contains('dark') ||
-             !!document.querySelector('[data-theme="dark"]');
-    });
+    await page.getByRole('radio', { name: '夜晚' }).click()
 
-    const themeToggle = page.locator('[class*="theme"], button:has-text("主题"), button:has-text("Theme"), [class*="moon"], [class*="sun"]');
-    const toggleCount = await themeToggle.count();
-
-    if (toggleCount > 0) {
-      await themeToggle.first().click();
-      await page.waitForTimeout(500);
-
-      const darkClassChanged = await page.evaluate(() => {
-        return document.documentElement.classList.contains('dark') ||
-               document.body.classList.contains('dark') ||
-               !!document.querySelector('[data-theme="dark"]');
-      });
-
-      expect(typeof darkClassChanged).toBe('boolean');
-    }
+    await expect(page.locator('html')).toHaveClass(/theme-dark/)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('app-theme'))).toBe('theme-dark')
   });
 });

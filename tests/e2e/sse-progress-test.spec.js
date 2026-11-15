@@ -3,6 +3,8 @@ const { test, expect } = require('@playwright/test');
 const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
+// 只有真实凭证才能断言生成成功；无凭证时仅校验流水线事件链路
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
 
 test.describe('Agent 项目生成 SSE 进度显示测试', () => {
   test.describe.configure({ project: 'chromium' });
@@ -347,8 +349,12 @@ test.describe('Agent 项目生成 SSE 进度显示测试', () => {
         console.log(`  输出目录: ${sseResult.finalData.output_dir || 'N/A'}`);
         console.log(`  文件数: ${sseResult.finalData.total_files_created || 0}`);
       }
+      const hasDone = sseResult.events.some(e => e.type === 'done');
+      expect(hasDone).toBe(true);
     } else {
       console.log(`项目生成失败: ${sseResult.error}`);
+      test.skip(!HAS_REAL_KEY, '未配置 TEST_SILICONFLOW_API_KEY，生成阶段预期在模型调用处失败，仅校验流水线事件');
+      expect(sseResult.error, '配置真实凭证后生成应当成功').toBeFalsy();
     }
 
     // 输出完整时间线

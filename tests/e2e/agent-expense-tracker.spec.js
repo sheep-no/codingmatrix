@@ -8,6 +8,8 @@ import { execSync } from 'child_process';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
+// 该用例依赖真实 LLM 长时生成（超时 90 分钟），仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
 
 /** 清理运行中的会话，避免 429 限流 */
 function cleanupRunningSessions() {
@@ -64,6 +66,7 @@ const REQUIREMENT = `个人记账本 Web 应用
 
 test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
   test.describe.configure({ project: 'chromium' });
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
 
   test('生成个人记账本 Web 应用项目', async ({ page }) => {
     test.setTimeout(5400000); // 90 分钟

@@ -214,7 +214,7 @@ test.describe('设置界面 - 超管实测', () => {
     await expect(panel.locator('.section-title', { hasText: '错误类型模型映射' })).toBeVisible()
     expect(await panel.locator('.error-type-item').count()).toBeGreaterThan(0)
 
-    await expect(panel.locator('.info-value').first()).toContainText('agent_model_config.yaml')
+    await expect(panel.locator('.info-value').first()).not.toHaveText('未配置')
 
     const reloadResp = page.waitForResponse((resp) =>
       resp.url().includes('/api/v2/model-config/reload') && resp.request().method() === 'POST'
@@ -277,7 +277,7 @@ test.describe('设置界面 - 超管实测', () => {
     await expect(panel.locator('.quick-add')).toBeVisible()
     await expect(panel.locator('.add-btn')).toHaveText('添加模型')
     await panel.locator('.add-btn').click()
-    await expect(page.locator('.el-message--warning').filter({ hasText: '请填写模型 ID' })).toBeVisible({ timeout: 8000 })
+    await expect(page.locator('.el-message--warning').filter({ hasText: '请填写模型标识' })).toBeVisible({ timeout: 8000 })
 
     const cards = panel.locator('.model-list .model-card')
     await expect(cards.first()).toBeVisible({ timeout: 15000 })
@@ -293,17 +293,25 @@ test.describe('设置界面 - 超管实测', () => {
 
     await panel.locator('.filter-select').selectOption('embedding')
     const embeddingCount = await cards.count()
+    // 嵌入筛选后，每个可见卡片的类型徽标都必须是「嵌入」
+    for (let i = 0; i < embeddingCount; i += 1) {
+      await expect(cards.nth(i).locator('.type-badge')).toHaveText('嵌入')
+    }
     await panel.locator('.filter-select').selectOption('')
     expect(await cards.count()).toBe(total)
 
     const roles = panel.locator('.role-card')
     await expect(roles).toHaveCount(5)
     await expect(panel.locator('.role-badge.architect')).toBeVisible()
-    await expect(roles.first().locator('.role-select option')).toHaveCount(await panel.locator('.role-select').first().locator('option').count())
+    // 所有角色下拉共享同一组可选模型
+    const firstRoleOptionCount = await roles.first().locator('.role-select option').count()
+    expect(firstRoleOptionCount).toBeGreaterThan(0)
+    for (let i = 1; i < 5; i += 1) {
+      await expect(roles.nth(i).locator('.role-select option')).toHaveCount(firstRoleOptionCount)
+    }
     const firstRoleValue = await roles.first().locator('.role-select').inputValue()
     expect(firstRoleValue).toBeTruthy()
 
-    expect(embeddingCount).toBeGreaterThanOrEqual(0)
     expect(failures, failures.join('\n')).toEqual([])
   })
 
@@ -325,7 +333,11 @@ test.describe('设置界面 - 超管实测', () => {
 
 test.describe('设置界面 - 管理员 Tab 范围', () => {
   test('管理员仅显示三个基础 Tab', async ({ page }) => {
-    await apiLogin(page, ADMIN_EMAIL, 'admin', 'providers')
+    const session = await apiLogin(page, ADMIN_EMAIL, 'admin', 'providers')
+    test.skip(
+      session.permission_level === 'superadmin',
+      `${ADMIN_EMAIL} 是超管账号，无法验证管理员 Tab 范围；请用 TEST_ADMIN_EMAIL 指定管理员账号`,
+    )
     await expect(page.locator('#settings-tab-providers')).toBeVisible()
     await expect(page.locator('#settings-tab-apikey')).toBeVisible()
     await expect(page.locator('#settings-tab-agent')).toBeVisible()

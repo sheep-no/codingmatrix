@@ -142,10 +142,10 @@ test.describe('综合诊断测试（无需登录）', () => {
       }
     }
 
-    // 直接检查关键 API 端点
+    // 直接检查关键 API 端点（仅探活，用真实 GET 端点）
     const apiEndpoints = [
-      '/api/v1/user/info',
-      '/api/v1/agent/orchestrate/stream'
+      '/api/v1/health',
+      '/api/v1/agent/sessions'
     ];
 
     for (const endpoint of apiEndpoints) {
@@ -154,7 +154,8 @@ test.describe('综合诊断测试（无需登录）', () => {
           headers: { 'Accept': 'application/json' },
           timeout: 5000
         });
-        if (response.status() >= 400) {
+        // 401/403 属于未认证时的预期结果
+        if (![200, 401, 403].includes(response.status())) {
           apiErrors.push({
             url: endpoint,
             status: response.status(),
@@ -188,49 +189,15 @@ test.describe('综合诊断测试（无需登录）', () => {
   });
 
   test('3. 检测前端功能完整性', async ({ page }) => {
+    // 未登录访问受保护页面应被重定向回首页，并携带回跳地址
     await page.goto('/agent');
-    try {
-      await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
-    } catch (error) {
-      console.log('Agent 页面加载超时，可能需要登录');
-      return;
-    }
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page).toHaveURL(/redirect=%2Fagent|redirect=\/agent/);
 
-    const missingFeatures = [];
-
-    // 检查必需的 UI 元素
-    const requiredElements = [
-      { selector: 'h1.page-title, .page-title h1', name: '页面标题' },
-      { selector: 'textarea.prompt-textarea, textarea', name: '项目描述输入框' },
-      { selector: 'button:has-text("生成"), button:has-text("Generate")', name: '生成按钮' },
-      { selector: '[class*="tab"], [role="tab"]', name: 'Tab 导航' },
-      { selector: '[class*="template"], [class*="quick"]', name: '快速模板' }
-    ];
-
-    for (const element of requiredElements) {
-      const isVisible = await page.locator(element.selector).isVisible().catch(() => false);
-      if (!isVisible) {
-        missingFeatures.push(element.name);
-      }
-    }
-
-    // 检查功能可用性
-    const tabs = await page.$$('[class*="tab"], [role="tab"]');
-    const templates = await page.$$('[class*="template"], [class*="quick"]');
-
-    console.log(`缺失的功能: ${missingFeatures.join(', ') || '无'}`);
-    console.log(`Tab 数量: ${tabs.length}`);
-    console.log(`模板数量: ${templates.length}`);
-
-    if (missingFeatures.length > 0) {
-      test.info().annotations.push({ 
-        type: 'missing-features', 
-        description: JSON.stringify(missingFeatures, null, 2) 
-      });
-    }
-
-    // 未认证页面允许所有受登录态影响的功能缺失
-    expect(missingFeatures.length).toBeLessThanOrEqual(requiredElements.length);
+    // 首页在未登录态必须可用：对话输入框与登录入口都要渲染
+    await expect(page.locator('.main-layout')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible()
+    await expect(page.locator('.login-btn')).toBeVisible()
   });
 
   test('4. 检测后端端点状态', async ({ request }) => {

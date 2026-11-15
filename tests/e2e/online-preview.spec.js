@@ -5,7 +5,8 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin, TEST_EMAIL, TEST_PASSWORD } from './fixtures/auth.js'
 
-const ONLINE_URL = 'https://3000-9f66c22588b66963.monkeycode-ai.online'
+// 预览域名会随会话变化，默认回到当前运行的 baseURL
+const ONLINE_URL = process.env.ONLINE_URL || process.env.BASE_URL || 'http://127.0.0.1:3000'
 
 test.describe('在线预览环境访问', () => {
   test('访问首页应该正常加载', async ({ page }) => {
@@ -32,6 +33,7 @@ test.describe('在线预览环境访问', () => {
   test('访问 /agent 页面应该正常加载', async ({ page }) => {
     test.slow()
 
+    await apiLogin(page, ONLINE_URL)
     await page.goto(`${ONLINE_URL}/agent`)
     await page.waitForLoadState('domcontentloaded')
     await page.waitForTimeout(3000)
@@ -40,8 +42,7 @@ test.describe('在线预览环境访问', () => {
     await page.screenshot({ path: 'test-results/online-preview-agent.png', fullPage: true })
 
     // 检查 Agent 页面元素
-    const hasAgentPage = await page.locator('.agent-page').count()
-    expect(hasAgentPage).toBeGreaterThan(0)
+    await expect(page.locator('.agent-page')).toBeVisible({ timeout: 15000 })
 
     // 检查 CSS 样式是否正确应用
     const agentStyles = await page.evaluate(() => {

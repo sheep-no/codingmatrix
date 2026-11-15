@@ -6,12 +6,13 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { test, expect } = require('@playwright/test')
+const { liveKey } = require('./fixtures/liveKeys.js')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000'
 const SUPERADMIN_EMAIL = process.env.TEST_SUPERADMIN_EMAIL || 'mr_yang@example.com'
 const SUPERADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || process.env.TEST_SUPERADMIN_PASSWORD || '12345678'
-const TEST_API_KEY = process.env.TEST_API_KEY
+const TEST_API_KEY = liveKey('zhipu')
 const FIXTURE_DIR = path.join(__dirname, 'fixtures', 'semi-calc')
 const ZIP_PATH = '/tmp/semi_calc.zip'
 const REPORT_PATH = '/tmp/semi-import-agent-report.json'
@@ -90,7 +91,7 @@ function summarizeSse(events) {
 }
 
 test.describe('半成品放入 Agent 观察反应', () => {
-  test.skip(!TEST_API_KEY, '需要 TEST_API_KEY')
+  test.skip(!TEST_API_KEY, '需要 TEST_ZHIPU_API_KEY（智谱官方 Key）')
   test.setTimeout(20 * 60 * 1000)
 
   /** @type {string | null} */

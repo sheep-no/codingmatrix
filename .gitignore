@@ -84,6 +84,9 @@ sessions/
 embeddings/
 data/agent_state_checkpoints/
 data/orchestration_core_checkpoints/*_untitled_*.json
+data/strategy_learning/
+uploads/ok.txt
+uploads/ppt_uploads/
 
 # =============================================================================
 # PPT 相关

@@ -4,7 +4,12 @@ const { test, expect } = require('@playwright/test')
 /**
  * 测试 Agent SSE 流式响应是否正常工作
  */
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 test.describe('Agent SSE 流式响应测试', () => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
   test.setTimeout(360000)
   
   test('1. 验证 SSE 流式响应返回进度事件', async ({ page }) => {
@@ -33,8 +38,8 @@ test.describe('Agent SSE 流式响应测试', () => {
           },
           credentials: 'include',
           body: JSON.stringify({
-            email: 'admin@example.com',
-            password: 'admin123'
+            email: 'mr_yang@example.com',
+            password: '12345678'
           })
         })
         
@@ -52,7 +57,7 @@ test.describe('Agent SSE 流式响应测试', () => {
     await page.evaluate((loginData) => {
       localStorage.setItem('access_token', loginData.token)
       localStorage.setItem('username', 'admin')
-      localStorage.setItem('email', 'admin@example.com')
+      localStorage.setItem('email', 'mr_yang@example.com')
       localStorage.setItem('permission_level', 'superadmin')
       
       // 设置模拟的 API Key

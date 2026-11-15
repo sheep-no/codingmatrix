@@ -1,6 +1,10 @@
 const { test, expect } = require('@playwright/test')
 
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 test('简单项目生成测试', async ({ page }) => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
   test.setTimeout(300000) // 5 分钟
 
   // 登录
@@ -18,7 +22,7 @@ test('简单项目生成测试', async ({ page }) => {
         'Content-Type': 'application/json',
         'X-CSRF-Token': csrfData.csrf_token
       },
-      body: JSON.stringify({ email: 'admin@example.com', password: 'admin123' })
+      body: JSON.stringify({ email: 'mr_yang@example.com', password: '12345678' })
     })
 
     const data = await loginResponse.json()

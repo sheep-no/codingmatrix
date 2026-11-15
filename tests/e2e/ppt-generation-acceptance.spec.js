@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -79,6 +80,7 @@ async function openPptPage(page) {
 
 test.describe('PPT 生成验收', () => {
   test('工具集进入后走完大纲批准并生成 PPTX', async ({ page }) => {
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实 PPT 生成验收')
     test.setTimeout(360000)
     const apiLog = []
     page.on('response', (response) => {

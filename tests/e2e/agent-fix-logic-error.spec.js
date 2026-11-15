@@ -7,14 +7,15 @@
  */
 const { test, expect } = require('@playwright/test');
 const { apiLogin } = require('./fixtures/auth');
+const { liveKey } = require('./fixtures/liveKeys.js');
 const crypto = require('crypto');
 
 // 测试配置
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 通过测试环境变量提供 SiliconFlow API Key
-const REAL_API_KEY = process.env.TEST_API_KEY;
+// 该用例在硅基流动托管模型上运行，使用硅基流动 Key
+const REAL_API_KEY = liveKey('siliconflow');
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -122,7 +123,7 @@ async function getPageState(page) {
 test.describe('Agent 逻辑错误修复能力测试', () => {
   test('生成项目 → 删除代码行 → 模糊问题 → Agent 修复', async ({ page }) => {
     test.setTimeout(900000); // 15分钟超时
-    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型验收');
 
     // 捕获浏览器控制台日志
     page.on('console', msg => {

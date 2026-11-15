@@ -79,9 +79,19 @@ test.describe('Agent 历史项目与会话切换', () => {
       console.log(`  [${i}] id=${s.id}, prompt="${(s.prompt || '').substring(0, 30)}", files=${(s.files || []).length}`);
     });
 
+    // 会话切换会把当前会话置顶，索引会变化；按持久化顺序与提示词映射定位
+    const indexOfPrompt = async (needle) => {
+      const prompts = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem('agent_project_sessions') || '[]').map(session => session.prompt || '')
+      )
+      return prompts.findIndex(prompt => prompt.includes(needle))
+    }
+
     // === 切换到第一个会话 ===
     console.log('--- 切换到会话 1 ---');
-    await sessionItems.nth(1).click();
+    const session1Index = await indexOfPrompt('项目1')
+    expect(session1Index).toBeGreaterThanOrEqual(0)
+    await sessionItems.nth(session1Index).click();
     await page.waitForTimeout(500);
 
     const text1 = await textarea.inputValue();
@@ -89,7 +99,9 @@ test.describe('Agent 历史项目与会话切换', () => {
 
     // === 切换到第二个会话 ===
     console.log('--- 切换到会话 2 ---');
-    await sessionItems.first().click();
+    const session2Index = await indexOfPrompt('项目2')
+    expect(session2Index).toBeGreaterThanOrEqual(0)
+    await sessionItems.nth(session2Index).click();
     await page.waitForTimeout(500);
 
     const text2 = await textarea.inputValue();
@@ -130,10 +142,13 @@ test.describe('Agent 历史项目与会话切换', () => {
     const countBefore = await sessionItems.count();
     console.log(`  删除前会话数: ${countBefore}`);
 
-    // 点击删除
+    // 点击删除并确认永久删除对话框
     if (countBefore > 0) {
       await sessionItems.first().locator('.session-delete').click();
-      await page.waitForTimeout(500);
+      const confirmDialog = page.getByRole('dialog', { name: '永久删除项目' });
+      await expect(confirmDialog).toBeVisible();
+      await confirmDialog.getByRole('button', { name: '永久删除' }).click();
+      await page.waitForTimeout(800);
       const countAfter = await sessionItems.count();
       console.log(`  删除后会话数: ${countAfter}`);
       expect(countAfter).toBeLessThan(countBefore);

@@ -44,30 +44,44 @@ test.describe('会话生命周期 E2E', () => {
     console.log(`[3] 会话列表 (${options.length}): ${options.join(' | ')}`);
     expect(options.length).toBeGreaterThanOrEqual(2);
 
+    // 会话切换会把当前会话置顶，索引会变化；按持久化顺序与提示词映射定位
+    const indexOfPrompt = async (needle) => {
+      const prompts = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem('agent_project_sessions') || '[]').map(session => session.prompt || '')
+      )
+      return prompts.findIndex(prompt => prompt.includes(needle))
+    }
+
     // === 4. 切换到会话 1 ===
-    await sessionItems.nth(1).click();
+    const session1Index = await indexOfPrompt('项目1')
+    expect(session1Index).toBeGreaterThanOrEqual(0)
+    await sessionItems.nth(session1Index).click();
     await page.waitForTimeout(300);
     const text1 = await textarea.inputValue();
     console.log(`[4] 切换到会话1: "${text1}"`);
     expect(text1).toContain('项目1');
 
     // === 5. 切换到会话 2 ===
-    await sessionItems.first().click();
+    const session2Index = await indexOfPrompt('项目2')
+    expect(session2Index).toBeGreaterThanOrEqual(0)
+    await sessionItems.nth(session2Index).click();
     await page.waitForTimeout(300);
     const text2 = await textarea.inputValue();
     console.log(`[5] 切换到会话2: "${text2}"`);
     expect(text2).toContain('项目2');
 
     // === 6. 删除会话 1 ===
-    await sessionItems.nth(1).click();
+    const deleteIndex = await indexOfPrompt('项目1')
+    await sessionItems.nth(deleteIndex).click();
     await page.waitForTimeout(300);
-    if (await sessionItems.nth(1).isVisible()) {
-      await sessionItems.nth(1).locator('.session-delete').click();
-      await page.waitForTimeout(500);
-      const remainingOptions = await sessionItems.allTextContents();
-      console.log(`[6] 删除会话1后: ${remainingOptions.length} 个选项`);
-      expect(remainingOptions.length).toBeLessThan(options.length);
-    }
+    await sessionItems.nth(deleteIndex).locator('.session-delete').click();
+    const confirmDialog = page.getByRole('dialog', { name: '永久删除项目' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: '永久删除' }).click();
+    await page.waitForTimeout(800);
+    const remainingOptions = await sessionItems.allTextContents();
+    console.log(`[6] 删除会话1后: ${remainingOptions.length} 个选项`);
+    expect(remainingOptions.length).toBeLessThan(options.length);
 
     // === 7. 验证会话 2 仍然存在 ===
     const finalOptions = await sessionItems.allTextContents();

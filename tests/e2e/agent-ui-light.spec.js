@@ -17,7 +17,7 @@ test.describe('Agent UI 轻量测试', () => {
     await expect(page.getByRole('button', { name: '发送需求' })).toBeVisible();
   });
 
-  test('输入需求后点击生成，验证 SSE 流开始', async ({ page }) => {
+  test('未配置 API Key 时点击生成会拦截并提示', async ({ page }) => {
     await apiLogin(page, 'http://127.0.0.1:8000');
 
     await openAgentWorkspace(page);
@@ -29,7 +29,9 @@ test.describe('Agent UI 轻量测试', () => {
     await expect(sendBtn).toBeEnabled();
     await sendBtn.click();
 
-    await expect(page.getByRole('button', { name: '停止生成' })).toBeVisible({ timeout: 15000 });
+    // 生成需要真实供应商 Key，未配置时应提示而不是进入生成态
+    await expect(page.locator('.el-message')).toContainText('请先配置硅基流动或智谱 GLM 的 API Key');
+    await expect(page.getByRole('button', { name: '停止生成' })).toHaveCount(0);
   });
 
   test('验证 API 健康检查和认证', async ({ page }) => {

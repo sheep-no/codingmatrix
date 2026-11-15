@@ -1,89 +1,68 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('@playwright/test')
+const { apiLogin } = require('./fixtures/auth.js')
 
-const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
+// 本地种子 Key：仅用于通过前端“必须配置 Key”的守卫，
+// 真正的模型调用由 page.route 拦截，避免消耗真实额度。
+const MOCK_KEYS = [{
+  token: 'e2e-mock-siliconflow-token',
+  provider: 'siliconflow',
+  remark: 'E2E Mock Key',
+  status: 'verified',
+  created_at: new Date().toISOString(),
+  expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  ttl_seconds: 86400,
+  enabled: true,
+}]
+
+const SSE_BODY = [
+  'data: {"type":"progress","data":{"phase":"generation_start","step":"准备生成","percentage":5}}',
+  '',
+  'data: {"type":"done","data":{"project_path":"e2e-mock-project"}}',
+  '',
+].join('\n')
 
 test('验证 agent 项目生成接口请求参数正确', async ({ page }) => {
-  // 1. 登录
-  await page.goto(`${BASE_URL}/`);
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(1000);
+  await page.addInitScript(keys => {
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify(keys))
+  }, MOCK_KEYS)
 
-  const loginResult = await page.evaluate(async () => {
-    await fetch('/api/v1/csrf-token', { credentials: 'include' });
-    const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
-    const csrfToken = csrfMatch ? csrfMatch[1] : '';
+  await apiLogin(page)
 
-    const resp = await fetch('/api/v1/login', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-      body: JSON.stringify({ email: 'test@test.com', password: 'Test123456!' }),
-    });
-
-    if (!resp.ok) return { success: false, error: await resp.text() };
-    return await resp.json();
-  });
-
-  expect(loginResult.access_token).toBeTruthy();
-
-  // 2. 设置 token
-  await page.evaluate((data) => {
-    window.userStore?.setUser?.({
-      username: data.username,
-      permission_level: data.permission_level || 'normal',
-      access_token: data.access_token,
-      expires_in: 1800,
-    });
-    localStorage.setItem('access_token', data.access_token);
-  }, loginResult);
-
-  // 3. 监听 API 请求
-  const apiCalls = [];
-  page.on('request', req => {
-    if (req.url().includes('/agent/')) {
+  const apiCalls = []
+  page.on('request', request => {
+    if (request.url().includes('/api/v1/agent/') && request.method() === 'POST') {
       apiCalls.push({
-        url: req.url(),
-        method: req.method(),
-        body: req.postData(),
-        authHeader: req.headers()['authorization'],
-      });
+        url: request.url(),
+        body: request.postData(),
+        authorization: request.headers()['authorization'],
+      })
     }
-  });
+  })
 
-  // 4. 导航到 Agent 页面
-  await page.goto(`${BASE_URL}/agent`);
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(1500);
+  await page.route('**/api/v1/agent/orchestrate/stream', route => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+    body: SSE_BODY,
+  }))
 
-  console.log('API calls captured:', apiCalls.length);
-  for (const call of apiCalls) {
-    console.log(`  ${call.method} ${call.url.split('/').pop()}: ${call.authHeader ? '有 token' : '无 token'}`);
-    if (call.body) {
-      try {
-        const body = JSON.parse(call.body);
-        console.log('    请求体 keys:', Object.keys(body));
-        console.log('    requirement:', body.requirement ? '✅ 有' : '❌ 无');
-        console.log('    session_id:', body.session_id ? '✅ 有' : '❌ 无');
-      } catch (e) {}
-    }
-  }
+  await page.goto('/agent', { waitUntil: 'domcontentloaded' })
+  const prompt = page.getByRole('textbox', { name: '项目需求' })
+  await expect(prompt).toBeVisible({ timeout: 15000 })
+  await prompt.fill('创建一个简单的 Python 计算器')
 
-  // 5. 验证有 API 调用且携带 token
-  expect(apiCalls.length).toBeGreaterThan(0);
-  expect(apiCalls.some(c => c.authHeader)).toBe(true);
-  
-  // 6. 验证没有 401/422 错误
-  const consoleErrors = [];
-  page.on('console', msg => {
-    const text = msg.text();
-    if (msg.type() === 'error' && (text.includes('401') || text.includes('422'))) {
-      consoleErrors.push(text);
-    }
-  });
+  const sendButton = page.getByRole('button', { name: '发送需求' })
+  await expect(sendButton).toBeEnabled()
+  await sendButton.click()
 
-  await page.waitForTimeout(2000);
-  console.log('401/422 错误数:', consoleErrors.length);
-  expect(consoleErrors.length).toBe(0);
-  
-  console.log('测试通过！Agent API 请求参数正确。');
-});
+  await expect.poll(() => apiCalls.length, { timeout: 15000 }).toBeGreaterThan(0)
+
+  const generateCall = apiCalls.find(call => call.url.includes('/agent/orchestrate/stream'))
+  expect(generateCall).toBeTruthy()
+  expect(generateCall.authorization).toMatch(/^Bearer .+/)
+
+  const body = JSON.parse(generateCall.body)
+  expect(body.requirement).toContain('Python 计算器')
+  expect(body.session_id).toBeTruthy()
+  expect(body).toHaveProperty('enable_review')
+  expect(body).toHaveProperty('enable_memory')
+})

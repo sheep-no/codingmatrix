@@ -7,14 +7,15 @@
  */
 const { test, expect } = require('@playwright/test');
 const { apiLogin } = require('./fixtures/auth');
+const { liveKey } = require('./fixtures/liveKeys.js');
 const crypto = require('crypto');
 
 // 测试配置
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 通过测试环境变量提供 SiliconFlow API Key
-const REAL_API_KEY = process.env.TEST_API_KEY;
+// 该用例在硅基流动托管模型上运行，使用硅基流动 Key
+const REAL_API_KEY = liveKey('siliconflow');
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -153,7 +154,7 @@ async function getPageState(page) {
 test.describe('多模型 Agent 修改能力测试', () => {
   test('完整测试：生成 -> 删除文件 -> 模糊问题修复', async ({ page }) => {
     test.setTimeout(600000); // 10分钟超时
-    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型验收');
     
     // 捕获浏览器控制台日志
     page.on('console', msg => {
@@ -716,12 +717,10 @@ test.describe('多模型 Agent 修改能力测试', () => {
   test('单元测试：多模型路由验证', async ({ page }) => {
     // 这个测试验证多模型路由是否正常工作
     console.log('验证多模型路由功能...');
-    
+
+    await apiLogin(page, BASE_URL);
     await page.goto(`${BASE_URL}/agent`);
-    await page.waitForLoadState('networkidle');
-    
-    // 等待页面加载
-    await page.waitForSelector('.agent-page', { timeout: 10000 });
+    await page.locator('.agent-page').waitFor({ state: 'visible', timeout: 30000 });
     
     // 检查模型选择器是否存在
     const hasModelSelector = await page.evaluate(() => {
@@ -760,21 +759,20 @@ test.describe('多模型 Agent 修改能力测试', () => {
 
   test('性能测试：Agent 响应时间', async ({ page }) => {
     test.setTimeout(120000);
-    
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型性能测试');
+
+    await apiLogin(page, BASE_URL);
     await page.goto(`${BASE_URL}/agent`);
-    await page.waitForLoadState('networkidle');
-    
-    // 等待页面加载
-    await page.waitForSelector('.agent-page', { timeout: 10000 });
-    
+    await page.locator('.agent-page').waitFor({ state: 'visible', timeout: 30000 });
+
     const startTime = Date.now();
-    
+
     // 输入简单需求
-    const textarea = await page.waitForSelector('.prompt-textarea');
+    const textarea = await page.waitForSelector('[data-testid="agent-prompt-input"]');
     await textarea.fill('创建一个 Hello World 的 Python 脚本');
-    
+
     // 开始生成
-    await page.click('.action-buttons .btn-primary');
+    await page.click('button[aria-label="发送需求"]');
     
     // 等待第一个文件出现
     try {
@@ -784,7 +782,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
       
       // 继续等待生成完成
       await page.waitForFunction(() => {
-        const btn = document.querySelector('.btn-primary');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
         return btn && !btn.disabled;
       }, { timeout: 60000 });
       

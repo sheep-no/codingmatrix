@@ -1,6 +1,8 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
 
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 /**
  * 模拟用户在前端完整交互流程
  */
@@ -74,6 +76,7 @@ test.describe('前端 Code 接口完整交互测试', () => {
   })
 
   test('4. 模拟在聊天界面输入并发送', async ({ page }) => {
+    test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
     await page.goto('/')
     await page.waitForTimeout(3000)
     

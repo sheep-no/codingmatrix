@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -57,6 +58,21 @@ async function syncSiliconflowKeys(page) {
   expect(keySync.count, '需要至少一条已配置的硅基流动 Key').toBeGreaterThan(0)
 }
 
+async function seedMockKeys(page) {
+  await page.evaluate(() => {
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
+      token: 'e2e-mock-siliconflow-token',
+      provider: 'siliconflow',
+      remark: 'E2E Mock Key',
+      status: 'verified',
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      ttl_seconds: 86400,
+      enabled: true,
+    }]))
+  })
+}
+
 async function openVirtualGirl(page) {
   await page.locator('#toolkit').click()
   const menu = page.locator('#toolkit-menu')
@@ -74,7 +90,7 @@ test.describe('虚拟姬浏览器场景', () => {
   test('空发送、切角色、关创建框、最小化、关窗后刷新保持关闭', async ({ page }) => {
     test.setTimeout(90000)
     await loginOnFrontend(page)
-    await syncSiliconflowKeys(page)
+    await seedMockKeys(page)
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     const girlWindow = await openVirtualGirl(page)
@@ -115,6 +131,7 @@ test.describe('虚拟姬浏览器场景', () => {
   })
 
   test('真实回答后刷新仍能看到对话，途中关窗可再打开', async ({ page }) => {
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实伙伴对话验收')
     test.setTimeout(240000)
     let delayNextTurn = false
     await page.route('**/api/v1/GirlAi/companion/turn', async (route) => {

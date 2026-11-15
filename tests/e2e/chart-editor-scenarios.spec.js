@@ -80,7 +80,9 @@ async function openChartEditor(page) {
 
 async function returnAndReopen(homePage, editorPage) {
   const closePromise = editorPage.waitForEvent('close', { timeout: 5000 }).catch(() => null)
-  await editorPage.locator('.back-btn').click()
+  // 返回按钮可能同步关闭 popup，点击自身的 CDP 调用会随之抛 "Target page closed"；
+  // 窗口是否关闭以 close 事件为准，忽略点击中断。
+  await editorPage.locator('.back-btn').click().catch(() => {})
   await closePromise
   if (editorPage.isClosed()) {
     return openChartEditor(homePage)

@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const TEST_EMAIL = 'test@test.com';
-const TEST_PASSWORD = 'Test123456!';
+const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com';
+const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD;
 
 test.describe('Agent 页面 Token 传递测试', () => {
   test('登录后导航到 Agent 页面，token 应正确传递', async ({ page }) => {
+    test.skip(!TEST_PASSWORD, '需要设置 TEST_ADMIN_PASSWORD');
     // 1. 打开首页
     await page.goto(`${BASE_URL}/`);
     await page.waitForLoadState('domcontentloaded');

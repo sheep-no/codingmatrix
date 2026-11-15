@@ -181,29 +181,13 @@ test.describe('多模态 Agent 核心能力测试', () => {
       expect(hasApp).toBeTruthy();
     });
 
-    test('应能检测到 Agent 相关的 UI 元素', async ({ page }) => {
-      await page.goto('http://localhost:3000');
+    test('首页应渲染消息输入框与发送按钮', async ({ page }) => {
+      await page.goto('/');
       await page.waitForLoadState('domcontentloaded');
-      await page.waitForTimeout(2000);
-      
-      // 查找 Agent 相关的 UI 元素
-      const agentElements = await page.evaluate(() => {
-        const elements = {
-          hasChat: !!document.querySelector('[class*="chat"]') || 
-                   !!document.querySelector('[class*="message"]'),
-          hasInput: !!document.querySelector('input[type="text"]') || 
-                    !!document.querySelector('textarea'),
-          hasSendButton: !!document.querySelector('button') && 
-                         (document.body.textContent.includes('发送') ||
-                          document.body.textContent.includes('生成'))
-        };
-        return elements;
-      });
-      
-      console.log('检测到的 UI 元素:', agentElements);
-      
-      // 至少应该有输入框
-      expect(agentElements.hasInput || agentElements.hasChat).toBeTruthy();
+
+      await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible();
+      // 未登录时发送按钮可访问名为「请先登录」
+      await expect(page.locator('.send-btn')).toBeVisible();
     });
   });
 
@@ -225,10 +209,11 @@ test.describe('多模态 Agent 核心能力测试', () => {
       };
       
       // 验证请求格式
-      expect(orchestratorRequest.requirement).toBeDefined();
+      expect(orchestratorRequest.requirement).toContain('用户');
       expect(orchestratorRequest.requirement.length).toBeGreaterThan(100);
-      expect(typeof orchestratorRequest.enable_review).toBe('boolean');
-      expect(typeof orchestratorRequest.enable_validation).toBe('boolean');
+      expect(orchestratorRequest.enable_review).toBe(true);
+      expect(orchestratorRequest.enable_validation).toBe(true);
+      expect(orchestratorRequest.incremental).toBe(false);
       
       console.log('请求格式验证通过');
       console.log('需求长度:', orchestratorRequest.requirement.length);
@@ -412,7 +397,8 @@ test.describe('多模态 Agent 核心能力测试', () => {
       performanceMetrics.elapsed = performanceMetrics.endTime - performanceMetrics.startTime;
       
       console.log('耗时 (ms):', performanceMetrics.elapsed);
-      expect(performanceMetrics.elapsed).toBeGreaterThanOrEqual(0);
+      expect(performanceMetrics.elapsed).toBe(1000);
+      expect(performanceMetrics.endTime).toBeGreaterThan(performanceMetrics.startTime);
     });
 
     test('应统计文件生成数量', async ({ page }) => {
@@ -427,7 +413,8 @@ test.describe('多模态 Agent 核心能力测试', () => {
       console.log('失败:', fileStats.failed);
       
       expect(fileStats.total).toBeGreaterThan(0);
-      expect(fileStats.success).toBeGreaterThanOrEqual(0);
+      expect(fileStats.success + fileStats.failed).toBe(fileStats.total);
+      expect(fileStats.success).toBeLessThan(fileStats.total);
     });
   });
 });

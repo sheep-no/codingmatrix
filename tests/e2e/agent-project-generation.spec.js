@@ -3,9 +3,12 @@ const { test, expect } = require('@playwright/test');
 const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
+// 该用例断言真实项目生成结果，必须提供 TEST_SILICONFLOW_API_KEY 才有意义
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
 
 test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
   test.describe.configure({ project: 'chromium' });
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
 
   test('生成贪吃蛇网页版项目（纯 HTML + Flask）', async ({ page }) => {
     test.setTimeout(300000); // 5 分钟超时
@@ -112,29 +115,10 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
     console.log('登录结果:', loginResult);
     timeline.push({ time: Date.now() - startTime, type: 'login_complete' });
 
-    // 第二步：创建会话
-    console.log('\n=== 步骤 2: 创建项目生成会话 ===');
-    const sessionResult = await page.evaluate(async () => {
-      const token = localStorage.getItem('access_token');
-      
-      const resp = await fetch('/api/v1/agent/sessions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          session_type: 'code_generation',
-          model_key: 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
-        })
-      });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        return { success: true, session_id: data.session_id };
-      }
-      return { success: false, error: await resp.text() };
-    });
+    // 第二步：生成会话 ID
+    // 后端没有 POST /agent/sessions 建会话接口，前端也是本地生成会话 ID
+    console.log('\n=== 步骤 2: 生成会话 ID ===');
+    const sessionResult = { success: true, session_id: `e2e-snake-${Date.now()}` };
 
     console.log('会话创建结果:', sessionResult);
     timeline.push({ time: Date.now() - startTime, type: 'session_created', data: sessionResult });
@@ -255,14 +239,9 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
     // 断言
     expect(totalDuration).toBeGreaterThan(0);
     expect(apiCalls.length).toBeGreaterThan(0);
-    
-    // 验证项目生成成功
-    if (projectResult.success) {
-      expect(projectResult.total_files).toBeGreaterThan(0);
-      expect(projectResult.output_dir).toBeDefined();
-    } else {
-      // 如果失败，输出详细错误
-      console.log('项目生成失败，错误:', projectResult.error);
-    }
+    expect(projectResult.error, '真实凭证下项目生成不应失败').toBeUndefined();
+    expect(projectResult.success).toBe(true);
+    expect(projectResult.total_files).toBeGreaterThan(0);
+    expect(projectResult.output_dir).toBeDefined();
   });
 });

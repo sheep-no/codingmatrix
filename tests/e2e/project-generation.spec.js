@@ -1,99 +1,69 @@
 /**
- * 项目生成 E2E 测试
- * 
- * 测试完整的项目生成流程：
- * - 会话管理
- * - 多轮对话
- * - 代码预览
- * - 文件导出
- * - 视觉分析
- * - 代码审查
+ * 项目生成页面 E2E 测试
+ *
+ * /project-generate 已收敛到 /agent，这里验证 Agent 工作台的
+ * 入口、输入、会话与工作区结构；真实生成依赖外部模型 Key。
  */
 import { test, expect } from '@playwright/test';
+import { apiLogin } from './fixtures/auth.js';
 
 test.describe('项目生成流程', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await apiLogin(page);
   });
 
-  test('打开项目生成器', async ({ page }) => {
-    await page.locator('#toolkit').click();
-    await page.locator('text=AI 项目生成').click();
-    
-    await expect(page.locator('.project-generator')).toBeVisible();
+  test('项目生成入口重定向到 Agent 工作台', async ({ page }) => {
+    await page.goto('/project-generate', { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/agent/);
+    await expect(page.locator('.agent-page')).toBeVisible({ timeout: 30000 });
   });
 
   test('发送项目需求', async ({ page }) => {
-    await page.locator('#toolkit').click();
-    await page.locator('text=AI 项目生成').click();
-    
-    await page.locator('.chat-input textarea').fill('创建一个贪吃蛇游戏');
-    await page.locator('.send-button').click();
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    const prompt = page.locator('[data-testid="agent-prompt-input"]');
+    await expect(prompt).toBeVisible({ timeout: 30000 });
 
-    await expect(page.locator('.chat-messages')).toContainText('贪吃蛇');
+    await prompt.fill('创建一个贪吃蛇游戏');
+    await expect(prompt).toHaveValue('创建一个贪吃蛇游戏');
+    await expect(page.getByRole('button', { name: '发送需求' })).toBeEnabled();
   });
 
-  test('代码预览标签切换', async ({ page }) => {
-    await page.locator('#toolkit').click();
-    await page.locator('text=AI 项目生成').click();
-    
-    await expect(page.locator('[data-tab="preview"]')).toBeVisible();
-    await expect(page.locator('[data-tab="vision"]')).toBeVisible();
-    await expect(page.locator('[data-tab="review"]')).toBeVisible();
+  test('空需求时发送按钮禁用', async ({ page }) => {
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: '发送需求' })).toBeDisabled();
   });
 
-  test('视觉分析面板', async ({ page }) => {
-    await page.locator('[data-tab="vision"]').click();
-    
-    await expect(page.locator('.vision-analysis')).toBeVisible();
-    await expect(page.locator('.vision-description')).toBeVisible();
+  test('工作区初始展示引导空状态', async ({ page }) => {
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    const emptyState = page.locator('.agent-workspace .empty-state');
+    await expect(emptyState).toBeVisible({ timeout: 30000 });
+    await expect(emptyState).toContainText('从一个想法，开始构建');
   });
 
-  test('代码审查面板', async ({ page }) => {
-    await page.locator('[data-tab="review"]').click();
-    
-    await expect(page.locator('.code-review')).toBeVisible();
-    await expect(page.locator('.review-issues')).toBeVisible();
-  });
-
-  test('Agent 状态显示', async ({ page }) => {
-    await expect(page.locator('.agent-status')).toBeVisible();
-    await expect(page.locator('.agent-status')).toContainText('空闲');
-  });
-
-  test('文件树显示', async ({ page }) => {
-    await expect(page.locator('.file-tree')).toBeVisible();
-  });
-
-  test('代码高亮', async ({ page }) => {
-    await page.locator('[data-tab="preview"]').click();
-    
-    const codeBlock = page.locator('pre code');
-    await expect(codeBlock).toHaveClass(/hljs/);
-  });
-
-  test('多文件切换', async ({ page }) => {
-    await page.locator('.file-tree .file-item').first().click();
-    
-    const codeBlock = page.locator('pre code');
-    await expect(codeBlock).toBeVisible();
-  });
-
-  test('导出项目', async ({ page }) => {
-    await page.locator('.export-button').click();
-    
-    await expect(page.locator('.export-dialog')).toBeVisible();
-    await expect(page.locator('text=导出格式')).toBeVisible();
+  test('文件面板展示项目产物空态', async ({ page }) => {
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    const filePanel = page.locator('.agent-file-panel');
+    await expect(filePanel).toBeVisible({ timeout: 30000 });
+    await expect(filePanel).toContainText('项目产物');
   });
 
   test('新建会话', async ({ page }) => {
-    await page.locator('#newSpeak').click();
-    
-    await expect(page.locator('.chat-messages')).toBeEmpty();
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.session-list')).toBeVisible({ timeout: 30000 });
+    await page.getByRole('button', { name: '新建会话' }).click();
+    await expect(page.locator('.session-list')).toBeVisible();
   });
 
-  test('会话切换', async ({ page }) => {
-    await page.locator('.session-select').click();
-    await expect(page.locator('.session-dropdown')).toBeVisible();
+  test('会话切换入口可见', async ({ page }) => {
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.agent-sidebar .session-list')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('.agent-sidebar')).toContainText('会话历史');
+  });
+
+  test('顶部栏展示 Agent 标题与状态', async ({ page }) => {
+    await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+    const topbar = page.locator('.agent-topbar');
+    await expect(topbar).toContainText('CodingMatrix');
+    await expect(topbar.locator('.topbar-status')).toBeVisible();
   });
 });
