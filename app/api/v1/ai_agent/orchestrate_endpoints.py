@@ -2017,11 +2017,14 @@ async def analyze_project_complexity(
     request: ComplexityAnalysisRequest,
     token: dict = Depends(verify_token)
 ):
-    from app.agent.orchestrator import ComplexityAnalyzer, LayeredModelRouter
+    from app.agent.dynamic_model_router import get_dynamic_router
+    from app.agent.orchestrator import ComplexityAnalyzer
 
     analyzer = ComplexityAnalyzer()
     complexity = analyzer.analyze(request.requirement)
-    assignment = LayeredModelRouter.get_assignment(complexity.level)
+    # get_assignment 是实例方法，复用单例以让熔断状态反映真实调用情况
+    router = await get_dynamic_router()
+    assignment = router.get_assignment(complexity.level)
 
     return ComplexityAnalysisResponse(
         level=complexity.level.value,

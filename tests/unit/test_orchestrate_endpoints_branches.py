@@ -1310,8 +1310,10 @@ async def test_analyze_project_complexity_delegates(monkeypatch):
         lambda: SimpleNamespace(analyze=lambda req: complexity),
     )
     monkeypatch.setattr(
-        "app.agent.orchestrator.LayeredModelRouter",
-        SimpleNamespace(get_assignment=lambda level: assignment),
+        "app.agent.dynamic_model_router.get_dynamic_router",
+        AsyncMock(
+            return_value=SimpleNamespace(get_assignment=lambda level: assignment)
+        ),
     )
 
     response = await endpoints.analyze_project_complexity(
@@ -1319,6 +1321,36 @@ async def test_analyze_project_complexity_delegates(monkeypatch):
     )
     assert response.level == "medium"
     assert response.model_assignment["architect"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_analyze_project_complexity_uses_real_router(monkeypatch):
+    """回归：get_assignment 是实例方法，曾把 complexity.level 误当 self 传入而 500。"""
+    from app.agent.complexity import ComplexityAnalysis, ProjectComplexity
+
+    complexity = ComplexityAnalysis(
+        level=ProjectComplexity.MEDIUM,
+        estimated_files=4,
+        has_frontend=True,
+        has_backend=True,
+        has_database=False,
+        key_technologies=["fastapi"],
+        risk_factors=[],
+    )
+    monkeypatch.setattr(
+        "app.agent.orchestrator.ComplexityAnalyzer",
+        lambda: SimpleNamespace(analyze=lambda req: complexity),
+    )
+    # 走真实路由器实例，不替换 DynamicModelRouter / LayeredModelRouter
+    response = await endpoints.analyze_project_complexity(
+        ComplexityAnalysisRequest(requirement="build a web app"), {"sub": "1"}
+    )
+
+    assert response.level == ProjectComplexity.MEDIUM.value
+    assert set(response.model_assignment) == {
+        "architect", "frontend", "backend", "reviewer", "fallback"
+    }
+    assert all(response.model_assignment.values())
 
 
 def _patch_snapshot_common(monkeypatch, session):

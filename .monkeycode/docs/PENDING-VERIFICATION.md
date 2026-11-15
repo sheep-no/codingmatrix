@@ -226,6 +226,7 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | `configs/requirements.txt` + `app/agent/vector_index.py` | **2026-11-14 已修**。`faiss` 顶部声明为可选依赖，`_create_empty_index` 内部却硬 `import faiss`；CI 未装 faiss，`load_or_create()` 抛 `ModuleNotFoundError`，向量索引不可用。现补 `faiss-cpu==1.16.0` 到生产依赖。反向验证：模拟缺失时 `TestLoadOrCreate` 3 例失败，安装后通过 |
 | `tests/unit/test_llm_caller_branches.py::TestAdapterFactory::test_default_config_missing_raises` | **2026-11-14 已修**。用例依赖「未配置平台 Key」，但未替换模块级 `settings`；CI 的 `.env` 设了 `SILICONFLOW_API_KEY=test_key`，`get_adapter` 拿到真实配置而不抛 `RuntimeError`。现显式 `monkeypatch.setattr(llm_caller, "settings", ...)` |
 | `tests/unit/test_aicode_util_gaps.py::TestGetEmbeddingCachePaths` | **2026-11-14 已修**。两个过期缓存用例依赖「Key 为空」走 401，CI 配 Key 后会发起真实 embedding 请求产生偶发 `Event loop is closed`。现显式清空 `aicu.settings.SILICONFLOW_API_KEY`。反向验证：阻断 HTTP 客户端后回退版本报 `network blocked`，修复版本通过 |
+| `app/api/v1/ai_agent/orchestrate_endpoints.py:2024` | **2026-11-15 已修**。`LayeredModelRouter` 是 `DynamicModelRouter` 的类别名，`get_assignment` 为实例方法；端点以类名调用并传入 `complexity.level` 枚举，枚举被当作 `self`，方法体 `self._apply_circuit_breaker(...)` 抛 `AttributeError`，`POST /api/v1/agent/analyze_complexity` 稳定 500。现改为 `await get_dynamic_router()` 后用实例调用。回归 `test_analyze_project_complexity_uses_real_router`；反向验证回退后 2 例失败，恢复后通过；真实 HTTP `TestClient` 复测 200 |
 
 ## 本地后端联调方法
 

@@ -783,6 +783,18 @@ SB1（`app/agent/specialist_base.py`）属 Agent 子系统，按范围约定不�
 
 CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`14670 passed, 2 skipped, 0 failed`（431.11s），未发现其他同类环境依赖失败。受影响 7 个测试文件 `167 passed`。
 
+### 后端缺陷扫描第四十一轮：复杂度分析端点 500（2026-11-15）
+
+前端 E2E 交回：`POST /api/v1/agent/analyze_complexity` 稳定返回 500。本地直接调用 `LayeredModelRouter.get_assignment(complexity.level)` 复现 `AttributeError: 'ProjectComplexity' object has no attribute '_apply_circuit_breaker'`。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | `LayeredModelRouter` 是 `DynamicModelRouter` 的类别名，`get_assignment` 为实例方法（首参 `self`）。端点以类名调用并传入 `complexity.level`（`ProjectComplexity` 枚举），枚举被当作 `self`，方法体内 `self._apply_circuit_breaker(...)` 随即抛 `AttributeError`。真实 HTTP 请求 `status_code=500` | `app/api/v1/ai_agent/orchestrate_endpoints.py:2024` | 已解决；改为 `router = await get_dynamic_router()` 后调用 `router.get_assignment(complexity.level)`，与 `single_file_generation.py:122` 的既有用法一致，并让熔断状态反映真实调用 |
+
+回归新增 `test_analyze_project_complexity_uses_real_router`：不替换路由器，直接走真实 `DynamicModelRouter`，断言返回五个角色模型均非空。反向验证：回退源码后该用例与改造后的 `test_analyze_project_complexity_delegates` 均失败，恢复后 2 passed。真实 HTTP 用 `TestClient` + 超管 token 复测 `status_code=200`，返回 `level=medium`、五角色模型齐全。
+
+全量回归：`14671 passed, 2 skipped, 0 failed`（662.60s），`TOTAL 63659 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_r46.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
