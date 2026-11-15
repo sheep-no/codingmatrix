@@ -265,3 +265,38 @@ agent host 会话存 JSON 文件（目录可用 `AGENT_HOST_SESSION_DIR` 覆盖�
 `@vscode/test-electron` 的下载通道在本环境单连接被限速到约 50KB/s，390MB 需约 2 小时，且中途会因超时被杀而留下无 `is-complete` 的半成品目录。可用做法：对 CDN 直链（`https://vscode.download.prss.microsoft.com/dbazure/download/stable/<commit>/code-stable-x64-<ts>.tar.gz`，支持 Range）做 64 路并发分块下载，实测总带宽约 2.7MB/s；拼装后校验总字节数须等于 `Content-Length`，解压到 `.vscode-test/vscode-linux-x64-<version>/`（`--strip-components=1`），再在缓存根目录写空的 `is-complete` 标记，`@vscode/test-electron` 便直接复用。
 
 以 root 运行 Electron 需追加 `--no-sandbox`；`e2e/run.mjs` 已按 `process.getuid() === 0` 自动补充。系统运行库需含 `libasound2`、`libnss3`、`libatk-bridge2.0-0`、`libgtk-3-0`、`libgbm1`、`libxkbcommon0`、`libxdamage1`、`libxfixes3`、`libxrandr2`、`libpango-1.0-0`、`libcairo2`（Debian 12 上包名为 `libasound2`，无 `libasound2t64`），缺失时 `code` 报 `error while loading shared libraries: libasound.so.2` 并以 127 退出。
+
+## Android release 构建（2026-11-15）
+
+Linux 上可用 Flutter 3.47.9 + JDK 17 + command line tools 完成 `assembleRelease`，产物 `build/app/outputs/flutter-apk/app-release.apk`（23.4MB）。本机两个外部依赖不可达，必须改用镜像，否则 Gradle 在依赖解析阶段就失败：
+
+- `repo.maven.apache.org` 与 `storage.googleapis.com` 直连均返回 TLS 握手失败（status 000）。`build.gradle.kts` 的 `allprojects.repositories` 增加 `maven("https://maven.aliyun.com/repository/central")` 解决 `kotlin-parcelize-runtime` 等 Maven Central 坐标。
+- Flutter 引擎产物走 `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`（构建时环境变量，无需改仓库文件）。
+
+完整构建命令：
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+flutter build apk --release --no-pub --target-platform android-arm64
+```
+
+版本矩阵须不低于 Flutter 3.47.9 的下限：Gradle 8.14.3、AGP 8.11.1、Kotlin 2.2.20。`app/build.gradle.kts` 显式设置 `ndkVersion = flutter.ndkVersion`，避免 AGP 默认拉取 NDK r27 与本机已有的 r28 并存（双份 NDK 各约 2.2G，本机磁盘只有 20G）。`gradle.properties` 中 `android.builtInKotlin=false` 与 `android.newDsl=false` 由 Flutter migrator 自动写入。
+
+静态验收（`aapt2 dump badging` / `apksigner` / `unzip -l`）结果：
+
+- `package name='com.codingmatrix.agent'`，`versionCode=1`，`versionName=1.0.0`，`application-label='CodingMatrix Agent'`
+- `minSdkVersion=24`，`targetSdkVersion=36`，`compileSdkVersion=36`
+- `uses-permission: android.permission.INTERNET`；`allowBackup=false`；`usesCleartextTraffic=true`（与 manifest 中“后端是用户自建 HTTP 服务”的注释一致）
+- 签名 `apksigner verify` 通过，仅 v2 scheme，`CN=Android Debug`（无 `key.properties` 时回退 debug keystore，属预期）
+- `flutter_secure_storage` 已打包：`classes.dex` 含 `FlutterSecureStoragePlugin` 与 `SecureStorageAndroid`
+- 原生库：`lib/arm64-v8a/` 含 `libapp.so`、`libflutter.so`、`libdartjni.so`、`libdatastore_shared_counter.so`
+
+注意 `--target-platform android-arm64` 只裁剪 Flutter 引擎，插件自带的 `.so` 仍会打进其他 ABI 目录，因此 APK 里会同时出现 `armeabi-v7a`、`x86_64` 的 `libdartjni.so` 与 `libdatastore_shared_counter.so`，`aapt2` 的 `native-code` 也会列出三个 ABI。需要真正单 ABI 的瘦包时用 `--split-per-abi`。
+
+构建期磁盘是硬约束：根分区 20G，一次 release 构建会在 `build/app/intermediates/merged_native_libs`（约 500MB）、Gradle `caches/8.14.3/transforms`（约 1.4G）和引擎产物上占用约 3G，连续多次构建容易触顶。`transforms` 与 `build/` 均为可再生缓存，删除后重编即可；`platforms/android-34|35|36` 被插件分别用于 compileSdk 34/35/36，不可删。
+
+真机/模拟器运行验收在本环境不可行：无 `/dev/kvm`，CPU 无 `vmx`/`svm`，内存可用量不足，SDK 也未安装 system-image。Android 侧验证停在 release 构建 + 静态验收。
