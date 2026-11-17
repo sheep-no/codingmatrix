@@ -128,6 +128,7 @@ const EXTREME_REQUIREMENT = `请生成一个完整的企业级在线博客内容
 // 通过 Node.js HTTP 登录获取 token（使用明文模式）
 // 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
 const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 async function loginViaHttp() {
   return new Promise((resolve, reject) => {
@@ -213,7 +214,9 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
   test.describe.configure({ project: 'chromium' });
 
   test('生成复杂全栈项目（在线博客+管理系统）', async ({ page }) => {
-    test.setTimeout(900000);
+    // 本用例支持断点续传：首轮跑不完属预期，由内部 abort(20min) 结束并保存状态。
+    // 测试超时必须高于内部 abort，否则 abort 分支和状态保存永远执行不到。
+    test.setTimeout(1500000);
 
     const timeline = [];
     const sseEvents = [];
@@ -236,6 +239,7 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
     await page.evaluate((token) => {
       localStorage.setItem('access_token', token);
     }, loginResult.token);
+    await syncRealApiKeys(page);
 
     timeline.push({ time: Date.now() - startTime, type: 'login_complete' });
 
@@ -263,6 +267,8 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
 
     const sseResult = await page.evaluate(async ({ req, sessionId, outputDir, incremental }) => {
       const token = localStorage.getItem('access_token');
+      const storedKeys = JSON.parse(localStorage.getItem('codingmatrix_apikeys') || '[]');
+      const apiKeyToken = storedKeys[0]?.token;
       const events = [];
 
       const controller = new AbortController();
@@ -277,7 +283,8 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
           enable_memory: true,
           incremental: incremental,
           require_approval: false,
-          session_id: sessionId
+          session_id: sessionId,
+          api_key_token: apiKeyToken
         };
 
         if (outputDir) {
@@ -381,7 +388,7 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
 
     // ========== 步骤 4: 保存状态 ==========
     const generatedFiles = sseResult.events
-      .filter(e => e.type === 'progress' && e.data.step === 'file_generated')
+      .filter(e => e.type === 'progress' && e.data.step === 'completed')
       .map(e => e.data.file_path);
 
     const finalOutputDir = sseResult.finalData?.output_dir || outputDir || '';
@@ -422,7 +429,7 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
       if (event.type === 'progress') {
         if (data.step === 'generating_file') {
           detail = `生成文件: ${data.file_path || ''}`;
-        } else if (data.step === 'file_generated') {
+        } else if (data.step === 'completed') {
           detail = `✓ ${data.file_path || ''}`;
         } else if (data.step === 'analyzing_complexity') {
           detail = `复杂度: ${data.complexity || ''}, 文件: ${data.estimated_files || ''}`;
@@ -441,6 +448,10 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
     console.log(`共生成 ${generatedFiles.length} 个文件:`);
     generatedFiles.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
 
+    if (!sseResult.success) {
+      console.log(`\n[失败原因] ${sseResult.error || '(SSE error 事件)'}`);
+    }
+
     if (sseResult.success && sseResult.finalData) {
       console.log('\n========== 最终结果 ==========');
       console.log(`输出目录: ${sseResult.finalData.output_dir || 'N/A'}`);
@@ -451,7 +462,13 @@ test.describe('Agent 能力极限测试 - 全栈复杂项目生成（支持断�
     expect(sseResult.events.length).toBeGreaterThan(0);
     expect(sseResult.events.some(e => e.type === 'progress')).toBe(true);
 
-    if (sseResult.success) {
+    // 首轮允许内部 20 分钟 abort（断点续传设计）；其余情况必须真实产出文件。
+    const aborted = !sseResult.success && /abort/i.test(sseResult.error || '');
+    if (!aborted) {
+      expect(
+        sseResult.success,
+        `生成失败: ${sseResult.error || 'SSE 返回 error 事件'}`
+      ).toBe(true);
       expect(sseResult.finalData.total_files_created).toBeGreaterThan(0);
     }
 

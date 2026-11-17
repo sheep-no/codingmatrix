@@ -15,6 +15,7 @@ from app.agent.llm_client import (  # noqa: F401  (re-exported for specialists.p
     get_global_semaphore as get_global_llm_semaphore,
 )
 from app.agent.react_engine import ReActEngine
+from app.agent.topology_scheduler import HeartbeatTracker
 
 # 工具注册表（从 tools.py 导入）
 from app.agent.tools import SPECIALIST_TOOLS
@@ -191,6 +192,11 @@ class Specialist:
         )
         if selected_react_mode not in {"simple", "full"}:
             raise ValueError(f"不支持的 ReAct 模式: {selected_react_mode}")
+
+        # 调用方未提供 tracker 时也必须有一个，否则流式 on_chunk 无处上报活动，
+        # 长推理模型会在流仍持续推进时被心跳监控误判为僵尸。
+        if heartbeat_tracker is None:
+            heartbeat_tracker = HeartbeatTracker(timeout=600.0)
 
         # 选择 LLM 调用函数：流式 thinking 或普通调用
         if enable_streaming_thinking and callback is not None:

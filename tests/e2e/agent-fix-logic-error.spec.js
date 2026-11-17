@@ -222,19 +222,20 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await page.waitForTimeout(1000);
 
     // 点击生成按钮
-    const generateBtn = page.locator('.action-buttons .btn-primary').first();
+    const generateBtn = page.locator('button[aria-label="发送需求"]').first();
     await generateBtn.click({ force: true });
     console.log('[DEBUG] 已点击生成按钮');
 
     // 等待生成开始
     try {
       await page.waitForFunction(() => {
-        const btn = document.querySelector('.btn-primary');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
         if (btn && btn.disabled) return true;
         const progress = document.querySelector('.progress-bar-section');
         if (progress) return true;
         const timeline = document.querySelector('.timeline');
         if (timeline) return true;
+        if (document.querySelector('button[aria-label="停止生成"]')) return true;
         const files = document.querySelectorAll('.file-item');
         if (files.length > 0) return true;
         return false;
@@ -262,11 +263,10 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
           }
         } catch (e) { /* ignore */ }
         // fallback: 检查按钮状态
-        const btn = document.querySelector('.btn-primary');
-        const stopBtn = document.querySelector('.btn-danger');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
+        const stopBtn = document.querySelector('button[aria-label="停止生成"]');
         if (stopBtn) return true;
         if (btn && btn.disabled) return true;
-        if (btn && btn.textContent.includes('生成中')) return true;
         return false;
       });
     };
@@ -519,8 +519,8 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await inputForFix.dispatchEvent('input');
     await page.waitForTimeout(500);
 
-    // 点击继续生成按钮
-    const continueBtn = page.locator('button:has-text("继续生成")').first();
+    // 点击发送需求按钮（有产物后再次发送即为继续）
+    const continueBtn = page.locator('button[aria-label="发送需求"]').first();
     await continueBtn.click({ force: true });
     console.log('[DEBUG] 已点击继续生成按钮');
 

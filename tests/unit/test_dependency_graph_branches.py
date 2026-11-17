@@ -52,6 +52,27 @@ class TestLooksLikeProjectFile:
         assert looks("main.py") is True
         assert looks("fastapi") is False
 
+    def test_directory_reference_is_not_a_project_file(self):
+        """目录式 import（app/services）不能被当成待创建文件。"""
+        looks = DependencyGraph._looks_like_project_file
+        assert looks("app/services") is False
+        assert looks("app/models") is False
+        assert DependencyGraph._looks_like_missing_project_import("app/services") is False
+
+    def test_extensionless_project_files_still_recognized(self):
+        looks = DependencyGraph._looks_like_project_file
+        assert looks("Dockerfile") is True
+        assert looks("Makefile") is True
+
+    def test_cdn_urls_are_not_project_files(self):
+        looks = DependencyGraph._looks_like_project_file
+        assert looks("https://cdn.jsdelivr.net/npm/echarts.min.js") is False
+        assert looks("https:/cdn.jsdelivr.net/npm/echarts.min.js") is False
+        assert looks("//cdn.example.com/lib.js") is False
+        assert DependencyGraph._looks_like_missing_project_import(
+            "https://cdn.jsdelivr.net/npm/echarts.min.js"
+        ) is False
+
 
 class TestResolveDependencyReference:
     def test_self_and_empty_references_do_not_resolve(self):
@@ -190,6 +211,23 @@ class TestBuildFromArchitectureValidation:
 
         assert "app/models/user.py" in graph.nodes
         assert architecture["file_plan"][0]["path"] == "app/models/user.py"
+
+    def test_dotted_directory_segment_is_normalized(self):
+        graph = DependencyGraph()
+        architecture = {
+            "file_plan": [
+                {"path": "src.static/js/main.js"},
+                {"path": "src.templates/index.html"},
+                {"path": "src/static/js/table.js"},
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert "src/static/js/main.js" in graph.nodes
+        assert "src/templates/index.html" in graph.nodes
+        assert "src/static/js/table.js" in graph.nodes
+        assert all("src." not in path for path in graph.nodes)
 
     def test_suspicious_dotted_path_is_left_unchanged(self):
         graph = DependencyGraph()
@@ -333,6 +371,23 @@ class TestDeduplicate:
         graph.deduplicate()
         assert set(graph.nodes) == {"a/__init__.py", "b/__init__.py"}
 
+    def test_js_package_init_files_survive_python_project_dedup(self):
+        """Vue + Python 项目去重不能删掉 frontend/store/index.js。"""
+        graph = _python_graph()
+        graph.add_file("frontend/store/index.js", file_type="frontend_component")
+        graph.add_file("frontend/router/index.js", file_type="frontend_component")
+        graph.add_file("frontend/main.js", file_type="entry")
+        graph.add_dependency("frontend/main.js", "frontend/store/index.js")
+
+        graph.deduplicate()
+
+        assert set(graph.nodes) == {
+            "frontend/store/index.js",
+            "frontend/router/index.js",
+            "frontend/main.js",
+        }
+        assert "frontend/store/index.js" in graph.adjacency["frontend/main.js"]
+
     def test_removed_node_out_edges_are_moved_to_winner(self):
         graph = DependencyGraph()
         graph.add_file("models.py", file_type="model")
@@ -474,6 +529,74 @@ class TestMissingFiles:
         graph._reprocess_unresolved_dependencies()
         assert "gone.py" not in graph.unresolved_dependencies
 
+    def test_unresolved_project_import_is_recorded_for_recovery(self):
+        """计划内悬空 import 必须记为缺失，否则校验失败后无法自动补齐。"""
+        graph = DependencyGraph()
+        architecture = {
+            "language": "python",
+            "file_plan": [
+                {
+                    "path": "frontend/src/views/HomeView.vue",
+                    "file_type": "frontend_page",
+                    "imports": ["frontend/src/components/Sidebar.vue"],
+                    "priority": 2,
+                },
+                {
+                    "path": "frontend/src/main.js",
+                    "file_type": "frontend_component",
+                    "imports": [],
+                    "priority": 1,
+                },
+            ],
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.get_missing_files() == ["frontend/src/components/Sidebar.vue"]
+        updated = graph.add_missing_files(architecture)
+        assert "frontend/src/components/Sidebar.vue" in {
+            item["path"] for item in updated["file_plan"]
+        }
+
+    def test_unresolved_external_import_is_not_recorded(self):
+        graph = DependencyGraph()
+        architecture = {
+            "language": "python",
+            "file_plan": [
+                {"path": "main.py", "imports": ["import fastapi"], "file_type": "entry"}
+            ],
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.get_missing_files() == []
+
+    def test_directory_import_is_not_treated_as_missing_file(self):
+        """`app/services` 这类目录引用不应进入缺失文件集合，否则后续
+        `add_missing_files` 会补出一个无扩展名的伪文件并让完整性校验抛错。"""
+        graph = DependencyGraph()
+        architecture = {
+            "language": "python",
+            "file_plan": [
+                {
+                    "path": "app/routers/expenses.py",
+                    "imports": ["app/services"],
+                    "file_type": "api",
+                },
+                {
+                    "path": "app/services/expenses.py",
+                    "imports": [],
+                    "file_type": "service",
+                },
+            ],
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.get_missing_files() == []
+        updated = graph.add_missing_files(architecture)
+        assert "app/services" not in {item["path"] for item in updated["file_plan"]}
+
 
 class TestProjectScanning:
     def test_python_imports_are_resolved(self, tmp_path):
@@ -603,6 +726,23 @@ class TestContextPackage:
             "models.py", {}, project_spec={"model": {}}
         )
         assert "project_spec" not in package
+
+    def test_project_spec_tolerates_non_dict_values(self):
+        # 模型可能把 project_spec 或分组写成字符串，不能因此中断上下文构建
+        graph = DependencyGraph()
+        graph.add_file("models.py", file_type="model")
+
+        assert "project_spec" not in graph.get_context_package_for_file(
+            "models.py", {}, project_spec="use sqlite"
+        )
+        assert "project_spec" not in graph.get_context_package_for_file(
+            "models.py", {}, project_spec={"model": "use sqlite"}
+        )
+        assert "project_spec" not in graph.get_context_package_for_file(
+            "models.py",
+            {},
+            project_spec={"model": {"storage": "sqlite", "terminology": "user=User"}},
+        )
 
     def test_core_dependency_reserves_majority_of_budget(self):
         graph = DependencyGraph()

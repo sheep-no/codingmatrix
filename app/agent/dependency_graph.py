@@ -45,6 +45,17 @@ _PROJECT_FILE_SUFFIXES = frozenset({
 })
 
 
+def _is_external_reference(reference: str) -> bool:
+    """URL / CDN 等外部资源不是项目内文件，不能进入依赖图。"""
+    normalized = str(reference or "").strip().lower()
+    if not normalized:
+        return False
+    return bool(
+        re.match(r"^[a-z][a-z0-9+.-]*:/", normalized)
+        or normalized.startswith(("//", "www.", "data:"))
+    )
+
+
 # 非源码类型：这些类型一定是项目文件，与第三方包同名也不能按外部库丢弃。
 _META_PLAN_FILE_TYPES = frozenset({
     "config", "env", "dockerfile", "docker_compose",
@@ -176,12 +187,30 @@ class DependencyGraph:
         """判断未解析的依赖引用是否像项目内文件（而非外部包名）。"""
         if not reference:
             return False
+        if _is_external_reference(reference):
+            return False
         normalized = reference.replace("\\", "/").strip()
         if not normalized:
             return False
-        if "/" in normalized:
+        suffix = Path(normalized).suffix.lower()
+        if suffix in _PROJECT_FILE_SUFFIXES:
             return True
-        return Path(normalized).suffix.lower() in _PROJECT_FILE_SUFFIXES
+        # 目录式引用没有后缀，不能当成待创建的文件；只有已知无扩展名
+        # 项目文件（Dockerfile/Makefile 等）才按文件处理。
+        return (
+            "/" not in normalized
+            and _normalize_extensionless_name(normalized) in _EXTENSIONLESS_PROJECT_FILES
+        )
+
+    @staticmethod
+    def _looks_like_missing_project_import(reference: str) -> bool:
+        """判断未解析的 import 是否指向项目内尚不存在的文件。"""
+        if not reference:
+            return False
+        normalized = reference.replace("\\", "/").strip()
+        if not normalized or normalized.startswith((".", "/", "~", "@/")):
+            return False
+        return DependencyGraph._looks_like_project_file(normalized)
 
     def _resolve_dependency_reference(self, file_path: str, reference: str) -> str | None:
         """把依赖引用解析为图中的完整路径，无法唯一确定时返回 None。
@@ -359,6 +388,29 @@ class DependencyGraph:
                         logger.info(f"点号路径自动转换: {original} -> {path}")
                     else:
                         logger.warning(f"可疑路径格式（无斜杠但有点号分隔）: {path}，将由验证 LLM 判断")
+
+            # 目录段点号：架构层有时把模块路径写进目录段（src.static/js/main.js），
+            # 会把点号目录名带进实际写入路径，和正常的 src/static/... 分裂成两份。
+            if '/' in path:
+                segments = path.split('/')
+                normalized_segments: list[str] = []
+                converted = False
+                for segment in segments[:-1]:
+                    if (
+                        '.' in segment
+                        and segment not in {'.', '..'}
+                        and not segment.startswith('.')
+                        and all(segment.split('.'))
+                    ):
+                        normalized_segments.extend(segment.split('.'))
+                        converted = True
+                    else:
+                        normalized_segments.append(segment)
+                if converted:
+                    normalized_segments.append(segments[-1])
+                    original = path
+                    path = '/'.join(normalized_segments)
+                    logger.info(f"目录段点号自动转换: {original} -> {path}")
             
             # 规范化路径
             path = path.replace('\\', '/').replace('//', '/')
@@ -466,6 +518,10 @@ class DependencyGraph:
                         if dep_path:
                             self.add_dependency(path, dep_path)
                             files_with_resolved_imports.add(path)
+                        elif self._looks_like_missing_project_import(imp):
+                            # 记录无法解析的项目内引用，让 get_missing_files /
+                            # add_missing_files 能补齐，而不是校验时报错中断生成。
+                            self.add_dependency(path, imp)
 
         # 3. 类型规则补齐已解析 imports 尚未覆盖的依赖类型
         contract_driven = any(
@@ -573,9 +629,18 @@ class DependencyGraph:
         """
         from collections import defaultdict
 
-        init_filename = (
-            self.language_adapter.package_init_filename if self.language_adapter else ""
-        )
+        # 多语言项目里语言检测可能只命中后端（Vue + Python → python），
+        # 只用当前适配器会漏掉 index.js/lib.rs 这类前端包入口，把
+        # frontend/store/index.js 和 frontend/router/index.js 当成重复文件删掉。
+        from app.agent.adapters import LanguageAdapterRegistry
+
+        init_filenames = {
+            adapter.package_init_filename
+            for adapter in LanguageAdapterRegistry.get_all_adapters().values()
+            if getattr(adapter, "package_init_filename", "")
+        }
+        if self.language_adapter and self.language_adapter.package_init_filename:
+            init_filenames.add(self.language_adapter.package_init_filename)
 
         # 按 (文件名, file_type) 分组
         name_type_to_paths: dict[tuple, list[str]] = defaultdict(list)
@@ -583,7 +648,7 @@ class DependencyGraph:
             filename = Path(path).name
             # 包入口文件（Python __init__.py、JS index.js、Rust lib.rs）在每个包里
             # 都是独立模块，同名不代表功能重复；分组去重会误删多包项目的入口文件。
-            if init_filename and filename == init_filename:
+            if filename in init_filenames:
                 continue
             node = self.nodes.get(path)
             file_type = node.file_type if node else 'unknown'
@@ -1118,19 +1183,20 @@ class DependencyGraph:
             "budget_chars": max_context_bytes,
         }
 
-        if project_spec:
+        if isinstance(project_spec, dict) and project_spec:
             node = self.nodes.get(file_path)
             file_type = node.file_type if node else "unknown"
             file_spec = project_spec.get(file_type, project_spec.get("default", {}))
-            if file_spec:
+            # 模型可能把分组写成字符串，避免 .get() 抛 AttributeError 中断上下文构建
+            if isinstance(file_spec, dict) and file_spec:
                 spec_lines = []
                 storage = file_spec.get("storage", {})
                 terminology = file_spec.get("terminology", {})
-                if storage:
+                if isinstance(storage, dict) and storage:
                     spec_lines.append(f"- 存储方式: {storage.get('type', 'unknown')}")
                     if storage.get("filename"):
                         spec_lines.append(f"- 存储文件: {storage['filename']}")
-                if terminology:
+                if isinstance(terminology, dict) and terminology:
                     terms = ", ".join(f"{k}={v}" for k, v in terminology.items())
                     spec_lines.append(f"- 术语表: {terms}")
                 if spec_lines:

@@ -58,6 +58,25 @@ def test_generation_plan_resolves_module_style_dependencies() -> None:
     assert dependencies["app/routers/users.py"] == ["app/schemas.py"]
 
 
+def test_generation_plan_drops_external_cdn_dependencies() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "file_plan": [
+            {
+                "path": "templates/index.html",
+                "dependencies": [
+                    "https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js",
+                    "https:/cdn.jsdelivr.net/npm/chart.js",
+                ],
+                "imports": ["https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js"],
+            },
+        ],
+    })
+
+    assert plan.files[0].dependencies == ()
+    assert plan.files[0].imports == ()
+
+
 def test_generation_plan_drops_external_and_self_dependencies() -> None:
     plan = GenerationPlan.from_architecture({
         "language": "python",

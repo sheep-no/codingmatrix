@@ -664,6 +664,10 @@ async def test_detect_resume_intent_falls_back(monkeypatch):
     result = await helpers.detect_resume_intent("继续生成")
     assert result["is_resume"] is True
 
+    # 最常见的单字输入"继续"也必须命中续跑意图
+    result = await helpers.detect_resume_intent("继续")
+    assert result["is_resume"] is True
+
     monkeypatch.setattr(utils, "call_llm", AsyncMock(return_value={
         "choices": [{"message": {"content": "no json here"}}],
     }))
@@ -753,3 +757,30 @@ async def test_get_user_recent_session_paths():
             raise RuntimeError("db down")
 
     assert await helpers.get_user_recent_session(_Boom(), "1") is None
+
+
+@pytest.mark.asyncio
+async def test_semantic_helpers_forward_user_api_key(monkeypatch):
+    """语义辅助调用必须带上用户 Key，否则会回退到未配置的默认 provider。"""
+    import app.utils as utils
+
+    calls = []
+
+    async def _record(**kwargs):
+        calls.append(kwargs)
+        return {"choices": [{"message": {"content": "0"}}]}
+
+    monkeypatch.setattr(utils, "call_llm", _record)
+
+    await helpers.detect_resume_intent("继续生成", api_key_token="tok-1")
+    await helpers.resolve_resume_session(
+        _DB(_all_result([_session("a", status="completed")])),
+        "1",
+        "继续",
+        api_key_token="tok-2",
+    )
+    await helpers.analyze_files_to_regenerate(
+        "orig", "new", ["a.py"], api_key_token="tok-3"
+    )
+
+    assert [c.get("api_key_token") for c in calls] == ["tok-1", "tok-2", "tok-3"]

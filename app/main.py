@@ -94,6 +94,7 @@ from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.feature_switch import FeatureSwitchMiddleware
 from app.middleware.input_validator import InputValidatorMiddleware
+from app.middleware.response_start_dedup import ResponseStartDedupMiddleware
 from app.utils.error_handler import register_exception_handlers
 from app.utils.logging import RequestLoggingMiddleware
 
@@ -245,6 +246,10 @@ app.add_middleware(FeatureSwitchMiddleware)
 
 # 安全响应头中间件（防止 XSS、点击劫持等攻击）
 app.add_middleware(SecurityHeadersMiddleware)
+
+# 丢弃重复的 http.response.start：slowapi 会为每个响应分块重发 start，
+# 外层 GZip 见到第二个 start 会退化为明文透传，破坏压缩流。
+app.add_middleware(ResponseStartDedupMiddleware)
 
 # Gzip 压缩中间件（减少传输数据量，提升加载速度）
 # 压缩大于 500 字节的响应，预计减少 70-80% 传输量

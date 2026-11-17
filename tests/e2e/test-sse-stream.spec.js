@@ -6,6 +6,7 @@ const { test, expect } = require('@playwright/test')
  */
 // 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
 const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent SSE 流式响应测试', () => {
   test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
@@ -53,28 +54,16 @@ test.describe('Agent SSE 流式响应测试', () => {
     console.log('登录结果:', JSON.stringify(loginResult))
     expect(loginResult.success).toBe(true)
     
-    // 保存用户信息和 API Key 到 localStorage
+    // 保存用户信息到 localStorage
     await page.evaluate((loginData) => {
       localStorage.setItem('access_token', loginData.token)
       localStorage.setItem('username', 'admin')
       localStorage.setItem('email', 'mr_yang@example.com')
       localStorage.setItem('permission_level', 'superadmin')
-      
-      // 设置模拟的 API Key
-      const mockApiKeys = [{
-        id: 1,
-        name: 'SiliconFlow',
-        token: 'test-token-for-e2e',
-        provider: 'siliconflow',
-        remark: 'E2E Test Key',
-        status: 'verified',
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        ttl_seconds: 604800,
-        enabled: true
-      }]
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify(mockApiKeys))
     }, loginResult)
+
+    // 同步服务端已配置的真实 Key（伪造 token 会触发 UserAPIKeyNotFoundError）
+    await syncRealApiKeys(page)
     
     // 直接测试 SSE 流式响应
     const sseResult = await page.evaluate(async () => {

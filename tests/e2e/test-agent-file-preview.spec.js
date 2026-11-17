@@ -6,6 +6,7 @@ const { test, expect } = require('@playwright/test')
  */
 // 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
 const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent 功能测试', () => {
   test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
@@ -81,27 +82,16 @@ test.describe('Agent 功能测试', () => {
       localStorage.setItem('email', 'mr_yang@example.com')
       localStorage.setItem('permission_level', loginData.permission_level || 'superadmin')
       
-      // 设置模拟的 API Key
-      const mockApiKeys = [{
-        token: 'test-token-for-e2e',
-        provider: 'siliconflow',
-        remark: 'E2E Test Key',
-        status: 'verified',
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        ttl_seconds: 604800,
-        enabled: true
-      }]
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify(mockApiKeys))
     }, loginResult)
     
+    await syncRealApiKeys(page)
     // 导航到 Agent 页面
     await page.goto('/agent')
     await page.waitForTimeout(3000)
     await page.screenshot({ path: 'test-results/agent-01-initial.png', fullPage: true })
     
     // 查找输入框并输入项目描述
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     
     const testPrompt = '创建一个简单的 Python 计算器，支持加减乘除运算，包含 main.py 和 requirements.txt'
@@ -110,7 +100,7 @@ test.describe('Agent 功能测试', () => {
     await page.screenshot({ path: 'test-results/agent-02-prompt.png', fullPage: true })
     
     // 点击生成按钮
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('已点击生成按钮，开始生成项目...')
@@ -155,31 +145,31 @@ test.describe('Agent 功能测试', () => {
     console.log('Agent orchestrate 请求数量:', agentRequests.length)
     console.log('Agent 请求详情:', JSON.stringify(agentRequests, null, 2))
     
-    // 检查文件是否生成
-    const generatedFiles = await page.evaluate(() => {
-      const fileItems = document.querySelectorAll('.file-item, .file-list-item')
-      return Array.from(fileItems).map(item => item.textContent?.trim()).filter(Boolean)
-    })
+    // 等待文件列表出现真实产物后再统计
+    const firstFile = page.locator('.file-item').first()
+    await expect(firstFile).toBeVisible({ timeout: 240000 })
+    const generatedFiles = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.file-item .file-name'))
+        .map(item => item.textContent?.trim())
+        .filter(Boolean)
+    )
     console.log('生成的文件列表:', generatedFiles)
     
     // 点击第一个文件查看预览
-    const firstFile = page.locator('.file-item, .file-list-item').first()
-    if (await firstFile.count() > 0) {
-      await firstFile.click()
+    await firstFile.click()
+    await page.waitForTimeout(1000)
+    await page.screenshot({ path: 'test-results/agent-06-file-preview.png', fullPage: true })
+
+    // 检查是否有 diff 按钮
+    const diffButton = page.getByRole('button', { name: /变更|Diff/ }).first()
+    const hasDiffButton = await diffButton.count() > 0
+    console.log('是否有 diff 按钮:', hasDiffButton)
+
+    if (hasDiffButton) {
+      await diffButton.click()
       await page.waitForTimeout(1000)
-      await page.screenshot({ path: 'test-results/agent-06-file-preview.png', fullPage: true })
-      
-      // 检查是否有 diff 按钮
-      const diffButton = page.locator('button:has-text("变更"), button:has-text("Diff")').first()
-      const hasDiffButton = await diffButton.count() > 0
-      console.log('是否有 diff 按钮:', hasDiffButton)
-      
-      if (hasDiffButton) {
-        await diffButton.click()
-        await page.waitForTimeout(1000)
-        await page.screenshot({ path: 'test-results/agent-07-diff-modal.png', fullPage: true })
-        console.log('已打开 diff 弹窗')
-      }
+      await page.screenshot({ path: 'test-results/agent-07-diff-modal.png', fullPage: true })
+      console.log('已打开 diff 弹窗')
     }
     
     // 检查日志区域
@@ -203,5 +193,6 @@ test.describe('Agent 功能测试', () => {
     
     // 断言
     expect(agentRequests.length).toBeGreaterThan(0)
+    expect(generatedFiles.length).toBeGreaterThan(0)
   })
 })

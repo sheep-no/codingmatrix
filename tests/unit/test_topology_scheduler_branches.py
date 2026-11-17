@@ -188,6 +188,27 @@ class TestRun:
         assert scheduler.nodes["main.py"].error == "调度器在任务完成前停止"
 
     @pytest.mark.asyncio
+    async def test_global_timeout_counts_idle_time_not_total_duration(self):
+        scheduler = _scheduler()
+        scheduler.build_from_dependency_graph(
+            _graph(
+                ["a.py", "b.py"],
+                adjacency={"a.py": set(), "b.py": {"a.py"}},
+                reverse={"a.py": {"b.py"}},
+            )
+        )
+
+        async def generator(file_path, upstream_context, tracker):
+            if file_path == "b.py":
+                await asyncio.sleep(0.2)
+            return f"content of {file_path}"
+
+        result = await scheduler.run(generator, global_timeout=0.1)
+
+        assert result["success"] is True
+        assert set(result["generated_files"]) == {"a.py", "b.py"}
+
+    @pytest.mark.asyncio
     async def test_run_handles_cancelled_task(self, monkeypatch):
         scheduler = _scheduler()
         scheduler.build_from_dependency_graph(_graph(["main.py"]))
@@ -398,6 +419,38 @@ class TestGenerateWithRetry:
         assert scheduler.nodes["a.py"].status is FileStatus.FAILED
         assert scheduler.nodes["a.py"].retry_count == 1
         assert events == ["start", "failed"]
+
+    @pytest.mark.asyncio
+    async def test_timeout_per_file_none_relies_on_heartbeat(self):
+        """关闭绝对墙钟上限后，持续输出且心跳活跃的慢生成不应被杀。"""
+        scheduler = _scheduler(max_retries=0, timeout_per_file=None, heartbeat_timeout=5)
+        scheduler.build_from_dependency_graph(_graph(["a.py"]))
+
+        async def slow_generator(file_path, upstream_context, tracker):
+            # 总耗时超过任何合理的绝对上限，但每 0.1s 有活动
+            for _ in range(3):
+                await asyncio.sleep(0.1)
+                tracker.touch()
+            return "slow-code"
+
+        await scheduler._generate_file_with_retry("a.py", slow_generator)
+
+        assert scheduler.nodes["a.py"].status is FileStatus.COMPLETED
+        assert scheduler.completed_files["a.py"] == "slow-code"
+
+    @pytest.mark.asyncio
+    async def test_absolute_timeout_records_distinct_reason(self):
+        scheduler = _scheduler(max_retries=0, timeout_per_file=0.01, heartbeat_timeout=600)
+        scheduler.build_from_dependency_graph(_graph(["a.py"]))
+
+        async def stuck_generator(file_path, upstream_context, tracker):
+            await asyncio.sleep(1)
+            return "never"
+
+        await scheduler._generate_file_with_retry("a.py", stuck_generator)
+
+        assert scheduler.nodes["a.py"].status is FileStatus.FAILED
+        assert "单文件绝对超时" in scheduler.nodes["a.py"].error
 
     @pytest.mark.asyncio
     async def test_cancellation_marks_error_and_reraises(self):

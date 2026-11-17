@@ -121,7 +121,9 @@ async def multi_angle_review(
 
     elif severity == ReviewSeverity.STRICT:
         # 严格模式：多视角审查
-        return await parallel_multi_review(requirement, items)
+        return await parallel_multi_review(
+            requirement, items, api_key_token=getattr(architect, "api_key_token", None)
+        )
 
     return []
 
@@ -129,6 +131,7 @@ async def multi_angle_review(
 async def parallel_multi_review(
     requirement: str,
     items: list[AssociationItem],
+    api_key_token: str | None = None,
 ) -> list[dict]:
     """
     并行执行 3 个角色的审查
@@ -153,6 +156,7 @@ async def parallel_multi_review(
             system_prompt=role_config["system_prompt"],
             requirement=requirement,
             items_summary=items_summary,
+            api_key_token=api_key_token,
         )
         tasks.append(task)
 
@@ -177,6 +181,7 @@ async def _review_with_role(
     system_prompt: str,
     requirement: str,
     items_summary: str,
+    api_key_token: str | None = None,
 ) -> list[dict]:
     """使用特定角色进行审查"""
     prompt = f"""{system_prompt}
@@ -195,6 +200,7 @@ async def _review_with_role(
         response = await call_llm(
             model=DEVILS_ADVOCATE_MODEL,
             prompt=prompt,
+            api_key_token=api_key_token,
         )
 
         return parse_multi_review_response(response, role_name)
@@ -205,6 +211,8 @@ async def _review_with_role(
 
 def parse_multi_review_response(response: str, role_name: str) -> list[dict]:
     """解析多角度审查响应"""
+    from app.agent.orchestrator_requirements.llm_prompts import normalize_llm_content
+    response = normalize_llm_content(response)
     try:
         json_match = re.search(r'\{[\s\S]*\}', response)
         if not json_match:
@@ -285,6 +293,7 @@ async def devil_advocate_review(
         response = await call_llm(
             model=DEVILS_ADVOCATE_MODEL,
             prompt=prompt,
+            api_key_token=getattr(architect, "api_key_token", None),
         )
 
         return parse_devil_response(response)

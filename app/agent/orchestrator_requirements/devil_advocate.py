@@ -54,6 +54,8 @@ async def devil_advocate_review(
         response = await call_llm(
             model=DEVILS_ADVOCATE_MODEL,
             prompt=prompt,
+            # 复用架构师的用户 Key，避免回退到未配置的平台 Key
+            api_key_token=getattr(architect, "api_key_token", None),
         )
     except Exception as e:
         logger.warning(f"魔鬼代言人审视失败: {e}")
@@ -64,6 +66,8 @@ async def devil_advocate_review(
 
 def parse_devil_response(response: str) -> list[dict]:
     import re as _re
+    from app.agent.orchestrator_requirements.llm_prompts import normalize_llm_content
+    response = normalize_llm_content(response)
     try:
         json_match = _re.search(r'\{[\s\S]*\}', response)
         if json_match:

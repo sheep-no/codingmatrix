@@ -118,6 +118,16 @@ def test_build_spec_constraints_terminology():
     assert "user -> 成员" in text
 
 
+def test_build_spec_constraints_tolerates_non_dict_spec_fields():
+    # 模型可能把 project_spec 分组写成字符串，不能因此中断整份文件生成
+    assert fe.FrontendEngineer._build_spec_constraints("page", "use redux") == ""
+
+    mixed = fe.FrontendEngineer._build_spec_constraints(
+        "page", {"storage": "localStorage", "terminology": "user=member"}
+    )
+    assert mixed == ""
+
+
 @pytest.mark.asyncio
 async def test_generate_file_uses_scaffold(monkeypatch, stub_engineer):
     import app.agent.adapters as adapters

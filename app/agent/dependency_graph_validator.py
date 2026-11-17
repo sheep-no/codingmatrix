@@ -177,6 +177,16 @@ class DependencyGraphValidator:
             package = _package_prefix(path)
             if package and any(node == package or node.startswith(package + "/") for node in nodes):
                 return True
+        # LLM 偶尔把组件目录写错（components/ArticleList.vue，实际在
+        # views/ArticleList.vue）。依赖图已按同名唯一解析成真实边，校验器
+        # 不能因为原始目录写错就判悬空，否则会中断整轮生成。
+        basename = Path(raw).name
+        if basename and Path(basename).suffix:
+            same_name = [
+                node for node in nodes if Path(str(node).replace("\\", "/")).name == basename
+            ]
+            if len(same_name) == 1:
+                return True
         return False
 
 

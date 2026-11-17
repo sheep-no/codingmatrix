@@ -1201,7 +1201,7 @@ async def test_search_sessions_scores_and_sorts(db, monkeypatch):
     fake_result.scalars.return_value.all.return_value = rows
     db.execute = AsyncMock(return_value=fake_result)
 
-    content = '{"scores": {"a": 0.2, "b": 0.9}}'
+    content = '{"scores": {"1": 0.2, "2": 0.9}}'
     monkeypatch.setattr(
         "app.utils.call_llm",
         AsyncMock(return_value={"choices": [{"message": {"content": content}}]}),
@@ -1255,6 +1255,119 @@ async def test_search_sessions_llm_failure_returns_zero_scores(db, monkeypatch):
         SearchSessionsRequest(query="login", limit=10), {"sub": "2"}, db
     )
     assert response.matches[0].relevance_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_forwards_user_api_key(db, monkeypatch):
+    """评分调用必须携带用户 Key，避免回退到未配置的默认 provider 后静默 0 分。"""
+    from types import SimpleNamespace as NS
+
+    rows = [
+        NS(session_id="a", requirement="login", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+    ]
+    fake_result = MagicMock()
+    fake_result.scalars.return_value.all.return_value = rows
+    db.execute = AsyncMock(return_value=fake_result)
+
+    captured = {}
+
+    async def _fake_call_llm(**kwargs):
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"scores": {"a": 0.8}}'}}]}
+
+    monkeypatch.setattr("app.utils.call_llm", _fake_call_llm)
+
+    response = await endpoints.search_sessions(
+        SearchSessionsRequest(query="login", limit=10, api_key_token="tok-search"),
+        {"sub": "2"},
+        db,
+    )
+    assert captured.get("api_key_token") == "tok-search"
+    assert response.matches[0].relevance_score == 0.8
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_normalizes_prefixed_score_keys(db, monkeypatch):
+    """模型给键加前缀时仍要命中真实会话，否则分数会被静默丢弃。"""
+    from types import SimpleNamespace as NS
+
+    rows = [
+        NS(session_id="1789000000001", requirement="login", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+    ]
+    fake_result = MagicMock()
+    fake_result.scalars.return_value.all.return_value = rows
+    db.execute = AsyncMock(return_value=fake_result)
+
+    content = '{"scores": {"session_id_1789000000001": 0.75}}'
+    monkeypatch.setattr(
+        "app.utils.call_llm",
+        AsyncMock(return_value={"choices": [{"message": {"content": content}}]}),
+    )
+
+    response = await endpoints.search_sessions(
+        SearchSessionsRequest(query="login", limit=5), {"sub": "2"}, db
+    )
+    assert response.matches[0].session_id == "1789000000001"
+    assert response.matches[0].relevance_score == 0.75
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_maps_positional_score_array(db, monkeypatch):
+    """按顺序返回分数数组时，按位置映射，避免模型回显长 ID 出错。"""
+    from types import SimpleNamespace as NS
+
+    rows = [
+        NS(session_id="id-a", requirement="login", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+        NS(session_id="id-b", requirement="payment", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+    ]
+    fake_result = MagicMock()
+    fake_result.scalars.return_value.all.return_value = rows
+    db.execute = AsyncMock(return_value=fake_result)
+
+    content = '{"scores": [0.1, 0.95]}'
+    monkeypatch.setattr(
+        "app.utils.call_llm",
+        AsyncMock(return_value={"choices": [{"message": {"content": content}}]}),
+    )
+
+    response = await endpoints.search_sessions(
+        SearchSessionsRequest(query="payment", limit=5), {"sub": "2"}, db
+    )
+    assert [m.session_id for m in response.matches] == ["id-b", "id-a"]
+    assert response.matches[0].relevance_score == 0.95
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_rescues_truncated_score_array(db, monkeypatch):
+    """max_tokens 截断 JSON 时，靠前的分数仍要参与排序。"""
+    from types import SimpleNamespace as NS
+
+    rows = [
+        NS(session_id="id-a", requirement="login", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+        NS(session_id="id-b", requirement="payment", status="completed",
+           created_at=None, files_generated=0, files_total=0),
+    ]
+    fake_result = MagicMock()
+    fake_result.scalars.return_value.all.return_value = rows
+    db.execute = AsyncMock(return_value=fake_result)
+
+    # 缺少右括号和右花括号，模拟被截断的输出
+    content = '{"scores": [0.2, 0.85'
+    monkeypatch.setattr(
+        "app.utils.call_llm",
+        AsyncMock(return_value={"choices": [{"message": {"content": content}}]}),
+    )
+
+    response = await endpoints.search_sessions(
+        SearchSessionsRequest(query="payment", limit=5), {"sub": "2"}, db
+    )
+    assert response.matches[0].session_id == "id-b"
+    assert response.matches[0].relevance_score == 0.85
 
 
 @pytest.mark.asyncio

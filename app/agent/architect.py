@@ -1026,6 +1026,22 @@ language 字段要求：
 
         import_str = import_str.strip()
 
+        # 格式 0: JS/TS 模块语法，模块名在引号内
+        # "import Vue from 'vue'" -> "vue"
+        # "import { createPinia } from 'pinia'" -> "pinia"
+        # "import './style.css'" -> None（相对路径）
+        # "require('axios')" -> "axios"
+        js_match = re.match(
+            r"^(?:import\s+(?:[\w$*{}\s,]+?\s+from\s+)?|export\s+[\w$*{}\s,]+?\s+from\s+)"
+            r"['\"]([^'\"]+)['\"]",
+            import_str,
+        ) or re.match(r"^require\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", import_str)
+        if js_match:
+            specifier = js_match.group(1).strip()
+            if not specifier or specifier.startswith((".", "/", "~", "@/", "~~/")):
+                return None
+            return specifier
+
         # 格式 1: "from xxx import yyy"
         match = re.match(r'^from\s+([\w.]+)\s+import\s+', import_str)
         if match:
@@ -1045,6 +1061,21 @@ language 字段要求：
             return import_str
 
         return None
+
+    _LANGUAGE_FAMILIES = {
+        "python": {"python", "py"},
+        "javascript": {"javascript", "js", "typescript", "ts", "jsx", "tsx", "vue"},
+        "html": {"html", "htm"},
+        "css": {"css", "scss", "sass", "less"},
+    }
+
+    @classmethod
+    def _language_family(cls, language: str | None) -> str:
+        normalized = (language or "").strip().lower()
+        for family, members in cls._LANGUAGE_FAMILIES.items():
+            if normalized in members:
+                return family
+        return normalized
 
     @staticmethod
     def _planned_covers_module(
@@ -1086,6 +1117,25 @@ language 字段要求：
         return bool(checker and checker(name))
 
     @staticmethod
+    def _is_external_module_any_adapter(name: str) -> bool:
+        """任一语言适配器认定为外部库即视为外部。
+
+        多语言项目的检测语言可能只有后端（如 Vue + Python 时选中 python），
+        单一适配器会把 `vue`/`pinia`/`axios` 解析成本项目的 `Vue.py` 等文件，
+        从而把第三方库写进 file_plan。
+        """
+        if not name:
+            return False
+        from app.agent.adapters import LanguageAdapterRegistry
+
+        variants = {name, name.lower()}
+        for adapter in LanguageAdapterRegistry.get_all_adapters().values():
+            checker = getattr(adapter, "is_known_external_module", None)
+            if checker and any(checker(variant) for variant in variants):
+                return True
+        return False
+
+    @staticmethod
     def _extract_strict_file_paths(requirement: str) -> set | None:
         """识别需求中明确限定的文件集合。"""
         if not requirement:
@@ -1121,7 +1171,9 @@ language 字段要求：
             if paths:
                 return Architect._prefer_most_specific_paths(paths) or None
         match = re.search(
-            r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
+            # 「只有一个 X 文件」与「只需要 X 文件」同为限定文件集合的常见表达，
+            # 漏掉前者会让架构师把单文件需求扩张成多文件项目。
+            r"(?:只需要|仅需要|只要|只有一个|仅有一个|只有|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
             requirement,
             re.IGNORECASE | re.DOTALL,
         )
@@ -1370,6 +1422,13 @@ language 字段要求：
         # 提取所有被引用的模块（解析 import 语句为模块路径）
         all_modules = set()
         for f in file_plan:
+            file_language = f.get("language")
+            if (
+                file_language
+                and self._language_family(file_language) != self._language_family(detected_lang)
+            ):
+                # 混合项目里前端文件的 import 不能用后端适配器补成 .py 文件。
+                continue
             imports = f.get("imports", [])
             if isinstance(imports, list):
                 for imp in imports:
@@ -1399,6 +1458,9 @@ language 字段要求：
             if self._is_external_module(adapter, module):
                 logger.info("跳过外部模块，不写入 file_plan: %s", module)
                 continue
+            if self._is_external_module_any_adapter(module):
+                logger.info("跳过其他语言生态的外部模块，不写入 file_plan: %s", module)
+                continue
             import_info = ImportInfo(module=module, symbols=[], is_relative=False)
             candidates = adapter.resolve_import_to_file(import_info, "")
 
@@ -1412,6 +1474,9 @@ language 字段要求：
                     continue
                 if self._is_external_module(adapter, file_path):
                     logger.info("跳过外部模块路径，不写入 file_plan: %s", file_path)
+                    continue
+                if self._is_external_module_any_adapter(file_path):
+                    logger.info("跳过其他语言生态的外部模块路径，不写入 file_plan: %s", file_path)
                     continue
                 # 推断文件类型
                 inferred_type = adapter.infer_file_type(file_path) if adapter else "unknown"

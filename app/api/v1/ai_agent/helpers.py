@@ -673,7 +673,11 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> dict[str, Any]:
+async def detect_resume_intent(
+    requirement: str,
+    model: str = DEFAULT_FAST_MODEL,
+    api_key_token: str | None = None,
+) -> dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -694,7 +698,7 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
     from app.utils import call_llm
 
     resume_keywords = [
-        "继续生成", "继续项目", "继续开发", "继续写",
+        "继续", "继续生成", "继续项目", "继续开发", "继续写",
         "resume", "恢复项目", "接着生成", "接着写", "接着来",
         "上次",
     ]
@@ -730,7 +734,8 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=200
+            max_tokens=200,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -751,7 +756,7 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
         logger.warning(f"意图检测失败: {e}")
     
     # 兜底：简单关键词检测
-    resume_keywords = ["继续生成", "继续项目", "继续开发", "resume", "恢复项目", "接着生成", "接着写"]
+    resume_keywords = ["继续", "继续生成", "继续项目", "继续开发", "resume", "恢复项目", "接着生成", "接着写"]
     is_resume = any(kw in requirement for kw in resume_keywords)
     
     return {
@@ -768,7 +773,8 @@ async def resolve_resume_session(
      user_id: str,
      requirement: str,
      model: str = DEFAULT_FAST_MODEL,
-     limit: int = 20
+     limit: int = 20,
+     api_key_token: str | None = None,
 ) -> ProjectSession | None:
     """
     方案 2：智能解析要恢复的 session
@@ -833,7 +839,8 @@ async def resolve_resume_session(
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=10
+            max_tokens=10,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
@@ -854,7 +861,8 @@ async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
      generated_files: list[str],
-     model: str = DEFAULT_FAST_MODEL
+     model: str = DEFAULT_FAST_MODEL,
+     api_key_token: str | None = None,
 ) -> list[str]:
     """
     分析哪些文件需要重新生成
@@ -890,7 +898,8 @@ async def analyze_files_to_regenerate(
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=500
+            max_tokens=500,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")

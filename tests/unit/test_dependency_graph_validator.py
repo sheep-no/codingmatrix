@@ -89,6 +89,52 @@ def test_validate_static_still_rejects_missing_project_module():
     assert any(issue.issue_type == "missing_dependency" for issue in result.issues)
 
 
+def test_same_basename_in_other_directory_satisfies_import():
+    """LLM 写错组件目录时，同名唯一文件应满足该依赖。"""
+    graph = SimpleNamespace(
+        nodes={
+            "frontend/views/ProfilePage.vue": object(),
+            "frontend/views/ArticleList.vue": object(),
+        },
+        adjacency={"frontend/views/ProfilePage.vue": ["frontend/views/ArticleList.vue"]},
+    )
+    result = _validator().validate_static(
+        graph,
+        architecture={
+            "file_plan": [
+                {
+                    "path": "frontend/views/ProfilePage.vue",
+                    "imports": ["frontend/components/ArticleList.vue"],
+                },
+            ]
+        },
+    )
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_same_basename_fallback_does_not_hide_truly_missing_file():
+    graph = SimpleNamespace(
+        nodes={
+            "frontend/views/ProfilePage.vue": object(),
+            "frontend/views/ArticleList.vue": object(),
+        },
+        adjacency={"frontend/views/ProfilePage.vue": ["frontend/views/ArticleList.vue"]},
+    )
+    result = _validator().validate_static(
+        graph,
+        architecture={
+            "file_plan": [
+                {
+                    "path": "frontend/views/ProfilePage.vue",
+                    "imports": ["frontend/components/Missing.vue"],
+                },
+            ]
+        },
+    )
+    assert result.passed is False
+
+
 def test_error_count_matches_blocking_issues():
     graph = SimpleNamespace(nodes={"app.database.py": object()}, adjacency={})
     result = _validator().validate_static(graph)

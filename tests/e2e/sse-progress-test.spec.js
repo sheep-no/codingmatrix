@@ -5,12 +5,13 @@ const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 // 只有真实凭证才能断言生成成功；无凭证时仅校验流水线事件链路
 const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent 项目生成 SSE 进度显示测试', () => {
   test.describe.configure({ project: 'chromium' });
 
   test('通过 UI 触发项目生成并验证 SSE 进度事件', async ({ page }) => {
-    test.setTimeout(600000); // 10 分钟超时
+    test.setTimeout(1200000); // 20 分钟：真实模型含决策等待与逐文件生成
 
     const timeline = [];
     const sseEvents = [];
@@ -137,6 +138,8 @@ test.describe('Agent 项目生成 SSE 进度显示测试', () => {
 
     console.log('登录结果:', loginResult);
     expect(loginResult.success).toBe(true);
+    // 无真实 Key 时也允许跑通流水线事件链路，此时不注入 Key
+    if (HAS_REAL_KEY) await syncRealApiKeys(page);
     timeline.push({ time: Date.now() - startTime, type: 'login_complete' });
 
     // ========== 步骤 2: 打开项目生成对话框 ==========
@@ -202,10 +205,12 @@ test.describe('Agent 项目生成 SSE 进度显示测试', () => {
 
     const sseResult = await page.evaluate(async ({ req }) => {
       const token = localStorage.getItem('access_token');
+      const storedKeys = JSON.parse(localStorage.getItem('codingmatrix_apikeys') || '[]');
+      const apiKeyToken = storedKeys[0]?.token;
       const events = [];
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 分钟超时
+      const timeoutId = setTimeout(() => controller.abort(), 1080000); // 18 分钟超时
 
       try {
         const resp = await fetch('/api/v1/agent/orchestrate/stream', {
@@ -221,7 +226,8 @@ test.describe('Agent 项目生成 SSE 进度显示测试', () => {
             enable_error_recovery: true,
             enable_memory: true,
             incremental: false,
-            require_approval: false
+            require_approval: false,
+            api_key_token: apiKeyToken
           }),
           signal: controller.signal
         });

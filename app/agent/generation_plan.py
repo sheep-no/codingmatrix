@@ -180,7 +180,27 @@ def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     contract = item.get("contract", {})
     if not isinstance(contract, Mapping):
         raise ValueError("file contract must be an object")
-    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=_normalize_priority(item.get("priority", 3)), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract_refs=tuple(str(value) for value in contract_refs or ()), contract=dict(contract))
+    dependencies = tuple(
+        _normalize_path(str(value))
+        for value in raw or ()
+        if not _is_external_reference(str(value))
+    )
+    external_free_imports = tuple(
+        str(value) for value in imports or () if not _is_external_reference(str(value))
+    )
+    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=_normalize_priority(item.get("priority", 3)), dependencies=dependencies, imports=external_free_imports, contract_refs=tuple(str(value) for value in contract_refs or ()), contract=dict(contract))
+
+
+def _is_external_reference(reference: str) -> bool:
+    """CDN / URL 依赖由浏览器或包管理器处理，不属于计划内文件。"""
+    normalized = reference.strip().lower()
+    return bool(
+        normalized
+        and (
+            re.match(r"^[a-z][a-z0-9+.-]*:/", normalized)
+            or normalized.startswith(("//", "www.", "data:"))
+        )
+    )
 
 
 def _normalize_priority(value: object) -> int:

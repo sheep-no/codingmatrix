@@ -137,10 +137,31 @@ class TestValidateAndSelectBranches:
             "model-b",
         )
 
-    def test_merged_requires_final_code(self):
+    def test_merged_without_final_code_falls_back_to_longer_version(self):
         validator = _plain_validator()
-        with pytest.raises(ValueError, match="merged result had no final_code"):
-            self._run(validator, '{"winner": "merged"}')
+        assert self._run(validator, '{"winner": "merged"}') == ("A", "model-a")
+
+    def test_merged_without_final_code_prefers_longer_version(self):
+        validator = _plain_validator()
+
+        async def fake_llm(**_kwargs):
+            return {"choices": [{"message": {"content": '{"winner": "merged"}'}}]}
+
+        with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+            result = asyncio.run(
+                validator.validate_and_select(
+                    file_path="test.py",
+                    file_type="backend",
+                    description="d",
+                    version_a="A",
+                    model_a="model-a",
+                    version_b="B" * 50,
+                    model_b="model-b",
+                    judge_model="judge-model",
+                )
+            )
+
+        assert result == ("B" * 50, "model-b")
 
     def test_merged_returns_combined_model_label(self):
         validator = _plain_validator()

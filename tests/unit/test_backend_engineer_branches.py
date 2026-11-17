@@ -94,6 +94,16 @@ def test_spec_constraints_with_plain_storage_without_filename():
     assert "存储文件" not in text
 
 
+def test_spec_constraints_tolerates_non_dict_spec_fields():
+    # 模型可能把 project_spec 分组写成字符串，不能因此中断整份文件生成
+    assert BackendEngineer._build_spec_constraints("api", "use FastAPI") == ""
+
+    mixed = BackendEngineer._build_spec_constraints(
+        "api", {"storage": "sqlite", "terminology": "todo=task"}
+    )
+    assert mixed == ""
+
+
 def test_file_scope_constraints_empty_plan_returns_empty():
     assert BackendEngineer._build_file_scope_constraints("app/main.py", {}) == ""
 

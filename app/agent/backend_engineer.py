@@ -86,7 +86,8 @@ class BackendEngineer(Specialist):
     @staticmethod
     def _build_spec_constraints(file_type: str, file_spec: dict) -> str:
         """构建 project_spec 约束文本"""
-        if not file_spec:
+        # 模型有时把分组写成字符串，直接 .get() 会让整个文件生成连续失败
+        if not isinstance(file_spec, dict):
             return ""
 
         lines = []
@@ -102,7 +103,7 @@ class BackendEngineer(Specialist):
             lines.append(f"- requirements.txt / go.mod 等依赖文件必须包含 {framework} 的依赖")
             lines.append("")
 
-        if storage:
+        if isinstance(storage, dict) and storage:
             storage_type = storage.get("type", "unknown")
             lines.append("【存储约束 - 必须遵守】")
             lines.append(f"- 存储方式: {storage_type}")
@@ -112,7 +113,7 @@ class BackendEngineer(Specialist):
                 lines.append("- 注意：localStorage 是浏览器 API，后端文件禁止使用，请使用文件存储或数据库替代")
             lines.append("")
 
-        if terminology:
+        if isinstance(terminology, dict) and terminology:
             lines.append("【术语约束 - 必须遵守】")
             lines.append("- 项目统一使用以下术语（字段名、变量名、API 路径必须遵循）:")
             for en_term, actual_term in terminology.items():
@@ -432,6 +433,8 @@ class BackendEngineer(Specialist):
 
         # 从 project_spec 中提取当前文件的约束
         project_spec = architecture.get("project_spec", {})
+        if not isinstance(project_spec, dict):
+            project_spec = {}
         file_plan_item = next(
             (item for item in architecture.get("file_plan", [])
              if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == file_path.replace("\\", "/")),

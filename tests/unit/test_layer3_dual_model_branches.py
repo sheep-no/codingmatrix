@@ -21,9 +21,11 @@ class _CallLLM:
     def __init__(self, responses):
         self.responses = dict(responses)
         self.calls = []
+        self.tokens = []
 
-    async def __call__(self, model, prompt, system_prompt):
+    async def __call__(self, model, prompt, system_prompt, **kwargs):
         self.calls.append(model)
+        self.tokens.append(kwargs.get("api_key_token"))
         value = self.responses[model]
         if isinstance(value, Exception):
             raise value
@@ -156,6 +158,20 @@ async def test_both_models_merge(monkeypatch):
     assert shared_b.source == "llm_association:dual"
     assert by_content["unique"].dual_model_agreement == "needs_confirmation"
     assert unique.confidence == pytest.approx(max(0.9 * 0.95, 0.5))
+
+
+@pytest.mark.asyncio
+async def test_passes_architect_api_key_token_to_each_llm_call(monkeypatch):
+    # 联想调用必须复用用户 Key，否则会退回未配置的平台 Key
+    item = _item()
+    fake = _patch_llm(
+        monkeypatch,
+        {l3.DUAL_MODEL_A: "a", l3.DUAL_MODEL_B: "b", l3.DUAL_MODEL_FALLBACK: "f"},
+    )
+    _patch_parse(monkeypatch, {"a": [item], "b": [], "f": []})
+    architect = SimpleNamespace(api_key_token="user-token-123")
+    await l3.layer3_dual_model_deep("req", [], [], architect=architect)
+    assert fake.tokens == ["user-token-123", "user-token-123"]
 
 
 def test_merge_dual_model_results_duplicate_in_same_model():

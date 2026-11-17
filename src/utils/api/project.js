@@ -266,20 +266,19 @@ export function createProjectClient(baseClient) {
     },
 
     // ========== 搜索会话 ==========
-    async searchSessions(keyword, limit = 20, offset = 0) {
+    async searchSessions(query, limit = 20) {
       try {
         const response = await client.post('/agent/search_sessions', {
-          keyword,
+          query,
           limit,
-          offset
         })
         if (response.ok) {
           return await response.json()
         }
-        return { sessions: [], total: 0 }
+        return { query, matches: [] }
       } catch (error) {
         console.error('搜索会话失败:', error)
-        return { sessions: [], total: 0 }
+        return { query, matches: [] }
       }
     },
 

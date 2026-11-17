@@ -146,7 +146,9 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             data.get("enable_thinking"),
             data.get("max_tokens"),
         )
-        
+
+        timeout = Timeout(self.timeout, connect=10.0)
+
         if stream:
             async def _stream_once(payload):
                 async with _max_concurrent_calls:
@@ -158,7 +160,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                             "POST",
                             f"{self.base_url}/chat/completions",
                             headers=headers,
-                            json=payload
+                            json=payload,
+                            timeout=timeout,
                         ) as response:
                             if response.status_code != 200:
                                 error_body = ""
@@ -269,7 +272,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{self.base_url}/chat/completions",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     )
                 
                 try:
@@ -286,7 +290,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                             return await client.post(
                                 f"{self.base_url}/chat/completions",
                                 headers=headers,
-                                json=data_without_thinking
+                                json=data_without_thinking,
+                                timeout=timeout,
                             )
                         
                         resp = await call_with_retry(request_func_retry, max_retries=3)
@@ -304,7 +309,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                             return await client.post(
                                 f"{self.base_url}/chat/completions",
                                 headers=headers,
-                                json=data_without_thinking
+                                json=data_without_thinking,
+                                timeout=timeout,
                             )
                         
                         resp = await call_with_retry(request_func_retry, max_retries=3)
@@ -338,7 +344,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                 return await client.post(
                     f"{self.base_url}/embeddings",
                     headers=headers,
-                    json=data
+                    json=data,
+                    timeout=Timeout(self.timeout, connect=10.0),
                 )
             
             resp = await call_with_retry(request_func, max_retries=3)

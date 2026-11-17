@@ -5,13 +5,14 @@ const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 // 该用例断言真实项目生成结果，必须提供 TEST_SILICONFLOW_API_KEY 才有意义
 const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
   test.describe.configure({ project: 'chromium' });
   test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
 
-  test('生成贪吃蛇网页版项目（纯 HTML + Flask）', async ({ page }) => {
-    test.setTimeout(300000); // 5 分钟超时
+  test('生成贪吃蛇网页版项目（单文件 HTML）', async ({ page }) => {
+    test.setTimeout(900000); // 15 分钟：真实模型含决策等待(120s)与交叉验证，耗时不可控
 
     const timeline = [];
     const apiCalls = [];
@@ -115,6 +116,9 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
     console.log('登录结果:', loginResult);
     timeline.push({ time: Date.now() - startTime, type: 'login_complete' });
 
+    // 真实 Key 必须写入前端存储，请求体才能携带 api_key_token
+    await syncRealApiKeys(page);
+
     // 第二步：生成会话 ID
     // 后端没有 POST /agent/sessions 建会话接口，前端也是本地生成会话 ID
     console.log('\n=== 步骤 2: 生成会话 ID ===');
@@ -126,31 +130,27 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
     // 第三步：发送项目生成需求
     console.log('\n=== 步骤 3: 发送项目生成需求 ===');
     
-    const requirement = `生成一个完整的贪吃蛇网页版游戏。
+    // 单文件需求：多文件+交叉验证会让真实生成时间不可控
+    const requirement = `生成一个贪吃蛇网页版游戏，只有一个 index.html 文件。
 
-技术要求：
-- 前端：纯 HTML + CSS + JavaScript（单文件 index.html）
-- 后端：Python Flask 框架
-- 游戏功能：
-  * 蛇的移动和方向控制（方向键）
-  * 食物随机生成
-  * 蛇吃到食物后变长
-  * 碰撞检测（撞墙或撞自己游戏结束）
-  * 分数显示
-  * 游戏开始和重新开始功能
-- 页面设计简洁美观，有游戏区域和分数显示区
+功能要求：
+- 方向键控制蛇的移动
+- 食物随机生成，吃到后变长
+- 撞墙或撞自己游戏结束
+- 显示当前分数
+- 开始和重新开始按钮`;
 
-请生成完整的项目代码，包括所有必要的文件。`;
-
+    // /agent/generate 是遗留端点，不支持用户 API Key；产品实际走 orchestrate/stream
     const projectResult = await page.evaluate(async ({ req, sessionId }) => {
       const token = localStorage.getItem('access_token');
-      
-      // 使用 AbortController 控制超时
+      const storedKeys = JSON.parse(localStorage.getItem('codingmatrix_apikeys') || '[]');
+      const apiKeyToken = storedKeys[0]?.token;
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 分钟超时
-      
+      const timeoutId = setTimeout(() => controller.abort(), 840000);
+
       try {
-        const resp = await fetch('/api/v1/agent/generate', {
+        const resp = await fetch('/api/v1/agent/orchestrate/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -158,29 +158,58 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
           },
           body: JSON.stringify({
             requirement: req,
-            model: 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B',
             enable_review: true,
             enable_validation: true,
-            session_id: sessionId
+            session_id: sessionId,
+            api_key_token: apiKeyToken,
           }),
           signal: controller.signal
         });
 
-        clearTimeout(timeoutId);
-
-        if (resp.ok) {
-          const data = await resp.json();
-          return {
-            success: true,
-            total_files: data.total_files_created || 0,
-            output_dir: data.output_dir || 'N/A',
-            validation_passed: data.validation?.runnable || false,
-            execution_time: data.execution_time || 0
-          };
-        } else {
+        if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
+          clearTimeout(timeoutId);
           return { success: false, error: err.detail?.message || err.detail || resp.statusText };
         }
+
+        // 逐行解析 SSE，取 done 事件里的生成结果
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let doneEvent = null;
+        let streamError = null;
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+          for (const frame of frames) {
+            const line = frame.split('\n').find(l => l.startsWith('data: '));
+            if (!line) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.type === 'done') doneEvent = parsed.data || {};
+              if (parsed.type === 'error') streamError = parsed.data?.error || 'stream error';
+            } catch {}
+          }
+        }
+        clearTimeout(timeoutId);
+
+        if (streamError) return { success: false, error: streamError };
+        if (!doneEvent) return { success: false, error: '未收到 done 事件' };
+
+        return {
+          success: true,
+          total_files: doneEvent.total_files_created || doneEvent.total_files || 0,
+          output_dir: doneEvent.project_path || 'N/A',
+          // 后端 done 事件的校验结果字段是 is_valid，不是 runnable
+          validation_passed: doneEvent.validation?.is_valid || false,
+          execution_time: doneEvent.execution_time || 0
+        };
       } catch (error) {
         clearTimeout(timeoutId);
         return { success: false, error: error.message };
@@ -196,13 +225,13 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
     console.log('\n=== 步骤 4: 收集统计信息 ===');
     const stats = await page.evaluate(async () => {
       const token = localStorage.getItem('access_token');
-      const resp = await fetch('/api/v1/agent/stats/models', {
+      const resp = await fetch('/api/v1/agent/token-usage', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      return resp.ok ? await resp.json() : [];
+      return resp.ok ? await resp.json() : {};
     });
 
-    console.log('模型统计:', JSON.stringify(stats.slice(0, 5), null, 2));
+    console.log('Token 用量:', JSON.stringify(stats, null, 2));
 
     const endTime = Date.now();
     const totalDuration = endTime - startTime;

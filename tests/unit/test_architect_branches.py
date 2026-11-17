@@ -517,6 +517,15 @@ class TestModuleHelpers:
             ("import a.b", "a.b"),
             ("a.b", "a.b"),
             ("from .relative import x", None),
+            ("import Vue from 'vue'", "vue"),
+            ("import Axios from \"axios\"", "axios"),
+            ("import { createPinia } from 'pinia'", "pinia"),
+            ("import type { Ref } from 'vue'", "vue"),
+            ("import './style.css'", None),
+            ("import App from './App.vue'", None),
+            ("import Foo from '@/components/Foo.vue'", None),
+            ("export { x } from 'lodash'", "lodash"),
+            ("require('axios')", "axios"),
             ("bad path", None),
             ("", None),
             (None, None),
@@ -585,6 +594,18 @@ class TestModuleHelpers:
             "main.py",
             "helper.py",
         }
+
+    def test_strict_paths_single_file_phrase(self):
+        # 「只有一个 X 文件」是限定文件集合的常见中文表达
+        assert Architect._extract_strict_file_paths(
+            "生成一个贪吃蛇网页版游戏，只有一个 index.html 文件。"
+        ) == {"index.html"}
+
+    def test_strict_paths_ignores_conjunction_only(self):
+        # 「只有…才」是条件句，不能误判成文件集合约束
+        assert Architect._extract_strict_file_paths(
+            "只有在用户登录后才可以上传文件"
+        ) is None
 
     def test_prefer_most_specific_paths_strips_dot_slash(self):
         assert Architect._prefer_most_specific_paths({"./src/App.vue", "App.vue"}) == {
@@ -707,6 +728,58 @@ class TestCompleteness:
             target_language="python",
         )
         assert [entry["path"] for entry in result["file_plan"]] == ["main.py"]
+
+    def test_js_third_party_imports_are_not_added_for_python_project(self):
+        """Vue + Python 混合项目里，JS 库不能被补成 Vue.py/Axios.py/Pinia.py。"""
+        architect = _architect()
+        result = architect._ensure_file_plan_completeness(
+            {
+                "file_plan": [
+                    {
+                        "path": "src/main.py",
+                        "imports": ["from src.config import get_config"],
+                        "language": "python",
+                    },
+                    {"path": "src/config.py", "imports": [], "language": "python"},
+                    {
+                        "path": "frontend/main.js",
+                        "imports": [
+                            "import Vue from 'vue'",
+                            "import Axios from 'axios'",
+                            "import { createPinia } from 'pinia'",
+                            "import App from './App.vue'",
+                        ],
+                        "language": "javascript",
+                    },
+                ]
+            },
+            target_language="python",
+        )
+        paths = [entry["path"] for entry in result["file_plan"]]
+        assert paths == ["src/main.py", "src/config.py", "frontend/main.js"]
+
+    def test_js_internal_imports_are_not_added_as_python_files(self):
+        """JS 内部模块引用不能被后端适配器补成 frontend/src/styles.py。"""
+        architect = _architect()
+        result = architect._ensure_file_plan_completeness(
+            {
+                "file_plan": [
+                    {"path": "app/main.py", "imports": [], "language": "python"},
+                    {
+                        "path": "frontend/src/main.js",
+                        "imports": [
+                            "import 'frontend/src/styles'",
+                            "import { helper } from 'frontend/src/utils'",
+                        ],
+                        "language": "javascript",
+                    },
+                ]
+            },
+            target_language="python",
+        )
+
+        paths = [entry["path"] for entry in result["file_plan"]]
+        assert paths == ["app/main.py", "frontend/src/main.js"]
 
     def test_strict_paths_create_missing_entry(self):
         architect = _architect()

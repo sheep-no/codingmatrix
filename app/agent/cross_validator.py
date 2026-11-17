@@ -342,10 +342,19 @@ class CrossValidator:
                 return version_b, model_b
             elif winner == "merged":
                 final_code = result.get("final_code")
-                if not final_code:
-                    raise ValueError("cross validator merged result had no final_code")
-                logger.info(f"交叉验证选择合并版本: {reason}")
-                return final_code, f"{model_a}+{model_b}"
+                if final_code and str(final_code).strip():
+                    logger.info(f"交叉验证选择合并版本: {reason}")
+                    return final_code, f"{model_a}+{model_b}"
+                # 小模型裁判经常声明 merged 却省略（或被截断）final_code。
+                # 抛错会让该文件重试耗尽并阻塞全部下游，回退到更完整的版本
+                # 才能保住整轮生成。
+                logger.warning(
+                    "交叉验证裁判选择 merged 但未提供 final_code，回退到更完整的版本: %s",
+                    file_path,
+                )
+                if len(version_b or "") > len(version_a or ""):
+                    return version_b, model_b
+                return version_a, model_a
             else:
                 raise ValueError(f"cross validator judge winner was invalid: {winner}")
 

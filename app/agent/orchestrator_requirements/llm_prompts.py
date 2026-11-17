@@ -12,6 +12,26 @@ _LIST_ITEM_RE = re.compile(r'^\s*(?:[-*•]|\d+[.、)])\s*(.+)$')
 _JSON_FRAGMENT_CHARS = '{}[]"'
 
 
+def normalize_llm_content(response: object) -> str:
+    """把 call_llm 的返回统一成文本。
+
+    ``call_llm`` 默认返回 OpenAI 兼容 dict，只有显式 ``stream=True`` 时才返回
+    异步迭代器。联想/审查链路此前直接把 dict 传给按字符串解析的函数，导致
+    ``'dict' object has no attribute 'find'`` 且整条链路静默降级。
+    """
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        choices = response.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+    return ""
+
+
 def llm_system_prompt() -> str:
     return """你是一位资深的全栈架构顾问。你的任务是分析用户需求，发现可能遗漏的功能模块、架构影响、潜在风险和关键决策。
 
@@ -52,6 +72,7 @@ def build_llm_prompt(
 
 
 def parse_llm_response(response: str) -> list[AssociationItem]:
+    response = normalize_llm_content(response)
     items = []
 
     # 用首个 JSON 对象替换贪婪 ``\{[\s\S]*\}``：响应含多段 JSON 时不再跨块

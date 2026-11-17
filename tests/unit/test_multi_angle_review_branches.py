@@ -23,7 +23,7 @@ class _CallLLM:
         self.error = error
         self.calls = []
 
-    async def __call__(self, model, prompt):
+    async def __call__(self, model, prompt, **kwargs):
         self.calls.append((model, prompt))
         if self.error:
             raise self.error
@@ -84,15 +84,22 @@ async def test_multi_angle_standard_uses_devil(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_multi_angle_strict_uses_parallel(monkeypatch):
-    async def _parallel(requirement, items):
+    captured = {}
+
+    async def _parallel(requirement, items, **kwargs):
+        captured.update(kwargs)
         return [{"role": "performance"}]
 
     monkeypatch.setattr(mr, "parallel_multi_review", _parallel)
     items = [_item() for _ in range(3)]
     result = await mr.multi_angle_review(
-        "req", items, severity=mr.ReviewSeverity.STRICT, architect=object()
+        "req",
+        items,
+        severity=mr.ReviewSeverity.STRICT,
+        architect=SimpleNamespace(api_key_token="user-token-123"),
     )
     assert result == [{"role": "performance"}]
+    assert captured["api_key_token"] == "user-token-123"
 
 
 @pytest.mark.asyncio
@@ -126,7 +133,7 @@ async def test_parallel_multi_review_merges_and_limits(monkeypatch):
     }
     calls = []
 
-    async def _fake_role(role_name, system_prompt, requirement, items_summary):
+    async def _fake_role(role_name, system_prompt, requirement, items_summary, **kwargs):
         calls.append(role_name)
         value = responses[role_name]
         if isinstance(value, Exception):
@@ -195,6 +202,16 @@ def test_parse_multi_review_response_caps_ten():
 
 def test_parse_multi_review_response_invalid_json():
     assert mr.parse_multi_review_response("{not: valid}", "security") == []
+
+
+def test_parse_multi_review_response_accepts_openai_dict():
+    """call_llm 默认返回 dict，解析器需直接消费。"""
+    payload = '{"reviews": [{"target": "t", "issue": "i"}]}'
+    result = mr.parse_multi_review_response(
+        {"choices": [{"message": {"content": payload}}]},
+        "security",
+    )
+    assert len(result) == 1
 
 
 @pytest.mark.asyncio

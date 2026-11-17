@@ -134,6 +134,27 @@ async def test_openai_adapter_passes_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_siliconflow_adapter_passes_timeout(monkeypatch):
+    """SF 适配器此前完全没有传 timeout，8s 的快速判定请求会等共享客户端的 300s。"""
+    from app.utils.aicloud.adapters import siliconflow as siliconflow_module
+    from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+
+    client = _FakeClient(lines=["data: [DONE]"])
+    _patch_client(monkeypatch, siliconflow_module, client)
+    adapter = SiliconFlowAdapter(_openai_config(ModelProvider.SILICONFLOW, timeout=8.0))
+
+    await adapter.call_llm(model="Qwen/Qwen3.5-4B", prompt="hi")
+    assert client.calls[-1][2]["timeout"].read == 8.0
+
+    stream = await adapter.call_llm(model="Qwen/Qwen3.5-4B", prompt="hi", stream=True)
+    [chunk async for chunk in stream]
+    assert client.calls[-1][2]["timeout"].read == 8.0
+
+    await adapter.call_embedding(model="BAAI/bge-m3", input_text="hi")
+    assert client.calls[-1][2]["timeout"].read == 8.0
+
+
+@pytest.mark.asyncio
 async def test_anthropic_adapter_passes_timeout_and_converts_stream(monkeypatch):
     from app.utils.aicloud.adapters import anthropic as anthropic_module
     from app.utils.aicloud.adapters.anthropic import AnthropicAdapter

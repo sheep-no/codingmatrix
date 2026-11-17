@@ -167,7 +167,7 @@ test.describe('AI 绘画浏览器场景', () => {
     await expect(imagePage.locator('.generated-image')).toBeVisible({ timeout: 180000 })
     await expect(imagePage.locator('.error-message')).toHaveCount(0)
     const src = await imagePage.locator('.generated-image').first().getAttribute('src')
-    expect(src).toMatch(/^(data:image\/|https?:\/\/|\/)/)
+    expect(src).toMatch(/^(data:image\/|blob:|https?:\/\/|\/)/)
 
     await imagePage.reload({ waitUntil: 'domcontentloaded' })
     await expect(imagePage.locator('.image-generate-page')).toBeVisible()

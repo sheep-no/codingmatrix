@@ -324,6 +324,19 @@ class TestDevilAdvocateReview:
         result = parse_devil_response("no json here")
         assert result == []
 
+    def test_parse_devil_response_accepts_openai_dict(self):
+        """call_llm 默认返回 dict，解析器需直接消费而非抛 AttributeError。"""
+        payload = json.dumps({
+            "challenges": [
+                {"target_item": "转账", "challenge": "缺少冲正", "severity": "high"},
+            ]
+        })
+        result = parse_devil_response({
+            "choices": [{"message": {"content": payload}}]
+        })
+        assert len(result) == 1
+        assert result[0]["challenge"] == "缺少冲正"
+
     def test_parse_devil_partial(self):
         response = json.dumps({
             "challenges": [
