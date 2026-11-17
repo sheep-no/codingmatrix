@@ -620,11 +620,12 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `alembic upgrade head --sql` 离线模式使用 `MockConnection`，不支持 `sa.inspect`；迁移内需要反射的地方一律用 `op.get_context().as_sql` 分支处理。`20260908_add_github_user_config`、`20260918_add_knowledge_tags`、`20260918_unique_tasks_task_id`、`20261109_add_github_verified_at` 均已补齐，`test_offline_sql_generation_reaches_head` 用 MySQL/PostgreSQL 两方言守住。
   - 历史迁移里引用辅助函数前必须确认全仓库有定义（`if_exists_exists` 为无定义悬空调用，会让既有库升级链在 `20260425` 处 `NameError` 中断）。
 
-### 流式 NDJSON 接口的 gzip 错标排查（2026-11-16）
+### 流式 NDJSON 接口的 gzip 错标排查（2026-11-16，2026-11-17 更新）
 - Date: 2026-11-16
 - Context: Agent 排查 Android 工作流「disconnected、事件数 0、logcat 无异常」时定位
 - Category: Troubleshooting & Debugging
 - Instructions:
-  - 后端 `GZipMiddleware(minimum_size=500)` 会给 `/api/v1/workflow/execute` 的 NDJSON 流加 `Content-Encoding: gzip`，但响应体是明文；Dart HttpClient 自动解压时抛 `FormatException: Filter error, bad data`，异常在 onError 被捕获后表现为「连接中断」。
-  - 客户端在 `workflow_client.dart` 的流式请求显式发送 `Accept-Encoding: identity` 规避；仅 `/api/v1/workflow/execute` 存在该问题，`/api/v1/chat`（SSE）与 `/api/v1/agent/orchestrate/stream` 无压缩头。
+  - 旧版后端 `GZipMiddleware(minimum_size=500)` 会给 `/api/v1/workflow/execute` 的 NDJSON 流加 `Content-Encoding: gzip`，但响应体是明文；Dart HttpClient 自动解压时抛 `FormatException: Filter error, bad data`，异常在 onError 被捕获后表现为「连接中断」。
+  - `6d925c19` 起 `app/main.py` 把 `application/x-ndjson` 加入 Starlette 的 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 不再带 `Content-Encoding`；客户端 `Accept-Encoding: identity` 可继续保留，行为等价。
+  - 本仓库 GitHub Actions 只有 ci/e2e/frontend-ci 三套测试，不含部署；线上环境需独立重新构建部署后才会带上修复，判断是否已部署先核对线上进程对应的提交，而非 master 是否有提交。
   - 遇到流式请求「0 事件 + 无异常日志」时，先用 curl 对比 `Content-Encoding` 与原始字节，再检查是否 gzip 错标，勿先怀疑网络或鉴权。
