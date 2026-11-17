@@ -638,3 +638,10 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 系统环境中的 `SILICONFLOW_API_KEY`、`DEEPSEEK_API_KEY` 已废弃，供应商 Key 由用户在 Provider 授权页提交，经 RSA 加密后存入 Redis。
   - 用户在 Provider 设置页选中 Key 后，客户端聊天请求需显式携带 `api_key_token`；后端在请求上下文有用户但未传 token 时，会自动使用该用户首个已启用且非 invalid 的 Key。
   - Redis 当前不持久化，`redis-server` 重启后用户 Key 会丢失，复测前先检查 `/api/v1/agent/apikeys` 与 `redis-cli dbsize`。
+
+### 回复语言跟随用户
+- Date: 2026-11-17
+- Context: 用户明确要求「说中文」
+- Instructions:
+  - 面向用户的回复、进度说明与总结统一使用简体中文；代码、命令、路径和标识符保持原样。
+  - 用户切换语言时跟随最新语言。
