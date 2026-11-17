@@ -1085,6 +1085,8 @@ async def orchestrate_project(
         raise _generation_http_exception(e) from e
 
 
+# 客户端契约同时使用 /workflow/stream，复用同一流式实现。
+@router.post("/workflow/stream", include_in_schema=False)
 @router.post("/orchestrate/stream")
 async def orchestrate_project_stream(
     request: OrchestratorRequest,
