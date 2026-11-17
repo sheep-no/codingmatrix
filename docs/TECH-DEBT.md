@@ -810,6 +810,19 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 
 全量回归：`14681 passed, 2 skipped, 0 failed`（583.91s），`TOTAL 63686 stmts / 0 miss / 20414 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b_full.json`。
 
+### 后端缺陷扫描第四十三轮：B1 全局异常处理的信封与头部遗留（2026-11-17）
+
+第四十二轮把 apikey 存储故障映射为 503 后，客户端联调又暴露全局异常处理的两处遗留：字典 detail 被 `str()` 成 Python repr，503 的 `Retry-After` 被丢弃。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 字典 detail 使响应 `message` 变成 `{'code': 'storage_unavailable', ...}` 的 Python repr，客户端已按 #461 做兼容解析，但信封本身仍是错误格式 | `app/utils/error_handler.py` 的 `http_exception_handler` | 已解决；字典 detail 的 `code`/`message` 平铺到信封顶层，其余键并入 `details`，非 str/dict detail 回退状态码映射 |
+| P1 | `Retry-After` 只在 429 分支处理，B1 的 503 虽显式带了 `Retry-After: 5` 仍被丢弃，客户端无法获知重试窗口 | 同上 | 已解决；任意状态码带该头即透传（大小写均认），仅 429 缺省时回退 `DEFAULT_RETRY_AFTER_SECONDS` |
+
+回归：`tests/unit/test_error_handler_gaps.py` 新增字典 detail（有/无 message）、非 str/dict detail、503 大小写头部、真实 `TestClient` 503 信封共 6 例。反向验证：回退 `code` 平铺后 2 例失败，回退整套修复后 5 例失败，恢复后全部通过。
+
+全量回归：`14686 passed, 2 skipped, 0 failed`（621.25s），`TOTAL 63699 stmts / 0 miss / 20422 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b1_extra_full.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。

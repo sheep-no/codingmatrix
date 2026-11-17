@@ -1,5 +1,7 @@
 """error_handler 各异常处理器响应格式补测。"""
 
+import json
+
 import pytest
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -75,11 +77,44 @@ async def test_http_exception_handler_code_map(status_code, expected):
     assert expected in response.body.decode()
 
 
-async def test_http_exception_handler_non_str_detail():
+async def test_http_exception_handler_dict_detail_without_message_uses_code():
     response = await module.http_exception_handler(
         _Request(), HTTPException(status_code=400, detail={"a": 1})
     )
-    assert "{'a': 1}" in response.body.decode()
+    body = json.loads(response.body)
+
+    assert body["code"] == "BAD_REQUEST"
+    assert body["message"] == "BAD_REQUEST"
+    assert body["details"]["a"] == 1
+
+
+async def test_http_exception_handler_dict_detail_uses_message():
+    detail = {
+        "code": "storage_unavailable",
+        "message": "Key 存储服务暂不可用，请稍后重试",
+    }
+    response = await module.http_exception_handler(
+        _Request(), HTTPException(status_code=503, detail=detail)
+    )
+
+    body = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert body["code"] == "storage_unavailable"
+    assert body["message"] == "Key 存储服务暂不可用，请稍后重试"
+    assert body["details"]["code"] == "storage_unavailable"
+    assert body["details"]["path"] == "/api/test"
+
+
+async def test_http_exception_handler_other_detail_uses_code():
+    response = await module.http_exception_handler(
+        _Request(), HTTPException(status_code=400, detail=["a", "b"])
+    )
+    body = json.loads(response.body)
+
+    assert body["code"] == "BAD_REQUEST"
+    assert body["message"] == "BAD_REQUEST"
+    assert body["details"] == {"path": "/api/test"}
 
 
 async def test_http_429_uses_header_retry_after():
@@ -114,12 +149,59 @@ async def test_non_429_has_no_retry_header():
     assert "Retry-After" not in response.headers
 
 
+async def test_http_503_propagates_retry_after():
+    exc = HTTPException(
+        status_code=503,
+        detail={"code": "storage_unavailable", "message": "存储不可用"},
+        headers={"Retry-After": "5"},
+    )
+    response = await module.http_exception_handler(_Request(), exc)
+    assert response.headers["Retry-After"] == "5"
+
+
+async def test_http_503_lowercase_retry_after():
+    exc = HTTPException(
+        status_code=503, detail="维护中", headers={"retry-after": "30"}
+    )
+    response = await module.http_exception_handler(_Request(), exc)
+    assert response.headers["Retry-After"] == "30"
+
+
 async def test_starlette_http_exception_handler():
     response = await module.starlette_http_exception_handler(
         _Request(), StarletteHTTPException(status_code=404, detail="nope")
     )
     assert response.status_code == 404
     assert '"HTTP_ERROR"' in response.body.decode()
+
+
+def test_storage_unavailable_envelope_over_http():
+    """走真实 FastAPI 异常链，确认 message 可读且 503 保留 Retry-After。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, module.http_exception_handler)
+
+    @app.get("/boom")
+    async def boom():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "storage_unavailable",
+                "message": "Key 存储服务暂不可用，请稍后重试",
+            },
+            headers={"Retry-After": "5"},
+        )
+
+    response = TestClient(app, raise_server_exceptions=False).get("/boom")
+    body = response.json()
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert body["code"] == "storage_unavailable"
+    assert body["message"] == "Key 存储服务暂不可用，请稍后重试"
+    assert body["details"]["code"] == "storage_unavailable"
 
 
 async def test_integrity_error_handler():

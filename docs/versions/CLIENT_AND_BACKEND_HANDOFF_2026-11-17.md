@@ -22,7 +22,7 @@
 
 `app/api/v1/apikey.py` 现在把 Redis 与网络故障统一映射为 503「Key 存储服务暂不可用」，并带 `Retry-After: 5`。
 
-遗留：全局异常处理 `app/utils/error_handler.py:117` 用 `str(detail)` 处理字典，响应 message 变成 Python repr；`:121` 只透传 429 的 `Retry-After`，503 的该头部会被丢掉。客户端 #461 已兼容解析 repr 中的 message，建议后端把 `code` 与 `message` 平铺到信封，并在 503 分支保留 `Retry-After`。
+遗留已处理：全局异常处理 `app/utils/error_handler.py` 不再对字典 detail 做 `str()`，而是把 `code`、`message` 平铺到信封顶层，其余键并入 `details`；`Retry-After` 改为任意状态码有则透传（含 503），仅 429 缺省时回退默认值。回归见 `tests/unit/test_error_handler_gaps.py`，含真实 `TestClient` 的 503 信封用例。
 
 ### B2 GZipMiddleware 压缩 NDJSON 流（已修复）
 

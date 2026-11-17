@@ -114,23 +114,39 @@ async def http_exception_handler(
         503: "SERVICE_UNAVAILABLE",
     }
     code = code_map.get(exc.status_code, "HTTP_ERROR")
-    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    raw_detail = exc.detail
+    extra_details: Dict[str, Any] = {}
+    if isinstance(raw_detail, str):
+        detail = raw_detail
+    elif isinstance(raw_detail, dict):
+        # 字典 detail 携带结构化标记（如 storage_unavailable），只把其中的
+        # code/message 平铺到信封，其余键并入 details，避免 str(dict) 的 Python repr。
+        extra_details = raw_detail
+        nested_code = raw_detail.get("code")
+        if isinstance(nested_code, str) and nested_code.strip():
+            code = nested_code.strip()
+        message = raw_detail.get("message")
+        detail = message.strip() if isinstance(message, str) and message.strip() else code
+    else:
+        detail = code
     logger.warning(
         f"HTTP 异常 | path={request.url.path} | status={exc.status_code} | detail={detail}"
     )
     headers = {}
-    if exc.status_code == 429:
-        # 优先采用抛出方（限流器）给出的实际剩余窗口，避免与限流中间件口径漂移；
-        # 仅在缺省时退回默认值。
-        retry_after = None
-        if exc.headers:
-            retry_after = exc.headers.get("Retry-After") or exc.headers.get("retry-after")
-        headers["Retry-After"] = str(retry_after) if retry_after else str(DEFAULT_RETRY_AFTER_SECONDS)
+    # 优先采用抛出方给出的实际剩余窗口（429 限流、503 维护/依赖不可用等），
+    # 避免与中间件口径漂移；429 缺省时退回默认值。
+    retry_after = None
+    if exc.headers:
+        retry_after = exc.headers.get("Retry-After") or exc.headers.get("retry-after")
+    if retry_after:
+        headers["Retry-After"] = str(retry_after)
+    elif exc.status_code == 429:
+        headers["Retry-After"] = str(DEFAULT_RETRY_AFTER_SECONDS)
     return _error_response(
         code=code,
         message=detail,
         status_code=exc.status_code,
-        details={"path": request.url.path},
+        details={**extra_details, "path": request.url.path},
         headers=headers if headers else None,
     )
 
