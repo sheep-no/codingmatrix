@@ -1037,4 +1037,19 @@ void main() {
     expect(find.text('暂无历史会话'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('流式回复 60 秒无数据时给出超时提示', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '你好');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 61));
+
+    expect(find.text('等待回复超时，请稍后重试'), findsOneWidget);
+  });
 }

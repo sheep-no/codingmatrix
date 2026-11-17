@@ -162,7 +162,26 @@ async def execute_workflow(
                 decompose_request = request.natural_language_request
 
             decomposer = TaskDecomposer()
-            task_graph = await decomposer.decompose(decompose_request)
+            decompose_task = asyncio.create_task(decomposer.decompose(decompose_request))
+            try:
+                while True:
+                    try:
+                        task_graph = await asyncio.wait_for(
+                            asyncio.shield(decompose_task), timeout=10
+                        )
+                        break
+                    except asyncio.TimeoutError:
+                        # 任务分解可能耗时超过反向代理的空闲超时；持续发心跳
+                        # 让连接保持活跃，客户端会忽略该事件。
+                        yield json.dumps({
+                            "event": "heartbeat",
+                            "workflow_id": "pending",
+                            "stage": "decomposing",
+                            "timestamp": datetime.now().isoformat(),
+                        }) + "\n"
+            finally:
+                if not decompose_task.done():
+                    decompose_task.cancel()
 
             validator = GraphValidator()
             is_valid, errors = validator.validate(task_graph)

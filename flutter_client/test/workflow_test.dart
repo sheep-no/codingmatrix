@@ -128,6 +128,26 @@ void main() {
     expect(controller.state.events, contains('workflow_error'));
     await source.close();
   });
+  test('分解阶段心跳不改变状态也不进入事件列表', () async {
+    final source = StreamController<List<int>>();
+    final api = WorkflowApi(source.stream);
+    final controller = WorkflowController(WorkflowClient(api));
+    await controller.execute('任务');
+    source.add(line({'event': 'workflow_started', 'workflow_id': 'pending'}));
+    source.add(
+      line({
+        'event': 'heartbeat',
+        'workflow_id': 'pending',
+        'stage': 'decomposing',
+      }),
+    );
+    await tick();
+
+    expect(controller.state.active, true);
+    expect(controller.state.snapshot.status, 'running');
+    expect(controller.state.events, isNot(contains('heartbeat')));
+    await source.close();
+  });
   test(
     'incremental nodes and terminal result absorb late events with one POST',
     () async {
