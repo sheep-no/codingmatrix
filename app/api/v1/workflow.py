@@ -398,7 +398,9 @@ async def execute_workflow(
 
     return StreamingResponse(
         generate_events(),
-        media_type="application/x-ndjson",
+        # 预览网关会完整缓冲 NDJSON，直到响应结束才返回首个字节；
+        # 使用 SSE 内容类型可被网关识别为长连接，响应体仍为逐行 JSON。
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -662,7 +664,7 @@ async def execute_imported_workflow(
 
     return StreamingResponse(
         generate_events(),
-        media_type="application/x-ndjson",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
