@@ -149,6 +149,17 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           const Divider(),
+          if (!loading && items.isEmpty && error == null)
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  '未配置模型服务。添加一个动态供应商，或到「Provider 授权」提交 API Key 后，'
+                  '聊天、Agent 工作台与 GirlAI 才能生成回复。',
+                ),
+              ),
+            ),
           for (final item in items)
             Card(
               child: ListTile(

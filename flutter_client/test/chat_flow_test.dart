@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/chat_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/chat/chat_client.dart';
+import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart';
 import 'package:codingmatrix_desktop/domain/models/chat_models.dart';
 import 'package:codingmatrix_desktop/presentation/chat_page.dart';
 import 'package:file_picker/file_picker.dart';
@@ -126,6 +127,31 @@ class ChatApi extends DeliveryApi {
       body: body,
       timeout: timeout,
     );
+  }
+}
+
+/// Simulates the backend collapsing a provider outage into a generic 500 while
+/// the account has no enabled dynamic provider and no reachable key store.
+class _UnconfiguredApi extends DeliveryApi {
+  _UnconfiguredApi(super.handle);
+
+  @override
+  Future<Stream<List<int>>> sendJsonStream(String path, Object request) async {
+    throw CloudAuthException('请求失败（HTTP 500），请确认任务状态后手动恢复');
+  }
+
+  @override
+  Future<Object?> requestJson(
+    String path, {
+    String method = 'GET',
+    Object? body,
+    Duration? timeout,
+  }) async {
+    if (path == '/api/v1/providers') return <Object?>[];
+    if (path == '/api/v1/agent/apikeys') {
+      throw CloudAuthException('请求失败（HTTP 500），请确认任务状态后手动恢复');
+    }
+    return super.requestJson(path, method: method, body: body, timeout: timeout);
   }
 }
 
@@ -798,6 +824,34 @@ void main() {
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('问题'), findsWidgets);
     expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('模型服务缺失时聊天展示配置引导而非通用 500 文案', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          _UnconfiguredApi((_, __, ___) async => throw const SocketException('down')),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('未配置模型服务'), findsOneWidget);
+    expect(find.byKey(const Key('modelServiceConfigureButton')), findsOneWidget);
+    expect(find.textContaining('服务内部错误'), findsNothing);
+    expect(find.text('问题'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

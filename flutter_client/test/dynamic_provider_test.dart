@@ -155,6 +155,28 @@ void main() {
     expect(find.textContaining('openai'), findsOneWidget);
   });
 
+  testWidgets('没有供应商时展示未配置模型服务引导', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => <Object?>[]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('未配置模型服务'), findsOneWidget);
+    expect(find.text('添加供应商'), findsOneWidget);
+  });
+
   testWidgets('加载中网络断开显示错误', (tester) async {
     final container = ProviderContainer(
       overrides: [
