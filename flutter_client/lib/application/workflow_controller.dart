@@ -76,6 +76,8 @@ class WorkflowController extends StateNotifier<WorkflowState> {
     String? error;
     var active = true;
     switch (type) {
+      case 'heartbeat':
+        return;
       case 'workflow_started':
         status = 'running';
       case 'task_graph_generated':

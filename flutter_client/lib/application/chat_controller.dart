@@ -47,6 +47,7 @@ class ChatState {
 
 class ChatController extends Notifier<ChatState> {
   StreamSubscription<ChatStreamEvent>? _subscription;
+  Timer? _streamIdleTimer;
   Completer<void>? _completion;
   int _operation = 0;
 
@@ -61,6 +62,8 @@ class ChatController extends Notifier<ChatState> {
 
   void _invalidate() {
     _operation++;
+    _streamIdleTimer?.cancel();
+    _streamIdleTimer = null;
     unawaited(_ignoreCancel(_subscription));
     _subscription = null;
     final completion = _completion;
@@ -183,6 +186,23 @@ class ChatController extends Notifier<ChatState> {
       final client = ChatClient(api);
       if (streaming) {
         var text = '';
+        void armIdleTimer() {
+          _streamIdleTimer?.cancel();
+          _streamIdleTimer = Timer(const Duration(seconds: 60), () {
+            if (operation != _operation || completion.isCompleted) return;
+            _streamIdleTimer = null;
+            final stalled = _subscription;
+            _subscription = null;
+            _completion = null;
+            unawaited(_ignoreCancel(stalled));
+            state = state.copyWith(
+              loading: false,
+              error: '等待回复超时，请稍后重试',
+            );
+            completion.complete();
+          });
+        }
+
         _subscription = client
             .streamEvents(
               prompt: value,
@@ -195,6 +215,7 @@ class ChatController extends Notifier<ChatState> {
             )
             .listen(
               (event) {
+                armIdleTimer();
                 if (operation != _operation || completion.isCompleted) return;
                 text += event.text;
                 state = state.copyWith(
@@ -212,16 +233,23 @@ class ChatController extends Notifier<ChatState> {
                 }
               },
               onError: (Object error, StackTrace stack) {
+                _streamIdleTimer?.cancel();
+                _streamIdleTimer = null;
                 if (!completion.isCompleted) {
                   completion.completeError(error, stack);
                 }
               },
               onDone: () {
+                _streamIdleTimer?.cancel();
+                _streamIdleTimer = null;
                 if (!completion.isCompleted) completion.complete();
               },
               cancelOnError: true,
             );
+        armIdleTimer();
         await completion.future;
+        _streamIdleTimer?.cancel();
+        _streamIdleTimer = null;
         if (operation != _operation) return;
         _subscription = null;
         _completion = null;
@@ -255,10 +283,15 @@ class ChatController extends Notifier<ChatState> {
       if (operation != _operation) return;
       _subscription = null;
       _completion = null;
+      _streamIdleTimer?.cancel();
+      _streamIdleTimer = null;
+      final message = error is TimeoutException
+          ? '等待回复超时，请稍后重试'
+          : error.toString();
       state = state.copyWith(
         loading: false,
         uploading: false,
-        error: error.toString(),
+        error: message,
       );
     }
   }
