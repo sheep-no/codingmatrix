@@ -38,6 +38,24 @@ void main() {
     expect(serverFailureDetail('{"message":"  "}'), isNull);
   });
 
+  test('字典 detail 与 Python repr 只保留可读 message', () {
+    expect(
+      serverFailureDetail(
+        '{"detail":{"code":"storage_unavailable",'
+        '"message":"Key 存储服务暂不可用，请稍后重试"}}',
+      ),
+      'Key 存储服务暂不可用，请稍后重试',
+    );
+    expect(
+      serverFailureDetail(
+        "{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":"
+        "\"{'code': 'storage_unavailable', "
+        "'message': 'Key 存储服务暂不可用，请稍后重试'}\"}",
+      ),
+      'Key 存储服务暂不可用，请稍后重试',
+    );
+  });
+
   test('超长错误体被截断，避免撑破单行文案', () {
     final detail = serverFailureDetail('{"message":"${'x' * 500}"}');
     expect(detail, isNotNull);

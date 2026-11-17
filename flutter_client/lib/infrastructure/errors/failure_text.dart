@@ -50,12 +50,26 @@ String? serverFailureDetail(String body) {
     for (final key in ['message', 'detail', 'error']) {
       final value = decoded[key];
       if (value is String && value.trim().isNotEmpty) {
-        return _shorten(value.trim());
+        final detail = _flattenDetail(value.trim());
+        if (detail.isNotEmpty) return _shorten(detail);
+      }
+      // FastAPI 会把字典形式的 detail 包成 {"detail": {"code": ..., "message": ...}}。
+      if (value is Map) {
+        final nested = value['message'] ?? value['detail'];
+        if (nested is String && nested.trim().isNotEmpty) {
+          return _shorten(nested.trim());
+        }
       }
     }
     return null;
   }
   return null;
+}
+
+/// 全局异常处理会把字典 detail 转成 Python repr，取出其中的可读 message。
+String _flattenDetail(String value) {
+  final match = RegExp(r"'message':\s*'([^']*)'").firstMatch(value);
+  return match?.group(1) ?? value;
 }
 
 /// Storage (Redis) outages surface as generic 500/403 errors. The provider key
