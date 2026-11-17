@@ -629,3 +629,12 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `6d925c19` 起 `app/main.py` 把 `application/x-ndjson` 加入 Starlette 的 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 不再带 `Content-Encoding`；客户端 `Accept-Encoding: identity` 可继续保留，行为等价。
   - 本仓库 GitHub Actions 只有 ci/e2e/frontend-ci 三套测试，不含部署；线上环境需独立重新构建部署后才会带上修复，判断是否已部署先核对线上进程对应的提交，而非 master 是否有提交。
   - 遇到流式请求「0 事件 + 无异常日志」时，先用 curl 对比 `Content-Encoding` 与原始字节，再检查是否 gzip 错标，勿先怀疑网络或鉴权。
+
+### 模型供应商 Key 走用户授权（2026-11-17）
+- Date: 2026-11-17
+- Context: Agent 定位聊天与工作流 500 时确认系统不再内置供应商 Key
+- Category: Environment Configuration
+- Instructions:
+  - 系统环境中的 `SILICONFLOW_API_KEY`、`DEEPSEEK_API_KEY` 已废弃，供应商 Key 由用户在 Provider 授权页提交，经 RSA 加密后存入 Redis。
+  - 用户在 Provider 设置页选中 Key 后，客户端聊天请求需显式携带 `api_key_token`；后端在请求上下文有用户但未传 token 时，会自动使用该用户首个已启用且非 invalid 的 Key。
+  - Redis 当前不持久化，`redis-server` 重启后用户 Key 会丢失，复测前先检查 `/api/v1/agent/apikeys` 与 `redis-cli dbsize`。
