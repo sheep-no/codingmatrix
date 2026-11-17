@@ -5,6 +5,7 @@ import 'package:pointycastle/digests/sha256.dart';
 import 'package:http/http.dart' as http;
 
 import 'cloud_auth_client.dart';
+import '../errors/failure_text.dart';
 
 /// Only GET/HEAD can be replayed once. Mutations always require user recovery.
 class AuthenticatedClient extends http.BaseClient {
@@ -92,9 +93,14 @@ class AuthenticatedClient extends http.BaseClient {
     Duration limit,
   ) async {
     if (response.statusCode >= 300) {
-      await response.stream.drain<void>().timeout(limit);
+      // The backend's error body names the failing operation (for example
+      // "获取 Key 列表失败"); dropping it left pages with a generic line and
+      // hid the real cause from the user.
+      final body = await _readErrorBody(response.stream, limit);
+      final detail = serverFailureDetail(body);
       throw CloudAuthException(
-        '请求失败（HTTP ${response.statusCode}）${safe ? '' : '，请确认任务状态后手动恢复'}',
+        '${detail == null ? httpFailureText(response.statusCode) : '$detail（HTTP ${response.statusCode}）'}'
+        '${safe ? '' : '，请确认任务状态后手动恢复'}',
         statusCode: response.statusCode,
       );
     }
@@ -107,6 +113,32 @@ class AuthenticatedClient extends http.BaseClient {
       request: response.request,
       contentLength: response.contentLength,
       reasonPhrase: response.reasonPhrase,
+    );
+  }
+
+  // Error bodies are only used for their short message; cap the read so a
+  // misbehaving or hostile server cannot buffer an unbounded payload.
+  static Future<String> _readErrorBody(
+    Stream<List<int>> stream,
+    Duration limit,
+  ) async {
+    const maxBytes = 64 * 1024;
+    final bytes = <int>[];
+    try {
+      await for (final chunk in stream.timeout(limit)) {
+        // Keep draining after the cap so the connection is released; only the
+        // retained prefix stays bounded.
+        if (bytes.length < maxBytes) {
+          bytes.addAll(chunk.take(maxBytes - bytes.length));
+        }
+      }
+    } catch (_) {
+      // Keep whatever arrived; a truncated body just yields no detail.
+    }
+    if (bytes.isEmpty) return '';
+    return utf8.decode(
+      bytes.length > maxBytes ? bytes.sublist(0, maxBytes) : bytes,
+      allowMalformed: true,
     );
   }
 
