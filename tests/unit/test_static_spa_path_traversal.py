@@ -69,7 +69,7 @@ async def test_api_paths_are_not_served_by_spa(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DIST_PATH", str(dist))
 
     with pytest.raises(HTTPException) as error:
-        await main.serve_vue_routes("api/v1/does-not-exist")
+        await main.api_not_found("v1/does-not-exist")
 
     assert error.value.status_code == 404
 

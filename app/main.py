@@ -393,11 +393,21 @@ async def serve_vue():
     return _dist_index_or_404()
 
 
+# 未匹配的 API 路径由这里统一返回 JSON 404，避免落到 SPA catch-all。
+@app.api_route(
+    "/api/{rest:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def api_not_found(rest: str):
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 # 处理Vue Router的history模式路由
 @app.get("/{full_path:path}")
 async def serve_vue_routes(full_path: str):
-    # 跳过 API 请求，返回 404
-    if full_path.startswith("api/"):
+    if full_path == "api":
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not Found")
 

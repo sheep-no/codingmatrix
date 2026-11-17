@@ -82,6 +82,16 @@ class TestModelManagerAPI:
         for model in data["models"]:
             assert "text" in model["capabilities"]
 
+    def test_list_models_without_trailing_slash(self, client, mock_superadmin_auth):
+        """无斜杠路径与 /api/v1/models/ 行为一致。"""
+        response = client.get("/api/v1/models")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total"] == len(MODEL_REGISTRY)
+        assert isinstance(data["default_model"], str)
+        assert data["default_model"]
+
     def test_get_default_model(self, client, mock_superadmin_auth):
         """测试获取当前默认模型"""
         response = client.get("/api/v1/models/default")

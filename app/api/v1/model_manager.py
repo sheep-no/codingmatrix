@@ -70,6 +70,8 @@ def get_current_default_model_id() -> str:
 
 # ==================== API 端点 ====================
 
+# 同时注册无斜杠别名，避免 SPA catch-all 先匹配到 /api/v1/models 后返回 404。
+@router.get("", response_model=ModelListResponse, include_in_schema=False)
 @router.get("/", response_model=ModelListResponse, summary="获取所有可用模型")
 async def list_models(
     capability: Optional[str] = None,
