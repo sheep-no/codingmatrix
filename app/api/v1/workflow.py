@@ -31,6 +31,7 @@ from app.schema.workflow import (
     WorkflowErrorResponse,
     TaskGraph,
     TaskStatus,
+    TaskType,
 )
 from app.utils.security import verify_token
 from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerError
@@ -38,6 +39,30 @@ from app.utils.workflow.graph_validator import GraphValidator, GraphValidationEr
 from app.utils.workflow.executor import WorkflowExecutor
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_LLM_MODELS = {"gpt-3.5-turbo", "gpt-3.5-turbo-0125"}
+
+
+def _normalize_llm_node_models(task_graph: TaskGraph, fallback_model: str) -> None:
+    """把分解器臆造的旧模型名替换为本次分解实际可用的模型。"""
+    if not fallback_model:
+        return
+    for node in task_graph.nodes:
+        if node.type != TaskType.LLM_CALL:
+            continue
+        params = node.params or {}
+        model = params.get("model")
+        if not model or model in _LEGACY_LLM_MODELS:
+            logger.info(
+                "工作流节点 %s 的模型 %s 不在当前供应商能力内，改用 %s",
+                node.id,
+                model,
+                fallback_model,
+            )
+            params["model"] = fallback_model
+            node.params = params
+
+
 router = APIRouter(prefix="/api/v1/workflow", tags=["workflow"])
 
 
@@ -183,6 +208,7 @@ async def execute_workflow(
                 if not decompose_task.done():
                     decompose_task.cancel()
 
+            _normalize_llm_node_models(task_graph, getattr(decomposer, "model", ""))
             validator = GraphValidator()
             is_valid, errors = validator.validate(task_graph)
 

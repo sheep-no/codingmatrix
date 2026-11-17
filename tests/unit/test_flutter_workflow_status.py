@@ -32,6 +32,23 @@ async def test_status_unavailable_for_other_account(monkeypatch):
     assert error.value.status_code == 404
 
 
+def test_normalize_llm_node_models_replaces_legacy_default():
+    graph = TaskGraph(
+        workflow_id="w1",
+        nodes=[
+            TaskNode(
+                id="n1",
+                type=TaskType.LLM_CALL,
+                params={"prompt": "calc", "model": "gpt-3.5-turbo"},
+            )
+        ],
+    )
+
+    workflow._normalize_llm_node_models(graph, "Qwen/Qwen2.5-7B-Instruct")
+
+    assert graph.nodes[0].params["model"] == "Qwen/Qwen2.5-7B-Instruct"
+
+
 @pytest.mark.asyncio
 async def test_execute_emits_real_ndjson_contract_with_fake_execution(monkeypatch):
     graph = TaskGraph(workflow_id="mock-run", nodes=[TaskNode(id="n1", type=TaskType.DATA_TRANSFORM)])
