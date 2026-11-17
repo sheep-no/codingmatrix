@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/workflow_models.dart';
+import '../infrastructure/errors/failure_text.dart';
 import '../infrastructure/workflow/workflow_client.dart';
 import 'auth_controller.dart';
 
@@ -50,13 +51,18 @@ class WorkflowController extends StateNotifier<WorkflowState> {
             _failed(op, '工作流事件格式异常，执行结果未知');
           }
         },
-        onError: (Object _) => _failed(op, '工作流连接中断，执行结果未知，可查询状态'),
+        onError: (Object error) => _failed(
+          op,
+          '${streamFailureText(error)}；执行结果未知，可查询状态',
+        ),
         onDone: () {
           if (_current(op) && state.active) _failed(op, '响应提前结束，执行结果未知，可查询状态');
         },
       );
-    } catch (_) {
-      _failed(op, '执行请求失败或结果未知，请先核对任务状态');
+    } catch (error) {
+      // The open call fails on non-2xx, so keep the readable reason (for
+      // example "接口不存在" or "磁盘空间不足") instead of a generic line.
+      _failed(op, '${streamFailureText(error)}；执行结果未知，请核对任务状态');
     }
   }
 
@@ -90,7 +96,16 @@ class WorkflowController extends StateNotifier<WorkflowState> {
         active = false;
       case 'workflow_error':
         status = 'failed';
-        error = '工作流执行失败，请检查输入或服务配置';
+        // The server names the failing stage (`decomposition_failed`, ...) and
+        // pairs it with a readable message. Keeping that text makes the failure
+        // diagnosable; a generic line hides which stage actually broke.
+        final stage = event['error'];
+        final message = event['message'];
+        error = message is String && message.trim().isNotEmpty
+            ? message.trim()
+            : stage is String && stage.trim().isNotEmpty
+            ? '工作流执行失败：${stage.trim()}'
+            : '工作流执行失败，请检查输入或服务配置';
         active = false;
     }
     state = WorkflowState(

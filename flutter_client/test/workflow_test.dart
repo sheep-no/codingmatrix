@@ -43,6 +43,9 @@ class WorkflowApi extends DeliveryApi {
     expect(request.method, 'POST');
     expect(request.url.path, '/api/v1/workflow/execute');
     expect(request.headers['Accept'], 'application/x-ndjson');
+    // The backend labels this NDJSON stream as gzip while sending plain text,
+    // so the request must opt out of compression to keep the stream decodable.
+    expect(request.headers['Accept-Encoding'], 'identity');
     expect(jsonDecode((request as http.Request).body), {
       'natural_language_request': '任务',
       'timeout': 1800,
@@ -103,6 +106,27 @@ void main() {
         throwsFormatException,
       );
     }
+  });
+  test('workflow_error 透出服务端阶段与可读原因', () async {
+    final source = StreamController<List<int>>();
+    final api = WorkflowApi(source.stream);
+    final controller = WorkflowController(WorkflowClient(api));
+    await controller.execute('任务');
+    source.add(line({'event': 'workflow_started', 'workflow_id': 'pending'}));
+    source.add(
+      line({
+        'event': 'workflow_error',
+        'error': 'decomposition_failed',
+        'message': '任务分解失败，请检查输入后重试',
+      }),
+    );
+    await tick();
+
+    expect(controller.state.snapshot.status, 'failed');
+    expect(controller.state.error, '任务分解失败，请检查输入后重试');
+    expect(controller.state.active, false);
+    expect(controller.state.events, contains('workflow_error'));
+    await source.close();
   });
   test(
     'incremental nodes and terminal result absorb late events with one POST',
@@ -295,7 +319,10 @@ void main() {
     await tester.tap(find.byKey(const Key('workflowExecute')));
     await tester.pump();
     await tester.pump();
-    expect(find.text('执行请求失败或结果未知，请先核对任务状态'), findsOneWidget);
+    // The failure now names the root cause (network dropped) instead of a
+    // generic line, while still warning that the server side is unknown.
+    expect(find.textContaining('网络连接中断'), findsOneWidget);
+    expect(find.textContaining('执行结果未知'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
@@ -430,7 +457,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('导入工作流网络断开显示失败原文', (tester) async {
+  testWidgets('导入失败保留弹窗与用户输入并显示原文', (tester) async {
     final api = DeliveryApi((path, method, body) async {
       expect(path, '/api/v1/workflow/import');
       expect(method, 'POST');
@@ -439,8 +466,91 @@ void main() {
     });
     await pumpWorkflow(tester, api);
     await submitImport(tester);
+    expect(find.text('导入工作流 JSON'), findsOneWidget);
     expect(find.textContaining('导入失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
+    final field = tester.widget<TextField>(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(field.controller?.text, '{"nodes":[]}');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('导入非法 JSON 保持弹窗并提示格式错误', (tester) async {
+    var calls = 0;
+    final api = DeliveryApi((_, __, ___) async {
+      calls++;
+      return const <String, Object?>{};
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.text('导入工作流'));
+    await tester.pump();
+    await tester.pump();
+    final field = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(field, '{invalid json');
+    await tester.tap(find.text('导入'));
+    await tester.pump();
+
+    expect(calls, 0);
+    expect(find.text('导入工作流 JSON'), findsOneWidget);
+    expect(find.text('JSON 格式错误'), findsOneWidget);
+    expect(find.text('请检查括号、引号和逗号'), findsOneWidget);
+    expect(find.textContaining('FormatException'), findsNothing);
+    final editable = tester.widget<TextField>(field);
+    expect(editable.controller?.text, '{invalid json');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('导入空内容与非对象 JSON 停留在弹窗', (tester) async {
+    final api = DeliveryApi((_, __, ___) async {
+      fail('invalid JSON must not reach the backend');
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.text('导入工作流'));
+    await tester.pump();
+    await tester.pump();
+    final field = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+
+    await tester.tap(find.text('导入'));
+    await tester.pump();
+    expect(find.text('请输入工作流 JSON'), findsOneWidget);
+
+    await tester.enterText(field, '[1, 2]');
+    await tester.tap(find.text('导入'));
+    await tester.pump();
+    expect(find.text('工作流必须是 JSON 对象'), findsOneWidget);
+    expect(find.text('导入工作流 JSON'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('导入成功写回工作流名并关闭弹窗', (tester) async {
+    final api = DeliveryApi((path, method, body) async {
+      expect(path, '/api/v1/workflow/import');
+      expect(method, 'POST');
+      expect(body, {'nodes': []});
+      return const <String, Object?>{'requirement': '导入的任务'};
+    });
+    await pumpWorkflow(tester, api);
+    await submitImport(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text('导入工作流 JSON'), findsNothing);
+    final editable = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('workflowInput')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(editable.controller.text, '导入的任务');
     expect(tester.takeException(), isNull);
   });
 
