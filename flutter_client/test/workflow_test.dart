@@ -42,7 +42,7 @@ class WorkflowApi extends DeliveryApi {
     posts++;
     expect(request.method, 'POST');
     expect(request.url.path, '/api/v1/workflow/execute');
-    expect(request.headers['Accept'], 'application/x-ndjson');
+    expect(request.headers['Accept'], 'text/event-stream');
     // The backend labels this NDJSON stream as gzip while sending plain text,
     // so the request must opt out of compression to keep the stream decodable.
     expect(request.headers['Accept-Encoding'], 'identity');

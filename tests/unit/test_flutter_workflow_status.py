@@ -61,7 +61,7 @@ async def test_execute_emits_real_ndjson_contract_with_fake_execution(monkeypatc
     db.commit = AsyncMock()
     response = await workflow.execute_workflow(WorkflowRequest(natural_language_request="test"), {"sub": "42"}, db)
     events = [json.loads(chunk) async for chunk in response.body_iterator]
-    assert response.media_type == "application/x-ndjson"
+    assert response.media_type == "text/event-stream"
     assert [event["event"] for event in events] == ["workflow_started", "task_graph_generated", "node_started", "node_completed", "workflow_completed"]
     assert events[-1]["status"] == "completed"
     snapshot = await workflow.get_workflow_status("mock-run", {"sub": "42"})
