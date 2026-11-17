@@ -90,6 +90,7 @@ from app.db.database import get_db
 from fastapi import Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+import starlette.middleware.gzip as _starlette_gzip
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.feature_switch import FeatureSwitchMiddleware
@@ -248,6 +249,12 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Gzip 压缩中间件（减少传输数据量，提升加载速度）
 # 压缩大于 500 字节的响应，预计减少 70-80% 传输量
+# Starlette 默认只为 text/event-stream 跳过 GZip；NDJSON 同样是逐行下发的流，
+# 压缩会把小分片缓冲到流结束才可解码，客户端因此收不到任何事件。
+_starlette_gzip.DEFAULT_EXCLUDED_CONTENT_TYPES = (
+    "text/event-stream",
+    "application/x-ndjson",
+)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # 性能监控中间件

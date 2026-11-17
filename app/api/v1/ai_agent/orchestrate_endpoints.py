@@ -2132,9 +2132,15 @@ async def update_concurrent_limits(
     token: dict = Depends(verify_admin_token),
 ):
     from app.utils.system_config import system_config_manager
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
 
     if new_limit < 1:
         raise HTTPException(status_code=400, detail="限制值必须为正整数")
+    if new_limit > ConcurrentLimitManager.MAX_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"限制值不能超过 {ConcurrentLimitManager.MAX_LIMIT}",
+        )
 
     username = token.get("sub", "admin")
     record = await system_config_manager.update_concurrent_limit(

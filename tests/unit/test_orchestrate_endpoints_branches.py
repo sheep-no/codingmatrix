@@ -1468,6 +1468,16 @@ async def test_concurrent_limit_endpoints(monkeypatch):
         await endpoints.update_concurrent_limits("user", 0, {"sub": "admin"})
     assert error.value.status_code == 400
 
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
+
+    max_limit = ConcurrentLimitManager.MAX_LIMIT
+    with pytest.raises(HTTPException) as error:
+        await endpoints.update_concurrent_limits(
+            "user", max_limit + 1, {"sub": "admin"}
+        )
+    assert error.value.status_code == 400
+    assert str(max_limit) in error.value.detail
+
     updated = await endpoints.update_concurrent_limits("user", 2, {"sub": "admin"})
     assert updated["new_limit"] == 2
 

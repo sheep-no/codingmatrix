@@ -59,6 +59,9 @@ class ConcurrentLimitManager:
         "premium": 5,
         "enterprise": 10,
     }
+    # 与 session_management.max_active_sessions / health_aware_routing
+    # .max_concurrent_requests 的默认上限一致，避免单个角色被调到压垮进程。
+    MAX_LIMIT = 100
     # 变更日志只用于审计展示，保留最近 N 条即可，避免长期运行无限增长。
     MAX_CHANGE_LOG = 500
 

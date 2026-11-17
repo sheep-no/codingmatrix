@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import redis
 from pydantic import ValidationError
 from starlette.requests import Request
 
@@ -715,3 +716,62 @@ class TestValidatorsDirect:
     def test_fallback_chain_invalid_item(self):
         with pytest.raises(ValueError):
             apikey.UpdateFallbackPreferenceRequest._validate_custom_chain([""])
+
+
+def _assert_storage_unavailable(exc: pytest.ExceptionInfo) -> None:
+    assert exc.value.status_code == 503
+    assert exc.value.detail["code"] == "storage_unavailable"
+    assert exc.value.headers["Retry-After"] == "5"
+
+
+class TestStorageUnavailable:
+    """Redis 不可用时统一返回 503，而不是业务错误 403/500。"""
+
+    @pytest.mark.asyncio
+    async def test_submit_key(self, manager):
+        manager.store_error = redis.exceptions.ConnectionError("redis down")
+        request = apikey.SubmitKeyRequest(
+            encrypted_key="enc", provider="openai", ttl=3600
+        )
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.submit_key(_request(), request, "u")
+        _assert_storage_unavailable(exc)
+
+    @pytest.mark.asyncio
+    async def test_test_key(self, manager):
+        def _boom(user_id, token):
+            raise redis.exceptions.TimeoutError("redis timeout")
+
+        manager.get_key = _boom
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.test_key(
+                _request(), apikey.TestKeyRequest(token="t"), "u"
+            )
+        _assert_storage_unavailable(exc)
+
+    @pytest.mark.asyncio
+    async def test_delete_key(self, manager):
+        def _boom(user_id, token):
+            raise OSError("connection refused")
+
+        manager.delete_key = _boom
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.delete_key(_request(), "t", "u")
+        _assert_storage_unavailable(exc)
+
+    @pytest.mark.asyncio
+    async def test_list_keys(self, manager):
+        manager.list_error = redis.exceptions.ConnectionError("redis down")
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.list_keys(_request(), "u")
+        _assert_storage_unavailable(exc)
+
+    @pytest.mark.asyncio
+    async def test_update_enabled(self, manager):
+        def _boom(user_id, token, enabled):
+            raise redis.exceptions.ConnectionError("redis down")
+
+        manager.update_enabled = _boom
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.update_enabled(_request(), "t", True, "u")
+        _assert_storage_unavailable(exc)

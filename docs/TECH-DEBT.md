@@ -795,6 +795,21 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 
 全量回归：`14671 passed, 2 skipped, 0 failed`（662.60s），`TOTAL 63659 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_r46.json`。
 
+### 后端缺陷扫描第四十二轮：客户端交回四项后端问题（2026-11-17）
+
+客户端联调交回四项后端缺陷：Redis 故障被误报为业务失败、NDJSON 流被 GZip 缓冲、并发限制缺少上限、学习数据错误信息未归一化。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | Redis 不可用时 API Key 端点把存储故障混进通用异常：提交返回 403「Key 存储失败」，列表/删除/测试/启用返回 500。客户端据此提示 Key 本身有问题，用户会反复重试甚至删除有效 Key | `app/api/v1/apikey.py` | 已解决；新增 `RedisError`/`OSError` 分支，统一返回 503，`detail.code=storage_unavailable` 并带 `Retry-After: 5`；`RuntimeError` 仅保留配额超限并回显真实原因。回归 `TestStorageUnavailable` 5 例 |
+| P0 | 工作流事件流 `application/x-ndjson` 被 `GZipMiddleware` 压缩。Starlette 默认只排除 `text/event-stream`，gzip 会把小分片缓冲到流结束才可解码，前端在整个流期间拿不到任何事件 | `app/main.py`、`app/api/v1/workflow.py` | 已解决；把 `application/x-ndjson` 加入 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 走透传，普通 JSON 仍压缩。回归 `tests/unit/test_gzip_ndjson_streaming.py` 2 例 |
+| P1 | `PUT /agent/concurrent-limits` 只校验 `new_limit >= 1`，管理员可把单个角色的并发限制调到任意大，直接压垮进程 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；`ConcurrentLimitManager.MAX_LIMIT = 100`（与 `max_active_sessions`、`max_concurrent_requests` 默认值对齐），超限返回 400 |
+| P1 | `FixPattern.error_message` 直接落库解析器/模型原始输出，含 `&#10;` 等 HTML 实体且实测可达 1658 字符；`get_common_errors` 原样返回给前端 | `app/agent/feedback_learner.py` | 已解决；新增 `_sanitize_error_message`（`html.unescape` + 空白折叠 + 200 字符截断），在落库与 `get_common_errors` 输出两处生效，`failure_reason` 同步归一化 |
+
+反向验证：逐项回退源码后对应用例失败（B1 5 例、B2 1 例、B3 1 例、B4 3 例），恢复后全部通过。
+
+全量回归：`14681 passed, 2 skipped, 0 failed`（583.91s），`TOTAL 63686 stmts / 0 miss / 20414 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b_full.json`。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
