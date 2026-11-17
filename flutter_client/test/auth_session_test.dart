@@ -725,4 +725,53 @@ void main() {
       }
     },
   );
+
+  test(
+    'JSON error bodies surface the backend message instead of a bare status',
+    () async {
+      final f = Fixture();
+      await f.login();
+      f.business = (_) async => http.Response(
+        jsonEncode({
+          'code': 'INTERNAL_ERROR',
+          'message': '获取 Key 列表失败',
+          'details': {'path': '/api/v1/agent/apikeys'},
+        }),
+        500,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+      await expectLater(
+        f.api.requestJson('/api/v1/agent/apikeys'),
+        throwsA(
+          predicate(
+            (e) =>
+                e is CloudAuthException &&
+                e.statusCode == 500 &&
+                e.message == '获取 Key 列表失败（HTTP 500）',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'unstructured error bodies never leak server text',
+    () async {
+      final f = Fixture();
+      await f.login();
+      f.business = (_) async => http.Response('secret-provider-key', 500);
+      await expectLater(
+        f.api.requestJson('/api/v1/agent/apikeys'),
+        throwsA(
+          predicate(
+            (e) =>
+                e is CloudAuthException &&
+                e.statusCode == 500 &&
+                !e.message.contains('secret') &&
+                e.message.contains('HTTP 500'),
+          ),
+        ),
+      );
+    },
+  );
 }
