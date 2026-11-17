@@ -391,7 +391,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('Agent 统计'), findsOneWidget);
-    expect(find.textContaining('上一账号的统计'), findsOneWidget);
+    expect(find.textContaining('上一账号的统计'), findsWidgets);
 
     auth.switchAccount('bob');
     await tester.pumpAndSettle();
@@ -711,8 +711,103 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pump();
     await tester.pump();
+    expect(find.text('调整并发限制'), findsOneWidget);
     expect(find.textContaining('更新失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('并发限制输入 0 或非数字停留弹窗并提示正整数', (tester) async {
+    var calls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            return const <String, Object?>{};
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('并发限制'));
+    await tester.pump();
+
+    final fields = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(1), '0');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(find.text('限制值必须为正整数'), findsOneWidget);
+    expect(find.text('调整并发限制'), findsOneWidget);
+
+    await tester.enterText(fields.at(1), 'abc');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(find.text('限制值必须为正整数'), findsOneWidget);
+
+    await tester.enterText(fields.at(0), '');
+    await tester.enterText(fields.at(1), '1');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(find.text('请输入角色'), findsOneWidget);
+    expect(calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('并发限制保存成功关闭弹窗并提示', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            expect(
+              path,
+              '/api/v1/agent/concurrent-limits?role=default&new_limit=5',
+            );
+            expect(method, 'PUT');
+            return const <String, Object?>{'new_limit': 5};
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('并发限制'));
+    await tester.pump();
+    await tester.enterText(
+      find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(TextField),
+          )
+          .at(1),
+      '5',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('调整并发限制'), findsNothing);
+    expect(find.text('并发限制已更新'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('快照回滚网络断开会带上异常原文', (tester) async {
