@@ -10,6 +10,7 @@ import '../domain/models/unified_models.dart';
 import '../infrastructure/sse/sse_parser.dart';
 import 'account_overlays.dart';
 import 'agent_decision_page.dart';
+import 'model_service_hint.dart';
 import 'project_files_page.dart';
 
 /// The Agent workbench body: prompt input, generation switches, task overview
@@ -140,7 +141,8 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
                   ),
                   child: const Text('查看项目文件'),
                 ),
-              if (workbench.actionError != null) Text(workbench.actionError!),
+              if (workbench.actionError != null)
+                ModelServiceHint(error: workbench.actionError!),
               if (task?.status == 'disconnected')
                 const Text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'),
             ],
@@ -428,10 +430,7 @@ class _OverviewCard extends StatelessWidget {
               const SizedBox(height: 18),
               Text('失败原因', style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 6),
-              SelectableText(
-                failure,
-                style: TextStyle(color: statusColor, fontSize: 12),
-              ),
+              ModelServiceHint(error: failure),
             ],
           ],
         ),

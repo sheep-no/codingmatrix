@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import '../application/chat_controller.dart';
 import '../application/auth_controller.dart';
 import 'account_overlays.dart';
+import 'model_service_hint.dart';
 import 'shell_scaffold.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -157,10 +158,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           if (chat.error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                chat.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              child: ModelServiceHint(error: chat.error!),
             ),
           if (_attachmentError != null)
             Text(
