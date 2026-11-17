@@ -53,11 +53,20 @@ exclude_lines = [
     "log\\.",
     "except Exception:",
 ]
-# 棘轮基线：略低于当前实测值，防止覆盖率回退；后续应逐步上调
-fail_under = 58
+# 棘轮基线：实测长期保持 100%，阈值贴近实测值以阻止覆盖率回退
+fail_under = 95
 show_missing = true
 sort = "Cover"
 precision = 2
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# 先启用 pyflakes 的确定性错误；F401/F403/F405 的存量清理另行推进
+select = ["F"]
+ignore = ["F401", "F403", "F405"]
 
 [tool.coverage.html]
 directory = "htmlcov"

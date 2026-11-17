@@ -46,6 +46,7 @@ from app.agent.utils import (
     write_file_atomic,
 )
 from app.agent.validation_coordinator import ValidationCoordinator
+from .coverage_checker import check_required_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +212,7 @@ class SpecFirstGenerateMixin:
         callback: Callable | None = None
     ) -> dict[str, Any]:
         start_time = time.time()
+        raw_requirement = requirement
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.generated_files = []
@@ -1188,8 +1190,21 @@ class SpecFirstGenerateMixin:
         self._report_current_cost()
         self._report_final_metrics()
 
+        artifact_check = check_required_artifacts(
+            raw_requirement,
+            [
+                str(item.get("path"))
+                for item in self.generated_files
+                if isinstance(item, dict) and item.get("path")
+            ],
+        )
+        if artifact_check["checked"] and artifact_check["missing"]:
+            self.errors.append(
+                "需求指定的关键文件缺失: " + ", ".join(artifact_check["missing"])
+            )
+
         return {
-            "success": files_failed == 0,
+            "success": files_failed == 0 and artifact_check["passed"],
             "output_dir": self.output_dir.name,
             "total_files_created": files_generated,
             "total_files_failed": files_failed,
@@ -1212,6 +1227,7 @@ class SpecFirstGenerateMixin:
             "requirement_coverage": self._check_requirement_coverage(
                 requirement, architecture, file_plan
             ),
+            "required_artifacts": artifact_check,
             "global_constraints": ctx.get_metric("global_constraints"),
             "critical_decisions": ctx.get_metric("critical_decisions"),
             "architecture_check": ctx.get_metric("architecture_check"),

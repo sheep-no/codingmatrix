@@ -232,7 +232,7 @@ async def check_nginx(
             stream=True,
         )
         
-        logger.info(f"返回 AI 流式响应分析配置错误")
+        logger.info("返回 AI 流式响应分析配置错误")
         
         return StreamingResponse(
             stream_gen,
@@ -247,7 +247,7 @@ async def check_nginx(
         raise HTTPException(status_code=500, detail="Nginx 检查超时")
         
     except FileNotFoundError:
-        logger.error(f"nginx 命令未找到 | 请确保 nginx 已安装并在 PATH 中")
+        logger.error("nginx 命令未找到 | 请确保 nginx 已安装并在 PATH 中")
         raise HTTPException(status_code=500, detail="nginx 命令未安装或不在 PATH 中")
         
     except Exception as e:
@@ -362,7 +362,7 @@ async def deploy_nginx(
         logger.info(f"配置已写入 | path={config_path}")
         
         # 4. 测试配置（阻塞调用放进线程，避免卡住事件循环）
-        logger.info(f"测试 Nginx 配置")
+        logger.info("测试 Nginx 配置")
         result = await asyncio.to_thread(
             subprocess.run,
             ["nginx", "-t", "-c", f"{req.nginx_path}/nginx.conf"],
@@ -389,7 +389,7 @@ async def deploy_nginx(
             )
         
         # 5. 重载 Nginx（阻塞调用放进线程，避免卡住事件循环）
-        logger.info(f"重载 Nginx")
+        logger.info("重载 Nginx")
         reload_result = await asyncio.to_thread(
             subprocess.run,
             ["nginx", "-s", "reload"],
@@ -419,7 +419,7 @@ async def deploy_nginx(
         raise
 
     except subprocess.TimeoutExpired:
-        logger.error(f"Nginx 操作超时")
+        logger.error("Nginx 操作超时")
         if backup_path:
             shutil.copy2(backup_path, config_path)
         raise HTTPException(status_code=500, detail="Nginx 操作超时")

@@ -144,7 +144,7 @@ def resolve_ttl(ttl_input) -> int:
             raise ValueError(f"自定义 TTL 不能超过 {MAX_CUSTOM_TTL} 秒（约 10 年）")
         return custom_seconds
     else:
-        raise ValueError(f"TTL 类型无效，必须是字符串或整数")
+        raise ValueError("TTL 类型无效，必须是字符串或整数")
 
 MAX_KEYS_PER_USER = 20
 

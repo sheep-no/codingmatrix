@@ -167,9 +167,9 @@ class ServiceConfigManager:
         if 'redis' in name_lower:
             return f"docker restart redis-{port}"
         elif 'mysql' in name_lower:
-            return f"systemctl restart mysql"
+            return "systemctl restart mysql"
         elif 'nginx' in name_lower:
-            return f"nginx -s reload"
+            return "nginx -s reload"
         else:
             return f"# 请手动配置重启命令: {process_name}"
 

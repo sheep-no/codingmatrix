@@ -1177,6 +1177,16 @@ def compact_project_context_for_file(file_path: str, project_context: dict[str, 
     generated_signatures = project_context.get("generated_signatures")
     if isinstance(generated_signatures, dict) and generated_signatures:
         compact["already_generated"] = generated_signatures
+    envelope = project_context.get("context_envelope")
+    envelope_has_retrieval = isinstance(envelope, dict) and any(
+        isinstance(item, dict) and item.get("source") == "retrieval"
+        for item in (envelope.get("items") or [])
+    )
+    if not envelope_has_retrieval:
+        from app.agent.retrieval.local_context import retrieve_local_chunks
+        retrieved = retrieve_local_chunks(normalized, project_context, file_plan)
+        if retrieved:
+            compact["retrieved_context"] = retrieved
     original_content = str(project_context.get("original_content") or "")
     if not original_content and isinstance(generation_contract, dict):
         original_content = str(generation_contract.get("original_content") or "")

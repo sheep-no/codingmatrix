@@ -196,7 +196,7 @@ class AsyncProcessGuardian:
             return False
 
         except asyncio.TimeoutError:
-            self.logger.error(f"重启命令超时")
+            self.logger.error("重启命令超时")
             return False
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             self.logger.error(f"重启过程异常: {e}")

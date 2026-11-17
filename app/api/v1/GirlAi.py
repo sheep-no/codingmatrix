@@ -316,7 +316,7 @@ def _clean_response(content: str, character_name: str) -> str:
     # 只移除以角色名开头的前缀，保留表情符号
     patterns = [
         rf"^{re.escape(character_name)}:\s*",
-        rf"^【[^】]*】\s*",
+        r"^【[^】]*】\s*",
         r'^":\s*'
     ]
 

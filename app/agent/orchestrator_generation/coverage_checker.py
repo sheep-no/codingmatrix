@@ -12,6 +12,22 @@ COVERAGE_ARCH_FIELDS = ("project_type", "tech_stack", "database", "api_endpoints
 _ASCII_WORD_RE = re.compile(r"[a-zA-Z0-9_]+")
 _CJK_SEG_RE = re.compile(r"[\u4e00-\u9fff]+")
 
+# 需求中显式点名的可创建文件；只覆盖常见源码/文档/配置扩展名。
+_ARTIFACT_RE = re.compile(
+    r"(?<![\w/.-])((?:[\w.-]+/)*[\w.-]+"
+    r"\.(?:html?|md|json|ya?ml|toml|txt|py|js|jsx|ts|tsx|vue|css|scss|java|go|rs|sh))"
+)
+_SENTENCE_SPLIT_RE = re.compile(r"[。；;！!\n]")
+_CLAUSE_SPLIT_RE = re.compile(r"[，,]")
+_ROOT_HINTS = (
+    "根级", "根目录", "项目根", "根路径", "仓库根",
+    "root-level", "project root", "repository root",
+)
+_CREATE_HINTS = (
+    "生成", "创建", "包含", "输出", "提供", "需要", "必须", "放在", "写入", "添加",
+    "create", "generate", "include", "provide", "output", "add", "write", "must",
+)
+
 
 def _tokenize(text: str) -> list[str]:
     """切分出可匹配的检索单元。
@@ -98,4 +114,74 @@ def check_requirement_coverage(
         "total_items": len(confirmed_items),
         "uncovered": uncovered,
         "coverage_rate": coverage_rate,
+    }
+
+
+def extract_required_artifacts(requirement: str) -> list[dict[str, Any]]:
+    """Extract files the requirement explicitly asks to create.
+
+    A path becomes a hard requirement only when the same sentence names it in a
+    clause carrying a creation verb. Root-level hints apply to the whole
+    sentence, so "根级 index.html 与 README.md" marks both as root files.
+    """
+    if not requirement:
+        return []
+    found: dict[str, bool] = {}
+    order: list[str] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(requirement):
+        if not sentence.strip():
+            continue
+        lowered = sentence.lower()
+        root_scoped = any(hint in lowered for hint in _ROOT_HINTS)
+        for clause in _CLAUSE_SPLIT_RE.split(sentence):
+            clause_lower = clause.lower()
+            if not any(hint in clause_lower for hint in _CREATE_HINTS):
+                continue
+            for match in _ARTIFACT_RE.finditer(clause):
+                path = match.group(1).strip("./")
+                if not path or path.startswith(("http", "www.")):
+                    continue
+                if path not in found:
+                    found[path] = root_scoped
+                    order.append(path)
+                elif root_scoped:
+                    found[path] = True
+    return [{"path": path, "root": found[path]} for path in order]
+
+
+def check_required_artifacts(
+    requirement: str,
+    generated_paths: list[str],
+) -> dict[str, Any]:
+    """Verify requirement-named artifacts exist in the generated paths.
+
+    Root-scoped artifacts must sit at the project root; other artifacts may be
+    nested (``README.md`` under ``docs/`` counts unless root was requested).
+    """
+    required = extract_required_artifacts(requirement)
+    if not required:
+        return {
+            "checked": False,
+            "required": [],
+            "missing": [],
+            "passed": True,
+        }
+    existing = {str(path).replace("\\", "/").strip("./") for path in generated_paths if path}
+    missing = []
+    for item in required:
+        path = item["path"]
+        if item["root"]:
+            satisfied = path in existing
+        else:
+            satisfied = any(
+                candidate == path or candidate.endswith("/" + path)
+                for candidate in existing
+            )
+        if not satisfied:
+            missing.append(path)
+    return {
+        "checked": True,
+        "required": required,
+        "missing": missing,
+        "passed": not missing,
     }

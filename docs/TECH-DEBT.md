@@ -43,7 +43,7 @@
 | P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 已解决；`Dockerfile` `HEALTHCHECK` 与两个 compose 的 `healthcheck` 均指向 `/api/v1/health`，与应用挂载路径一致。补 1 项编排守卫 |
 | P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 已解决；两处端点统一读 `app.core.version.APP_VERSION` |
 | P2 | StateGraph 生产入口仍以单节点 legacy wrapper 为主 | `app/agent/state/`、`app/agent/workflow_registry.py` | 仍在 |
-| P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 仍在 |
+| P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 已解决；legacy 默认链在 `compact_project_context_for_file` 中调用 `local_context.retrieve_local_chunks`，按目标文件对架构、契约、Profile 与文件计划排序取 4 段（总 1600 字符）注入提示；core 适配器继续走 `RetrievalService` + `ContextAssembler` 信封。回归 `test_local_retrieval_context.py` 5 例 |
 | P2 | 跨工作台续跑与多 worker 恢复缺独立验收 | `app/api/v1/agent_host.py`、`app/agent/state/` | 仍在 |
 | P3 | 无时区时间调用在模型、状态、PPT 和 Skill 模块仍有残留 | `app/models/`、`app/services/` | 已解决（非 Agent 范围）；非 Agent 子系统 62 处全部迁移到 `utcnow_naive()` / `datetime.now(timezone.utc)`，剩余调用均在 Agent 子系统（`agent_memory_service`、`skill_registry`、`unified_state_service`、`state_migration_service` 等），按归属裁定不在本轮范围 |
 | P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
@@ -822,6 +822,21 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 回归：`tests/unit/test_error_handler_gaps.py` 新增字典 detail（有/无 message）、非 str/dict detail、503 大小写头部、真实 `TestClient` 503 信封共 6 例。反向验证：回退 `code` 平铺后 2 例失败，回退整套修复后 5 例失败，恢复后全部通过。
 
 全量回归：`14686 passed, 2 skipped, 0 failed`（621.25s），`TOTAL 63699 stmts / 0 miss / 20422 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b1_extra_full.json`。
+
+### 纵深闭合：产物门禁、检索主链与质量阈值（2026-11-17）
+
+针对四项“功能广度足够、纵深未闭合”的残留，本轮补齐可测试的硬约束。
+
+| 优先级 | 缺口 | 实际位置 | 处理 |
+|---|---|---|---|
+| P1 | 需求明确点名的根级文件缺失时仍返回 `success=true`（实测：要求根级 `index.html` 与 `README.md`，产物落在 `src/` 且无 README） | `app/agent/orchestrator_generation/coverage_checker.py`、`traditional_generate.py`、`spec_first_generate.py` | 已解决；新增 `extract_required_artifacts`/`check_required_artifacts`，仅在句内出现创建动词时生效，根级限定要求精确匹配根路径；缺失时写入 `errors` 并令 `success=false`，结果新增 `required_artifacts`。回归 6 例（纯函数 4 + 两条生成链各 1） |
+| P2 | 统一检索只接在 core 适配器，legacy 默认链未消费 | `app/agent/retrieval/local_context.py`、`app/agent/utils.py` | 已解决；新增确定性本地检索源，按目标文件排序架构/契约/Profile/文件计划，注入 `retrieved_context`，总预算 1600 字符并保留来源。已有信封检索时不再重复注入。回归 5 例 |
+| P2 | 覆盖率门槛 58% 远低于实测 100%，ruff 装了但未进门禁 | `pyproject.toml`、`.github/workflows/ci.yml` | 已解决；`fail_under` 提到 95，新增 `[tool.ruff]`（py311、120 列）与 pyflakes 规则（暂忽略存量 F401/F403/F405、F541 已清零），CI 增加 `ruff check app` |
+| P3 | 文件版本 tab 的 404 在文档中仍被当作未修复 | `.monkeycode/docs/PENDING-VERIFICATION.md` | 已澄清；该 404 由 2026-11-09 的 `_locate_snapshot_project_dir` 修复，`output_dir` 优先与回退两条路径均有回归 |
+
+仍未闭合：StateGraph 生产入口保持单节点 wrapper（迁移边界，非缺陷）、Flutter 本地验证未接入 `required_validation_scopes`（缺少跨平台命令执行器）、跨工作台多 worker 续跑缺独立验收。
+
+验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 14713 passed / 2 skipped，覆盖 99.99%（`/tmp/opencode/cov_depth_full2.json`）；未覆盖的 7 行集中在工作流分解心跳与用户默认 Key 两条时序分支，本轮改动文件均为 100%。`ruff check app` 全绿，全量修复仅涉及 24 处无占位符的 f-string 前缀。
 
 ### 本轮逐文件验证（2026-09-27）
 

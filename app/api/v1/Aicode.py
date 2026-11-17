@@ -1101,7 +1101,7 @@ async def stream_response(
         # 检查响应是否为空，避免保存空记录
         if not full_response or not full_response.strip():
             logger.warning(f"AI 生成响应为空 | user_id={user_id} | prompt={prompt[:50]}...")
-            yield f'{{"error": "AI 生成响应为空，未保存历史记录"}}\n'
+            yield '{"error": "AI 生成响应为空，未保存历史记录"}\n'
             return
 
         logger.info(f"流式生成完成，保存历史记录 | response_length={len(full_response)}")

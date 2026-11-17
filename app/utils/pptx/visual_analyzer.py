@@ -163,7 +163,7 @@ class PPTVisualAnalyzer:
             image_data_uri = f"data:image/png;base64,{image_base64}"
 
             # 构建提示词
-            prompt = f"""请分析这张 PPT 幻灯片预览图的布局和样式。
+            prompt = """请分析这张 PPT 幻灯片预览图的布局和样式。
 
 要求：
 1. 描述整体布局类型（如：标题页、内容页、左文右图、居中布局等）

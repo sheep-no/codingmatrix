@@ -9,6 +9,7 @@ from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
 from app.utils.AiCodeUtil import get_embedding
+from .coverage_checker import check_required_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class TraditionalGenerateMixin:
     @traced("orchestrator.traditional", attributes={"component": "orchestrator"})
     async def _generate_traditional(self, requirement: str, callback: Callable | None = None) -> dict[str, Any]:
         start_time = time.time()
+        raw_requirement = requirement
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.generated_files = []
@@ -352,6 +354,19 @@ class TraditionalGenerateMixin:
                 f"未覆盖项: {uncovered_desc}"
             )
 
+        artifact_check = check_required_artifacts(
+            raw_requirement,
+            [
+                str(item.get("path"))
+                for item in self.generated_files
+                if isinstance(item, dict) and item.get("path")
+            ],
+        )
+        if artifact_check["checked"] and artifact_check["missing"]:
+            self.errors.append(
+                "需求指定的关键文件缺失: " + ", ".join(artifact_check["missing"])
+            )
+
         try:
             domain = self._association_result.domain_matched if hasattr(self, '_association_result') and self._association_result else ""
             await self._extract_and_save_feature_list(
@@ -406,6 +421,7 @@ class TraditionalGenerateMixin:
             ],
             "session_id": self.session_id,
             "requirement_coverage": coverage_check,
+            "required_artifacts": artifact_check,
             "cost": self.cost_tracker.get_summary() if hasattr(self, 'cost_tracker') else {},
             "performance": {
                 "total_duration": round(elapsed, 1),

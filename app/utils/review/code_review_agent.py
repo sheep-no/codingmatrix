@@ -328,7 +328,7 @@ class CodeReviewAgent:
                         column=0,
                         category=ReviewCategory.DOCUMENTATION,
                         severity=SeverityLevel.INFO,
-                        message=f"函数缺少文档字符串",
+                        message="函数缺少文档字符串",
                         code_snippet=f"def {node.name}(...)"
                     ))
             
