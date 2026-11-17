@@ -84,6 +84,7 @@ from app.api.v2.model_admin import router as modelAdminRouter
 from app.api.v2.model_config_api import router as modelConfigRouter
 from app.api.v2.mcp_admin import router as mcpAdminRouter
 from app.db.database import async_session
+from app.db.session_recovery import reconcile_interrupted_sessions
 from app.db.scheduler import start_scheduler, stop_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
@@ -129,6 +130,12 @@ async def lifespan(App: FastAPI):
         await run_async_migrations()
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"数据库迁移异常 | error={str(e)}")
+
+    try:
+        async with async_session() as db:
+            await reconcile_interrupted_sessions(db)
+    except (SQLAlchemyError, OSError) as e:
+        logger.error(f"重启会话状态回收失败 | error={str(e)}")
 
     if settings.ENABLE_SCHEDULER:
         try:

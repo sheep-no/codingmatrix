@@ -509,6 +509,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         
         for session in running_sessions:
             is_zombie = False
+            is_expired = False
             
             # 检查 1：最后活动时间超过 7 天
             last_activity_at = session.last_activity_at
@@ -516,6 +517,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
                 last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
             if last_activity_at and last_activity_at < timeout_threshold:
                 is_zombie = True
+                is_expired = True
                 logger.warning(f"检测到超时会话 (最后活动超过7天): session_id={session.session_id}, user_id={user_id}")
             
             # 检查 2：内存中无该会话
@@ -526,13 +528,17 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
                     logger.warning(f"检测到僵尸会话 (内存无状态): session_id={session.session_id}, user_id={user_id}")
             
             if is_zombie:
-                # 清理文件
-                if session.output_dir:
+                # 仅过期会话回收磁盘；进程崩溃/重启留下的近期文件保留以支持继续生成。
+                if is_expired and session.output_dir:
                     cleanup_session_files(session.output_dir)
                 
                 # 标记为 failed
                 session.status = "failed"
-                session.error_message = "僵尸会话自动清理（超时或进程崩溃）"
+                session.error_message = (
+                    "会话超时自动清理"
+                    if is_expired
+                    else "僵尸会话自动清理（进程崩溃或重启，已生成文件保留）"
+                )
                 session.completed_at = datetime.now(timezone.utc)
                 
                 zombie_count += 1

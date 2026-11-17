@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import time
 from collections import deque
@@ -49,6 +50,11 @@ PASSTHROUGH_SSE_EVENTS: frozenset[str] = frozenset({
     "react_tool_call", "react_tool_result", "react_generating",
     "pipeline_mode",
 })
+
+# 客户端断开后允许后台继续生成的宽限期；超时仍无连接则停止，避免任务永久挂起。
+BACKGROUND_DISCONNECT_GRACE_SECONDS = float(
+    os.getenv("AGENT_BACKGROUND_GRACE_SECONDS", "1800")
+)
 
 
 def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: bool | None = None) -> dict[str, Any]:
@@ -432,6 +438,7 @@ async def _cancel_active_generation(session_id: str) -> bool:
     active_task = _active_tasks.pop(session_id, None)
     if not active_task:
         return False
+    _cancel_background_abandon(active_task)
     gen_task = active_task.get("gen_task")
     if not gen_task or gen_task.done():
         return True
@@ -467,6 +474,7 @@ async def _cancel_stream_generation(
     await asyncio.gather(generation_task, return_exceptions=True)
     active = _active_tasks.get(session_id)
     if active is not None and active.get("gen_task") is generation_task:
+        _cancel_background_abandon(active)
         _active_tasks.pop(session_id, None)
 
 
@@ -491,10 +499,65 @@ async def _watch_stream_disconnect(
                     active["connected"] = (
                         channel.has_subscribers() if channel is not None else False
                     )
+                    if not active["connected"]:
+                        _schedule_background_abandon(session_id, active)
                 return
             await asyncio.sleep(0.25)
     except asyncio.CancelledError:
         return
+
+
+def _cancel_background_abandon(active: dict) -> None:
+    abandon_task = active.pop("abandon_task", None)
+    if abandon_task is not None and not abandon_task.done():
+        abandon_task.cancel()
+
+
+def _schedule_background_abandon(session_id: str, active: dict) -> None:
+    """Stop a detached generation after the reconnect grace period."""
+    existing = active.get("abandon_task")
+    if existing is not None and not existing.done():
+        return
+    gen_task = active.get("gen_task")
+    if gen_task is None or gen_task.done():
+        return
+    active["abandon_task"] = asyncio.create_task(
+        _abandon_background_generation(session_id, gen_task)
+    )
+
+
+async def _abandon_background_generation(
+    session_id: str,
+    gen_task: asyncio.Task,
+) -> None:
+    try:
+        await asyncio.sleep(BACKGROUND_DISCONNECT_GRACE_SECONDS)
+    except asyncio.CancelledError:
+        return
+
+    active = _active_tasks.get(session_id)
+    if active is None or active.get("gen_task") is not gen_task:
+        return
+    if active.get("connected") or gen_task.done():
+        return
+
+    logger.warning(
+        "[SSE] 后台生成超过 %.0fs 无连接，停止任务 | session=%s",
+        BACKGROUND_DISCONNECT_GRACE_SECONDS,
+        session_id,
+    )
+    cancel_event = active.get("cancel_event")
+    if cancel_event is not None:
+        cancel_event.set()
+    gen_task.cancel()
+    try:
+        await asyncio.wait_for(gen_task, timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+    except Exception:
+        logger.debug("后台任务停止时异常 | session=%s", session_id, exc_info=True)
+    sm = await get_session_manager()
+    await sm.cancel_session(session_id)
 
 
 def _skill_context_for_user(user_id: str, requirement: str = "") -> str:
@@ -1112,6 +1175,7 @@ async def orchestrate_project_stream(
             raise HTTPException(status_code=409, detail="任务已结束或当前进程无可重连任务，请刷新详情")
         if not await _mark_disconnected_if_stale(active):
             raise HTTPException(status_code=409, detail="任务仍有订阅连接，请断开后重试")
+        _cancel_background_abandon(active)
         active["connected"] = True
 
         async def resume_events():
@@ -1131,6 +1195,8 @@ async def orchestrate_project_stream(
             finally:
                 channel.unsubscribe(subscriber_queue)
                 active["connected"] = channel.has_subscribers()
+                if not active["connected"]:
+                    _schedule_background_abandon(session.session_id, active)
 
         return StreamingResponse(resume_events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1208,6 +1274,7 @@ async def orchestrate_project_stream(
                     )
                     await _supersede_running_generation(db, running_session)
                 else:
+                    _cancel_background_abandon(active_task)
                     active_task["connected"] = True
                     logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
                     async def reconnect_generator():
@@ -1230,6 +1297,10 @@ async def orchestrate_project_stream(
                         finally:
                             channel.unsubscribe(subscriber_queue)
                             active_task["connected"] = channel.has_subscribers()
+                            if not active_task["connected"]:
+                                _schedule_background_abandon(
+                                    running_session.session_id, active_task
+                                )
 
                     return StreamingResponse(
                         reconnect_generator(),
@@ -1670,6 +1741,10 @@ async def orchestrate_project_stream(
                 active = _active_tasks.get(session_id)
                 if active:
                     active["connected"] = channel.has_subscribers()
+                    if active["connected"]:
+                        _cancel_background_abandon(active)
+                    elif not gen_task.done():
+                        _schedule_background_abandon(session_id, active)
                 # 不设置 cancel_event，不取消 gen_task
                 # 生成任务在服务端独立运行，用户重新连接后可查看进度
                 if not gen_task.done():
@@ -1679,6 +1754,8 @@ async def orchestrate_project_stream(
                 # 但 gen_task 已完成且无异常 → 生成实际上已成功 → 不可标 cancelled
                 gen_finished = gen_task.done()
                 if generation_completed or gen_finished:
+                    if active:
+                        _cancel_background_abandon(active)
                     if cancel_event.is_set() or gen_task.cancelled():
                         logger.info(f"[SSE] 生成已停止 | session={session_id}")
                     else:
@@ -1689,6 +1766,9 @@ async def orchestrate_project_stream(
                     logger.info(f"[SSE] 生成未完成，任务继续在后台运行 | session={session_id}")
                     # 注册完成回调，任务结束后清理 _active_tasks
                     def _on_task_done(t):
+                        finished = _active_tasks.get(session_id)
+                        if finished:
+                            _cancel_background_abandon(finished)
                         _active_tasks.pop(session_id, None)
                         logger.info(f"[SSE] 后台任务完成，清理活跃任务 | session={session_id}")
                     gen_task.add_done_callback(_on_task_done)
