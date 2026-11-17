@@ -126,6 +126,7 @@ class ChatController extends Notifier<ChatState> {
   Future<void> send(
     String prompt, {
     String? model,
+    String? apiKeyToken,
     bool reasoning = false,
     bool? search,
     List<Map<String, dynamic>>? files,
@@ -187,6 +188,7 @@ class ChatController extends Notifier<ChatState> {
               prompt: value,
               conversationId: conversationId,
               model: model,
+              apiKeyToken: apiKeyToken,
               reasoning: reasoning,
               search: search,
               files: attachments.isEmpty ? null : attachments,
@@ -231,6 +233,7 @@ class ChatController extends Notifier<ChatState> {
           prompt: value,
           conversationId: conversationId,
           model: model,
+          apiKeyToken: apiKeyToken,
           reasoning: reasoning,
           search: search,
           files: attachments.isEmpty ? null : attachments,
