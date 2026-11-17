@@ -1703,3 +1703,52 @@ class TestGetUserKey:
     def test_provider_base_urls(self):
         assert "anthropic" in llm_caller._get_provider_base_url(ModelProvider.ANTHROPIC)
         assert llm_caller._get_provider_base_url("unknown") == "https://api.siliconflow.cn/v1"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_auto_uses_user_default_key(monkeypatch):
+    primary = ModelProvider.SILICONFLOW
+    meta = SimpleNamespace(token="t" * 32, enabled=True, status="verified")
+    manager = SimpleNamespace(
+        list_keys=lambda user_id: [meta],
+        get_key=lambda user_id, token: "sk-user",
+    )
+
+    class Router:
+        def route(self, model):
+            return primary
+
+        def get_fallback_providers(self, provider, model):
+            return []
+
+    class Adapter:
+        provider = primary
+        api_key = "sk-user"
+        timeout = 0
+
+        async def call_llm(self, **kwargs):
+            return {"ok": True}
+
+    seen = []
+
+    async def fake_get_adapter(provider, config=None):
+        seen.append(config)
+        return Adapter()
+
+    monkeypatch.setattr("app.utils.logging.get_user_id", lambda: "u")
+    monkeypatch.setattr(
+        "app.services.apikey_manager.get_apikey_manager", lambda: manager
+    )
+    monkeypatch.setattr(
+        "app.utils.aicloud.dynamic_provider.get_dynamic_provider_manager",
+        lambda: SimpleNamespace(get_by_model=lambda model, user: None),
+    )
+    monkeypatch.setattr(
+        llm_caller.ProviderRouter,
+        "get_instance",
+        classmethod(lambda cls, registry=None: Router()),
+    )
+    monkeypatch.setattr(llm_caller, "get_adapter", fake_get_adapter)
+
+    assert await llm_caller.call_llm("m", "p") == {"ok": True}
+    assert seen[0].api_key == "sk-user"

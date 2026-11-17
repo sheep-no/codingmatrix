@@ -620,6 +620,47 @@ async def call_llm(
             adapter = DynamicAdapter(dp)
             adapter.timeout = timeout
             logger.debug(f"通过动态供应商 {dp.name} 调用模型: {model}")
+
+    # 优先级 3.5: 请求上下文有用户但未显式传 token 时，使用该用户首个可用 Key。
+    # 系统环境不再内置供应商 Key，工作流等未携带 token 的调用需要走用户授权。
+    if adapter is None and not api_key_token:
+        from app.utils.logging import get_user_id
+        from app.services.apikey_manager import get_apikey_manager
+
+        user_id = get_user_id()
+        if user_id:
+            try:
+                manager = get_apikey_manager()
+                for meta in manager.list_keys(str(user_id)):
+                    if not meta.enabled or meta.status == "invalid":
+                        continue
+                    api_key = manager.get_key(str(user_id), meta.token)
+                    if not api_key:
+                        continue
+                    router = ProviderRouter.get_instance(settings.get_provider_registry())
+                    provider = router.route(model)
+                    if provider is None:
+                        continue
+                    try:
+                        adapter = await get_adapter(
+                            provider,
+                            ProviderConfig(
+                                provider=provider,
+                                api_key=api_key,
+                                base_url=_get_provider_base_url(provider),
+                            ),
+                        )
+                        adapter.timeout = timeout
+                        logger.info(
+                            "使用用户默认 Key 调用模型: %s（供应商：%s）",
+                            model,
+                            provider.value,
+                        )
+                        break
+                    except Exception as e:
+                        logger.warning(f"创建用户默认适配器失败：{e}")
+            except Exception as e:
+                logger.warning(f"读取用户默认 Key 失败：{e}")
     
     # 优先级 4: 系统默认路由
     if adapter is None:
