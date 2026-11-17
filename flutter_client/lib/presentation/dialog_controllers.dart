@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 /// Keeps a dialog's text/scroll controllers alive until the route subtree that
 /// references them is unmounted.
@@ -33,4 +33,36 @@ class _DialogControllersState extends State<DialogControllers> {
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// 弹窗内联错误：主提示加可选细节，避免错误落在会被弹窗遮住的 SnackBar 上。
+class DialogErrorNotice extends StatelessWidget {
+  const DialogErrorNotice({required this.message, this.detail, super.key});
+
+  final String message;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (detail != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(detail!, style: Theme.of(context).textTheme.bodySmall),
+            ),
+        ],
+      ),
+    );
+  }
 }

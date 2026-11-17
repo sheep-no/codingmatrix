@@ -21,6 +21,11 @@ class WorkflowClient {
     request.headers.addAll({
       'Content-Type': 'application/json',
       'Accept': 'application/x-ndjson',
+      // The server's GZipMiddleware stamps `Content-Encoding: gzip` on this
+      // NDJSON stream while sending plain text, and Dart aborts decoding with
+      // "Filter error, bad data" before the first event arrives. Asking for an
+      // identity body keeps the stream readable.
+      'Accept-Encoding': 'identity',
     });
     request.body = jsonEncode({
       'natural_language_request': input.trim(),
