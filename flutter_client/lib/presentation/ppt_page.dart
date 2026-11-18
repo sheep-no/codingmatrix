@@ -231,7 +231,11 @@ class _PptPageState extends ConsumerState<PptPage> {
           return StatefulBuilder(
             builder: (context, setDialogState) => AlertDialog(
               title: const Text('PPT 大纲'),
-              content: SingleChildScrollView(child: Text(result.toString())),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: MediaQuery.sizeOf(context).height * 0.55,
+                child: _OutlinePreview(outline: result),
+              ),
               actions: [
                 TextButton(
                   onPressed: submitting
@@ -343,3 +347,181 @@ class _PptPageState extends ConsumerState<PptPage> {
     );
   }
 }
+
+class _OutlinePreview extends StatelessWidget {
+  const _OutlinePreview({required this.outline});
+
+  final Map<String, dynamic> outline;
+
+  @override
+  Widget build(BuildContext context) {
+    final rawSlides = outline['slides'];
+    final slides = rawSlides is List ? rawSlides : const <dynamic>[];
+    final title = _text(outline['title']);
+    final chips = <Widget>[
+      _InfoChip(label: '${slides.length} 页'),
+      if (_text(outline['scenario']).isNotEmpty)
+        _InfoChip(label: _scenarioLabel(_text(outline['scenario']))),
+      if (_text(outline['template_id']).isNotEmpty)
+        _InfoChip(label: '模板 ${_text(outline['template_id'])}'),
+      if (_text(outline['status']).isNotEmpty)
+        _InfoChip(label: _statusLabel(_text(outline['status']))),
+    ];
+
+    return ListView(
+      children: [
+        if (title.isNotEmpty) ...[
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+        ],
+        Wrap(spacing: 8, runSpacing: 8, children: chips),
+        const SizedBox(height: 16),
+        if (slides.isEmpty)
+          const Text('大纲未返回幻灯片内容')
+        else
+          for (var index = 0; index < slides.length; index++)
+            _OutlineSlideCard(index: index, slide: slides[index]),
+      ],
+    );
+  }
+
+  static String _scenarioLabel(String value) {
+    const labels = {
+      'business': '商业',
+      'data_report': '数据报告',
+      'product_pitch': '产品路演',
+      'academic': '学术',
+      'education': '教育',
+      'general': '通用',
+    };
+    return labels[value] ?? value;
+  }
+
+  static String _statusLabel(String value) {
+    const labels = {'draft': '草稿', 'approved': '已批准'};
+    return labels[value] ?? value;
+  }
+}
+
+class _OutlineSlideCard extends StatelessWidget {
+  const _OutlineSlideCard({required this.index, required this.slide});
+
+  final int index;
+  final dynamic slide;
+
+  @override
+  Widget build(BuildContext context) {
+    if (slide is! Map) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text('${index + 1}. ${_text(slide)}'),
+      );
+    }
+
+    final data = Map<String, dynamic>.from(slide as Map);
+    final title = _text(data['title']);
+    final keyMessage = _text(data['key_message']);
+    final slideType = _text(data['slide_type']);
+    final blocks = data['content_blocks'] is List
+        ? data['content_blocks'] as List
+        : const <dynamic>[];
+    final asset = data['asset_intent'];
+    final assetDescription = asset is Map ? _text(asset['description']) : '';
+    final notes = _text(data['speaker_notes']);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 12,
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title.isEmpty ? '第 ${index + 1} 页' : title,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (slideType.isNotEmpty) const SizedBox(width: 8),
+                if (slideType.isNotEmpty) _InfoChip(label: slideType),
+              ],
+            ),
+            if (keyMessage.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(keyMessage),
+            ],
+            for (final block in blocks)
+              if (block is Map && _text(block['content']).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• '),
+                      Expanded(child: Text(_text(block['content']))),
+                    ],
+                  ),
+                ),
+            if (assetDescription.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '配图：$assetDescription',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (notes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '演讲备注：$notes',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 140),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _text(dynamic value) => value == null ? '' : value.toString().trim();
