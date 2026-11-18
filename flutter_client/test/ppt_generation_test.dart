@@ -831,6 +831,55 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('大纲弹窗结构化展示幻灯片而不是输出 Map.toString', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/outlines') {
+        return {
+          'id': 'o1',
+          'user_id': '10',
+          'version': 1,
+          'status': 'draft',
+          'title': 'Flutter intro',
+          'scenario': 'business',
+          'template_id': 'modern',
+          'slide_limit': 10,
+          'slides': [
+            {
+              'id': 'slide-1',
+              'position': 0,
+              'slide_type': 'key_points',
+              'narrative_role': 'opportunity_map',
+              'title': '为什么选择 Flutter',
+              'key_message': '一套代码多端运行',
+              'content_blocks': [
+                {'type': 'text', 'content': '统一渲染引擎'},
+              ],
+              'asset_intent': {
+                'description': '手机与桌面并排',
+                'keywords': ['flutter'],
+                'asset_type': 'diagram',
+              },
+              'speaker_notes': '先讲跨端价值',
+            },
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+
+    await openOutlineDialog(tester, api);
+
+    expect(find.text('Flutter intro'), findsOneWidget);
+    expect(find.text('为什么选择 Flutter'), findsOneWidget);
+    expect(find.text('一套代码多端运行'), findsOneWidget);
+    expect(find.text('统一渲染引擎'), findsOneWidget);
+    expect(find.textContaining('{id:'), findsNothing);
+    expect(find.textContaining('user_id'), findsNothing);
+    expect(find.textContaining('narrative_role'), findsNothing);
+    expect(find.text('批准并生成'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('批准并生成网络断开显示失败原文', (tester) async {
     final api = DeliveryApi((path, _, __) async {
       if (path == '/api/v1/pptx/outlines') {
