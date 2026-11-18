@@ -6,7 +6,7 @@ class ImageGenerationInput {
     this.negativePrompt = '',
     this.width = 1024,
     this.height = 1024,
-    this.steps = 50,
+    this.steps = 49,
     this.guidance = 7.5,
     this.count = 1,
     this.seed,

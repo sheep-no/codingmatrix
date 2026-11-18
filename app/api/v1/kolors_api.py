@@ -290,14 +290,14 @@ class TextToImageRequest(BaseModel):
     negative_prompt: str = ""
     width: int = Field(1024, ge=256, le=1280, description="图像宽度 (256-1280)")
     height: int = Field(1024, ge=256, le=1280, description="图像高度 (256-1280)")
-    num_inferences: int = Field(50, ge=1, le=100, description="推理步数 (1-100)")
+    num_inferences: int = Field(49, ge=1, le=49, description="推理步数 (1-49)")
     guidance_scale: float = Field(7.5, ge=1, le=20, description="引导系数 (1-20)")
     num_images: int = Field(1, ge=1, le=4, description="生成数量 (1-4)")
     seed: Optional[int] = None
     conversation_id: Optional[int] = Field(None, description="会话 ID（用于缓存和携带历史）")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
     # 前端兼容字段
-    steps: Optional[int] = Field(None, ge=1, le=100, description="推理步数（别名，优先于 num_inferences）")
+    steps: Optional[int] = Field(None, ge=1, le=49, description="推理步数（别名，优先于 num_inferences）")
     cfg_scale: Optional[float] = Field(None, ge=1, le=20, description="引导系数（别名，优先于 guidance_scale）")
     style: Optional[str] = Field(None, description="画面风格（写实/动漫/数字艺术等）")
 
@@ -316,7 +316,7 @@ class ImageToImageRequest(BaseModel):
     denoising_strength: Optional[float] = Field(None, ge=0, le=1, description="降噪强度（别名，优先于 strength）")
     width: Optional[int] = Field(None, ge=256, le=1280, description="输出宽度 (256-1280)")
     height: Optional[int] = Field(None, ge=256, le=1280, description="输出高度 (256-1280)")
-    num_inferences: int = Field(50, ge=1, le=100, description="推理步数 (1-100)")
+    num_inferences: int = Field(49, ge=1, le=49, description="推理步数 (1-49)")
     guidance_scale: float = Field(7.5, ge=1, le=20, description="引导系数 (1-20)")
     num_images: int = Field(1, ge=1, le=4, description="生成数量 (1-4)")
     seed: Optional[int] = None
@@ -327,7 +327,7 @@ class ImageToImageRequest(BaseModel):
     conversation_id: Optional[int] = Field(None, description="会话 ID")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
     # 前端兼容字段
-    steps: Optional[int] = Field(None, ge=1, le=100, description="推理步数（别名，优先于 num_inferences）")
+    steps: Optional[int] = Field(None, ge=1, le=49, description="推理步数（别名，优先于 num_inferences）")
     cfg_scale: Optional[float] = Field(None, ge=1, le=20, description="引导系数（别名，优先于 guidance_scale）")
     style: Optional[str] = Field(None, description="画面风格")
 
@@ -556,7 +556,7 @@ async def image_to_image_api(
             strength=float(form.get("strength") or form.get("denoising_strength") or 0.75),
             width=int(form["width"]) if form.get("width") else None,
             height=int(form["height"]) if form.get("height") else None,
-            num_inferences=int(form.get("steps") or form.get("num_inferences") or 50),
+            num_inferences=int(form.get("steps") or form.get("num_inferences") or 49),
             guidance_scale=float(form.get("cfg_scale") or form.get("guidance_scale") or 7.5),
             num_images=int(form.get("num_images") or 1),
             seed=int(form["seed"]) if form.get("seed") and str(form["seed"]).strip() not in ("", "-1", "undefined") else None,
@@ -735,7 +735,7 @@ async def inpaint_api(
             strength=float(form.get("strength") or form.get("denoising_strength") or 0.75),
             width=int(form["width"]) if form.get("width") else None,
             height=int(form["height"]) if form.get("height") else None,
-            num_inferences=int(form.get("steps") or form.get("num_inferences") or 50),
+            num_inferences=int(form.get("steps") or form.get("num_inferences") or 49),
             guidance_scale=float(form.get("cfg_scale") or form.get("guidance_scale") or 7.5),
             num_images=int(form.get("num_images") or 1),
             seed=int(form["seed"]) if form.get("seed") and str(form["seed"]).strip() not in ("", "-1", "undefined") else None,

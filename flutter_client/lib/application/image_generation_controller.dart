@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/image_generation.dart';
 import '../domain/models/provider_key.dart';
 import '../infrastructure/image/image_generation_client.dart';
+import '../infrastructure/auth/cloud_auth_client.dart';
 import 'auth_controller.dart';
 
 class ImageGenerationState {
@@ -62,9 +63,13 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
         if (!_active(op)) return;
       }
       state = ImageGenerationState(images: state.images, cached: result.cached);
-    } catch (_) {
+    } catch (error) {
       if (_active(op)) {
-        state = const ImageGenerationState(error: '生成请求失败或结果未知，请确认后手动提交');
+        state = ImageGenerationState(
+          error: error is CloudAuthException
+              ? error.message
+              : '生成请求失败或结果未知，请确认后手动提交',
+        );
       }
     }
   }
