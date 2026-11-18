@@ -12,7 +12,7 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
   test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
 
   test('生成贪吃蛇网页版项目（单文件 HTML）', async ({ page }) => {
-    test.setTimeout(900000); // 15 分钟：真实模型含决策等待(120s)与交叉验证，耗时不可控
+    test.setTimeout(1920000); // 32 分钟：2 CPU 环境下真实模型含决策等待与交叉验证，耗时不可控
 
     const timeline = [];
     const apiCalls = [];
@@ -147,7 +147,7 @@ test.describe('Agent 项目生成测试 - 贪吃蛇网页版', () => {
       const apiKeyToken = storedKeys[0]?.token;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 840000);
+      const timeoutId = setTimeout(() => controller.abort(), 1800000);
 
       try {
         const resp = await fetch('/api/v1/agent/orchestrate/stream', {
