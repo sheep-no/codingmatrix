@@ -344,6 +344,16 @@ async def execute_workflow(
                 )
 
             def on_node_complete(node_id: str, result):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        if getattr(result, "success", True):
+                            node.status = TaskStatus.COMPLETED
+                            node.result = getattr(result, "data", None)
+                            node.error = None
+                        else:
+                            node.status = TaskStatus.FAILED
+                            node.result = getattr(result, "data", None)
+                            node.error = getattr(result, "error", None)
                 event_data = {
                     "event": "node_completed",
                     "node_id": node_id,
@@ -718,6 +728,9 @@ async def execute_imported_workflow(
             event_queue = asyncio.Queue()
 
             def on_node_start(node_id: str):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        node.status = TaskStatus.RUNNING
                 event_queue.put_nowait(
                     json.dumps(
                         {
@@ -730,6 +743,16 @@ async def execute_imported_workflow(
                 )
 
             def on_node_complete(node_id: str, result):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        if getattr(result, "success", True):
+                            node.status = TaskStatus.COMPLETED
+                            node.result = getattr(result, "data", None)
+                            node.error = None
+                        else:
+                            node.status = TaskStatus.FAILED
+                            node.result = getattr(result, "data", None)
+                            node.error = getattr(result, "error", None)
                 event_data = {
                     "event": "node_completed",
                     "node_id": node_id,

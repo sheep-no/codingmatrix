@@ -89,7 +89,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
     final state = ref.watch(imageGenerationControllerProvider);
     final key = ref.watch(providerKeyControllerProvider).selected;
     final controller = ref.read(imageGenerationControllerProvider.notifier);
-    final enabled = !state.busy && state.saving == null && !picking;
+    final enabled = !state.busy && !picking;
     return ShellScaffold(
       title: '图片生成',
       body: Center(
@@ -117,6 +117,15 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                       : '前往 Provider 授权页绑定',
                 ),
               ),
+              if (state.busy) ...[
+                const LinearProgressIndicator(),
+                const Text('正在生成或读取图片，请等待'),
+              ],
+              if (state.error != null)
+                Text(
+                  state.error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               Wrap(
                 spacing: 8,
                 children: [
@@ -176,15 +185,23 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 key: form,
                 child: Column(
                   children: [
-                    TextFormField(
-                      key: const Key('imagePrompt'),
-                      controller: prompt,
-                      enabled: enabled,
-                      minLines: 2,
-                      maxLines: 5,
-                      decoration: const InputDecoration(labelText: '画面描述'),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? '请输入画面描述' : null,
+                    Semantics(
+                      label: '画面描述',
+                      hint: '输入要生成的画面描述',
+                      textField: true,
+                      child: TextFormField(
+                        key: const Key('imagePrompt'),
+                        controller: prompt,
+                        enabled: enabled,
+                        minLines: 2,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          labelText: '画面描述',
+                          hintText: '描述你想生成的画面',
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? '请输入画面描述' : null,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -242,27 +259,34 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                           ? (v) => setState(() => guidance = v)
                           : null,
                     ),
-                    TextFormField(
-                      controller: seed,
-                      enabled: enabled,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: '随机种子（留空自动生成）',
+                    Semantics(
+                      label: '随机种子',
+                      hint: '留空自动生成，输入 0 到 2147483647 的整数',
+                      textField: true,
+                      child: TextFormField(
+                        key: const Key('imageSeed'),
+                        controller: seed,
+                        enabled: enabled,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: '随机种子（留空自动生成）',
+                          hintText: '例如 42',
+                        ),
+                        validator: (v) =>
+                            v == null ||
+                                v.trim().isEmpty ||
+                                (int.tryParse(v) != null &&
+                                    int.parse(v) >= 0 &&
+                                    int.parse(v) <= 2147483647)
+                            ? null
+                            : '请输入 0 至 2147483647 的整数',
                       ),
-                      validator: (v) =>
-                          v == null ||
-                              v.trim().isEmpty ||
-                              (int.tryParse(v) != null &&
-                                  int.parse(v) >= 0 &&
-                                  int.parse(v) <= 2147483647)
-                          ? null
-                          : '请输入 0 至 2147483647 的整数',
                     ),
                   ],
                 ),
@@ -290,15 +314,6 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                     : null,
                 child: const Text('生成图片'),
               ),
-              if (state.busy) ...[
-                const LinearProgressIndicator(),
-                const Text('正在生成或读取图片，请等待'),
-              ],
-              if (state.error != null)
-                Text(
-                  state.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
               if (state.cached) const Text('已读取缓存结果'),
               for (var i = 0; i < state.images.length; i++)
                 Card(

@@ -570,6 +570,45 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('点击历史条目选中 PPT 并显示下载入口', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/history') {
+        return {
+          'records': [
+            {
+              'topic': '增长',
+              'status': 'completed',
+              'task_id': 'p1',
+              'has_file': true,
+            },
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('增长'), findsOneWidget);
+
+    await tester.tap(find.text('增长'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择历史 PPT：p1'), findsOneWidget);
+    expect(find.text('下载 PPTX'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('历史读取中退出再进入会丢掉错误', (tester) async {
     final pending = Completer<Object?>();
     final api = DeliveryApi((path, _, __) async {

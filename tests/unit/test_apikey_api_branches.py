@@ -3,6 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import redis
@@ -160,18 +161,14 @@ class TestPublicKey:
 class TestSubmitKey:
     @pytest.mark.asyncio
     async def test_unsupported_provider(self, manager):
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="bad", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="bad", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_invalid_ttl(self, manager):
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=0
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=0)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 400
@@ -179,9 +176,7 @@ class TestSubmitKey:
     @pytest.mark.asyncio
     async def test_invalid_key_too_short(self, manager, monkeypatch):
         monkeypatch.setattr(apikey, "get_rsa_key_manager", lambda: FakeKeyManager("short"))
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 400
@@ -189,9 +184,7 @@ class TestSubmitKey:
 
     @pytest.mark.asyncio
     async def test_success_non_compat(self, manager, no_sync):
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="anthropic", ttl=3600, remark="r"
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="anthropic", ttl=3600, remark="r")
         response = await apikey.submit_key(_request(), request, "u")
         assert response.success is True
         assert response.token == "tok-new"
@@ -200,9 +193,7 @@ class TestSubmitKey:
 
     @pytest.mark.asyncio
     async def test_success_schedules_sync(self, manager, no_sync):
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="deepseek", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="deepseek", ttl=3600)
         await apikey.submit_key(_request(), request, "u")
         await asyncio.sleep(0)
         assert no_sync == [("deepseek", "u")]
@@ -210,9 +201,7 @@ class TestSubmitKey:
     @pytest.mark.asyncio
     async def test_store_value_error(self, manager):
         manager.store_error = ValueError("bad")
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 400
@@ -221,9 +210,7 @@ class TestSubmitKey:
     @pytest.mark.asyncio
     async def test_store_runtime_error(self, manager):
         manager.store_error = RuntimeError("limit")
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 403
@@ -231,9 +218,7 @@ class TestSubmitKey:
     @pytest.mark.asyncio
     async def test_store_generic_error(self, manager):
         manager.store_error = KeyError("boom")
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 500
@@ -245,9 +230,7 @@ class TestSubmitKey:
             "get_rsa_key_manager",
             lambda: FakeKeyManager(error=apikey.HTTPException(400, "bad")),
         )
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         assert exc.value.status_code == 400
@@ -258,18 +241,14 @@ class TestTestKey:
     async def test_key_missing(self, manager):
         manager.get_key = lambda user_id, token: None
         with pytest.raises(apikey.HTTPException) as exc:
-            await apikey.test_key(
-                _request(), apikey.TestKeyRequest(token="t"), "u"
-            )
+            await apikey.test_key(_request(), apikey.TestKeyRequest(token="t"), "u")
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_meta_missing(self, manager):
         manager.get_metadata = lambda user_id, token: None
         with pytest.raises(apikey.HTTPException) as exc:
-            await apikey.test_key(
-                _request(), apikey.TestKeyRequest(token="t"), "u"
-            )
+            await apikey.test_key(_request(), apikey.TestKeyRequest(token="t"), "u")
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -279,9 +258,7 @@ class TestTestKey:
                 return True, "ok", True
 
         monkeypatch.setattr(apikey, "get_health_checker", lambda: _Checker())
-        response = await apikey.test_key(
-            _request(), apikey.TestKeyRequest(token="t"), "u"
-        )
+        response = await apikey.test_key(_request(), apikey.TestKeyRequest(token="t"), "u")
         assert response.success is True
         assert ("status", "u", "t", "verified") in manager.calls
 
@@ -292,9 +269,7 @@ class TestTestKey:
                 return False, "invalid key", True
 
         monkeypatch.setattr(apikey, "get_health_checker", lambda: _Checker())
-        response = await apikey.test_key(
-            _request(), apikey.TestKeyRequest(token="t"), "u"
-        )
+        response = await apikey.test_key(_request(), apikey.TestKeyRequest(token="t"), "u")
         assert response.success is False
         assert ("status", "u", "t", "invalid") in manager.calls
 
@@ -431,18 +406,14 @@ class TestFallbackPreference:
 
     @pytest.mark.asyncio
     async def test_custom_success(self, manager):
-        request = apikey.UpdateFallbackPreferenceRequest(
-            fallback_preference="custom", custom_fallback_chain=["m"]
-        )
+        request = apikey.UpdateFallbackPreferenceRequest(fallback_preference="custom", custom_fallback_chain=["m"])
         result = await apikey.update_fallback_preference(_request(), "t", request, "u")
         assert result["custom_fallback_chain"] == ["m"]
         assert ("fallback", "u", "t", "custom", ["m"]) in manager.calls
 
     @pytest.mark.asyncio
     async def test_non_custom_success_clears_chain(self, manager):
-        request = apikey.UpdateFallbackPreferenceRequest(
-            fallback_preference="disabled", custom_fallback_chain=["m"]
-        )
+        request = apikey.UpdateFallbackPreferenceRequest(fallback_preference="disabled", custom_fallback_chain=["m"])
         result = await apikey.update_fallback_preference(_request(), "t", request, "u")
         assert result["custom_fallback_chain"] == []
         assert ("fallback", "u", "t", "disabled", None) in manager.calls
@@ -587,9 +558,7 @@ class TestSyncProviderModels:
     async def test_updates_existing_provider(self, monkeypatch):
         import app.services.custom_provider_manager as cp
 
-        existing = SimpleNamespace(
-            id="existing", name="user_u_openai", api_key="old", last_sync=123
-        )
+        existing = SimpleNamespace(id="existing", name="user_u_openai", api_key="old", last_sync=123)
         other = SimpleNamespace(id="other", name="other", api_key="x", last_sync=1)
 
         class _Manager:
@@ -709,9 +678,7 @@ class TestValidatorsDirect:
 
     def test_fallback_chain_too_many(self):
         with pytest.raises(ValueError):
-            apikey.UpdateFallbackPreferenceRequest._validate_custom_chain(
-                ["m"] * (apikey._MAX_FALLBACK_ENTRIES + 1)
-            )
+            apikey.UpdateFallbackPreferenceRequest._validate_custom_chain(["m"] * (apikey._MAX_FALLBACK_ENTRIES + 1))
 
     def test_fallback_chain_invalid_item(self):
         with pytest.raises(ValueError):
@@ -730,9 +697,7 @@ class TestStorageUnavailable:
     @pytest.mark.asyncio
     async def test_submit_key(self, manager):
         manager.store_error = redis.exceptions.ConnectionError("redis down")
-        request = apikey.SubmitKeyRequest(
-            encrypted_key="enc", provider="openai", ttl=3600
-        )
+        request = apikey.SubmitKeyRequest(encrypted_key="enc", provider="openai", ttl=3600)
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.submit_key(_request(), request, "u")
         _assert_storage_unavailable(exc)
@@ -744,9 +709,7 @@ class TestStorageUnavailable:
 
         manager.get_key = _boom
         with pytest.raises(apikey.HTTPException) as exc:
-            await apikey.test_key(
-                _request(), apikey.TestKeyRequest(token="t"), "u"
-            )
+            await apikey.test_key(_request(), apikey.TestKeyRequest(token="t"), "u")
         _assert_storage_unavailable(exc)
 
     @pytest.mark.asyncio
@@ -775,3 +738,43 @@ class TestStorageUnavailable:
         with pytest.raises(apikey.HTTPException) as exc:
             await apikey.update_enabled(_request(), "t", True, "u")
         _assert_storage_unavailable(exc)
+
+
+class TestSelection:
+    @pytest.mark.asyncio
+    async def test_get_without_selection(self):
+        db = MagicMock()
+        db.get = AsyncMock(return_value=None)
+        assert await apikey.get_selected_key("u", db) == {"token": None}
+
+    @pytest.mark.asyncio
+    async def test_get_with_selection(self):
+        db = MagicMock()
+        db.get = AsyncMock(return_value=SimpleNamespace(token="tok", provider="siliconflow"))
+        assert await apikey.get_selected_key("u", db) == {"token": "tok"}
+
+    @pytest.mark.asyncio
+    async def test_update_rejects_unknown_key(self, manager):
+        manager.meta = None
+        db = MagicMock()
+        db.get = AsyncMock(return_value=None)
+        with pytest.raises(apikey.HTTPException) as exc:
+            await apikey.update_selected_key(_request(), apikey.SelectionUpdateRequest(token="missing"), "u", db)
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_creates_and_updates_selection(self, manager):
+        manager.meta = _meta(provider="siliconflow")
+        db = MagicMock()
+        db.get = AsyncMock(return_value=None)
+        db.commit = AsyncMock()
+        result = await apikey.update_selected_key(_request(), apikey.SelectionUpdateRequest(token="tok"), "u", db)
+        assert result == {"token": "tok"}
+        assert db.add.call_count == 1
+        db.commit.assert_awaited_once()
+
+        row = SimpleNamespace(token="old", provider="openai")
+        db.get = AsyncMock(return_value=row)
+        await apikey.update_selected_key(_request(), apikey.SelectionUpdateRequest(token="tok"), "u", db)
+        assert row.token == "tok"
+        assert row.provider == "siliconflow"
