@@ -46,6 +46,7 @@ from app.agent.utils import (
     write_file_atomic,
 )
 from app.agent.validation_coordinator import ValidationCoordinator
+
 from .coverage_checker import check_required_artifacts
 
 logger = logging.getLogger(__name__)

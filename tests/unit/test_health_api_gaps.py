@@ -30,6 +30,18 @@ async def test_health_check_swallows_probe_exceptions(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_health_check_reports_deployed_commit(monkeypatch):
+    monkeypatch.setattr(health_api, "_check_db_quick", AsyncMock(return_value=True))
+    monkeypatch.setattr(health_api, "_check_redis_quick", AsyncMock(return_value=True))
+    monkeypatch.setattr(health_api.settings, "GIT_COMMIT", "abc123def")
+
+    payload = await health_api.health_check()
+
+    assert payload["version"] == health_api.APP_VERSION
+    assert payload["commit"] == "abc123def"
+
+
+@pytest.mark.asyncio
 async def test_readiness_check_marks_not_ready_when_database_down(monkeypatch):
     monkeypatch.setattr(health_api, "_check_db_quick", AsyncMock(return_value=False))
     monkeypatch.setattr(health_api, "_check_redis_quick", AsyncMock(return_value=True))

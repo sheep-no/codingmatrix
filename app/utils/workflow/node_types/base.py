@@ -5,9 +5,9 @@ Task Node Base - 任务节点基类
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from app.schema.workflow import TaskType
 

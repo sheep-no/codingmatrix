@@ -4,15 +4,15 @@ Task Decomposer - 任务分解器
 使用 LLM 将自然语言请求分解为任务图 JSON
 """
 
-import logging
 import json
+import logging
 import uuid
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
+from app.agent.models import DEFAULT_REASONING_MODEL
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
 from app.utils import call_llm
-from app.agent.models import DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 

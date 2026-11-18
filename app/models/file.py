@@ -2,8 +2,10 @@
 文件管理模型
 """
 from datetime import timedelta
-from sqlalchemy import Column, Integer, String, DateTime, BigInteger, ForeignKey, Index, Text
+
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
 from app.core.time import utcnow_naive
 from app.models.base import Base
 

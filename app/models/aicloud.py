@@ -9,8 +9,10 @@ aicloud 数据模型
 """
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, Index
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
 from app.models.base import Base
 
 

@@ -4,7 +4,7 @@ Model Adapter - AI 模型适配器实现
 import json
 import logging
 import re
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

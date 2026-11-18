@@ -4,26 +4,28 @@ import logging
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
-from sqlalchemy import delete, select
-from sqlalchemy.exc import SQLAlchemyError
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import delete, select
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
+from app.core.config import settings
 from app.core.time import utcnow_naive
-from app.db.database import async_session
 from app.db.chat_archiver import ChatArchiver
+from app.db.database import async_session
 from app.models.file import File
 from app.models.task import Task
-from app.core.config import settings
-from app.utils.task_manager import task_manager
-from app.services.worker_recovery_service import recover_expired_tasks
-from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
 from app.services.state_migration_service import (
-    RetentionPolicy,
-    LocalProjectStorageAdapter,
     PROJECT_RETENTION_POLICIES,
+    LocalProjectStorageAdapter,
+    RetentionPolicy,
     process_retention_records,
     sweep_project_retention,
 )
+from app.services.worker_recovery_service import recover_expired_tasks
+from app.utils.task_manager import task_manager
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)

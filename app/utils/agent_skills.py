@@ -12,9 +12,10 @@ Agent 认知 Skill 注入
 import json
 import logging
 import re
-import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import yaml
 
 from app.core.config import settings
 

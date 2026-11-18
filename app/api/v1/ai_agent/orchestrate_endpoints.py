@@ -2133,8 +2133,8 @@ async def update_concurrent_limits(
     new_limit: int,
     token: dict = Depends(verify_admin_token),
 ):
-    from app.utils.system_config import system_config_manager
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
+    from app.utils.system_config import system_config_manager
 
     if new_limit < 1:
         raise HTTPException(status_code=400, detail="限制值必须为正整数")

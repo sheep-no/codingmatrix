@@ -8,7 +8,7 @@ PPT 模板引擎系统
 - 智能模板推荐
 """
 
-from app.utils.pptx.templates.base import TemplateConfig, SlideLayout, TemplateBase, TemplateCategory
+from app.utils.pptx.templates.base import SlideLayout, TemplateBase, TemplateCategory, TemplateConfig
 from app.utils.pptx.templates.manager import TemplateManager
 
 __all__ = [

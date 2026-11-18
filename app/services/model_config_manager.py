@@ -10,12 +10,13 @@
 配置文件格式为 YAML，包含 `providers`、`models` 和 `agent` 三个顶层区块。
 """
 
-import os
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from app.utils.model_config_io import load_model_config, save_model_config
 
 logger = logging.getLogger(__name__)
@@ -438,6 +439,7 @@ class ModelConfigManager:
     
 # 全局单例
 import threading
+
 _manager: Optional[ModelConfigManager] = None
 _lock: threading.Lock = threading.Lock()
 

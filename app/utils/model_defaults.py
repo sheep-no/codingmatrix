@@ -7,7 +7,6 @@ import yaml
 
 from app.utils.model_config_io import load_model_config
 
-
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "data" / "unified_model_config.yaml"
 
 # YAML 不可用时的最小安全兜底，正常运行时以 unified_model_config.yaml 为准。

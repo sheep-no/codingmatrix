@@ -1,9 +1,10 @@
 from typing import Optional
 
 from pydantic import EmailStr
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
 from app.models.user import User
 
 

@@ -19,19 +19,16 @@ PPT 视觉修改器 - 集成层
     )
 """
 
-import logging
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+import logging
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+from app.utils.pptx.modify_intent_parser import ModifyIntent, ModifyIntentParser, ModifyTarget, format_modify_intent
+from app.utils.pptx.ppt_modifier import PPTModifier
 from app.utils.pptx.slide_renderer import SlideRenderer
 from app.utils.pptx.visual_analyzer import PPTVisualAnalyzer, SlideStyleInfo
-from app.utils.pptx.modify_intent_parser import (
-    ModifyIntentParser, ModifyIntent, ModifyTarget,
-    format_modify_intent
-)
-from app.utils.pptx.ppt_modifier import PPTModifier
 
 logger = logging.getLogger(__name__)
 

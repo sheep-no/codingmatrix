@@ -11,23 +11,27 @@
 - POST /api/v1/providers/{id}/test - 测试连接
 """
 import logging
+import time
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Request, Depends
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.utils.aicloud.dynamic_provider import (
-    DynamicProviderManager, DynamicProvider,
-    Protocol, MODEL_CACHE_TTL,
-    get_dynamic_provider_manager,
-    fetch_models_openai, fetch_models_anthropic,
-)
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
+from app.utils.aicloud.dynamic_provider import (
+    MODEL_CACHE_TTL,
+    DynamicProvider,
+    DynamicProviderManager,
+    Protocol,
+    fetch_models_anthropic,
+    fetch_models_openai,
+    get_dynamic_provider_manager,
+)
+from app.utils.crypto import get_rsa_key_manager
 from app.utils.rate_limiter import limiter
 from app.utils.security import verify_token
-from app.utils.crypto import get_rsa_key_manager
 from app.utils.url_safety import check_outbound_url
-import time
-import httpx
 
 logger = logging.getLogger(__name__)
 

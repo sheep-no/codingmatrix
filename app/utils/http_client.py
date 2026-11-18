@@ -4,10 +4,11 @@ HTTP 客户端连接池
 复用 httpx AsyncClient，减少连接建立开销
 """
 import asyncio
-import httpx
 import threading
-from typing import Optional
 from contextlib import asynccontextmanager
+from typing import Optional
+
+import httpx
 
 
 class HTTPClientPool:

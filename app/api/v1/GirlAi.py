@@ -9,17 +9,19 @@ import json
 import logging
 import time
 import uuid
-from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+from app.db.chat_history_service import ChatHistoryService
 from app.db.database import async_session, get_db
-from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
+from app.models.chat_history import CustomCharacter, UserPreference
 from app.schema.girl_companion import (
     CompanionMemoryConfirmRequest,
     CompanionMemoryPage,
@@ -29,7 +31,18 @@ from app.schema.girl_companion import (
     MemoryCandidate,
     VoiceTranscriptionRequest,
 )
-from app.db.chat_history_service import ChatHistoryService
+from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
+from app.services.girlai_companion_classifier import (
+    apply_companion_policy,
+    classify_companion_input,
+)
+from app.services.girlai_companion_context import build_companion_context
+from app.services.girlai_companion_memory import (
+    CompanionMemoryNotFoundError,
+    CompanionMemoryService,
+    CompanionMemoryStateError,
+)
+from app.services.girlai_companion_service import parse_companion_turn
 from app.services.girlai_state_adapter import (
     append_companion_turn_state,
     append_conversation_turn,
@@ -40,23 +53,10 @@ from app.services.girlai_state_adapter import (
     get_latest_companion_turn_state,
     reserve_companion_turn_state,
 )
-from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
-from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
-from app.utils.security import verify_token
-from app.utils.aicloud.model_registry import MODEL_REGISTRY
 from app.utils.aicloud.http_client import call_with_retry
-from app.services.girlai_companion_context import build_companion_context
-from app.services.girlai_companion_classifier import (
-    apply_companion_policy,
-    classify_companion_input,
-)
-from app.services.girlai_companion_service import parse_companion_turn
-from app.services.girlai_companion_memory import (
-    CompanionMemoryNotFoundError,
-    CompanionMemoryService,
-    CompanionMemoryStateError,
-)
+from app.utils.aicloud.model_registry import MODEL_REGISTRY
+from app.utils.security import verify_token
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -1059,7 +1059,8 @@ async def create_custom_character(
         raise HTTPException(status_code=400, detail="角色名称过长")
 
     # 检查用户角色数量限制（最多 10 个）
-    from sqlalchemy import select, func as sql_func
+    from sqlalchemy import func as sql_func
+    from sqlalchemy import select
     count_stmt = (
         select(sql_func.count())
         .select_from(CustomCharacter)

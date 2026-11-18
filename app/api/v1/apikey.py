@@ -9,24 +9,22 @@ API Key 管理接口
 - GET /api/v1/agent/apikeys - 获取 Key 列表
 - PUT /api/v1/agent/apikey/{token}/enabled - 启用/禁用 Key
 """
-import logging
 import asyncio
-from typing import Optional
-
-from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field, field_validator
-from redis.exceptions import RedisError
-
-from app.utils.crypto import get_rsa_key_manager
-from app.utils.rate_limiter import limiter
-from app.services.apikey_manager import (
-    APIKeyManager, SUPPORTED_PROVIDERS, TTL_OPTIONS, get_apikey_manager
-)
-from app.services.provider_health import get_health_checker
-from app.api.v1.auth import verify_token
 import csv
 import io
 import json
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
+from redis.exceptions import RedisError
+
+from app.api.v1.auth import verify_token
+from app.services.apikey_manager import SUPPORTED_PROVIDERS, TTL_OPTIONS, APIKeyManager, get_apikey_manager
+from app.services.provider_health import get_health_checker
+from app.utils.crypto import get_rsa_key_manager
+from app.utils.rate_limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +199,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         raise HTTPException(status_code=400, detail=f"不支持的供应商：{submit_request.provider}")
     
     # 验证 TTL - 支持预设选项或自定义秒数
-    from app.services.apikey_manager import resolve_ttl, MAX_CUSTOM_TTL
+    from app.services.apikey_manager import MAX_CUSTOM_TTL, resolve_ttl
     try:
         resolve_ttl(submit_request.ttl)
     except ValueError as e:

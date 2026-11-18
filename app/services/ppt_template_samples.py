@@ -36,7 +36,7 @@ async def ensure_template_sample(template_id: str) -> dict[str, Any]:
     if paths["pptx"].is_file() and all((paths["png_dir"] / f"slide-{n}.png").is_file() for n in range(1, 4)):
         return _metadata(template_id, paths)
     paths["pptx"].parent.mkdir(parents=True, exist_ok=True)
-    from app.api.v1.aiGeneratorPptx import PPTGenerationRequest, generate_pptx_file_enhanced, _convert_pptx_to_pdf
+    from app.api.v1.aiGeneratorPptx import PPTGenerationRequest, _convert_pptx_to_pdf, generate_pptx_file_enhanced
     await generate_pptx_file_enhanced(paths["pptx"], _fixture(template_id), PPTGenerationRequest(topic="template sample", slide_count=3, template=template_id, options={"auto_images": False, "enable_animation": False}))
     await _convert_pptx_to_pdf(paths["pptx"], paths["pdf"])
     paths["png_dir"].mkdir(parents=True, exist_ok=True)

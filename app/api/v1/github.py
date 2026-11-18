@@ -12,16 +12,16 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.utils.security import verify_token
 from app.db.database import get_db
-from app.models.user import User
 from app.models.github_config import GithubUserConfig
+from app.models.user import User
 from app.services.github_config_service import (
     config_summary,
     format_verified_at,
@@ -39,6 +39,7 @@ from app.services.github_remote import (
     github_https_remote,
     validate_project_name,
 )
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 

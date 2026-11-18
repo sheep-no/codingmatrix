@@ -3,8 +3,8 @@
 
 拦截对已禁用功能模块的请求，返回 503
 """
-import logging
 import json
+import logging
 
 from app.services.feature_switch import feature_switch_service
 

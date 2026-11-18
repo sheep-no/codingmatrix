@@ -8,13 +8,13 @@ API Key 管理器
 - 支持多供应商、多 Key 管理
 """
 import json
-import uuid
-import time
 import logging
 import threading
-from typing import Optional, List, Dict
-from dataclasses import dataclass, asdict
+import time
+import uuid
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 import redis
 
@@ -152,9 +152,69 @@ MAX_KEYS_PER_USER = 20
 class APIKeyManager:
     """API Key 管理器"""
     
-    def __init__(self, redis_client: redis.Redis, max_keys_per_user: int = MAX_KEYS_PER_USER):
+    def __init__(
+        self,
+        redis_client: redis.Redis,
+        max_keys_per_user: int = MAX_KEYS_PER_USER,
+        legacy_redis_client: Optional[redis.Redis] = None,
+    ):
         self.redis = redis_client
+        # 迁移期只读回退：新实例缺少的条目从旧共享 Redis 读取并回填，
+        # 避免切换存储后用户的 Key 突然“消失”。
+        self.legacy_redis = legacy_redis_client
         self.max_keys = max_keys_per_user
+
+    def _stores(self) -> List[redis.Redis]:
+        stores = [self.redis]
+        if self.legacy_redis is not None:
+            stores.append(self.legacy_redis)
+        return stores
+
+    def _read_key(self, key: str):
+        value = self.redis.get(key)
+        legacy = self.legacy_redis
+        if value is None and legacy is not None:
+            value = legacy.get(key)
+            if value is not None:
+                self._backfill(legacy, key, value)
+        return value
+
+    def _backfill(self, legacy: redis.Redis, key: str, value) -> None:
+        try:
+            ttl = legacy.ttl(key)
+            if ttl == -1:
+                self.redis.set(key, value)
+            elif ttl > 0:
+                self.redis.setex(key, ttl, value)
+        except Exception as e:
+            logger.warning(f"API Key 迁移回填失败（读取仍可用）: {e}")
+
+    def _delete_everywhere(self, *keys: str) -> None:
+        for store in self._stores():
+            store.delete(*keys)
+
+    def _tokens_for_index(self, index_key: str) -> set[str]:
+        tokens: set[str] = set()
+        for store in self._stores():
+            tokens.update(
+                item.decode("utf-8") if isinstance(item, bytes) else item
+                for item in store.smembers(index_key)
+            )
+        return tokens
+
+    def _scan_index_keys(self):
+        seen: set[str] = set()
+        for store in self._stores():
+            cursor = 0
+            while True:
+                cursor, keys = store.scan(cursor, match="apikey_index:*", count=100)
+                for key in keys:
+                    key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+                    if key_str not in seen:
+                        seen.add(key_str)
+                        yield key_str
+                if cursor == 0:
+                    break
     
     def _key_token(self, user_id: str, token: str) -> str:
         """Redis 键：存储 API Key"""
@@ -273,7 +333,7 @@ class APIKeyManager:
             API Key 或 None
         """
         key_name = self._key_token(user_id, token)
-        api_key = self.redis.get(key_name)
+        api_key = self._read_key(key_name)
         
         if api_key is None:
             # Key 不存在或已过期
@@ -304,7 +364,7 @@ class APIKeyManager:
             KeyMetadata 或 None
         """
         meta_name = self._key_meta(user_id, token)
-        meta_json = self.redis.get(meta_name)
+        meta_json = self._read_key(meta_name)
         
         if meta_json is None:
             return None
@@ -349,13 +409,19 @@ class APIKeyManager:
             KeyMetadata 列表
         """
         index_key = self._key_index(user_id)
-        
-        tokens = self.redis.smembers(index_key)
-        
+
+        tokens = self._tokens_for_index(index_key)
+        if self.legacy_redis is not None and tokens:
+            # 把旧索引成员补到新实例，避免旧实例过期后列表丢 Key
+            self.redis.sadd(index_key, *tokens)
+            legacy_ttl = self.legacy_redis.ttl(index_key)
+            current_ttl = self.redis.ttl(index_key)
+            if legacy_ttl > 0 and (current_ttl == -1 or legacy_ttl > current_ttl):
+                self.redis.expire(index_key, legacy_ttl)
+
         result = []
         for token in tokens:
-            token_str = token.decode("utf-8") if isinstance(token, bytes) else token
-            meta = self.get_metadata(user_id, token_str)
+            meta = self.get_metadata(user_id, token)
             if meta is not None:
                 result.append(meta)
         
@@ -377,7 +443,7 @@ class APIKeyManager:
         try:
             # 快速路径：反向索引
             reverse_key = self._key_token_reverse(token)
-            user_id_bytes = self.redis.get(reverse_key)
+            user_id_bytes = self._read_key(reverse_key)
             if user_id_bytes is not None:
                 user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
                 meta = self.get_metadata(user_id, token)
@@ -388,18 +454,13 @@ class APIKeyManager:
             logger.warning(f"反向索引查询 context_lengths 失败: {e}")
 
         # 慢速路径：SCAN（兼容老数据）
-        cursor = 0
-        while True:
-            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
-            for index_key in keys:
-                user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
-                if self.redis.sismember(index_key, token):
-                    meta = self.get_metadata(user_id, token)
-                    if meta and meta.context_lengths:
-                        return meta.context_lengths
-                    return None
-            if cursor == 0:
-                break
+        for index_key in self._scan_index_keys():
+            user_id = index_key.replace("apikey_index:", "")
+            if token in self._tokens_for_index(index_key):
+                meta = self.get_metadata(user_id, token)
+                if meta and meta.context_lengths:
+                    return meta.context_lengths
+                return None
         return None
     
     def get_key_by_token(self, token: str) -> Optional[str]:
@@ -420,7 +481,7 @@ class APIKeyManager:
         try:
             # 1. 快速路径：反向索引
             reverse_key = self._key_token_reverse(token)
-            user_id_bytes = self.redis.get(reverse_key)
+            user_id_bytes = self._read_key(reverse_key)
             if user_id_bytes is not None:
                 user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
                 return self.get_key(user_id, token)
@@ -428,24 +489,17 @@ class APIKeyManager:
             logger.warning(f"反向索引查询失败，回退到 SCAN: {e}")
 
         # 2. 慢速路径：SCAN 全表扫（兼容老数据）
-        cursor = 0
-        while True:
-            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
-            for index_key in keys:
-                user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
-
-                if self.redis.sismember(index_key, token):
-                    # 回填反向索引，加速下次查询
-                    try:
-                        key_ttl = self.redis.ttl(self._key_token(user_id, token))
-                        if key_ttl > 0:
-                            self.redis.setex(self._key_token_reverse(token), key_ttl + 86400, user_id)
-                    except Exception:
-                        pass
-                    return self.get_key(user_id, token)
-
-            if cursor == 0:
-                break
+        for index_key in self._scan_index_keys():
+            user_id = index_key.replace("apikey_index:", "")
+            if token in self._tokens_for_index(index_key):
+                # 回填反向索引，加速下次查询
+                try:
+                    key_ttl = self.redis.ttl(self._key_token(user_id, token))
+                    if key_ttl > 0:
+                        self.redis.setex(self._key_token_reverse(token), key_ttl + 86400, user_id)
+                except Exception:
+                    pass
+                return self.get_key(user_id, token)
         return None
     
     def delete_key(self, user_id: str, token: str) -> bool:
@@ -461,17 +515,18 @@ class APIKeyManager:
         """
         # 删除 Key
         key_name = self._key_token(user_id, token)
-        self.redis.delete(key_name)
+        self._delete_everywhere(key_name)
         
         # 删除元数据
         meta_name = self._key_meta(user_id, token)
-        self.redis.delete(meta_name)
+        self._delete_everywhere(meta_name)
         
         # 从索引中移除
-        self.redis.srem(self._key_index(user_id), token)
+        for store in self._stores():
+            store.srem(self._key_index(user_id), token)
 
         # 清理反向索引
-        self.redis.delete(self._key_token_reverse(token))
+        self._delete_everywhere(self._key_token_reverse(token))
 
         logger.info(f"用户 {user_id} 删除 Key，Token: {token[:8]}...")
         return True
@@ -585,7 +640,7 @@ class APIKeyManager:
 
         try:
             reverse_key = self._key_token_reverse(token)
-            user_id_bytes = self.redis.get(reverse_key)
+            user_id_bytes = self._read_key(reverse_key)
             if user_id_bytes is not None:
                 user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
                 meta = self.get_metadata(user_id, token)
@@ -602,8 +657,9 @@ class APIKeyManager:
     def _cleanup_meta(self, user_id: str, token: str):
         """清理过期的元数据和索引"""
         meta_name = self._key_meta(user_id, token)
-        self.redis.delete(meta_name)
-        self.redis.srem(self._key_index(user_id), token)
+        self._delete_everywhere(meta_name)
+        for store in self._stores():
+            store.srem(self._key_index(user_id), token)
     
     def get_all_enabled_keys(self) -> list:
         """获取所有用户的已启用 Key 元数据（用于重启恢复）
@@ -613,26 +669,14 @@ class APIKeyManager:
         """
         result = []
         # 扫描所有用户索引
-        cursor = 0
-        while True:
-            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
-            for index_key in keys:
-                # 提取 user_id
-                key_str = index_key.decode("utf-8") if isinstance(index_key, bytes) else index_key
-                user_id = key_str.replace("apikey_index:", "")
-                
-                # 获取该用户的所有 token
-                tokens = self.redis.smembers(index_key)
-                for token in tokens:
-                    token_str = token.decode("utf-8") if isinstance(token, bytes) else token
-                    meta = self.get_metadata(user_id, token_str)
-                    if meta and meta.enabled and meta.status in ("verified", "unverified"):
-                        api_key = self.get_key(user_id, token_str)
-                        if api_key:
-                            result.append((user_id, token_str, meta.provider, api_key))
-            
-            if cursor == 0:
-                break
+        for index_key in self._scan_index_keys():
+            user_id = index_key.replace("apikey_index:", "")
+            for token in self._tokens_for_index(index_key):
+                meta = self.get_metadata(user_id, token)
+                if meta and meta.enabled and meta.status in ("verified", "unverified"):
+                    api_key = self.get_key(user_id, token)
+                    if api_key:
+                        result.append((user_id, token, meta.provider, api_key))
         return result
 
 
@@ -649,26 +693,48 @@ def get_apikey_manager(redis_client: Optional[redis.Redis] = None) -> APIKeyMana
             if _apikey_manager is None:
                 if redis_client is None:
                     redis_client = _build_default_redis_client()
-                _apikey_manager = APIKeyManager(redis_client)
+                    legacy_client = _build_legacy_redis_client()
+                else:
+                    legacy_client = None
+                _apikey_manager = APIKeyManager(redis_client, legacy_redis_client=legacy_client)
     return _apikey_manager
 
 
 def _build_default_redis_client() -> redis.Redis:
     """按配置构建默认 Redis 连接。
 
-    未显式注入 client 时，优先使用 ``REDIS_URL``；生产环境下 Redis 位于独立
-    容器，硬编码 ``localhost`` 会让所有 Key 读写连接失败。
+    未显式注入 client 时，优先使用 ``APIKEY_REDIS_URL``。生产环境应把它指向
+    独立的 noeviction 实例，避免用户 Key 与缓存共用 allkeys-lru 时被淘汰。
+    未配置时回退 ``REDIS_URL``，保持本地开发和单实例部署可用。
     """
-    url = (getattr(settings, "REDIS_URL", "") or "").strip()
+    url = (
+        getattr(settings, "APIKEY_REDIS_URL", "")
+        or getattr(settings, "REDIS_URL", "")
+        or ""
+    ).strip()
     if url:
         return redis.from_url(url, decode_responses=False)
     return redis.Redis(host="localhost", port=6379, db=0, decode_responses=False)
 
 
-def init_apikey_manager(redis_client: redis.Redis) -> APIKeyManager:
+def _build_legacy_redis_client() -> Optional[redis.Redis]:
+    """迁移期回退连接：专用实例启用后，从原共享 Redis 惰性读取旧 Key。"""
+    dedicated = (getattr(settings, "APIKEY_REDIS_URL", "") or "").strip()
+    shared = (getattr(settings, "REDIS_URL", "") or "").strip()
+    if dedicated and shared and dedicated != shared:
+        return redis.from_url(shared, decode_responses=False)
+    return None
+
+
+def init_apikey_manager(
+    redis_client: redis.Redis,
+    legacy_redis_client: Optional[redis.Redis] = None,
+) -> APIKeyManager:
     """初始化全局 APIKeyManager 实例（应用启动时调用）"""
     global _apikey_manager
-    _apikey_manager = APIKeyManager(redis_client)
+    _apikey_manager = APIKeyManager(
+        redis_client, legacy_redis_client=legacy_redis_client
+    )
     return _apikey_manager
 
 

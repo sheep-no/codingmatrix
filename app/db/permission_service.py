@@ -1,10 +1,11 @@
 # app/db/permission_service.py
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.Permission import Permission
+
 
 class PermissionService:
     def __init__(self, db: AsyncSession):

@@ -10,6 +10,6 @@
     result = await call_llm(model="Qwen/Qwen3.5-4B", prompt="你好")
 """
 
-from app.utils.aicloud.llm_caller import call_llm, get_adapter, ADAPTER_FACTORIES
+from app.utils.aicloud.llm_caller import ADAPTER_FACTORIES, call_llm, get_adapter
 
 __all__ = ["call_llm", "get_adapter", "ADAPTER_FACTORIES"]

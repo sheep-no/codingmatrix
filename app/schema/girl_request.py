@@ -1,8 +1,8 @@
 # app/schema/girl_request.py
 from datetime import datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
 
 
 class GirlRequest(BaseModel):

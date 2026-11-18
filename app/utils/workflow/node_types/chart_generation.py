@@ -4,20 +4,21 @@ Chart Generation Node - 图表生成节点
 使用 matplotlib 生成各种类型的图表
 """
 
-import logging
 import asyncio
-import tempfile
+import logging
 import os
+import tempfile
 import threading
-from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from app.schema.workflow import TaskType
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

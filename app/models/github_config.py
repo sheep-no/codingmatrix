@@ -1,5 +1,6 @@
 """User-scoped GitHub configuration; tokens are encrypted envelopes."""
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
+
 from app.models.base import Base
 
 

@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, update as sql_update
+from sqlalchemy import select
+from sqlalchemy import update as sql_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,6 @@ from app.services.unified_state_service import (
     StateNotFoundError,
     save_checkpoint,
 )
-
 
 MODEL_CONTEXT_TASK_TYPE = "agent_model_context"
 MODEL_CONTEXT_SCHEMA_VERSION = "1"

@@ -1,9 +1,10 @@
 """
 任务队列 Schema
 """
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, Dict, Any, List
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatusEnum(str, Enum):

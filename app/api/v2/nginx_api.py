@@ -13,28 +13,31 @@ Nginx 配置管理 API - 增强版（性能优化）
 - TTL: 300 秒 (5 分钟)
 """
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import re
-import json
-import hashlib
 import shutil
-import tempfile
 import subprocess
-from pathlib import Path
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, StreamingResponse
 
-from app.api.v2.guardian_router import require_admin, require_superadmin
-from app.utils.cache import get_cache
-from app.schema.nginxConf import (
-    NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
-    NginxDeployRequest, NginxDeployResponse
-)
 from app.agent.models import DEFAULT_CODE_MODEL
+from app.api.v2.guardian_router import require_admin, require_superadmin
+from app.schema.nginxConf import (
+    NginxCheck,
+    NginxDeployRequest,
+    NginxDeployResponse,
+    NginxGenerateRequest,
+    NginxGenerateResponse,
+)
+from app.utils.cache import get_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nginx", tags=["Nginx 配置管理"])

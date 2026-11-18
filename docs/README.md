@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-22 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 12,226 行
+> 最后更新：2026-11-18 | 后端：474 个 Python 文件 / 143,984 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：35 张表 | Alembic：15 个有效迁移文件 | Flutter：75 个 Dart 文件 / 13,498 行
 
 CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
@@ -88,28 +88,28 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 | 维度 | 当前数量 | 口径 |
 |------|---------:|------|
-| 后端 Python | 423 个文件 / 117,655 行 | `app/**/*.py` |
+| 后端 Python | 474 个文件 / 143,984 行 | `app/**/*.py` |
 | FastAPI Router | 28 个挂载 | `app/main.py` 中 20 个 v1 + 8 个 v2 Router |
 | 业务路由 | 275 条 | 271 条 HTTP + 4 条 WebSocket，排除框架文档、静态资源和前端 catch-all |
-| ORM | 34 张表 | `app/models/` 中的有效 `__tablename__` 声明 |
+| ORM | 35 张表 | `app/models/` 中的有效 `__tablename__` 声明 |
 | Alembic | 15 个有效迁移文件 | `migrations/versions/` |
-| 前端 Vue | 71 个文件 | `src/**/*.vue` |
-| 前端视图 | 9 个 | `src/views/` |
-| Pinia Stores | 10 个 | `src/stores/` |
-| Composables | 14 个 | `src/composables/` |
+| 前端 Vue | 72 个文件 | `src/**/*.vue` |
+| 前端视图 | 10 个 | `src/views/` |
+| Pinia Stores | 11 个 | `src/stores/` |
+| Composables | 22 个 | `src/composables/` |
 | API Client JS | 19 个 | 前端 API client JavaScript 文件 |
-| 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
-| Flutter Dart | 70 个文件 / 12,226 行 | `flutter_client/lib/**/*.dart` |
+| 前端源码 | 约 79,924 行 | `src/` 源码静态清点 |
+| Flutter Dart | 75 个文件 / 13,498 行 | `flutter_client/lib/**/*.dart` |
 | Flutter 页面 | 18 个 | `flutter_client/lib/presentation/*_page.dart` |
-| Flutter 测试 | 34 个文件 | `flutter_client/test/**/*_test.dart` |
+| Flutter 测试 | 41 个文件 | `flutter_client/test/**/*_test.dart` |
 
 ### 测试规模
 
 | 层级 | 当前数量 | 说明 |
 |------|---------:|------|
-| 后端单元测试 | 144 个文件 / 1,848 个定义 | `tests/unit/test_*.py` 中的 `test_*` 定义 |
-| 后端集成测试 | 4 个文件 / 31 个定义 | 认证、健康、PPT 大纲和统一状态恢复 |
-| 前端 Vitest | 15 个文件 | `src/**/*.test.js` |
+| 后端单元测试 | 752 个文件 / 7,014 个定义 | `tests/unit/test_*.py` 中的 `test_*` 定义 |
+| 后端集成测试 | 7 个文件 / 23 个定义 | 认证、健康、PPT 大纲和统一状态恢复 |
+| 前端 Vitest | 71 个文件 | `src/**/*.test.js` |
 | 浏览器 E2E | 77 个 spec / 433 个直接定义 | `tests/e2e/*.spec.js` 中的直接 `test(...)` 定义 |
 
 参数化、动态生成、skip、收集失败和运行依赖会影响实际执行数量。已记录的测试结果及适用范围见[测试指南](testing/TESTING.md)。

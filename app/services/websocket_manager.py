@@ -6,10 +6,11 @@ Manages WebSocket connections for real-time task notifications.
 import asyncio
 import json
 import logging
-from typing import Dict, Set, List, Optional
-from fastapi import WebSocket, WebSocketDisconnect
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Dict, List, Optional, Set
+
+from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.config import settings
 

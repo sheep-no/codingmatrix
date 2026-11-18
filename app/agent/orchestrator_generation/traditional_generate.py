@@ -9,6 +9,7 @@ from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
 from app.utils.AiCodeUtil import get_embedding
+
 from .coverage_checker import check_required_artifacts
 
 logger = logging.getLogger(__name__)

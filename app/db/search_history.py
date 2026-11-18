@@ -1,8 +1,10 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_
-from app.models.history import History
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from sqlalchemy import and_, desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.history import History
 
 
 def escape_like_pattern(pattern: str) -> str:

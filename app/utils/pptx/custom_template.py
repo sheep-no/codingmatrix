@@ -3,15 +3,15 @@
 """
 import logging
 from dataclasses import replace
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from pptx import Presentation as PptxPresentation
-from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
+from pptx.util import Emu, Inches, Pt
 
-from app.utils.pptx.templates import TemplateConfig, TemplateCategory
+from app.utils.pptx.templates import TemplateCategory, TemplateConfig
 
 logger = logging.getLogger(__name__)
 

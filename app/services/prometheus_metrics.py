@@ -3,11 +3,11 @@ Prometheus 指标服务
 
 轻量级指标暴露，不依赖额外的 Prometheus 库
 """
-import time
 import threading
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
-from dataclasses import dataclass, field
 
 
 @dataclass

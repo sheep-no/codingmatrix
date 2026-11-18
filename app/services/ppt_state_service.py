@@ -1,9 +1,8 @@
 """SQL persistence for PPT outlines, quality reports and task metadata."""
 
 import asyncio
-from typing import Any, AsyncIterator, Optional
-
 from datetime import timezone
+from typing import Any, AsyncIterator, Optional
 from uuid import uuid4
 
 from sqlalchemy import delete, desc, select
@@ -17,9 +16,9 @@ from app.models.task import Task
 from app.schema.ppt_outline import OutlineCreateRequest, OutlineDraft, OutlineSlide, OutlineUpdateRequest
 from app.services.unified_state_service import StateNotFoundError, StateOwnershipError
 from app.utils.aicloud.knowledge_processor import parse_document
-from app.utils.web_search import FreeWebSearch
 from app.utils.pptx.commercial_content import build_commercial_page_blueprint, key_message_repeats_body
 from app.utils.pptx.scenario import classify_scenario
+from app.utils.web_search import FreeWebSearch
 
 
 def _user_id(value: str) -> int:

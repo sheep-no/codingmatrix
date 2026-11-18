@@ -4,8 +4,8 @@ HTTP Request Node - HTTP 请求节点
 发送 HTTP 请求调用外部 API
 """
 
-import logging
 import json
+import logging
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -13,7 +13,7 @@ import httpx
 
 from app.schema.workflow import TaskType
 from app.utils.url_safety import check_outbound_url
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

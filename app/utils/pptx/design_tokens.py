@@ -5,7 +5,6 @@ from typing import Any
 
 from app.utils.pptx.templates.base import TemplateConfig
 
-
 DESIGN_TOKEN_VERSION = "1.0"
 
 

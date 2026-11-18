@@ -9,8 +9,9 @@ aicloud 共享 HTTP 客户端模块
 
 import asyncio
 import logging
-import httpx
 from typing import Optional
+
+import httpx
 from httpx import Timeout
 
 logger = logging.getLogger(__name__)

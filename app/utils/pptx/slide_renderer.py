@@ -11,14 +11,14 @@ PPT 幻灯片预览图渲染器
 """
 
 import logging
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.util import Emu, Inches, Pt
 
 logger = logging.getLogger(__name__)
 

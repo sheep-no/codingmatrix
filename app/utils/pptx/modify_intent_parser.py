@@ -12,10 +12,10 @@ PPT 修改意图解析器
 - "第二页的背景改成蓝色" → slide=2, modify=[color], target=background
 """
 
-import re
 import logging
-from typing import Dict, Any, List, Optional
+import re
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

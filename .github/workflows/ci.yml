@@ -52,6 +52,9 @@ jobs:
     - name: Lint backend (ruff)
       run: ruff check app
 
+    - name: Typecheck new modules (mypy)
+      run: mypy
+
     - name: Security audit (pip-audit)
       run: |
         pip install pip-audit

@@ -12,7 +12,6 @@ from app.services.state_migration_service import (
 from app.services.task_event_service import append_task_event
 from app.services.task_state_service import create_task
 
-
 MODULE = "workflow"
 
 

@@ -1,17 +1,18 @@
 import asyncio
-import httpx
-import json
 import hashlib
-import time
+import json
 import logging
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
-from httpx import Timeout
-from collections import OrderedDict
-from fastapi import HTTPException
 
-from app.core.config import settings
+import httpx
+from fastapi import HTTPException
+from httpx import Timeout
+
 from app.agent.models import DEFAULT_EMBEDDING_MODEL
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

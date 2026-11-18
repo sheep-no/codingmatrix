@@ -1,9 +1,10 @@
-from pydantic import BaseModel, field_validator, Field
-from typing import Optional, List, Dict, Any, Literal
 import re
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
 from app.agent.models import DEFAULT_REASONING_MODEL
 from app.utils.aicloud.model_registry import MODEL_REGISTRY
-
 
 # AI Code 可用模型（代码问答/生成/视觉理解）
 ALLOWED_MODELS_LIST = [model.model_key for model in MODEL_REGISTRY.values()]

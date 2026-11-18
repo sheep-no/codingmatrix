@@ -1,7 +1,8 @@
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
-from app.models.base import Base
 from sqlalchemy.sql import func
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Index
+
+from app.models.base import Base
 
 
 class SavedProject(Base):

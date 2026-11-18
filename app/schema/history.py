@@ -1,7 +1,7 @@
 from datetime import datetime
+from typing import AsyncGenerator, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, AsyncGenerator, Literal, List
 
 
 class HistoryRequest(BaseModel):

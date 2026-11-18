@@ -9,16 +9,12 @@
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Any, Optional, List, Dict
+from typing import Any, Dict, List, Optional
 
-from app.utils.aicloud.model_registry import (
-    MODEL_REGISTRY,
-    get_model,
-    get_default_model,
-    ModelCapability
-)
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from app.utils.aicloud.model_registry import MODEL_REGISTRY, ModelCapability, get_default_model, get_model
 from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
@@ -147,9 +143,9 @@ async def list_capabilities():
 async def get_agent_model_config(token: dict = Depends(verify_token)):
     """获取当前 Agent 各环节使用的模型配置（只读）"""
     from app.agent.dynamic_model_router import (
-        load_agent_model_config,
-        _load_roles_assignment,
         MODEL_KEY_TO_ID,
+        _load_roles_assignment,
+        load_agent_model_config,
     )
 
     config = load_agent_model_config()

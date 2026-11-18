@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 from app.schema.workflow import TaskType
 from app.utils.file_operator import FileOperator, PathSecurityError
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

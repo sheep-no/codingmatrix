@@ -11,25 +11,25 @@
 - 内存优化，防止 OOM
 - 详细性能监控日志
 """
+import asyncio
 import logging
 import time
-import asyncio
-from sqlalchemy.exc import SQLAlchemyError
 from datetime import timedelta
 from typing import List, Optional
 
-from sqlalchemy import select, and_, delete, distinct
+from sqlalchemy import and_, delete, distinct, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.time import utcnow_naive
-from app.models.chat_history import ChatHistory, ChatSummary
-from app.utils import call_llm
-from app.db.database import async_session
 from app.agent.models import DEFAULT_REASONING_MODEL
+from app.core.time import utcnow_naive
+from app.db.database import async_session
+from app.models.chat_history import ChatHistory, ChatSummary
 from app.services.girlai_state_adapter import (
     delete_messages_for_legacy_ids,
     save_summary_checkpoint,
 )
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 

@@ -10,11 +10,12 @@ import base64
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 import httpx
-from httpx import Timeout
 from fastapi import HTTPException
+from httpx import Timeout
+
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_OCR_MODEL, DEFAULT_VISUAL_MODEL
 
 logger = logging.getLogger(__name__)

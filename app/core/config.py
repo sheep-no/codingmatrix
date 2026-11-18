@@ -1,10 +1,10 @@
+import re
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
-import re
 
-from pydantic import Field, ConfigDict, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from functools import lru_cache
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = 1800
 
     REDIS_URL: str = ""
+    # 用户 API Key 单独存放，避免与缓存共用 allkeys-lru 实例时被静默淘汰；
+    # 留空则沿用 REDIS_URL，便于本地开发和单实例部署。
+    APIKEY_REDIS_URL: str = ""
+    # 部署提交号，由部署脚本注入；/health 暴露以便核对线上版本。
+    GIT_COMMIT: str = ""
     ENABLE_SCHEDULER: bool = False
 
     LOG_LEVEL: str = "INFO"

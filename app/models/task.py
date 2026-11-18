@@ -2,8 +2,10 @@
 任务队列模型
 """
 from enum import Enum
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Index, JSON
+
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
 from app.core.time import utcnow_naive
 from app.models.base import Base
 

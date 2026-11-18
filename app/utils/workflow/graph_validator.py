@@ -8,8 +8,8 @@ Graph Validator - 任务图验证器
 """
 
 import logging
-from typing import List, Dict, Set, Tuple, Optional
 from collections import Counter, deque
+from typing import Dict, List, Optional, Set, Tuple
 
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
 
@@ -29,15 +29,15 @@ def _get_node_classes() -> Dict[TaskType, type]:
     classes: Dict[TaskType, type] = {}
     try:
         from app.utils.workflow.node_types import (
-            WebSearchNode,
-            CodeExecutionNode,
             ChartGenerationNode,
-            FileProcessingNode,
-            LLMCallNode,
+            CodeExecutionNode,
             ConditionalNode,
-            HumanApprovalNode,
-            HTTPRequestNode,
             DataTransformNode,
+            FileProcessingNode,
+            HTTPRequestNode,
+            HumanApprovalNode,
+            LLMCallNode,
+            WebSearchNode,
         )
 
         for node_cls in (

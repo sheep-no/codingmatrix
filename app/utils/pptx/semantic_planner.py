@@ -5,7 +5,6 @@ from typing import Any, Iterable
 
 from app.schema.ppt_outline import OutlineDraft, OutlineSlide
 
-
 SLIDE_TYPES = (
     "cover", "agenda", "section", "key_points", "image_text", "data",
     "comparison", "timeline", "process", "summary", "closing",

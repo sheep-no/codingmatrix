@@ -1,7 +1,7 @@
 """
 PPT 内置模板集合 - 5 套专业模板
 """
-from app.utils.pptx.templates.base import TemplateBase, TemplateConfig, TemplateCategory, SlideLayout
+from app.utils.pptx.templates.base import SlideLayout, TemplateBase, TemplateCategory, TemplateConfig
 
 
 class BusinessReportTemplate(TemplateBase):

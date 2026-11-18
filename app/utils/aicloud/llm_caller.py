@@ -7,26 +7,26 @@
 """
 
 import asyncio
-from collections import OrderedDict
-from contextvars import ContextVar, Token
-from dataclasses import dataclass
 import json
 import logging
 import time
-from typing import AsyncIterator, Optional, Union, Dict, Any
+from collections import OrderedDict
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Dict, Optional, Union
 
 from app.core.config import settings
-from app.utils.aicloud.providers import ModelProvider, ProviderConfig
-from app.utils.aicloud.provider_router import ProviderRouter
-from app.utils.aicloud.adapters.base import BaseProviderAdapter
-from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
-from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
-from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
-from app.utils.aicloud.adapters.openai import OpenAIAdapter
-from app.utils.aicloud.adapters.deepseek import DeepSeekAdapter
 from app.utils.aicloud.adapters.anthropic import AnthropicAdapter
+from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
+from app.utils.aicloud.adapters.deepseek import DeepSeekAdapter
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
+from app.utils.aicloud.adapters.openai import OpenAIAdapter
+from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
 from app.utils.aicloud.dynamic_provider import DynamicProvider
+from app.utils.aicloud.provider_router import ProviderRouter
+from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ class _LLMSemaphoreLease:
             return
         if self.global_sem is None and self.model_sem is None:
             try:
-                from app.agent.llm_client import get_model_semaphore, get_global_semaphore
+                from app.agent.llm_client import get_global_semaphore, get_model_semaphore
                 self.global_sem = get_global_semaphore()
                 self.model_sem = get_model_semaphore(model)
             except Exception:
@@ -624,8 +624,8 @@ async def call_llm(
     # 优先级 3.5: 请求上下文有用户但未显式传 token 时，使用该用户首个可用 Key。
     # 系统环境不再内置供应商 Key，工作流等未携带 token 的调用需要走用户授权。
     if adapter is None and not api_key_token:
-        from app.utils.logging import get_user_id
         from app.services.apikey_manager import get_apikey_manager
+        from app.utils.logging import get_user_id
 
         user_id = get_user_id()
         if user_id:
@@ -753,7 +753,7 @@ async def call_llm(
                     logger.info(f"Stream fallback to {fallback.value}")
                     if global_sem is None:
                         try:
-                            from app.agent.llm_client import get_model_semaphore, get_global_semaphore
+                            from app.agent.llm_client import get_global_semaphore, get_model_semaphore
                             global_sem = get_global_semaphore()
                             model_sem = get_model_semaphore(model)
                         except Exception:

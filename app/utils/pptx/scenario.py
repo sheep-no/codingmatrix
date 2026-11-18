@@ -1,11 +1,10 @@
 """Deterministic presentation scenario classification and template ranking."""
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Iterable
 
 from app.utils.pptx.templates.base import TemplateCategory
-
 
 SCENARIO_PROFILES = {
     "business": (TemplateCategory.BUSINESS, ("经营", "季度", "汇报", "战略", "管理", "运营")),

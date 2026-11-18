@@ -1,10 +1,10 @@
 """Task state service contract."""
 
 from app.services.unified_state_service import (
+    TERMINAL_TASK_STATUSES,
     StateConflictError,
     StateNotFoundError,
     StateOwnershipError,
-    TERMINAL_TASK_STATUSES,
     compare_task_snapshot,
     create_task,
     get_owned_task,

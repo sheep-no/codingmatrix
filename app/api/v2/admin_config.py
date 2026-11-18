@@ -1,12 +1,13 @@
 import logging
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.database import get_db
-from app.utils.security import verify_token, require_superadmin
-from app.utils.system_config import system_config_manager
 from pydantic import BaseModel
-from typing import Optional, Any
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.database import get_db
+from app.utils.security import require_superadmin, verify_token
+from app.utils.system_config import system_config_manager
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = logging.getLogger(__name__)

@@ -1,25 +1,26 @@
 """
 视觉模型 API - 图片理解、OCR、UI 转代码、内容审核
 """
-import logging
-import tempfile
 import base64
 import binascii
+import logging
+import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import File as FastAPIFile
 from pydantic import BaseModel, Field
 
 from app.utils.security import verify_token
 from app.utils.vision import (
-    analyze_image,
-    extract_text_from_image,
-    generate_code_from_image,
-    check_image_safety,
+    MAX_IMAGE_SIZE,
     OCR_MODEL,
     SUPPORTED_IMAGE_FORMATS,
-    MAX_IMAGE_SIZE,
+    analyze_image,
+    check_image_safety,
+    extract_text_from_image,
+    generate_code_from_image,
 )
 
 logger = logging.getLogger(__name__)

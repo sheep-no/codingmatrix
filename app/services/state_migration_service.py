@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from sqlalchemy import delete, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.task import Task
 from app.db.models import ProjectSession
+from app.models.task import Task
 from app.models.unified_state import Artifact, Checkpoint, Session, StateCompatibilityMapping, StateRetentionRecord
-
 
 ACTIVE_TASK_STATUSES = {"pending", "running", "recovering"}
 PROJECT_LIFECYCLE_STATUSES = {"active", "idle", "abandoned", "archived", "purge_candidate", "purged"}

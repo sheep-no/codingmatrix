@@ -3,12 +3,13 @@ Celery Application Configuration
 
 Task Queue System - Powered by Celery + Redis
 """
-import os
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
+
 from celery import Celery
-from celery.signals import task_prerun, task_postrun, task_failure, task_retry, task_revoked
+from celery.signals import task_failure, task_postrun, task_prerun, task_retry, task_revoked
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ def _sync_set_task_status(
     try:
         from sqlalchemy import create_engine, select
         from sqlalchemy.orm import Session
+
         from app.models.task import CELERY_STATE_TO_TASK_STATUS, TERMINAL_TASK_STATUSES, Task
 
         normalized = CELERY_STATE_TO_TASK_STATUS.get(str(status or "").lower())

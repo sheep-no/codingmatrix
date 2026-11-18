@@ -4,7 +4,6 @@ import hashlib
 import random
 from typing import Iterable
 
-
 # Variant zero is the primary role-driven composition. Variants 1-6 map to
 # the existing modern composition families in aiGeneratorPptx.py.
 LAYOUT_VARIANT_POOL = tuple(range(11))

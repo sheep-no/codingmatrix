@@ -836,7 +836,16 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 
 仍未闭合：StateGraph 生产入口保持单节点 wrapper（迁移边界，非缺陷）、Flutter 本地验证未接入 `required_validation_scopes`（缺少跨平台命令执行器）、跨工作台多 worker 续跑缺独立验收。
 
-验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 14713 passed / 2 skipped，覆盖 99.99%（`/tmp/opencode/cov_depth_full2.json`）；未覆盖的 7 行集中在工作流分解心跳与用户默认 Key 两条时序分支，本轮改动文件均为 100%。`ruff check app` 全绿，全量修复仅涉及 24 处无占位符的 f-string 前缀。
+验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 14723 passed / 2 skipped，覆盖 99.99%（`/tmp/opencode/cov_hardening_full2.json`）；未覆盖的 7 行集中在工作流分解心跳与用户默认 Key 两条时序分支，本轮改动文件均为 100%。`ruff check app`、`mypy` 全绿。
+
+### 运行时加固与门禁第二阶段（2026-11-18）
+
+- 用户 Key 与缓存 Redis 隔离：`docker-compose.prod.yml` 新增 `redis-apikeys`（`--maxmemory-policy noeviction`、AOF、独立卷），api/celery/scheduler 统一注入 `APIKEY_REDIS_URL`。`APIKeyManager` 支持旧共享实例只读回退：首次读取时按剩余 TTL 回填新实例，索引、元数据、反向索引、全量恢复扫描均覆盖旧库，删除会同时清理两边，避免迁移期 Key “消失”或被删后复活。未配置专用地址时继续沿用 `REDIS_URL`，本地开发零改动。
+- 类型与 import 门禁：ruff 规则扩到 `E9,F,I` 并修复 250 处 import 顺序；`mypy` 以 `follow_imports=skip` 只检查新增检索、产物门禁与健康模块，CI 增加 `mypy` 步骤，存量代码按领域逐步纳入。
+- 部署可观测性：`/health` 新增 `commit`，取自 `GIT_COMMIT`；生产 compose 默认注入 `unknown`，部署脚本应导出实际 sha。`APP_VERSION` 仍由 `app/core/version.py` 单一维护。
+- 文档基线：`docs/README.md` 刷新为 474 个后端文件 / 143,984 行、35 张表、752 个单元测试文件 / 7,014 个定义、75 个 Dart 文件 / 13,498 行，消除约 22% 的规模偏差。
+
+E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩溃（单轮失败概率约 0.7），在基础设施修复前改为阻塞会制造随机红灯；当前继续出报告并人工跟踪。
 
 ### 本轮逐文件验证（2026-09-27）
 

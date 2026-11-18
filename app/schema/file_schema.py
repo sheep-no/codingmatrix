@@ -1,8 +1,9 @@
 """
 文件管理 Schema
 """
+from typing import List, Optional
+
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, List
 
 
 class FileUploadResponse(BaseModel):

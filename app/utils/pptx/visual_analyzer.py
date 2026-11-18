@@ -11,12 +11,12 @@ PPT 视觉分析器
 4. 融合两层信息返回分析结果
 """
 
+import base64
 import json
 import logging
-import base64
-from pathlib import Path
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from app.agent.models import DEFAULT_VISUAL_MODEL
 from app.utils.pptx.slide_renderer import SlideRenderer, get_slide_metadata
@@ -155,8 +155,9 @@ class PPTVisualAnalyzer:
             视觉描述
         """
         try:
-            from app.utils.vision import _call_vision_model
             from httpx import Timeout
+
+            from app.utils.vision import _call_vision_model
 
             # 转为 base64
             image_base64 = base64.b64encode(image_bytes).decode('utf-8')

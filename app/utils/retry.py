@@ -6,16 +6,16 @@
 """
 import logging
 from functools import wraps
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
 from tenacity import (
+    after_log,
+    before_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
     wait_random_exponential,
-    retry_if_exception_type,
-    before_log,
-    after_log,
 )
 
 logger = logging.getLogger(__name__)

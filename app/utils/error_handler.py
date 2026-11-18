@@ -16,17 +16,18 @@
 """
 import logging
 from typing import Any, Dict
-from fastapi import Request, status
+
+from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from fastapi import HTTPException
+
 from app.utils.aicloud.llm_caller import (
     LLMCallError,
-    UserAPIKeyNotFoundError,
     ProviderAPIKeyNotConfiguredError,
+    UserAPIKeyNotFoundError,
 )
 
 logger = logging.getLogger(__name__)

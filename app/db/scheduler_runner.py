@@ -8,7 +8,6 @@ import signal
 
 from app.db.scheduler import start_scheduler, stop_scheduler
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -5,8 +5,9 @@
 
 import math
 import re
+from typing import Any, Dict, List, Optional
+
 from pptx.util import Inches, Pt
-from typing import Dict, List, Optional, Any
 
 
 class TextAnalyzer:

@@ -11,28 +11,28 @@ Workflow Executor - 工作流执行器
 
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Set, Callable, AsyncGenerator
-from datetime import datetime
 from collections import deque
+from datetime import datetime
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
 
-from app.schema.workflow import TaskGraph, TaskNode, TaskType, TaskStatus, WorkflowStatus
-from app.utils.workflow.graph_validator import GraphValidator, GraphValidationError
-from app.utils.workflow.state_machine import WorkflowStateMachine
-from app.utils.workflow.result_aggregator import ResultAggregator
-from app.utils.workflow.node_types.base import NodeResult
-from app.utils.workflow.node_types.chart_generation import cleanup_all_temp_files
+from app.schema.workflow import TaskGraph, TaskNode, TaskStatus, TaskType, WorkflowStatus
+from app.utils.workflow.graph_validator import GraphValidationError, GraphValidator
 from app.utils.workflow.node_types import (
+    ChartGenerationNode,
+    CodeExecutionNode,
+    ConditionalNode,
+    DataTransformNode,
+    FileProcessingNode,
+    HTTPRequestNode,
+    HumanApprovalNode,
+    LLMCallNode,
     TaskNodeBase,
     WebSearchNode,
-    CodeExecutionNode,
-    ChartGenerationNode,
-    FileProcessingNode,
-    LLMCallNode,
-    ConditionalNode,
-    HumanApprovalNode,
-    HTTPRequestNode,
-    DataTransformNode,
 )
+from app.utils.workflow.node_types.base import NodeResult
+from app.utils.workflow.node_types.chart_generation import cleanup_all_temp_files
+from app.utils.workflow.result_aggregator import ResultAggregator
+from app.utils.workflow.state_machine import WorkflowStateMachine
 
 logger = logging.getLogger(__name__)
 

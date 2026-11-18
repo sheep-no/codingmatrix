@@ -1,13 +1,14 @@
-from typing import Optional
-from jose import jwt, JWTError
+import logging
+import re
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import bcrypt
 from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import ValidationError
 from starlette import status
-import bcrypt
-import re
-import logging
 
 from app.core.config import settings
 

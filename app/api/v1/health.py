@@ -14,17 +14,27 @@
 import logging
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Response, HTTPException, Depends
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
+from app.core.config import settings
 from app.core.version import APP_VERSION
+from app.db.database import get_db
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
 from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
+
+
+def _release_info() -> dict:
+    """返回部署版本与提交号，供线上核对实际运行产物。"""
+    return {
+        "version": APP_VERSION,
+        "commit": (settings.GIT_COMMIT or "unknown").strip() or "unknown",
+    }
 
 
 @router.get("", summary="基础健康检查")
@@ -46,14 +56,14 @@ async def health_check():
         return {
             "status": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": APP_VERSION,
+            **_release_info(),
         }
     except Exception as e:
         logger.error(f"健康检查异常: {e}")
         return {
             "status": "unhealthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": APP_VERSION,
+            **_release_info(),
         }
 
 
@@ -102,6 +112,7 @@ async def _check_db_quick() -> bool:
     """快速数据库连接检查"""
     try:
         from sqlalchemy import text
+
         from app.db.database import async_session
         async with async_session() as db:
             await db.execute(text("SELECT 1"))
@@ -146,9 +157,11 @@ async def prometheus_metrics(token: dict = Depends(verify_token)):
     供外部 Prometheus 服务器定时抓取
     格式：Prometheus text exposition format
     """
-    from app.services.prometheus_metrics import prometheus_metrics
-    import psutil
     import gc
+
+    import psutil
+
+    from app.services.prometheus_metrics import prometheus_metrics
 
     prometheus_metrics.set_memory_usage(psutil.virtual_memory().used)
     prometheus_metrics.set_health_status("api", True)

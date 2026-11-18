@@ -1,6 +1,8 @@
 """工作流历史记录数据库模型"""
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint, text
+
+from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+
 from app.models.base import Base
 
 

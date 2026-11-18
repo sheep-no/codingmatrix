@@ -16,50 +16,49 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 
 from app.core.time import utcnow_naive
 from app.db.database import get_db
-from app.utils.security import verify_token
+from app.models.aicloud import AicloudAuditLog, AicloudMessage, AicloudReview, AicloudSession
 from app.schema.aicloud import (
+    AuditLogResponse,
     ChatRequest,
     ChatResponse,
     ChatStreamRequest,
+    CodeExecuteRequest,
+    CodeExecuteResponse,
     FileReadRequest,
     FileReadResponse,
     FileWriteRequest,
     FileWriteResponse,
-    AuditLogResponse,
-    SessionResponse,
-    ReviewResponse,
-    ReviewActionRequest,
     MessageResponse,
-    SessionExportResponse,
-    SessionDeleteResponse,
     ModelInfoResponse,
     ModelsListResponse,
-    CodeExecuteRequest,
-    CodeExecuteResponse,
+    ReviewActionRequest,
+    ReviewResponse,
+    SessionDeleteResponse,
+    SessionExportResponse,
+    SessionResponse,
 )
+from app.services.aicloud_state_adapter import append_legacy_message, ensure_session
+from app.utils import call_llm
+from app.utils.aicloud.audit_logger import log_file_read, log_file_write, log_operation
+from app.utils.aicloud.auto_executor import execute_with_llm_loop
+from app.utils.aicloud.context_isolator import is_protected_file, is_protected_path
+from app.utils.aicloud.model_registry import get_available_models, get_default_model, get_model, get_provider_info
 from app.utils.aicloud.permission import check_aicloud_permission
-from app.utils.aicloud.context_isolator import is_protected_path, is_protected_file
-from app.utils.aicloud.sandbox import ensure_user_sandbox
-from app.utils.aicloud.sandbox_operator import SandboxFileOperator
-from app.utils.file_operator import PathSecurityError
 from app.utils.aicloud.review_queue import (
+    approve_review,
     create_review,
     get_review,
-    approve_review,
     reject_review,
 )
-from app.utils.aicloud.audit_logger import log_operation, log_file_read, log_file_write
-from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, AicloudAuditLog
-from app.utils import call_llm
-from app.utils.aicloud.model_registry import get_model, get_default_model, get_available_models, get_provider_info
-from app.utils.aicloud.auto_executor import execute_with_llm_loop
-from app.utils.aicloud.sandbox import get_sandbox_workspace_path
-from app.services.aicloud_state_adapter import append_legacy_message, ensure_session
+from app.utils.aicloud.sandbox import ensure_user_sandbox, get_sandbox_workspace_path
+from app.utils.aicloud.sandbox_operator import SandboxFileOperator
+from app.utils.file_operator import PathSecurityError
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/aicloud", tags=["aicloud"])
@@ -180,10 +179,11 @@ async def chat(
     # RAG 知识库检索
     knowledge_context = ""
     try:
-        from app.utils.AiCodeUtil import get_embedding
-        from app.utils.aicloud.knowledge_processor import search_similar_chunks, cosine_similarity
-        from app.models.aicloud_knowledge import AicloudKnowledgeChunk
         import json
+
+        from app.models.aicloud_knowledge import AicloudKnowledgeChunk
+        from app.utils.aicloud.knowledge_processor import cosine_similarity, search_similar_chunks
+        from app.utils.AiCodeUtil import get_embedding
 
         # 查询向量化
         query_vector = await get_embedding(request.message)
