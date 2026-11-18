@@ -18,6 +18,39 @@ import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class GirlApi extends DeliveryApi {
   GirlApi(super.handle);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final path = request.url.path;
+    if (!path.endsWith('/stream')) return super.send(request);
+    final body = Map<String, dynamic>.from(
+      jsonDecode((request as http.Request).body) as Map,
+    );
+    final voice = path.contains('/voice/');
+    final target = voice
+        ? '/api/v1/GirlAi/voice/transcriptions'
+        : '/api/v1/GirlAi/companion/turn';
+    try {
+      final result = await handle(target, 'POST', body);
+      final data = result is http.Response
+          ? jsonDecode(result.body)
+          : result is Map
+          ? result
+          : <String, dynamic>{};
+      final event = jsonEncode({'event': 'turn', 'data': data});
+      return http.StreamedResponse(
+        Stream.value(utf8.encode('data: $event\n\n')),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    } catch (error) {
+      return http.StreamedResponse(
+        Stream<List<int>>.error(error),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    }
+  }
 }
 
 Map<String, dynamic> turnReply({String text = '嗨'}) => {
@@ -28,6 +61,11 @@ Map<String, dynamic> turnReply({String text = '嗨'}) => {
 };
 
 const memoryJson = {'id': 'm1', 'key': '喜欢', 'value': '猫'};
+
+Future<void> settleNetwork(WidgetTester tester) async {
+  await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+  await tester.pumpAndSettle();
+}
 
 Map<String, dynamic> turnReplyWithMemory({String text = '嗨'}) => {
   ...turnReply(text: text),
@@ -49,7 +87,9 @@ void main() {
       }
       if (path == '/api/v1/GirlAi/companion/turn') {
         expect(method, 'POST');
-        expect(body, {'prompt': '你好', 'character_id': 'gentle'});
+        expect(body, containsPair('prompt', '你好'));
+        expect(body, containsPair('character_id', 'gentle'));
+        expect((body as Map?)?['turn_id'], isA<String>());
         return turnReply();
       }
       fail('unexpected $path');
@@ -79,7 +119,8 @@ void main() {
     );
     await container.read(girlAiControllerProvider.notifier).send('你好');
     final state = container.read(girlAiControllerProvider);
-    expect(state.error, contains('connection lost'));
+    expect(state.error, '网络中断，请点击重试');
+    expect(state.canRetryTurn, isTrue);
     expect(state.loading, false);
     expect(state.messages.single.content, '你好');
   });
@@ -97,8 +138,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('嗨'), findsOneWidget);
     expect(find.text('情绪: happy'), findsOneWidget);
@@ -152,8 +192,6 @@ void main() {
     container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(api)],
     );
-    await container.read(girlAiControllerProvider.notifier).send('你好');
-
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -162,6 +200,10 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.byIcon(Icons.send));
+    await settleNetwork(tester);
 
     expect(find.text('情绪: stressed'), findsOneWidget);
     expect(find.text('意图: task_execution'), findsOneWidget);
@@ -337,7 +379,7 @@ void main() {
     final fixture = Fixture();
     final gate = Completer<http.Response>();
     fixture.business = (request) async {
-      if (request.url.path == '/api/v1/GirlAi/companion/turn') {
+      if (request.url.path.contains('/GirlAi/companion/turn')) {
         return gate.future;
       }
       return http.Response('{}', 200);
@@ -437,9 +479,9 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
-    expect(find.textContaining('connection lost'), findsOneWidget);
+    await settleNetwork(tester);
+    expect(find.text('网络中断，请点击重试'), findsOneWidget);
+    expect(find.byKey(const Key('girlRetryTurnButton')), findsOneWidget);
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('嗨'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -486,8 +528,7 @@ void main() {
     );
     await tester.pump();
     pending.completeError(const SocketException('connection lost'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -546,8 +587,7 @@ void main() {
     expect(find.text('第一条'), findsOneWidget);
 
     pending.complete(turnReply(text: '嗨'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.text('嗨'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -951,8 +991,7 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     await tester.tap(find.byTooltip('保存'));
     await tester.pump();
@@ -961,8 +1000,7 @@ void main() {
     await tester.pump();
     expect(confirms, 1);
     pending.complete(null);
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(tester.takeException(), isNull);
   });
 
@@ -987,8 +1025,7 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     await tester.tap(find.byTooltip('忽略'));
     await tester.pump();
@@ -997,8 +1034,7 @@ void main() {
     await tester.pump();
     expect(deletes, 1);
     pending.complete(null);
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(tester.takeException(), isNull);
   });
 
@@ -1014,12 +1050,10 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     await tester.tap(find.byTooltip('保存'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -1037,11 +1071,9 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     await tester.tap(find.byTooltip('忽略'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -1059,11 +1091,9 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     await tester.tap(find.byTooltip('保存'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.textContaining('connection lost'), findsOneWidget);
 
     await tester.pumpWidget(
@@ -1100,8 +1130,7 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     await tester.tap(find.byTooltip('保存'));
     await tester.pump();
 
@@ -1124,8 +1153,7 @@ void main() {
     expect(find.textContaining('connection lost'), findsNothing);
 
     pending.completeError(const SocketException('connection lost'));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -1162,11 +1190,10 @@ void main() {
     );
     await container.read(girlAiControllerProvider.notifier).sendVoice('你好');
     final state = container.read(girlAiControllerProvider);
-    expect(bodies.single, {
-      'transcript': '你好',
-      'character_id': 'gentle',
-      'voice_output': false,
-    });
+    expect(bodies.single, containsPair('transcript', '你好'));
+    expect(bodies.single, containsPair('character_id', 'gentle'));
+    expect(bodies.single, containsPair('voice_output', false));
+    expect((bodies.single as Map)['turn_id'], isA<String>());
     expect(state.messages.map((message) => message.content), ['你好', '在呢']);
     expect(state.voiceInput?.status, 'received');
   });
@@ -1205,8 +1232,7 @@ void main() {
     expect(find.text('语音模式：发送将按语音转写处理'), findsOneWidget);
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump();
+    await settleNetwork(tester);
     expect(transcribed, 1);
     expect(find.text('在呢'), findsOneWidget);
     expect(find.text('语音已识别'), findsOneWidget);
@@ -1570,5 +1596,173 @@ void main() {
     );
     await pending;
     expect(container.read(girlAiControllerProvider).memories, isEmpty);
+  });
+
+  testWidgets('伴侣服务 530 展示降级提示并可重试', (tester) async {
+    var calls = 0;
+    useApi(
+      GirlApi((path, _, __) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          calls++;
+          if (calls == 1) {
+            throw const SocketException('服务端异常，请稍后重试（HTTP 530）');
+          }
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('伴侣服务暂时不可用'), findsOneWidget);
+    expect(find.textContaining('其他模块仍可正常使用'), findsOneWidget);
+    expect(find.byKey(const Key('girlPageRetryButton')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('girlPageRetryButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('温柔'), findsOneWidget);
+    expect(find.text('伴侣服务暂时不可用'), findsNothing);
+    expect(calls, 2);
+  });
+
+  testWidgets('对话中断展示可执行错误并复用同一回合重试', (tester) async {
+    var turns = 0;
+    final bodies = <Map<String, dynamic>>[];
+    useApi(
+      GirlApi((path, _, body) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/companion/turn') {
+          turns++;
+          bodies.add(Map<String, dynamic>.from(body! as Map));
+          if (turns == 1) throw const SocketException('connection lost');
+          return turnReply(text: '恢复成功');
+        }
+        fail('unexpected $path');
+      }),
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'hi');
+    await tester.tap(find.byIcon(Icons.send));
+    await settleNetwork(tester);
+    expect(find.text('网络中断，请点击重试'), findsOneWidget);
+    expect(find.byKey(const Key('girlRetryTurnButton')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('girlRetryTurnButton')));
+    await settleNetwork(tester);
+    expect(find.text('恢复成功'), findsOneWidget);
+    expect(find.text('hi'), findsOneWidget);
+    expect(find.text('网络中断，请点击重试'), findsNothing);
+    expect(bodies.length, 2);
+    expect(bodies[0]['turn_id'], bodies[1]['turn_id']);
+  });
+
+  testWidgets('角色库为空时显示统一空态并可重试', (tester) async {
+    useApi(
+      GirlApi((path, _, __) async {
+        if (path == '/api/v1/GirlAi/characters') return {'characters': []};
+        if (path == '/api/v1/GirlAi/characters/custom/list') {
+          return {'characters': []};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('角色库'));
+    await tester.pumpAndSettle();
+    expect(find.text('暂无可用角色'), findsOneWidget);
+    expect(find.text('重新加载'), findsOneWidget);
+  });
+
+  testWidgets('角色库点击遮罩可以关闭', (tester) async {
+    useApi(
+      GirlApi((path, _, __) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/characters/custom/list') {
+          return {'characters': []};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('角色库'));
+    await tester.pumpAndSettle();
+    expect(find.text('角色库'), findsOneWidget);
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+    expect(find.text('角色库'), findsNothing);
+  });
+
+  testWidgets('历史弹窗提供搜索提示和清空说明', (tester) async {
+    useApi(
+      GirlApi((path, _, __) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/history') return {'records': []};
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('历史记录'));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索历史记录'), findsWidgets);
+    expect(find.text('暂无可清空的记录'), findsOneWidget);
+    expect(find.text('暂无历史记录'), findsOneWidget);
   });
 }

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,6 +201,7 @@ MAX_HISTORY_MESSAGES = 10
 COMPANION_STRUCTURED_MIN_TOKENS = 512
 COMPANION_STRUCTURED_MAX_TEMPERATURE = 0.3
 COMPANION_REQUEST_TIMEOUT = 60.0
+COMPANION_STREAM_HEARTBEAT_SECONDS = 10.0
 COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 纯对话陪伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
 {"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"schema_version":1}
 assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。回复可以提供文字建议，系统不会创建任务、调用工具或触发提醒。"""
@@ -841,6 +842,18 @@ async def generate_companion_turn(
                 db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
             )
             raise HTTPException(status_code=504, detail="AI 响应超时，请稍后重试") from error
+        except asyncio.CancelledError:
+            await db.rollback()
+            if reservation_created:
+                await _record_companion_turn_failure(
+                    db,
+                    int(user_id),
+                    session_id,
+                    reserved_turn_id,
+                    "CancelledError",
+                    reservation_token,
+                )
+            raise
         except HTTPException as error:
             await db.rollback()
             if reservation_created:
@@ -863,6 +876,91 @@ async def generate_companion_turn(
                 type(error).__name__,
             )
             raise HTTPException(status_code=502, detail="AI 服务暂时不可用，请稍后重试") from error
+
+
+def _sse_event(payload: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+
+def _companion_stream_response(
+    coro_factory,
+    *,
+    decorate=None,
+) -> StreamingResponse:
+    """Keep a companion turn alive while the provider is still thinking.
+
+    The previous non-streaming POST relied on the browser request timeout, so a
+    slow provider looked like a dropped connection and the turn never reached
+    history. SSE headers are flushed immediately and heartbeats keep the stream
+    alive; the final response is sent as one `turn` event.
+    """
+
+    async def events():
+        task = asyncio.create_task(coro_factory())
+        try:
+            yield _sse_event({"event": "accepted"})
+            while not task.done():
+                done, _ = await asyncio.wait(
+                    {task}, timeout=COMPANION_STREAM_HEARTBEAT_SECONDS
+                )
+                if task in done:
+                    break
+                yield _sse_event({"event": "heartbeat"})
+            try:
+                response = await task
+                if decorate is not None:
+                    decorate(response)
+                payload = (
+                    response.model_dump(mode="json")
+                    if hasattr(response, "model_dump")
+                    else response.dict()
+                )
+                yield _sse_event({"event": "turn", "data": payload})
+            except HTTPException as error:
+                yield _sse_event(
+                    {
+                        "event": "error",
+                        "message": str(error.detail),
+                        "status": error.status_code,
+                    }
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.error("GirlAI 流式回合异常", exc_info=True)
+                yield _sse_event(
+                    {
+                        "event": "error",
+                        "message": "AI 服务暂时不可用，请稍后重试",
+                    }
+                )
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/GirlAi/companion/turn/stream")
+async def stream_companion_turn(
+    body: CompanionTurnRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Streaming variant of the companion turn with heartbeat events."""
+    if not token.get("sub"):
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    return _companion_stream_response(
+        lambda: generate_companion_turn(body=body, token=token, db=db)
+    )
 
 
 @router.post(
@@ -896,6 +994,38 @@ async def create_voice_transcription_turn(
     response.voice_input.confidence = body.confidence
     response.voice_input.duration_ms = body.duration_ms
     return response
+
+
+@router.post("/GirlAi/voice/transcriptions/stream")
+async def stream_voice_transcription_turn(
+    body: VoiceTranscriptionRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Streaming variant of the voice transcription turn."""
+    if not token.get("sub"):
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    async def turn():
+        response = await generate_companion_turn(
+            CompanionTurnRequest(
+                prompt=body.transcript,
+                character_id=body.character_id,
+                turn_id=body.turn_id,
+                voice_output=body.voice_output,
+                api_key_token=body.api_key_token,
+            ),
+            token=token,
+            db=db,
+        )
+        response.voice_input.received = True
+        response.voice_input.status = "received"
+        response.voice_input.provider = body.provider
+        response.voice_input.confidence = body.confidence
+        response.voice_input.duration_ms = body.duration_ms
+        return response
+
+    return _companion_stream_response(turn)
 
 
 @router.get("/GirlAi/companion/state")

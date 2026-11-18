@@ -164,9 +164,34 @@ void main() {
         find.widgetWithText(FilledButton, '恢复 SSE 连接'),
       );
       expect(button.onPressed, isNull);
+      expect(find.text('该会话已结束，暂不支持恢复。'), findsOneWidget);
+      expect(find.text('实时进度连接仅在任务运行时可恢复。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('失败会话在列表和详情展示失败原因', (tester) async {
+    final failed = AgentSession.fromJson({
+      ...payload,
+      'status': 'failed',
+      'error_message': '模型服务未配置',
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentSessionsProvider.overrideWith((_) async => [failed]),
+          agentSessionDetailProvider('s1').overrideWith((_) async => failed),
+        ],
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('失败原因：模型服务未配置'), findsOneWidget);
+    await tester.tap(find.text('历史项目'));
+    await tester.pumpAndSettle();
+    expect(find.text('失败原因：模型服务未配置'), findsOneWidget);
+  });
 
   testWidgets('加载中网络断开显示重试且不泄露错误', (tester) async {
     final container = ProviderContainer(

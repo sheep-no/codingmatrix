@@ -27,6 +27,7 @@ async def test_reserve_companion_turn_state_uses_configured_lease(monkeypatch):
     assert reserve.await_args.kwargs["reclaim_after_seconds"] == (
         girlai_state_adapter.settings.GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS
     )
+    assert reserve.await_args.kwargs["retry_failed_event"] is True
 
 
 @pytest.mark.asyncio

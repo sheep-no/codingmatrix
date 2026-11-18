@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
@@ -8,6 +9,7 @@ from app.api.v1 import GirlAi as girl_module
 from app.schema.girl_companion import (
     CompanionMemoryConfirmRequest,
     CompanionTurnRequest,
+    CompanionTurnResponse,
     EmotionState,
     IntentState,
 )
@@ -513,3 +515,31 @@ async def test_memory_api_returns_not_found_for_other_user(monkeypatch):
 
     assert error.value.status_code == 404
     db.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_companion_stream_emits_heartbeat_then_final_turn(monkeypatch):
+    async def slow_turn(*, body, token, db):
+        await asyncio.sleep(0.03)
+        return CompanionTurnResponse(
+            assistant_text="我在",
+            turn_id=body.turn_id,
+            conversation_id="girlai-session",
+            model="test-model",
+        )
+
+    monkeypatch.setattr(girl_module, "generate_companion_turn", slow_turn)
+    monkeypatch.setattr(girl_module, "COMPANION_STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    response = await girl_module.stream_companion_turn(
+        CompanionTurnRequest(prompt="你好", turn_id="turn-stream"),
+        token={"sub": "7"},
+        db=AsyncMock(),
+    )
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+
+    assert any('"event": "heartbeat"' in chunk for chunk in chunks)
+    assert any('"event": "turn"' in chunk for chunk in chunks)
+    assert any('"assistant_text": "我在"' in chunk for chunk in chunks)
