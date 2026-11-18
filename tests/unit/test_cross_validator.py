@@ -1,7 +1,9 @@
-import pytest
 import asyncio
 import tempfile
 from pathlib import Path
+
+import pytest
+
 
 class TestCrossValidator:
     @pytest.fixture
@@ -116,6 +118,7 @@ class TestCrossValidator:
 
 def test_validate_and_select_empty_judge_raises(tmp_path):
     from unittest.mock import patch
+
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
 
@@ -140,6 +143,7 @@ def test_validate_and_select_empty_judge_raises(tmp_path):
 
 def test_validate_and_select_invalid_json_raises(tmp_path):
     from unittest.mock import patch
+
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
 
@@ -164,6 +168,7 @@ def test_validate_and_select_invalid_json_raises(tmp_path):
 
 def test_validate_and_select_timeout_reraises(tmp_path):
     from unittest.mock import patch
+
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
 
@@ -270,6 +275,7 @@ def test_accept_llm_fix_keeps_valid_python():
 
 def test_fix_with_llm_keeps_original_on_thinking_dump():
     from unittest.mock import patch
+
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
 
@@ -290,18 +296,77 @@ def test_fix_with_llm_keeps_original_on_thinking_dump():
     assert fixed["src/greet.py"] == original
 
 
-def test_generate_missing_modules_raises_when_file_absent():
+def test_fix_with_llm_keeps_original_when_reviewer_times_out(monkeypatch):
+    from unittest.mock import patch
+
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    original = "def greet(name):\n    return f'Hello, {name}'\n"
+    files = {"src/greet.py": original}
+    issues = [{"type": "missing_argument", "file": "src/greet.py", "message": "x"}]
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    monkeypatch.setattr(validator, "LLM_FIX_TIMEOUT_SECONDS", 0.01)
+
+    async def slow_llm(**_kwargs):
+        await asyncio.sleep(1)
+        return {"choices": [{"message": {"content": original}}]}
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=slow_llm):
+        fixed = asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+
+    assert fixed["src/greet.py"] == original
+
+
+def test_generate_missing_modules_creates_referenced_file():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
 
     validator = CrossValidator(SharedContext("test", Path(".")))
-    with pytest.raises(RuntimeError, match="missing modules were not generated"):
-        asyncio.run(validator._generate_missing_modules(
-            {"main.py": "import helper"},
+
+    async def fake_llm(**_kwargs):
+        return {
+            "choices": [{
+                "message": {"content": "def helper():\n    return 1\n"}
+            }]
+        }
+
+    from unittest.mock import patch
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        files = asyncio.run(validator._generate_missing_modules(
+            {"main.py": "import helper\n\nhelper.helper()\n"},
             ["helper"],
-            {},
+            {"language": "python", "file_plan": [{"path": "main.py"}]},
             model="glm",
         ))
+
+    assert files["helper.py"] == "def helper():\n    return 1"
+    assert files["main.py"] == "import helper\n\nhelper.helper()\n"
+
+
+def test_generate_missing_modules_skips_existing_files():
+    from unittest.mock import patch
+
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    existing_helper = "def helper():\n    return 1\n"
+
+    async def fake_llm(**_kwargs):
+        return {"choices": [{"message": {"content": "def util():\n    return 2\n"}}]}
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        files = asyncio.run(validator._generate_missing_modules(
+            {"main.py": "import helper\nimport utils\n", "helper.py": existing_helper},
+            ["helper", "utils"],
+            {"language": "python", "file_plan": [{"path": "main.py"}]},
+            model="glm",
+        ))
+
+    assert files["helper.py"] == existing_helper
+    assert files["utils.py"] == "def util():\n    return 2"
 
 
 def test_package_entry_content_rejects_plain_modules():
@@ -314,9 +379,9 @@ def test_package_entry_content_rejects_plain_modules():
 
 
 def _python_validator():
+    from app.agent.adapters.python import PythonLanguageAdapter
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
-    from app.agent.adapters.python import PythonLanguageAdapter
 
     return CrossValidator(SharedContext("test", Path(".")), language_adapter=PythonLanguageAdapter())
 
@@ -913,9 +978,9 @@ def test_keyword_arg_name_handles_compound_expressions():
 
 
 def _js_validator():
+    from app.agent.adapters.javascript import JavaScriptLanguageAdapter
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
-    from app.agent.adapters.javascript import JavaScriptLanguageAdapter
 
     return CrossValidator(
         SharedContext("test", Path(".")),
@@ -1033,26 +1098,3 @@ def test_symbol_check_ignores_python_keywords_before_parens():
         ),
     }
     assert _symbol_issues(files) == []
-
-
-def test_generate_missing_modules_raises_when_file_absent():
-    from app.agent.cross_validator import CrossValidator
-    from app.agent.shared_context import SharedContext
-
-    validator = CrossValidator(SharedContext("test", Path(".")))
-    with pytest.raises(RuntimeError, match="missing modules were not generated"):
-        asyncio.run(validator._generate_missing_modules(
-            {"main.py": "import helper"},
-            ["helper"],
-            {},
-            model="glm",
-        ))
-
-
-def test_package_entry_content_rejects_plain_modules():
-    from app.agent.orchestrator_generation.spec_first_generate import _package_entry_content
-
-    class Adapter:
-        package_init_filename = "__init__.py"
-
-    assert _package_entry_content("app/utils.py", None, Adapter(), {}) is None

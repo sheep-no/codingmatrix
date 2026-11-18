@@ -1,5 +1,6 @@
 """Adapters from legacy Agent sessions and graph state to unified state."""
 
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,14 @@ from app.services.task_state_service import create_task
 
 MODULE = "agent"
 _ARTIFACT_VERSION_STRIDE = 100_000
+_UNIFIED_SESSION_STATUS = {
+    "running": "running",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "timed_out": "failed",
+    "waiting_local_validation": "active",
+}
 
 
 async def ensure_project_session(
@@ -76,6 +85,8 @@ async def save_graph_checkpoint(
 async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> str:
     """Persist a graph snapshot and its new messages/files in one adapter call."""
     session = await ensure_project_session(db, user_id, state.session_id)
+    session.status = _UNIFIED_SESSION_STATUS.get(state.status, "active")
+    session.updated_at = datetime.utcnow()
     unified_state = State.from_dict(state.to_dict())
     unified_state.session_id = session.id
     task_id = await save_graph_checkpoint(db, user_id, unified_state)

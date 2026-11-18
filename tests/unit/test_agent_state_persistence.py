@@ -32,4 +32,32 @@ async def test_persist_agent_state_writes_checkpoint_events_and_artifacts(monkey
     append.assert_awaited_once()
     artifact.assert_awaited_once()
     assert artifact.await_args.kwargs["version"] == 200001
+    assert session.status == "running"
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_agent_state_writes_terminal_session_status(monkeypatch):
+    db = AsyncMock()
+    state = State(
+        session_id="session-1",
+        task_id="task-1",
+        revision=2,
+        status="completed",
+    )
+    session = type("Session", (), {"id": "unified-session", "status": "running"})()
+    monkeypatch.setattr(
+        agent_state_adapter,
+        "ensure_project_session",
+        AsyncMock(return_value=session),
+    )
+    monkeypatch.setattr(
+        agent_state_adapter,
+        "save_graph_checkpoint",
+        AsyncMock(return_value="task-1"),
+    )
+
+    await agent_state_adapter.persist_agent_state(db, 7, state)
+
+    assert session.status == "completed"
+    assert session.updated_at is not None

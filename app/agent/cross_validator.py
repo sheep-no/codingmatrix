@@ -12,6 +12,7 @@ CrossValidator - 交叉验证器
 """
 
 import ast
+import asyncio
 import json
 import logging
 import re
@@ -171,6 +172,10 @@ class CrossValidator:
     - 核心业务逻辑（payment, order, user_management）
     - 安全相关代码（crypto, encryption, token）
     """
+
+    # 可选的跨文件修复不能无限占用生成请求。免费推理模型偶尔会超过
+    # 10 分钟仍不返回，超时后保留已通过主流程校验的文件。
+    LLM_FIX_TIMEOUT_SECONDS = 180.0
 
     # 默认关键文件模式（硬编码兜底）
     DEFAULT_CRITICAL_PATTERNS: ClassVar[list] = [
@@ -1752,16 +1757,91 @@ class CrossValidator:
         """生成缺失的模块文件"""
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         default_ext = next(iter(extensions)) if extensions else '.py'
-        missing_paths = []
+        missing: list[tuple[str, str]] = []
         for module in missing_modules:
             file_path = module.replace('.', '/') + default_ext
             if file_path not in files:
-                missing_paths.append(file_path)
-        if missing_paths:
+                missing.append((module, file_path))
+        if not missing:
+            return files
+        if not model:
             raise RuntimeError(
-                "missing modules were not generated: " + ", ".join(missing_paths)
+                "missing modules were not generated: "
+                + ", ".join(path for _, path in missing)
             )
-        return files
+
+        language = architecture.get("language") or "python"
+        planned_files = [
+            item.get("path", "")
+            for item in architecture.get("file_plan", [])
+            if isinstance(item, dict) and item.get("path")
+        ]
+        generated = dict(files)
+        failed: list[str] = []
+
+        for module, file_path in missing:
+            leaf = module.rsplit(".", 1)[-1]
+            referencing_files = [
+                path for path, content in generated.items()
+                if re.search(
+                    rf"(?:from|import)\s+{re.escape(module)}(?:\s|\.|$)",
+                    content,
+                )
+                or re.search(
+                    rf"from\s+\.+\s*import\s+.*\b{re.escape(leaf)}\b",
+                    content,
+                )
+            ]
+            references = self._format_referencing_files(
+                generated, referencing_files
+            )
+            prompt = f"""你是资深{language}工程师。项目中缺少模块 `{module}`，但其他文件已经引用它。
+
+项目规划文件：
+{json.dumps(planned_files, ensure_ascii=False)}
+
+引用该模块的文件：
+{references or "（未找到直接引用文件，请根据项目规划实现）"}
+
+请生成缺失文件 `{file_path}` 的完整代码，要求：
+1. 实现引用方需要的接口
+2. 与项目现有代码风格和技术栈一致
+3. 只输出代码，不要解释
+"""
+            try:
+                response = await asyncio.wait_for(
+                    call_llm(
+                        model=model,
+                        prompt=prompt,
+                        stream=False,
+                        max_tokens=8192,
+                        api_key_token=self.api_key_token,
+                    ),
+                    timeout=self.LLM_FIX_TIMEOUT_SECONDS,
+                )
+                content = (
+                    response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+                accepted = self._accept_llm_fix(file_path, content, "")
+                if accepted:
+                    generated[file_path] = accepted
+                    logger.info("已生成缺失模块: %s", file_path)
+                else:
+                    failed.append(file_path)
+            except Exception as exc:
+                if is_review_timeout(exc):
+                    logger.warning("生成缺失模块超时: %s", file_path)
+                else:
+                    logger.error("生成缺失模块失败: %s - %s", file_path, exc)
+                failed.append(file_path)
+
+        if failed:
+            raise RuntimeError(
+                "missing modules were not generated: " + ", ".join(failed)
+            )
+        return generated
 
     def _format_referencing_files(self, files: dict[str, str], referencing_files: list[str]) -> str:
         """格式化引用文件的内容"""
@@ -1837,12 +1917,15 @@ class CrossValidator:
 请按上述格式输出所有修复后的文件代码。"""
 
             try:
-                response = await call_llm(
-                    model=model,
-                    prompt=prompt,
-                    stream=False,
-                    max_tokens=16384,  # 增加 token 限制以支持批量修复
-                    api_key_token=self.api_key_token
+                response = await asyncio.wait_for(
+                    call_llm(
+                        model=model,
+                        prompt=prompt,
+                        stream=False,
+                        max_tokens=16384,  # 增加 token 限制以支持批量修复
+                        api_key_token=self.api_key_token,
+                    ),
+                    timeout=self.LLM_FIX_TIMEOUT_SECONDS,
                 )
 
                 content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1856,6 +1939,9 @@ class CrossValidator:
                         if accepted:
                             fixed_files[file_path] = accepted
                             logger.info(f"已修复文件: {file_path}")
+            except TimeoutError:
+                logger.warning("跨文件修复超时，保留原文件")
+                return fixed_files
             except Exception as e:
                 if is_review_timeout(e):
                     logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
@@ -1882,12 +1968,15 @@ class CrossValidator:
 
 请输出修复后的完整代码，只输出代码，不要解释。"""
 
-                        response = await call_llm(
-                            model=model,
-                            prompt=prompt,
-                            stream=False,
-                            max_tokens=8192,
-                            api_key_token=self.api_key_token
+                        response = await asyncio.wait_for(
+                            call_llm(
+                                model=model,
+                                prompt=prompt,
+                                stream=False,
+                                max_tokens=8192,
+                                api_key_token=self.api_key_token,
+                            ),
+                            timeout=self.LLM_FIX_TIMEOUT_SECONDS,
                         )
 
                         fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1898,6 +1987,9 @@ class CrossValidator:
                             if accepted:
                                 fixed_files[file_path] = accepted
                                 logger.info(f"已修复文件（单文件回退）: {file_path}")
+                    except TimeoutError:
+                        logger.warning("跨文件修复超时，保留原文件")
+                        return fixed_files
                     except Exception as e2:
                         if is_review_timeout(e2):
                             logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
