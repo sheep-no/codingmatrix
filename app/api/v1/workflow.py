@@ -62,11 +62,7 @@ def _normalize_llm_node_models(task_graph: TaskGraph, fallback_model: str) -> No
         params = node.params or {}
         model = params.get("model")
         normalized = str(model).strip().lower() if model else ""
-        if (
-            not normalized
-            or normalized in _LEGACY_LLM_MODELS
-            or normalized in _PLACEHOLDER_LLM_MODELS
-        ):
+        if not normalized or normalized in _LEGACY_LLM_MODELS or normalized in _PLACEHOLDER_LLM_MODELS:
             logger.info(
                 "工作流节点 %s 的模型 %r 不在当前供应商能力内，改用 %s",
                 node.id,
@@ -107,9 +103,9 @@ def _is_expired(record, now, ttl_seconds: int) -> bool:
 def _prune_expired(store, now, ttl_seconds: int, *, keep_running: bool = False) -> None:
     """清理超过 TTL 的缓存条目（调用方需持有对应锁）。"""
     expired = [
-        key for key, record in store.items()
-        if not (keep_running and record.get("status") == "running")
-        and _is_expired(record, now, ttl_seconds)
+        key
+        for key, record in store.items()
+        if not (keep_running and record.get("status") == "running") and _is_expired(record, now, ttl_seconds)
     ]
     for key in expired:
         store.pop(key, None)
@@ -169,23 +165,33 @@ async def execute_workflow(
                     # 会话键按用户隔离，避免同名字 session_id 读到他人历史请求
                     previous_workflow = _session_workflows.get((user_id, session_id))
 
-            yield json.dumps({
-                "event": "workflow_started",
-                "workflow_id": "pending",
-                "session_id": session_id,
-                "is_continuation": previous_workflow is not None,
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_started",
+                        "workflow_id": "pending",
+                        "session_id": session_id,
+                        "is_continuation": previous_workflow is not None,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
 
             if previous_workflow:
                 previous_request = previous_workflow.get("request", "")
-                yield json.dumps({
-                    "event": "continuation_context",
-                    "previous_request": previous_request,
-                    "previous_workflow_id": previous_workflow.get("workflow_id"),
-                    "message": "继续之前的工作流",
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "event": "continuation_context",
+                            "previous_request": previous_request,
+                            "previous_workflow_id": previous_workflow.get("workflow_id"),
+                            "message": "继续之前的工作流",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
 
                 modified_request = f"""【继续工作流】请在之前的工作流基础上进行修改/扩展。
 
@@ -205,19 +211,22 @@ async def execute_workflow(
             try:
                 while True:
                     try:
-                        task_graph = await asyncio.wait_for(
-                            asyncio.shield(decompose_task), timeout=10
-                        )
+                        task_graph = await asyncio.wait_for(asyncio.shield(decompose_task), timeout=10)
                         break
                     except asyncio.TimeoutError:
                         # 任务分解可能耗时超过反向代理的空闲超时；持续发心跳
                         # 让连接保持活跃，客户端会忽略该事件。
-                        yield json.dumps({
-                            "event": "heartbeat",
-                            "workflow_id": "pending",
-                            "stage": "decomposing",
-                            "timestamp": datetime.now().isoformat(),
-                        }) + "\n"
+                        yield (
+                            json.dumps(
+                                {
+                                    "event": "heartbeat",
+                                    "workflow_id": "pending",
+                                    "stage": "decomposing",
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+                            + "\n"
+                        )
             finally:
                 if not decompose_task.done():
                     decompose_task.cancel()
@@ -232,19 +241,22 @@ async def execute_workflow(
                     message=f"任务图验证失败: {', '.join(errors)}",
                     workflow_id=task_graph.workflow_id,
                 )
-                yield json.dumps({
-                    "event": "workflow_error",
-                    "error": error_response.error,
-                    "message": error_response.message,
-                    "workflow_id": task_graph.workflow_id,
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "event": "workflow_error",
+                            "error": error_response.error,
+                            "message": error_response.message,
+                            "workflow_id": task_graph.workflow_id,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
                 return
 
             async with _workflows_lock:
-                _prune_expired(
-                    _workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True
-                )
+                _prune_expired(_workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True)
                 # 超过限制时淘汰最旧的工作流
                 if len(_workflows) >= _MAX_WORKFLOWS:
                     oldest_key = next(iter(_workflows))
@@ -256,28 +268,11 @@ async def execute_workflow(
                     "updated_at": datetime.now().isoformat(),
                 }
 
-            yield json.dumps({
-                "event": "task_graph_generated",
-                "workflow_id": task_graph.workflow_id,
-                "nodes": [
+            yield (
+                json.dumps(
                     {
-                        "id": node.id,
-                        "type": node.type.value,
-                        "params": node.params,
-                        "depends_on": node.depends_on,
-                    }
-                    for node in task_graph.nodes
-                ],
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
-
-            if request.export_workflow:
-                yield json.dumps({
-                    "event": "workflow_exported",
-                    "workflow_id": task_graph.workflow_id,
-                    "export_data": task_graph.model_dump() if hasattr(task_graph, 'model_dump') else {
+                        "event": "task_graph_generated",
                         "workflow_id": task_graph.workflow_id,
-                        "version": task_graph.version,
                         "nodes": [
                             {
                                 "id": node.id,
@@ -287,9 +282,38 @@ async def execute_workflow(
                             }
                             for node in task_graph.nodes
                         ],
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n"
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
+
+            if request.export_workflow:
+                yield (
+                    json.dumps(
+                        {
+                            "event": "workflow_exported",
+                            "workflow_id": task_graph.workflow_id,
+                            "export_data": task_graph.model_dump()
+                            if hasattr(task_graph, "model_dump")
+                            else {
+                                "workflow_id": task_graph.workflow_id,
+                                "version": task_graph.version,
+                                "nodes": [
+                                    {
+                                        "id": node.id,
+                                        "type": node.type.value,
+                                        "params": node.params,
+                                        "depends_on": node.depends_on,
+                                    }
+                                    for node in task_graph.nodes
+                                ],
+                            },
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
 
             executor = WorkflowExecutor(
                 task_graph=task_graph,
@@ -308,22 +332,27 @@ async def execute_workflow(
                 for node in task_graph.nodes:
                     if node.id == node_id:
                         node.status = TaskStatus.RUNNING
-                event_queue.put_nowait(json.dumps({
-                    "event": "node_started",
-                    "node_id": node_id,
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n")
+                event_queue.put_nowait(
+                    json.dumps(
+                        {
+                            "event": "node_started",
+                            "node_id": node_id,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
 
             def on_node_complete(node_id: str, result):
                 event_data = {
                     "event": "node_completed",
                     "node_id": node_id,
-                    "success": getattr(result, 'success', True),
+                    "success": getattr(result, "success", True),
                     "timestamp": datetime.now().isoformat(),
                 }
-                if getattr(result, 'data', None):
+                if getattr(result, "data", None):
                     event_data["data"] = result.data
-                if getattr(result, 'error', None):
+                if getattr(result, "error", None):
                     event_data["error"] = result.error
                 event_queue.put_nowait(json.dumps(event_data) + "\n")
 
@@ -331,17 +360,25 @@ async def execute_workflow(
                 for node in task_graph.nodes:
                     if node.id == node_id:
                         node.status = TaskStatus.SKIPPED
-                event_queue.put_nowait(json.dumps({
-                    "event": "node_skipped",
-                    "node_id": node_id,
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n")
+                event_queue.put_nowait(
+                    json.dumps(
+                        {
+                            "event": "node_skipped",
+                            "node_id": node_id,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
 
-            executor_task = asyncio.create_task(executor.execute(
-                on_node_start=on_node_start,
-                on_node_complete=on_node_complete,
-                on_node_skip=on_node_skip,
-            ))
+            executor_task = asyncio.create_task(
+                executor.execute(
+                    on_node_start=on_node_start,
+                    on_node_complete=on_node_complete,
+                    on_node_skip=on_node_skip,
+                )
+            )
+
             def record_terminal(task):
                 record = _workflows.get(task_graph.workflow_id)
                 if record is not None and record.get("executor") is executor:
@@ -352,6 +389,7 @@ async def execute_workflow(
                     else:
                         record["status"] = task.result()["status"]
                     record["updated_at"] = datetime.now().isoformat()
+
             executor_task.add_done_callback(record_terminal)
 
             try:
@@ -371,14 +409,19 @@ async def execute_workflow(
                     _workflows[task_graph.workflow_id]["status"] = result["status"]
                     _workflows[task_graph.workflow_id]["updated_at"] = datetime.now().isoformat()
 
-                yield json.dumps({
-                    "event": "workflow_completed",
-                    "workflow_id": task_graph.workflow_id,
-                    "status": result["status"],
-                    "summary": result["summary"],
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "event": "workflow_completed",
+                            "workflow_id": task_graph.workflow_id,
+                            "status": result["status"],
+                            "summary": result["summary"],
+                            "session_id": session_id,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
             finally:
                 # 客户端断开（generator 关闭）时取消仍在运行的执行，
                 # 否则 LLM/节点会在后台继续跑完
@@ -391,7 +434,9 @@ async def execute_workflow(
                     workflow_id=task_graph.workflow_id,
                     user_id=user_id,
                     request=request.natural_language_request,
-                    task_graph=task_graph.model_dump() if hasattr(task_graph, 'model_dump') else {
+                    task_graph=task_graph.model_dump()
+                    if hasattr(task_graph, "model_dump")
+                    else {
                         "workflow_id": task_graph.workflow_id,
                         "nodes": [
                             {"id": n.id, "type": n.type.value, "params": n.params, "depends_on": n.depends_on}
@@ -411,30 +456,44 @@ async def execute_workflow(
 
             if session_id:
                 async with _session_lock:
-                    _remember_session_workflow(user_id, session_id, {
-                        "workflow_id": task_graph.workflow_id,
-                        "request": request.natural_language_request,
-                        "task_graph": task_graph.model_dump() if hasattr(task_graph, 'model_dump') else None,
-                        "user_id": user_id,
-                        "updated_at": datetime.now().isoformat(),
-                    })
+                    _remember_session_workflow(
+                        user_id,
+                        session_id,
+                        {
+                            "workflow_id": task_graph.workflow_id,
+                            "request": request.natural_language_request,
+                            "task_graph": task_graph.model_dump() if hasattr(task_graph, "model_dump") else None,
+                            "user_id": user_id,
+                            "updated_at": datetime.now().isoformat(),
+                        },
+                    )
 
         except TaskDecomposerError as e:
             logger.error(f"任务分解失败: {e}")
-            yield json.dumps({
-                "event": "workflow_error",
-                "error": "decomposition_failed",
-                "message": "任务分解失败，请检查输入后重试",
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_error",
+                        "error": "decomposition_failed",
+                        "message": "任务分解失败，请检查输入后重试",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
         except Exception as e:
             logger.error(f"工作流执行失败: {e}", exc_info=True)
-            yield json.dumps({
-                "event": "workflow_error",
-                "error": "execution_failed",
-                "message": "工作流执行失败，请稍后重试",
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_error",
+                        "error": "execution_failed",
+                        "message": "工作流执行失败，请稍后重试",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
 
     return StreamingResponse(
         generate_events(),
@@ -445,42 +504,22 @@ async def execute_workflow(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
-@router.get("/status/{workflow_id}")
-async def get_workflow_status(
-    workflow_id: str,
-    token: dict = Depends(verify_token),
-):
-    """
-    获取工作流状态
+def _status_from_live_cache(workflow_id: str, workflow_data: dict) -> dict:
+    task_graph = workflow_data["task_graph"]
+    aggregator = workflow_data.get("aggregator")
+    executor = workflow_data.get("executor")
+    if aggregator is None and executor is not None:
+        aggregator = executor.get_aggregator()
+    results = aggregator.get_all_results() if aggregator else {}
 
-    Args:
-        workflow_id: 工作流 ID
-    """
-    async with _workflows_lock:
-        if workflow_id not in _workflows:
-            raise HTTPException(status_code=404, detail="Workflow not found")
-
-        workflow_data = _workflows[workflow_id]
-        if str(workflow_data.get("user_id")) != str(token.get("sub") or token.get("user_id")):
-            raise HTTPException(status_code=404, detail="Workflow not found")
-        task_graph = workflow_data["task_graph"]
-
-        aggregator = workflow_data.get("aggregator")
-        
-        executor = workflow_data.get("executor")
-        if aggregator is None and executor is not None:
-            aggregator = executor.get_aggregator()
-        status = workflow_data.get("status", "unknown")
-        results = aggregator.get_all_results() if aggregator else {}
-
-        return {
-            "workflow_id": workflow_id,
-            "status": status,
-            "task_graph": {
+    return {
+        "workflow_id": workflow_id,
+        "status": workflow_data.get("status", "unknown"),
+        "task_graph": {
             "workflow_id": task_graph.workflow_id,
             "version": task_graph.version,
             "nodes": [
@@ -489,7 +528,11 @@ async def get_workflow_status(
                     "type": node.type.value,
                     "params": node.params,
                     "depends_on": node.depends_on,
-                    "status": ("completed" if results[node.id].success else "failed") if node.id in results else node.status.value,
+                    "status": (
+                        ("completed" if results[node.id].success else "failed")
+                        if node.id in results
+                        else node.status.value
+                    ),
                     "result": results[node.id].data if node.id in results else None,
                     "error": results[node.id].error if node.id in results else None,
                 }
@@ -498,6 +541,84 @@ async def get_workflow_status(
         },
         "summary": aggregator.get_workflow_summary() if aggregator else None,
     }
+
+
+async def _status_from_history(db: AsyncSession, workflow_id: str, user_id: str) -> Optional[dict]:
+    result = await db.execute(
+        select(WorkflowHistory)
+        .where(WorkflowHistory.workflow_id == workflow_id)
+        .where(WorkflowHistory.user_id == user_id)
+    )
+    record = result.scalars().first()
+    if record is None:
+        return None
+
+    summary = None
+    if record.result_summary:
+        try:
+            summary = json.loads(record.result_summary)
+        except (TypeError, ValueError):
+            logger.warning("工作流历史结果摘要无法解析: %s", workflow_id)
+
+    graph = record.task_graph or {}
+    nodes = []
+    for node in graph.get("nodes", []):
+        node_status = node.get("status") or "pending"
+        if record.status == "completed" and node_status not in {"failed", "skipped"}:
+            node_status = "completed"
+        nodes.append(
+            {
+                "id": node.get("id"),
+                "type": node.get("type"),
+                "params": node.get("params") or {},
+                "depends_on": node.get("depends_on") or [],
+                "status": node_status,
+                "result": node.get("result"),
+                "error": node.get("error"),
+            }
+        )
+
+    return {
+        "workflow_id": workflow_id,
+        "status": record.status,
+        "task_graph": {
+            "workflow_id": graph.get("workflow_id") or workflow_id,
+            "version": graph.get("version") or "1.0",
+            "nodes": nodes,
+        },
+        "summary": summary,
+        "source": "history",
+        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+    }
+
+
+@router.get("/status/{workflow_id}")
+async def get_workflow_status(
+    workflow_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取工作流状态
+
+    Args:
+        workflow_id: 工作流 ID
+    """
+    user_id = token.get("sub") or token.get("user_id")
+    async with _workflows_lock:
+        workflow_data = _workflows.get(workflow_id)
+        if workflow_data is not None:
+            if str(workflow_data.get("user_id")) != str(user_id):
+                raise HTTPException(status_code=404, detail="Workflow not found")
+            return _status_from_live_cache(workflow_id, workflow_data)
+
+    persisted = await _status_from_history(db, workflow_id, str(user_id))
+    if persisted is not None:
+        return persisted
+    raise HTTPException(
+        status_code=404,
+        detail="工作流状态不存在或已超过 24 小时保留期，请从工作流历史中重新查看",
+    )
 
 
 @router.post("/import")
@@ -519,16 +640,11 @@ async def import_workflow(
 
     if not is_valid:
         logger.warning(f"工作流验证失败 | user_id={user_id} | errors={errors}")
-        raise HTTPException(
-            status_code=400,
-            detail="任务图验证失败，请检查工作流定义"
-        )
+        raise HTTPException(status_code=400, detail="任务图验证失败，请检查工作流定义")
 
     workflow_id = task_graph.workflow_id
     async with _workflows_lock:
-        _prune_expired(
-            _workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True
-        )
+        _prune_expired(_workflows, datetime.now(), _WORKFLOW_TTL_SECONDS, keep_running=True)
         _workflows[workflow_id] = {
             "task_graph": task_graph,
             "request": None,
@@ -569,20 +685,26 @@ async def execute_imported_workflow(
     async def generate_events():
         nonlocal history_record
         try:
-            yield json.dumps({
-                "event": "workflow_started",
-                "workflow_id": workflow_id,
-                "session_id": None,
-                "is_continuation": False,
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_started",
+                        "workflow_id": workflow_id,
+                        "session_id": None,
+                        "is_continuation": False,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
 
             executor = WorkflowExecutor(
                 task_graph=task_graph,
-                timeout=task_graph.timeout if hasattr(task_graph, 'timeout') else 3600,
+                timeout=task_graph.timeout if hasattr(task_graph, "timeout") else 3600,
                 node_timeout=300,
                 max_concurrent=3,
             )
+
             def _mark_running():
                 record = _workflows.get(workflow_id)
                 if record is not None:
@@ -596,29 +718,36 @@ async def execute_imported_workflow(
             event_queue = asyncio.Queue()
 
             def on_node_start(node_id: str):
-                event_queue.put_nowait(json.dumps({
-                    "event": "node_started",
-                    "node_id": node_id,
-                    "timestamp": datetime.now().isoformat(),
-                }) + "\n")
+                event_queue.put_nowait(
+                    json.dumps(
+                        {
+                            "event": "node_started",
+                            "node_id": node_id,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
 
             def on_node_complete(node_id: str, result):
                 event_data = {
                     "event": "node_completed",
                     "node_id": node_id,
-                    "success": getattr(result, 'success', True),
+                    "success": getattr(result, "success", True),
                     "timestamp": datetime.now().isoformat(),
                 }
-                if getattr(result, 'data', None):
+                if getattr(result, "data", None):
                     event_data["data"] = result.data
-                if getattr(result, 'error', None):
+                if getattr(result, "error", None):
                     event_data["error"] = result.error
                 event_queue.put_nowait(json.dumps(event_data) + "\n")
 
-            executor_task = asyncio.create_task(executor.execute(
-                on_node_start=on_node_start,
-                on_node_complete=on_node_complete,
-            ))
+            executor_task = asyncio.create_task(
+                executor.execute(
+                    on_node_start=on_node_start,
+                    on_node_complete=on_node_complete,
+                )
+            )
 
             def record_terminal(task):
                 record = _workflows.get(workflow_id)
@@ -630,6 +759,7 @@ async def execute_imported_workflow(
                     else:
                         record["status"] = task.result()["status"]
                     record["updated_at"] = datetime.now().isoformat()
+
             executor_task.add_done_callback(record_terminal)
 
             try:
@@ -660,23 +790,32 @@ async def execute_imported_workflow(
                     executor.cancel()
                     executor_task.cancel()
 
-            yield json.dumps({
-                "event": "workflow_completed",
-                "workflow_id": workflow_id,
-                "status": result["status"],
-                "summary": result["summary"],
-                "session_id": None,
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_completed",
+                        "workflow_id": workflow_id,
+                        "status": result["status"],
+                        "summary": result["summary"],
+                        "session_id": None,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
 
             try:
-                graph_dump = task_graph.model_dump() if hasattr(task_graph, 'model_dump') else {
-                    "workflow_id": task_graph.workflow_id,
-                    "nodes": [
-                        {"id": n.id, "type": n.type.value, "params": n.params, "depends_on": n.depends_on}
-                        for n in task_graph.nodes
-                    ],
-                }
+                graph_dump = (
+                    task_graph.model_dump()
+                    if hasattr(task_graph, "model_dump")
+                    else {
+                        "workflow_id": task_graph.workflow_id,
+                        "nodes": [
+                            {"id": n.id, "type": n.type.value, "params": n.params, "depends_on": n.depends_on}
+                            for n in task_graph.nodes
+                        ],
+                    }
+                )
                 history_record = WorkflowHistory(
                     workflow_id=workflow_id,
                     user_id=user_id,
@@ -695,12 +834,17 @@ async def execute_imported_workflow(
 
         except Exception as e:
             logger.error(f"直接执行工作流失败: {e}", exc_info=True)
-            yield json.dumps({
-                "event": "workflow_error",
-                "error": "execution_failed",
-                "message": "工作流执行失败，请稍后重试",
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "event": "workflow_error",
+                        "error": "execution_failed",
+                        "message": "工作流执行失败，请稍后重试",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                + "\n"
+            )
 
     return StreamingResponse(
         generate_events(),
@@ -709,7 +853,7 @@ async def execute_imported_workflow(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -735,7 +879,7 @@ async def export_workflow(
             raise HTTPException(status_code=403, detail="无权导出此工作流")
         task_graph = workflow_data["task_graph"]
 
-        if hasattr(task_graph, 'model_dump'):
+        if hasattr(task_graph, "model_dump"):
             export_data = task_graph.model_dump()
         else:
             export_data = {
@@ -800,15 +944,12 @@ async def get_workflow_history(
     user_id = token.get("sub") or token.get("user_id")
 
     query = (
-        select(WorkflowHistory)
-        .where(WorkflowHistory.user_id == user_id)
-        .order_by(WorkflowHistory.created_at.desc())
+        select(WorkflowHistory).where(WorkflowHistory.user_id == user_id).order_by(WorkflowHistory.created_at.desc())
     )
 
     from sqlalchemy import func
-    total_result = await db.execute(
-        select(func.count()).where(WorkflowHistory.user_id == user_id)
-    )
+
+    total_result = await db.execute(select(func.count()).where(WorkflowHistory.user_id == user_id))
     total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
