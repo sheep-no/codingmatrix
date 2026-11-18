@@ -170,13 +170,12 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       if (response.status() === 200) {
         const data = await response.json();
         console.log('生成结果:', JSON.stringify(data, null, 2).substring(0, 1000));
-        
-        if (data.success) {
-          console.log('✅ 中等项目生成成功');
-          console.log('生成文件数:', data.total_files_created || 0);
-          console.log('文件列表:', data.files?.map(f => f.path) || []);
-          expect(data.total_files_created).toBeGreaterThan(0);
-        }
+        expect(data.success, JSON.stringify(data.errors || [])).toBe(true);
+        expect(data.total_files_created).toBeGreaterThan(0);
+        expect(data.required_artifacts?.passed).toBe(true);
+        console.log('✅ 中等项目生成成功');
+        console.log('生成文件数:', data.total_files_created || 0);
+        console.log('文件列表:', data.files?.map(f => f.path) || []);
       } else {
         console.log('请求失败，状态码:', response.status());
       }
