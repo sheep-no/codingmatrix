@@ -447,7 +447,8 @@ class TestFullGeneration:
             "生成根级 index.html 与 README.md"
         )
 
-        assert result["required_artifacts"]["missing"] == ["index.html", "README.md"]
+        assert result["required_artifacts"]["missing"] == ["index.html"]
+        assert (tmp_path / "README.md").is_file()
         assert result["success"] is False
         assert any("关键文件缺失" in error for error in orchestrator.errors)
 
