@@ -54,6 +54,21 @@ class ProviderKeyClient {
         .toList();
   }
 
+  Future<String?> selectedToken() async {
+    final data = await api.requestJson('/api/v1/agent/apikey/selection');
+    if (data is! Map) return null;
+    final token = data['token'];
+    return token == null || token.toString().isEmpty ? null : token.toString();
+  }
+
+  Future<void> select(String token) async {
+    await api.requestJson(
+      '/api/v1/agent/apikey/selection',
+      method: 'PUT',
+      body: {'token': token},
+    );
+  }
+
   Future<void> test(String token) async {
     final result = await api.requestJson(
       '/api/v1/agent/apikey/test',

@@ -1027,4 +1027,72 @@ void main() {
     expect(find.text('选择参考图'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('画面描述和随机种子在无障碍树中有可读标签', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final client = ImageGenerationClient(
+        DeliveryApi(
+          (_, __, ___) async => {
+            'success': true,
+            'images': [pixel],
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            imageGenerationControllerProvider.overrideWith(
+              (_) => ImageGenerationController(client),
+            ),
+            providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+          ],
+          child: const MaterialApp(home: ImageGenerationPage()),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('imagePrompt'))).label,
+        contains('画面描述'),
+      );
+      expect(
+        tester.getSemantics(find.byKey(const Key('imageSeed'))).label,
+        contains('随机种子'),
+      );
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('种子输入框过滤非数字字符', (tester) async {
+    final client = ImageGenerationClient(
+      DeliveryApi(
+        (_, __, ___) async => {
+          'success': true,
+          'images': [pixel],
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          imageGenerationControllerProvider.overrideWith(
+            (_) => ImageGenerationController(client),
+          ),
+          providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+        ],
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.byKey(const Key('imageSeed')));
+    await tester.enterText(find.byKey(const Key('imageSeed')), 'ab12cd');
+    await tester.pump();
+    final field = tester.widget<TextFormField>(
+      find.byKey(const Key('imageSeed')),
+    );
+    expect(field.controller?.text, '12');
+    expect(tester.takeException(), isNull);
+  });
 }

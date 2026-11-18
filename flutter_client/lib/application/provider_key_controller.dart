@@ -28,20 +28,34 @@ class ProviderKeyState {
     bool? loading,
     String? error,
     bool clearError = false,
+    String? selectedToken,
+    bool clearSelection = false,
   }) => ProviderKeyState(
     items: items ?? this.items,
     loading: loading ?? this.loading,
     error: clearError ? null : (error ?? this.error),
-    selectedToken: selectedToken,
+    selectedToken: clearSelection
+        ? null
+        : (selectedToken ?? this.selectedToken),
   );
 }
 
 class ProviderKeyController extends StateNotifier<ProviderKeyState> {
   ProviderKeyController(this.client) : super(const ProviderKeyState());
   final ProviderKeyClient client;
-  void select(ProviderKeySummary item) {
-    if (item.isUsable) {
-      state = ProviderKeyState(items: state.items, selectedToken: item.token);
+  Future<void> select(ProviderKeySummary item) async {
+    if (!item.isUsable || state.loading) return;
+    final previous = state.selectedToken;
+    state = state.copyWith(selectedToken: item.token, clearError: true);
+    try {
+      await client.select(item.token);
+    } catch (error) {
+      if (!mounted) return;
+      state = state.copyWith(
+        selectedToken: previous,
+        clearSelection: previous == null,
+        error: _failureText('保存生成授权失败', error, '，请重试'),
+      );
     }
   }
 
@@ -54,7 +68,22 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
     if (!mounted) return;
     state = state.copyWith(loading: true, clearError: true);
     try {
-      state = state.copyWith(items: await client.list(), loading: false);
+      final items = await client.list();
+      var selected = state.selectedToken;
+      try {
+        selected = await client.selectedToken();
+      } catch (_) {
+        // 读取选择失败时保留本地选择，仅让 Key 列表正常展示。
+      }
+      final persisted =
+          selected != null &&
+          items.any((item) => item.token == selected && item.isUsable);
+      state = state.copyWith(
+        items: items,
+        loading: false,
+        selectedToken: persisted ? selected : null,
+        clearSelection: !persisted,
+      );
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
@@ -78,11 +107,7 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
       if (!mounted) return false;
       state = state.copyWith(
         loading: false,
-        error: _failureText(
-          'Provider Key 提交失败',
-          error,
-          '，请检查输入后重试',
-        ),
+        error: _failureText('Provider Key 提交失败', error, '，请检查输入后重试'),
       );
       return false;
     }

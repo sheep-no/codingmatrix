@@ -166,7 +166,7 @@ class _PptPageState extends ConsumerState<PptPage> {
       if (!mounted || run != generation) return;
       showModalBottomSheet<void>(
         context: context,
-        builder: (_) => ListView(
+        builder: (sheetContext) => ListView(
           children: [
             if (items.isEmpty)
               const ListTile(dense: true, title: Text('暂无历史记录')),
@@ -174,8 +174,25 @@ class _PptPageState extends ConsumerState<PptPage> {
               ListTile(
                 title: Text('${item['topic'] ?? item['title'] ?? 'PPT'}'),
                 subtitle: Text(
-                  '${item['status'] ?? ''} · ${item['ppt_id'] ?? item['id'] ?? ''}',
+                  '${item['status'] ?? ''} · ${item['ppt_id'] ?? item['task_id'] ?? item['id'] ?? ''}',
                 ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  final id = '${item['id'] ?? ''}';
+                  final selectedPptId =
+                      '${item['ppt_id'] ?? item['task_id'] ?? id}';
+                  final selectedTaskId =
+                      '${item['task_id'] ?? item['ppt_id'] ?? id}';
+                  if (selectedPptId.isEmpty) return;
+                  Navigator.of(sheetContext).pop();
+                  setState(() {
+                    pptId = selectedPptId;
+                    taskId = selectedTaskId.isEmpty ? null : selectedTaskId;
+                    savedPath = null;
+                    pdfPath = null;
+                    message = '已选择历史 PPT：$selectedPptId';
+                  });
+                },
               ),
           ],
         ),

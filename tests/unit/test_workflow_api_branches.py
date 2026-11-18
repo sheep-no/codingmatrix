@@ -192,6 +192,30 @@ class TestExecuteWorkflow:
         assert exported and "export_data" in exported[0]
 
     @pytest.mark.asyncio
+    async def test_node_completion_updates_graph_and_export(self, runtime):
+        events = await _collect(
+            await wf.execute_workflow(
+                WorkflowRequest(natural_language_request="do"),
+                {"sub": "u1"},
+                _db(),
+            )
+        )
+        workflow_id = next(event["workflow_id"] for event in events if event["event"] == "task_graph_generated")
+        graph = wf._workflows[workflow_id]["task_graph"]
+        completed = next(node for node in graph.nodes if node.id == "n1")
+        skipped = next(node for node in graph.nodes if node.id == "n2")
+        assert completed.status.value == "completed"
+        assert completed.result == {"x": 1}
+        assert completed.error is None
+        assert skipped.status.value == "skipped"
+
+        exported = await wf.export_workflow(workflow_id, {"sub": "u1"})
+        nodes = {node["id"]: node for node in exported["export_data"]["nodes"]}
+        assert nodes["n1"]["status"] == "completed"
+        assert nodes["n1"]["result"] == {"x": 1}
+        assert nodes["n2"]["status"] == "skipped"
+
+    @pytest.mark.asyncio
     async def test_invalid_graph(self, runtime):
         FakeValidator.valid = False
         FakeValidator.errors = ["cycle"]
@@ -514,6 +538,10 @@ class TestExecuteImported:
         events = await _collect(await wf.execute_imported_workflow("w", {"sub": "u1"}, _db()))
         assert events[-1]["event"] == "workflow_completed"
         assert events[-1]["status"] == "completed"
+        exported = await wf.export_workflow("w", {"sub": "u1"})
+        node = exported["export_data"]["nodes"][0]
+        assert node["status"] == "completed"
+        assert node["result"] == {"x": 1}
 
     @pytest.mark.asyncio
     async def test_history_save_error(self, runtime, monkeypatch):
@@ -620,6 +648,10 @@ class TestExecuteImported:
         completed = [e for e in events if e["event"] == "node_completed"][0]
         assert completed["error"] == "bad"
         assert "data" not in completed
+        exported = await wf.export_workflow("w", {"sub": "u1"})
+        node = exported["export_data"]["nodes"][0]
+        assert node["status"] == "failed"
+        assert node["error"] == "bad"
 
     @pytest.mark.asyncio
     async def test_slow_executor_polls_and_final_drain(self, runtime, monkeypatch):

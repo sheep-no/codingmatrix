@@ -1,4 +1,5 @@
 """工作流历史记录数据库模型"""
+
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
@@ -8,6 +9,7 @@ from app.models.base import Base
 
 class ProjectSession(Base):
     """项目生成会话表（每用户仅允许一个活跃会话）"""
+
     __tablename__ = "project_sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -26,18 +28,20 @@ class ProjectSession(Base):
     files_total = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    last_activity_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)  # 最后一次活动时间
+    last_activity_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )  # 最后一次活动时间
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        Index('ix_user_status', 'user_id', 'status'),  # 加速并发检查
-        UniqueConstraint('user_id', 'session_id', name='uq_user_session'),  # 防止同名项目
+        Index("ix_user_status", "user_id", "status"),  # 加速并发检查
+        UniqueConstraint("user_id", "session_id", name="uq_user_session"),  # 防止同名项目
         # 每用户仅一行 running：进程内锁只防同 worker TOCTOU，跨 worker 的
         # 并发创建/复用由数据库层兜底（条件与运行时 status == "running"
         # 检查对齐；completed/failed/cancelled 历史行不受限）
         Index(
-            'uq_one_running_per_user',
-            'user_id',
+            "uq_one_running_per_user",
+            "user_id",
             unique=True,
             sqlite_where=text("status = 'running'"),
             postgresql_where=text("status = 'running'"),
@@ -69,6 +73,7 @@ class ProjectSession(Base):
 
 class WorkflowHistory(Base):
     """工作流执行历史记录表"""
+
     __tablename__ = "workflow_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -82,7 +87,12 @@ class WorkflowHistory(Base):
     result_summary = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     def to_dict(self):
         return {
@@ -103,6 +113,7 @@ class WorkflowHistory(Base):
 
 class ImageGenerationHistory(Base):
     """AI 绘图历史记录表"""
+
     __tablename__ = "image_generation_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -137,8 +148,20 @@ class ImageGenerationHistory(Base):
         }
 
 
+class UserProviderSelection(Base):
+    """用户选择的生成授权（按账号持久化，跨客户端重启保留）"""
+
+    __tablename__ = "user_provider_selections"
+
+    user_id = Column(String(100), primary_key=True)
+    token = Column(String(255), nullable=False)
+    provider = Column(String(50), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
 class ConversationMessage(Base):
     """对话历史消息表"""
+
     __tablename__ = "conversation_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -148,9 +171,7 @@ class ConversationMessage(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
-    __table_args__ = (
-        Index('ix_conversation_session', 'session_id', 'created_at'),
-    )
+    __table_args__ = (Index("ix_conversation_session", "session_id", "created_at"),)
 
     def to_dict(self):
         # SQLite 读回 DateTime(timezone=True) 会丢失 tzinfo，值本身是 UTC；
