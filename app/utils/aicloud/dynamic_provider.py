@@ -4,14 +4,15 @@
 支持用户通过 base_url 和协议类型（OpenAI 兼容 / Anthropic 原生）添加自定义供应商，
 自动拉取模型列表并进行调用。
 """
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict
-import time
-import logging
-import uuid
-import httpx
 import json
+import logging
+import time
+import uuid
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 

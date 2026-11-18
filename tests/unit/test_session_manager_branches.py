@@ -132,6 +132,52 @@ async def test_sync_to_db_running_skips_optional_fields(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sync_to_db_updates_unified_session_terminal_status(
+    tmp_path, test_db, test_user
+):
+    from app.db.models import ProjectSession
+    from app.models.unified_state import Session as UnifiedSession
+
+    project_session = ProjectSession(
+        session_id="legacy-terminal",
+        user_id=str(test_user.id),
+        requirement="build",
+        output_dir="1/legacy-terminal",
+        status="running",
+    )
+    unified_session = UnifiedSession(
+        id="unified-terminal",
+        user_id=test_user.id,
+        module="agent",
+        external_id="legacy-terminal",
+        status="active",
+    )
+    test_db.add_all([project_session, unified_session])
+    await test_db.commit()
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+
+    session_factory = sessionmaker(
+        bind=test_db.bind,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    manager = _manager(tmp_path, db_session_factory=session_factory)
+    await manager._sync_to_db(
+        "legacy-terminal", "completed", files_generated=1, files_total=1
+    )
+
+    async with session_factory() as verify_db:
+        saved_project = await verify_db.get(
+            ProjectSession, project_session.id
+        )
+        saved_unified = await verify_db.get(UnifiedSession, unified_session.id)
+        assert saved_project.status == "completed"
+        assert saved_unified.status == "completed"
+
+
+@pytest.mark.asyncio
 async def test_create_session_skips_empty_file_paths(tmp_path):
     manager = _manager(tmp_path)
     state = await manager.create_session(

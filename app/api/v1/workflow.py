@@ -15,29 +15,54 @@ import asyncio
 import json
 import logging
 import threading
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.db.models import WorkflowHistory
 from app.schema.workflow import (
-    WorkflowRequest,
-    WorkflowErrorResponse,
     TaskGraph,
     TaskStatus,
+    TaskType,
+    WorkflowErrorResponse,
+    WorkflowRequest,
 )
 from app.utils.security import verify_token
-from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerError
-from app.utils.workflow.graph_validator import GraphValidator, GraphValidationError
 from app.utils.workflow.executor import WorkflowExecutor
+from app.utils.workflow.graph_validator import GraphValidationError, GraphValidator
+from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerError
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_LLM_MODELS = {"gpt-3.5-turbo", "gpt-3.5-turbo-0125"}
+
+
+def _normalize_llm_node_models(task_graph: TaskGraph, fallback_model: str) -> None:
+    """把分解器臆造的旧模型名替换为本次分解实际可用的模型。"""
+    if not fallback_model:
+        return
+    for node in task_graph.nodes:
+        if node.type != TaskType.LLM_CALL:
+            continue
+        params = node.params or {}
+        model = params.get("model")
+        if not model or model in _LEGACY_LLM_MODELS:
+            logger.info(
+                "工作流节点 %s 的模型 %s 不在当前供应商能力内，改用 %s",
+                node.id,
+                model,
+                fallback_model,
+            )
+            params["model"] = fallback_model
+            node.params = params
+
+
 router = APIRouter(prefix="/api/v1/workflow", tags=["workflow"])
 
 
@@ -162,8 +187,28 @@ async def execute_workflow(
                 decompose_request = request.natural_language_request
 
             decomposer = TaskDecomposer()
-            task_graph = await decomposer.decompose(decompose_request)
+            decompose_task = asyncio.create_task(decomposer.decompose(decompose_request))
+            try:
+                while True:
+                    try:
+                        task_graph = await asyncio.wait_for(
+                            asyncio.shield(decompose_task), timeout=10
+                        )
+                        break
+                    except asyncio.TimeoutError:
+                        # 任务分解可能耗时超过反向代理的空闲超时；持续发心跳
+                        # 让连接保持活跃，客户端会忽略该事件。
+                        yield json.dumps({
+                            "event": "heartbeat",
+                            "workflow_id": "pending",
+                            "stage": "decomposing",
+                            "timestamp": datetime.now().isoformat(),
+                        }) + "\n"
+            finally:
+                if not decompose_task.done():
+                    decompose_task.cancel()
 
+            _normalize_llm_node_models(task_graph, getattr(decomposer, "model", ""))
             validator = GraphValidator()
             is_valid, errors = validator.validate(task_graph)
 
@@ -379,7 +424,9 @@ async def execute_workflow(
 
     return StreamingResponse(
         generate_events(),
-        media_type="application/x-ndjson",
+        # 预览网关会完整缓冲 NDJSON，直到响应结束才返回首个字节；
+        # 使用 SSE 内容类型可被网关识别为长连接，响应体仍为逐行 JSON。
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -643,7 +690,7 @@ async def execute_imported_workflow(
 
     return StreamingResponse(
         generate_events(),
-        media_type="application/x-ndjson",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

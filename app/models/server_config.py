@@ -1,6 +1,7 @@
-from app.models.base import Base
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.sql import func
-from sqlalchemy import Column, String, Integer, DateTime, Text
+
+from app.models.base import Base
 
 
 class ServerConfig(Base):

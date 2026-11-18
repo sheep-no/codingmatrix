@@ -1,7 +1,7 @@
+import asyncio
 import logging
 import os
 import sys
-import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -35,69 +35,67 @@ except ImportError:  # pragma: no cover - 未安装 python-dotenv 的环境
 except Exception as e:  # pragma: no cover - .env 读取失败的环境
     logging.getLogger(__name__).error(f"加载.env 文件失败：{e}")
 
+import starlette.middleware.gzip as _starlette_gzip
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from slowapi.middleware import SlowAPIASGIMiddleware
 from sqlalchemy import delete
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
+from app.api.v1.agent_host import router as agentHostRouter
+from app.api.v1.ai_agent import router as agentRouter
+from app.api.v1.aicloud import router as aicloudRouter
+from app.api.v1.aicloud_knowledge import router as aicloudKnowledgeRouter
+from app.api.v1.Aicode import router as codeRouter
+from app.api.v1.aiGeneratorPptx import router as pptxRouter
+from app.api.v1.apikey import router as apikeyRouter
+from app.api.v1.auth import router as userRouter
+from app.api.v1.file_upload import router as fileUploadRouter
+from app.api.v1.GirlAi import router as GirlAiRouter
+from app.api.v1.github import router as githubRouter
+from app.api.v1.health import router as healthRouter
+from app.api.v1.kolors_api import router as kolorsRouter
+from app.api.v1.kolors_history import router as kolorsHistoryRouter
+from app.api.v1.model_manager import router as modelManagerRouter
+from app.api.v1.providers import router as providersRouter
+from app.api.v1.skills import router as skillsRouter
+from app.api.v1.task_queue import router as taskQueueRouter
+from app.api.v1.vision_api import router as visionRouter
+from app.api.v1.workflow import router as workflowRouter
+from app.api.v2.admin_config import router as adminConfigRouter
+from app.api.v2.Controller import router as sysRouter
+from app.api.v2.guardian_router import router as guardian_router
+from app.api.v2.mcp_admin import router as mcpAdminRouter
+from app.api.v2.model_admin import router as modelAdminRouter
+from app.api.v2.model_config_api import router as modelConfigRouter
+from app.api.v2.nginx_api import router as nginxRouter
+from app.api.v2.user_manage import router as userManageRouter
+from app.core.config import BASE_DIR, settings
+from app.core.graceful_shutdown import GracefulShutdownManager, shutdown_manager
+from app.core.logging_config import setup_logging
+from app.db.database import async_session, get_db
+from app.db.scheduler import start_scheduler, stop_scheduler
+from app.db.session_recovery import reconcile_interrupted_sessions
+from app.middleware.feature_switch import FeatureSwitchMiddleware
+from app.middleware.input_validator import InputValidatorMiddleware
+from app.middleware.rate_limiter import RateLimitMiddleware
+from app.middleware.response_start_dedup import ResponseStartDedupMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.history import History
 from app.models.saved_project import SavedProject
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
-from fastapi import FastAPI
-from slowapi.middleware import SlowAPIASGIMiddleware
-# Alembic 迁移导入
-from migrations.runner import run_async_migrations
-
-from app.core.config import BASE_DIR, settings
-from app.core.logging_config import setup_logging
-from app.core.graceful_shutdown import shutdown_manager, GracefulShutdownManager
-from sqlalchemy.exc import SQLAlchemyError
-from app.utils.rate_limiter import init_rate_limit
 from app.utils.cache import get_cache, get_cache_manager
-from app.utils.performance_monitor import setup_performance_monitoring
-from app.api.v1.health import router as healthRouter
-
-from app.api.v1.auth import router as userRouter
-from app.api.v1.Aicode import router as codeRouter
-from app.api.v1.GirlAi import router as GirlAiRouter
-from app.api.v1.aiGeneratorPptx import router as pptxRouter
-from app.api.v1.file_upload import router as fileUploadRouter
-from app.api.v1.task_queue import router as taskQueueRouter
-from app.api.v1.kolors_api import router as kolorsRouter
-from app.api.v1.kolors_history import router as kolorsHistoryRouter
-from app.api.v1.aicloud import router as aicloudRouter
-from app.api.v1.aicloud_knowledge import router as aicloudKnowledgeRouter
-from app.api.v1.workflow import router as workflowRouter
-from app.api.v1.ai_agent import router as agentRouter
-from app.api.v2.admin_config import router as adminConfigRouter
-from app.api.v1.vision_api import router as visionRouter
-from app.api.v2.nginx_api import router as nginxRouter
-from app.api.v2.Controller import router as sysRouter
-from app.api.v2.user_manage import router as userManageRouter
-from app.api.v2.guardian_router import router as guardian_router
-from app.api.v1.github import router as githubRouter
-from app.api.v1.apikey import router as apikeyRouter
-from app.api.v1.providers import router as providersRouter
-from app.api.v1.agent_host import router as agentHostRouter
-from app.api.v1.model_manager import router as modelManagerRouter
-from app.api.v1.skills import router as skillsRouter
-from app.api.v2.model_admin import router as modelAdminRouter
-from app.api.v2.model_config_api import router as modelConfigRouter
-from app.api.v2.mcp_admin import router as mcpAdminRouter
-from app.db.database import async_session
-from app.db.session_recovery import reconcile_interrupted_sessions
-from app.db.scheduler import start_scheduler, stop_scheduler
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.database import get_db
-from fastapi import Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from app.middleware.rate_limiter import RateLimitMiddleware
-from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.middleware.feature_switch import FeatureSwitchMiddleware
-from app.middleware.input_validator import InputValidatorMiddleware
-from app.middleware.response_start_dedup import ResponseStartDedupMiddleware
 from app.utils.error_handler import register_exception_handlers
 from app.utils.logging import RequestLoggingMiddleware
+from app.utils.performance_monitor import setup_performance_monitoring
+from app.utils.rate_limiter import init_rate_limit
+
+# Alembic 迁移导入
+from migrations.runner import run_async_migrations
 
 logger = logging.getLogger(__name__)
 setup_logging()
@@ -260,6 +258,12 @@ app.add_middleware(ResponseStartDedupMiddleware)
 
 # Gzip 压缩中间件（减少传输数据量，提升加载速度）
 # 压缩大于 500 字节的响应，预计减少 70-80% 传输量
+# Starlette 默认只为 text/event-stream 跳过 GZip；NDJSON 同样是逐行下发的流，
+# 压缩会把小分片缓冲到流结束才可解码，客户端因此收不到任何事件。
+_starlette_gzip.DEFAULT_EXCLUDED_CONTENT_TYPES = (
+    "text/event-stream",
+    "application/x-ndjson",
+)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # 性能监控中间件
@@ -301,9 +305,9 @@ async def clear_history_table():
 
 async def _restore_user_providers():
     """从 Redis 恢复用户 API Key 对应的供应商模型列表（重启后重建 CustomProvider）"""
+    from app.api.v1.apikey import _OPENAI_COMPAT_PROVIDERS, _PROVIDER_BASE_URLS, _sync_provider_models
     from app.services.apikey_manager import get_apikey_manager
     from app.services.custom_provider_manager import get_custom_provider_manager
-    from app.api.v1.apikey import _PROVIDER_BASE_URLS, _OPENAI_COMPAT_PROVIDERS, _sync_provider_models
     
     try:
         apikey_manager = get_apikey_manager()
@@ -398,11 +402,21 @@ async def serve_vue():
     return _dist_index_or_404()
 
 
+# 未匹配的 API 路径由这里统一返回 JSON 404，避免落到 SPA catch-all。
+@app.api_route(
+    "/api/{rest:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def api_not_found(rest: str):
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 # 处理Vue Router的history模式路由
 @app.get("/{full_path:path}")
 async def serve_vue_routes(full_path: str):
-    # 跳过 API 请求，返回 404
-    if full_path.startswith("api/"):
+    if full_path == "api":
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not Found")
 

@@ -21,43 +21,37 @@ from datetime import datetime
 from enum import Enum
 from html import escape as html_escape
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import File as FastAPIFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from lxml import etree
+from PIL import Image
+from pptx import Presentation
+from pptx.enum.shapes import MSO_CONNECTOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.ns import qn
+from pptx.util import Inches, Pt
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
-from app.db.database import async_session
+from app.agent.models import DEFAULT_PPT_MODEL
+from app.celery_app import celery_app
 from app.core.config import BASE_DIR
-from app.utils.security import verify_token, verify_token_ws
-from app.utils.task_manager import task_manager
-from app.schema.task_schema import TaskResponse
-from app.services.unified_state_service import (
-    StateNotFoundError,
-    StateOwnershipError,
-    get_owned_task,
-    transition_task,
-)
+from app.db.database import async_session, get_db
+from app.models.file import File
+from app.models.task import Task
 from app.schema.ppt_outline import (
     OutlineCreateRequest,
     OutlineDraft,
     OutlineGenerateRequest,
-    SlideRegenerateRequest,
     OutlineUpdateRequest,
+    SlideRegenerateRequest,
 )
-from app.services.ppt_state_service import (
-    approve_ppt_outline as persist_approve_ppt_outline,
-    create_ppt_outline as persist_create_ppt_outline,
-    stream_ppt_outline as persist_stream_ppt_outline,
-    delete_ppt_outline as persist_delete_ppt_outline,
-    get_ppt_quality_report as persist_get_ppt_quality_report,
-    get_ppt_outline as persist_get_ppt_outline,
-    update_ppt_outline as persist_update_ppt_outline,
-    revise_ppt_slide,
-)
+from app.schema.task_schema import TaskResponse
 from app.services.ppt_generation_persistence import (
     build_ppt_trace_context,
     persist_ppt_generation_result,
@@ -65,10 +59,37 @@ from app.services.ppt_generation_persistence import (
     serialize_quality_report,
 )
 from app.services.ppt_quality_orchestrator import run_quality_pipeline
-from app.utils.pptx.semantic_renderer import build_render_metadata
+from app.services.ppt_state_service import (
+    approve_ppt_outline as persist_approve_ppt_outline,
+)
+from app.services.ppt_state_service import (
+    create_ppt_outline as persist_create_ppt_outline,
+)
+from app.services.ppt_state_service import (
+    delete_ppt_outline as persist_delete_ppt_outline,
+)
+from app.services.ppt_state_service import (
+    get_ppt_outline as persist_get_ppt_outline,
+)
+from app.services.ppt_state_service import (
+    get_ppt_quality_report as persist_get_ppt_quality_report,
+)
+from app.services.ppt_state_service import (
+    revise_ppt_slide,
+)
+from app.services.ppt_state_service import (
+    stream_ppt_outline as persist_stream_ppt_outline,
+)
+from app.services.ppt_state_service import (
+    update_ppt_outline as persist_update_ppt_outline,
+)
+from app.services.unified_state_service import (
+    StateNotFoundError,
+    StateOwnershipError,
+    get_owned_task,
+    transition_task,
+)
 from app.utils.aicloud.llm_caller import LLMCallError
-from app.utils.pptx.semantic_renderer import normalize_slide_type
-from app.utils.pptx.templates.manager import TemplateManager
 from app.utils.pptx.commercial_content import (
     NARRATIVE_ROLES,
     build_commercial_page_blueprint,
@@ -78,33 +99,23 @@ from app.utils.pptx.commercial_content import (
     resolve_topic_template,
 )
 from app.utils.pptx.composition_pool import select_cover_variant, select_layout_variants
-from app.celery_app import celery_app
-
-# 视觉决策模块
-from app.utils.visual import (
-    visual_analyzer,
-    image_manager,
-    ImageType,
-)
-
-from app.models.file import File
-from app.models.task import Task
-from sqlalchemy import select
+from app.utils.pptx.ppt_style import PPT_TEMPLATES, PPTStyle, apply_design_tokens
+from app.utils.pptx.semantic_renderer import build_render_metadata, normalize_slide_type
+from app.utils.pptx.templates.manager import TemplateManager
 
 # PPT 工具模块
 from app.utils.pptx.text_processor import (
     prevent_text_overflow as prevent_text_overflow_v2,
 )
-from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES, apply_design_tokens
-from app.agent.models import DEFAULT_PPT_MODEL
+from app.utils.security import verify_token, verify_token_ws
+from app.utils.task_manager import task_manager
 
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from pptx.enum.shapes import MSO_CONNECTOR
-from pptx.oxml.ns import qn
-from lxml import etree
-from PIL import Image
+# 视觉决策模块
+from app.utils.visual import (
+    ImageType,
+    image_manager,
+    visual_analyzer,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["PPT 生成 (增强版)"])
@@ -3092,7 +3103,7 @@ async def list_ppt_templates(
 async def get_template_sample(template_id: str, page: int):
     if page < 1 or page > 3:
         raise HTTPException(status_code=422, detail="样张页码必须为 1 到 3")
-    from app.services.ppt_template_samples import ensure_template_sample, _paths
+    from app.services.ppt_template_samples import _paths, ensure_template_sample
     from app.utils.pptx.templates.manager import TemplateManager
     try:
         # 解析别名到规范 id，保证缓存目录与 _paths 命中同一位置

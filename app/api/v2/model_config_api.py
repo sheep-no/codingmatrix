@@ -19,17 +19,18 @@
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from app.utils.security import require_superadmin
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
 from app.services.model_config_manager import (
-    get_model_config_manager,
-    reload_model_config,
     ModelConfig,
     ProviderConfig,
+    get_model_config_manager,
+    reload_model_config,
 )
+from app.utils.security import require_superadmin
 
 logger = logging.getLogger(__name__)
 

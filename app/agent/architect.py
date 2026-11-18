@@ -1140,6 +1140,25 @@ language 字段要求：
         """识别需求中明确限定的文件集合。"""
         if not requirement:
             return None
+        # API 层会把管线横幅和 Skill 内容拼进 requirement。横幅里的
+        # "edit only contracted files" 与后续中文“文件”会被下面的 only
+        # 规则误判成显式文件集合，导致架构计划被错误冻结。这里只保留
+        # 用户需求本身参与匹配。
+        requirement = re.sub(
+            r"^\[Pipeline Mode\]\n.*?\n\n",
+            "",
+            requirement,
+            count=1,
+            flags=re.DOTALL,
+        )
+        requirement = re.sub(
+            r"\n\n\[Available Skills\]\n.*$",
+            "",
+            requirement,
+            flags=re.DOTALL,
+        )
+        if not requirement.strip():
+            return None
         # 扩展名后的否定断言必不可少：没有它 `package.json` 会被 `js` 分支
         # 截成 `package.js`，`App.tsx`/`Card.jsx` 也会被截成 `.ts`/`.js`，
         # 严格文件集随后会拿这些错名字去重写 file_plan。
@@ -1181,13 +1200,13 @@ language 字段要求：
             match = re.search(
                 r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",
                 requirement,
-                re.IGNORECASE,
+                re.IGNORECASE | re.DOTALL,
             )
         if not match:
             match = re.search(
                 r"generate\s+exactly\s+(?:these|the following)\s+files(?:\s+and\s+no\s+others)?\s*:\s*(.{1,500}?)(?=\.\s+(?-i:[A-Z])|$)",
                 requirement,
-                re.IGNORECASE,
+                re.IGNORECASE | re.DOTALL,
             )
         if not match:
             return None

@@ -11,7 +11,7 @@ AI Cloud 模型注册表
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 
 class ModelProvider(str, Enum):

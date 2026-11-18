@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../auth/credential_store.dart';
+import '../errors/failure_text.dart';
 
 class AgentStreamException implements Exception {
   AgentStreamException(this.message, {this.statusCode});
@@ -83,9 +84,19 @@ class AgentStreamClient {
 
     final response = await httpClient.send(request);
     if (response.statusCode != 200) {
-      await response.stream.drain<void>();
+      // Keep the backend message (for example "磁盘空间不足（可用：0.78 GB）").
+      var body = '';
+      try {
+        body = utf8.decode(
+          await response.stream.toBytes(),
+          allowMalformed: true,
+        );
+      } catch (_) {
+        body = '';
+      }
+      final detail = serverFailureDetail(body);
       throw AgentStreamException(
-        'Agent 请求失败（HTTP ${response.statusCode}），请确认任务状态后手动恢复',
+        'Agent ${detail == null ? httpFailureText(response.statusCode) : '$detail（HTTP ${response.statusCode}）'}，请确认任务状态后手动恢复',
         statusCode: response.statusCode,
       );
     }

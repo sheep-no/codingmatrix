@@ -6,6 +6,7 @@ import '../application/auth_controller.dart';
 import '../application/girl_ai_controller.dart';
 import '../domain/models/girl_companion.dart';
 import 'account_overlays.dart';
+import 'model_service_hint.dart';
 import 'shell_scaffold.dart';
 
 class VirtualGirlPage extends ConsumerStatefulWidget {
@@ -205,10 +206,7 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
             if (state.error != null)
               Padding(
                 padding: const EdgeInsets.all(8),
-                child: Text(
-                  state.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                child: ModelServiceHint(error: state.error!),
               ),
             for (final memory in state.memoryCandidates)
               Card(

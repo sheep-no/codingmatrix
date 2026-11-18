@@ -2,9 +2,9 @@
 提示词加载器 - 从 .claude/skills/ 目录加载提示词模板
 """
 
+import logging
 from pathlib import Path
 from typing import Dict, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 

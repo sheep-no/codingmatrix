@@ -3,7 +3,7 @@ PPT 模板基类 - 定义模板数据结构和接口
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Dict, Optional, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class SlideLayout(Enum):
@@ -159,8 +159,8 @@ class TemplateBase:
 
     def apply_decorations(self, prs, slide, template_config: TemplateConfig, page_num: int, total_pages: int):
         """应用装饰元素（页眉/页脚/页码/角标等）"""
-        from pptx.util import Inches
         from pptx.dml.color import RGBColor
+        from pptx.util import Inches
 
         # 顶部装饰条
         if template_config.has_header_bar:
@@ -180,8 +180,8 @@ class TemplateBase:
 
     def _add_header_bar(self, prs, slide, config: TemplateConfig):
         """添加顶部装饰条"""
-        from pptx.util import Inches
         from pptx.dml.color import RGBColor
+        from pptx.util import Inches
 
         bar_height = Inches(0.12)
         header_bar = slide.shapes.add_shape(
@@ -205,8 +205,8 @@ class TemplateBase:
 
     def _add_footer_bar(self, prs, slide, config: TemplateConfig):
         """添加底部装饰条"""
-        from pptx.util import Inches
         from pptx.dml.color import RGBColor
+        from pptx.util import Inches
 
         footer_height = Inches(0.08)
         footer_bar = slide.shapes.add_shape(
@@ -220,9 +220,9 @@ class TemplateBase:
 
     def _add_page_number(self, slide, prs, config: TemplateConfig, page_num: int, total_pages: int):
         """添加页码"""
-        from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches, Pt
 
         page_text = slide.shapes.add_textbox(
             Inches(config.slide_width) - Inches(1.2),
@@ -239,8 +239,8 @@ class TemplateBase:
 
     def _add_corner_decor(self, slide, prs, config: TemplateConfig):
         """添加角标装饰"""
-        from pptx.util import Inches
         from pptx.dml.color import RGBColor
+        from pptx.util import Inches
 
         decor_size = Inches(1.5)
         decor = slide.shapes.add_shape(

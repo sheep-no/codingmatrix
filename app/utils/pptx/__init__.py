@@ -1,12 +1,12 @@
 """
 PPT 工具包
 """
-from app.utils.pptx.templates import TemplateManager, TemplateConfig, SlideLayout, TemplateCategory
+from app.utils.pptx.animation_engine import AnimationEngine, AnimationPresets, EntranceEffect, TransitionEffect
+from app.utils.pptx.custom_template import CustomTemplateParser, TemplateConverter, TemplateValidator
+from app.utils.pptx.image_upgrader import ImageCacheManager, ImageStrategy
 from app.utils.pptx.layout_engine import LayoutOptimizer
-from app.utils.pptx.image_upgrader import ImageStrategy, ImageCacheManager
-from app.utils.pptx.custom_template import CustomTemplateParser, TemplateValidator, TemplateConverter
-from app.utils.pptx.animation_engine import AnimationEngine, AnimationPresets, TransitionEffect, EntranceEffect
-from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES, hex_to_rgb
+from app.utils.pptx.ppt_style import PPT_TEMPLATES, PPTStyle, hex_to_rgb
+from app.utils.pptx.templates import SlideLayout, TemplateCategory, TemplateConfig, TemplateManager
 
 __all__ = [
     # 模板系统

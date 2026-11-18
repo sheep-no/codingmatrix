@@ -213,7 +213,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     // ========== 步骤2：输入项目需求并生成 ==========
     console.log('=== 步骤2：输入项目需求并生成 ===');
 
-    const projectPrompt = '创建一个简单的 Python FastAPI 待办事项 API，包含 main.py 入口文件，有增删改查接口和一个简单的 index.html 前端页面';
+    const projectPrompt = '只生成 main.py 和 calculator.py 两个文件，实现一个简单的 Python 命令行计算器，支持加减乘除。';
 
     const textarea = await page.waitForSelector('.prompt-textarea');
     await textarea.focus();
@@ -262,12 +262,10 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
             }
           }
         } catch (e) { /* ignore */ }
-        // fallback: 检查按钮状态
-        const btn = document.querySelector('button[aria-label="发送需求"]');
+        // fallback: 只以“停止生成”按钮为准。发送按钮在输入框被清空后
+        // 会保持 disabled，不能据此推断仍在生成。
         const stopBtn = document.querySelector('button[aria-label="停止生成"]');
-        if (stopBtn) return true;
-        if (btn && btn.disabled) return true;
-        return false;
+        return Boolean(stopBtn);
       });
     };
 
@@ -334,6 +332,11 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await page.click(`.file-item:has-text("${targetFile}")`);
     await page.waitForSelector(`.tree-item.selected:has-text("${targetFile}")`, { timeout: 5000 });
     await page.waitForSelector('.editor-actions', { timeout: 5000 });
+    // 文件内容异步加载，必须等内容真正渲染后再分析，否则会误判为空文件。
+    await page.waitForFunction(() => {
+      const codeBlock = document.querySelector('.code-block code');
+      return Boolean(codeBlock && codeBlock.textContent.trim());
+    }, { timeout: 20000 });
 
     // 获取文件内容
     const fileContent = await page.evaluate(() => {
@@ -397,7 +400,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     }
 
     if (lineToDeleteIndex === -1) {
-      console.log('[WARNING] 未找到可删除的行，跳过删除步骤');
+      throw new Error(`未在 ${targetFile} 中找到可删除的代码行，无法验证修复流程`);
     } else {
       const deletedLine = lines[lineToDeleteIndex];
       console.log(`准备删除第 ${lineToDeleteIndex + 1} 行: "${deletedLine}"`);
@@ -651,7 +654,8 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     console.log('\n=== 测试报告 ===');
     console.log(JSON.stringify(testReport, null, 2));
 
-    // 基本验证：Agent 应该至少产生了一些思考或日志
-    expect(diagnostics.thinkingMessages.length + finalLogs.length).toBeGreaterThan(0);
+    // 核心验证：确实删除了代码，且修复后目标文件仍然存在。
+    expect(deleteReason).not.toBe('');
+    expect(filesAfterFix).toContain(targetFile);
   });
 });

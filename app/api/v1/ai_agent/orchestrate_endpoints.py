@@ -1148,6 +1148,8 @@ async def orchestrate_project(
         raise _generation_http_exception(e) from e
 
 
+# 客户端契约同时使用 /workflow/stream，复用同一流式实现。
+@router.post("/workflow/stream", include_in_schema=False)
 @router.post("/orchestrate/stream")
 async def orchestrate_project_stream(
     request: OrchestratorRequest,
@@ -2306,10 +2308,16 @@ async def update_concurrent_limits(
     new_limit: int,
     token: dict = Depends(verify_admin_token),
 ):
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
     from app.utils.system_config import system_config_manager
 
     if new_limit < 1:
         raise HTTPException(status_code=400, detail="限制值必须为正整数")
+    if new_limit > ConcurrentLimitManager.MAX_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"限制值不能超过 {ConcurrentLimitManager.MAX_LIMIT}",
+        )
 
     username = token.get("sub", "admin")
     record = await system_config_manager.update_concurrent_limit(

@@ -241,8 +241,64 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+    // Transport details stay hidden, while the page keeps its own wording.
     expect(find.text('Provider 配置加载失败，请重试'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
+  });
+
+  testWidgets('服务端返回失败原因时加载错误透出根因', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi(
+                (_, __, ___) async => throw CloudAuthException(
+                  '获取 Key 列表失败（HTTP 500）',
+                  statusCode: 500,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.text('Provider 配置加载失败：获取 Key 列表失败（HTTP 500）'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('没有授权时显示空状态引导', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(RecordingApi((_, __, ___) async => <Object?>[])),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('还没有 Provider 授权'), findsOneWidget);
   });
 
   testWidgets('加载后显示授权且不展示 token', (tester) async {

@@ -10,48 +10,47 @@ Kolors 图像生成 API - 重构版
 import json
 import logging
 import tempfile
-from pathlib import Path
-from typing import Optional, List
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+# 导入会话压缩函数
+from app.api.v1.Aicode import compress_conversation_history
 from app.core.time import utcnow_naive
-from app.utils.security import verify_token
-from app.utils.image_generation import (
-    text_to_image,
-    image_to_image,
-    inpaint_image,
-    generate_avatar,
-    generate_landscape,
-    generate_icon,
-    SUPPORTED_FORMATS,
-    DEFAULT_CONFIG,
-    KOLORS_MODEL,
-    OUTPUT_DIR,
-    MAX_IMAGE_SIZE,
-)
+from app.db.add_history import save_history_to_db
+from app.db.database import get_db
+from app.db.models import ImageGenerationHistory
+from app.models.file import File
+from app.models.history import History
+from app.services.image_history_refs import normalize_image_references
 from app.services.image_resource_service import (
-    build_image_resource_fingerprint,
     build_generation_response,
+    build_image_resource_fingerprint,
     cleanup_file,
     generation_concurrency,
     get_or_create_generation,
 )
-from app.services.image_history_refs import normalize_image_references
-from app.db.database import get_db
-from app.db.add_history import save_history_to_db
-from app.models.history import History
-from app.models.file import File
-from app.db.models import ImageGenerationHistory
-
-# 导入会话压缩函数
-from app.api.v1.Aicode import compress_conversation_history
+from app.utils.image_generation import (
+    DEFAULT_CONFIG,
+    KOLORS_MODEL,
+    MAX_IMAGE_SIZE,
+    OUTPUT_DIR,
+    SUPPORTED_FORMATS,
+    generate_avatar,
+    generate_icon,
+    generate_landscape,
+    image_to_image,
+    inpaint_image,
+    text_to_image,
+)
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kolors", tags=["Kolors 图像生成"])

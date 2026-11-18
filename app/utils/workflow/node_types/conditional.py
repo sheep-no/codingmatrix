@@ -10,7 +10,7 @@ import operator
 from typing import Any, Dict, List, Optional
 
 from app.schema.workflow import TaskType
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

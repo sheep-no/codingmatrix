@@ -1,12 +1,14 @@
 import asyncio
-import psutil
-import socket
-import platform
-from datetime import datetime
-from typing import Optional, Dict, List, Any
-import os
-import time
 import logging
+import os
+import platform
+import socket
+import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import psutil
+
 logger=logging.getLogger(__name__)
 
 
@@ -196,7 +198,7 @@ class AsyncProcessGuardian:
             return False
 
         except asyncio.TimeoutError:
-            self.logger.error(f"重启命令超时")
+            self.logger.error("重启命令超时")
             return False
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             self.logger.error(f"重启过程异常: {e}")

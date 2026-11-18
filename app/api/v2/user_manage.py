@@ -1,37 +1,37 @@
-from fastapi import APIRouter, Query, Depends, HTTPException,status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import joinedload
 
-from app.models.Permission import Permission
-from app.models.user import User
-from app.models.history import History
-from app.models.file import File
-from app.models.task import Task
-from app.models.aicloud import (
-    AicloudSession,
-    AicloudMessage,
-    AicloudReview,
-    AicloudAuditLog,
-)
-from app.models.aicloud_knowledge import AicloudKnowledgeDoc, AicloudKnowledgeChunk
-from app.models.github_config import GithubUserConfig
-from app.models.agent_memory import AgentSession, ToolExecutionLog
 from app.db.database import get_db
 from app.db.models import (
+    ConversationMessage,
+    ImageGenerationHistory,
     ProjectSession,
     WorkflowHistory,
-    ImageGenerationHistory,
-    ConversationMessage,
 )
-from app.utils.security import verify_token, hash_password, validate_password_strength
-from app.utils.permissions import is_admin, is_superadmin
-from app.utils.security_audit import log_permission_change, log_sensitive_operation
-
+from app.models.agent_memory import AgentSession, ToolExecutionLog
+from app.models.aicloud import (
+    AicloudAuditLog,
+    AicloudMessage,
+    AicloudReview,
+    AicloudSession,
+)
+from app.models.aicloud_knowledge import AicloudKnowledgeChunk, AicloudKnowledgeDoc
+from app.models.file import File
+from app.models.github_config import GithubUserConfig
+from app.models.history import History
+from app.models.Permission import Permission
+from app.models.task import Task
+from app.models.user import User
 from app.schema.manageUser import *
 from app.utils.cache import invalidate_user_cache
 from app.utils.cache_decorator import invalidate_cache_by_prefix
-import logging
+from app.utils.permissions import is_admin, is_superadmin
+from app.utils.security import hash_password, validate_password_strength, verify_token
+from app.utils.security_audit import log_permission_change, log_sensitive_operation
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

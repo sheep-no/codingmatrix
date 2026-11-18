@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ProjectSession
+from app.models.unified_state import Session as UnifiedSession
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,19 @@ async def reconcile_interrupted_sessions(db: AsyncSession) -> int:
         select(ProjectSession).where(ProjectSession.status == "running")
     )
     sessions = list(result.scalars().all())
-    if not sessions:
+    unified_result = await db.execute(
+        select(UnifiedSession).where(
+            UnifiedSession.module == "agent",
+            UnifiedSession.status.in_(["active", "running"]),
+        )
+    )
+    # The legacy mock used by older unit tests returns ProjectSession rows for
+    # every query; ignore those instead of writing incompatible attributes.
+    unified_sessions = [
+        session for session in unified_result.scalars().all()
+        if isinstance(session, UnifiedSession)
+    ]
+    if not sessions and not unified_sessions:
         return 0
 
     now = datetime.now(timezone.utc)
@@ -33,6 +46,14 @@ async def reconcile_interrupted_sessions(db: AsyncSession) -> int:
         session.completed_at = now
         session.last_activity_at = now
 
+    for session in unified_sessions:
+        session.status = "failed"
+        session.updated_at = now
+
     await db.commit()
-    logger.warning("已回收 %d 个重启前遗留的 running 会话", len(sessions))
+    logger.warning(
+        "已回收 %d 个重启前遗留的 running 会话、%d 个 active 统一会话",
+        len(sessions),
+        len(unified_sessions),
+    )
     return len(sessions)

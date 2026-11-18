@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from app.agent.dynamic_model_router import get_context_length, get_max_output_tokens
 
-
 _DEFAULT_CONTEXT_LENGTH = 32768
 _CHARS_PER_TOKEN = 4
 

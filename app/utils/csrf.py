@@ -12,7 +12,7 @@ import secrets
 import time
 from typing import Optional
 
-from fastapi import HTTPException, Header, status
+from fastapi import Header, HTTPException, status
 from fastapi.requests import Request
 
 from app.core.config import settings

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/provider_key.dart';
+import '../infrastructure/auth/cloud_auth_client.dart';
 import '../infrastructure/provider/provider_key_client.dart';
 import 'auth_controller.dart';
 
@@ -54,9 +55,12 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
     state = state.copyWith(loading: true, clearError: true);
     try {
       state = state.copyWith(items: await client.list(), loading: false);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      state = state.copyWith(loading: false, error: 'Provider 配置加载失败，请重试');
+      state = state.copyWith(
+        loading: false,
+        error: _failureText('Provider 配置加载失败', error, '，请重试'),
+      );
     }
   }
 
@@ -70,11 +74,15 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
       await client.submit(key: key, provider: provider, remark: remark);
       await load();
       return true;
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return false;
       state = state.copyWith(
         loading: false,
-        error: 'Provider Key 提交失败，请检查输入后重试',
+        error: _failureText(
+          'Provider Key 提交失败',
+          error,
+          '，请检查输入后重试',
+        ),
       );
       return false;
     }
@@ -86,9 +94,12 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
     try {
       await client.setEnabled(item.token, !item.enabled);
       await load();
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      state = state.copyWith(loading: false, error: '更新 Provider 状态失败，请重试');
+      state = state.copyWith(
+        loading: false,
+        error: _failureText('更新 Provider 状态失败', error, '，请重试'),
+      );
     }
   }
 
@@ -98,9 +109,12 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
     try {
       await client.test(item.token);
       await load();
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      state = state.copyWith(loading: false, error: 'Provider Key 测试失败，请重试');
+      state = state.copyWith(
+        loading: false,
+        error: _failureText('Provider Key 测试失败', error, '，请重试'),
+      );
     }
   }
 
@@ -110,10 +124,24 @@ class ProviderKeyController extends StateNotifier<ProviderKeyState> {
     try {
       await client.delete(item.token);
       await load();
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      state = state.copyWith(loading: false, error: '删除 Provider Key 失败，请重试');
+      state = state.copyWith(
+        loading: false,
+        error: _failureText('删除 Provider Key 失败', error, '，请重试'),
+      );
     }
+  }
+
+  // A transport failure already carries a readable cause ("获取 Key 列表失败",
+  // "登录已失效"); keep it so the page can name the real problem. Other errors
+  // fall back to the original wording.
+  String _failureText(String prefix, Object error, String fallback) {
+    if (error is CloudAuthException) {
+      final message = error.message.trim();
+      if (message.isNotEmpty) return '$prefix：$message';
+    }
+    return '$prefix$fallback';
   }
 }
 

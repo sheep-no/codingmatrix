@@ -3,7 +3,6 @@
 import hashlib
 from typing import Any, Dict, List
 
-
 NARRATIVE_ROLES = (
     "opportunity_map",
     "evidence_story",

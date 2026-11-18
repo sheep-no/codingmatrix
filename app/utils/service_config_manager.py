@@ -1,11 +1,11 @@
 # utils/service_config_manager.py
 import json
+import logging
 import os
 import re
 import threading
-from typing import Dict, List, Optional
 from datetime import datetime
-import logging
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +167,9 @@ class ServiceConfigManager:
         if 'redis' in name_lower:
             return f"docker restart redis-{port}"
         elif 'mysql' in name_lower:
-            return f"systemctl restart mysql"
+            return "systemctl restart mysql"
         elif 'nginx' in name_lower:
-            return f"nginx -s reload"
+            return "nginx -s reload"
         else:
             return f"# 请手动配置重启命令: {process_name}"
 

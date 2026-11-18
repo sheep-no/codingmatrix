@@ -72,8 +72,8 @@ class SandboxFileOperator(FileOperator):
 
         content = await self.read_async(path)
 
-        from app.utils.aicloud.sensitive_filter import filter_sensitive_content
         from app.utils.aicloud.content_analyzer import analyze_content
+        from app.utils.aicloud.sensitive_filter import filter_sensitive_content
 
         filtered = filter_sensitive_content(content.get("content", ""))
         ai_passed, warnings = await analyze_content(content.get("content", ""), "read")

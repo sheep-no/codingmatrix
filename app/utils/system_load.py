@@ -3,12 +3,12 @@
 """
 import asyncio
 import time
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
+from app.core.config import settings
 from app.core.graceful_shutdown import GracefulShutdownManager
 from app.middleware.rate_limiter import RateLimitMiddleware
-from app.core.config import settings
 
 
 @dataclass

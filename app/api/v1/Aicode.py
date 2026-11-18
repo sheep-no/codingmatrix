@@ -13,39 +13,38 @@
 - 只输出文本/代码给用户
 """
 import asyncio
-import re
 import inspect
 import json
 import logging
+import re
 import uuid
-from typing import Any, AsyncGenerator, Dict, Tuple, Optional, List, Callable, Awaitable
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.time import utcnow_naive
-from app.db.database import get_db
-from app.schema.codeRequest import CodeRequest
-from app.utils import call_llm
-from app.utils.web_search import FreeWebSearch, expand_relative_time, fetch_page_text
-from app.utils.aicloud.llm_caller import LLMCallError
-from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
-from app.utils.security import verify_token
+from sqlalchemy import and_, delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+from app.core.time import utcnow_naive
 from app.db.add_history import invalidate_history_caches, save_history_to_db
-from app.utils.vision import analyze_image
+from app.db.database import get_db
 from app.models.file import File
 from app.models.history import History
-from sqlalchemy import select, delete, and_, update
-from sqlalchemy.exc import SQLAlchemyError
-
-from app.utils.json_parser import RobustJSONParser
-from app.services.chat_context import fit_context, is_context_length_error
 from app.models.unified_state import Message, Session, SessionEvent
+from app.schema.codeRequest import CodeRequest
+from app.services.chat_context import fit_context, is_context_length_error
 from app.services.unified_state_service import append_message, create_session
+from app.utils import call_llm, partial_response_store
 from app.utils.aicloud.knowledge_processor import parse_document
-from app.utils import partial_response_store
+from app.utils.aicloud.llm_caller import LLMCallError
+from app.utils.json_parser import RobustJSONParser
+from app.utils.security import verify_token
+from app.utils.vision import analyze_image
+from app.utils.web_search import FreeWebSearch, expand_relative_time, fetch_page_text
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -1101,7 +1100,7 @@ async def stream_response(
         # 检查响应是否为空，避免保存空记录
         if not full_response or not full_response.strip():
             logger.warning(f"AI 生成响应为空 | user_id={user_id} | prompt={prompt[:50]}...")
-            yield f'{{"error": "AI 生成响应为空，未保存历史记录"}}\n'
+            yield '{"error": "AI 生成响应为空，未保存历史记录"}\n'
             return
 
         logger.info(f"流式生成完成，保存历史记录 | response_length={len(full_response)}")

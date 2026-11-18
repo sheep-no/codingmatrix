@@ -1,12 +1,11 @@
 """
 文件上传安全验证模块
 """
+import io
 import re
 import zipfile
-import io
 from pathlib import Path
 from typing import Tuple
-
 
 # 允许的 MIME 类型白名单
 ALLOWED_MIME_TYPES = {

@@ -9,16 +9,12 @@
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Any, Optional, List, Dict
+from typing import Any, Dict, List, Optional
 
-from app.utils.aicloud.model_registry import (
-    MODEL_REGISTRY,
-    get_model,
-    get_default_model,
-    ModelCapability
-)
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from app.utils.aicloud.model_registry import MODEL_REGISTRY, ModelCapability, get_default_model, get_model
 from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
@@ -93,6 +89,8 @@ def _build_model_response(model_id: str, model, is_default: bool) -> ModelInfoRe
 
 # ==================== API 端点 ====================
 
+# 同时注册无斜杠别名，避免 SPA catch-all 先匹配到 /api/v1/models 后返回 404。
+@router.get("", response_model=ModelListResponse, include_in_schema=False)
 @router.get("/", response_model=ModelListResponse, summary="获取所有可用模型")
 async def list_models(
     capability: Optional[str] = None,
@@ -150,9 +148,9 @@ async def list_capabilities():
 async def get_agent_model_config(token: dict = Depends(verify_token)):
     """获取当前 Agent 各环节使用的模型配置（只读）"""
     from app.agent.dynamic_model_router import (
-        load_agent_model_config,
-        _load_roles_assignment,
         MODEL_KEY_TO_ID,
+        _load_roles_assignment,
+        load_agent_model_config,
     )
 
     config = load_agent_model_config()

@@ -84,7 +84,7 @@ test.describe('Agent SSE 流式响应测试', () => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          requirement: '创建一个带用户登录注册功能的 Todo 应用，使用 Vue 3 前端和 Python Flask 后端，包含 SQLite 数据库，支持增删改查任务',
+          requirement: '只生成 hello.py 一个文件，输出 Hello World',
           enable_review: false,
           enable_validation: false,
           enable_error_recovery: false,

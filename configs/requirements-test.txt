@@ -28,3 +28,4 @@ pip-audit==2.7.3
 
 # 静态缺陷门禁（tests/unit/test_static_defects.py）
 ruff==0.16.8
+mypy==1.14.1

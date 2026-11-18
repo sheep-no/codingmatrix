@@ -6,12 +6,13 @@
 import asyncio
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.server_config import ServerConfig
 from app.db.database import async_session
+from app.models.server_config import ServerConfig
 
 logger = logging.getLogger(__name__)
 

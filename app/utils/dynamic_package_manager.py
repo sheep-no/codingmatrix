@@ -11,9 +11,9 @@ v4.8.0 新增：
 import json
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 

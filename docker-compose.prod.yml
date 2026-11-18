@@ -22,6 +22,10 @@ services:
     environment:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
+      # 用户 Key 独立实例 + noeviction，避免缓存内存压力下被 allkeys-lru 淘汰
+      - APIKEY_REDIS_URL=redis://redis-apikeys:6379/0
+      # 部署提交号；CI/部署脚本导出后由 /health 暴露，便于核对线上版本
+      - GIT_COMMIT=${GIT_COMMIT:-unknown}
       - DB_POOL_SIZE=5
       - DB_MAX_OVERFLOW=10
       - WS_MAX_CONNECTIONS=100
@@ -50,6 +54,8 @@ services:
       - projects:/app/projects
     depends_on:
       redis:
+        condition: service_healthy
+      redis-apikeys:
         condition: service_healthy
     networks:
       - ai-agent-prod-net
@@ -85,6 +91,7 @@ services:
     environment:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
+      - APIKEY_REDIS_URL=redis://redis-apikeys:6379/0
       - LOG_LEVEL=INFO
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
@@ -103,6 +110,8 @@ services:
       - projects:/app/projects
     depends_on:
       redis:
+        condition: service_healthy
+      redis-apikeys:
         condition: service_healthy
     networks:
       - ai-agent-prod-net
@@ -132,6 +141,7 @@ services:
     environment:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
+      - APIKEY_REDIS_URL=redis://redis-apikeys:6379/0
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - RSA_KEY_DIR=/app/keys
@@ -149,6 +159,8 @@ services:
       - projects:/app/projects
     depends_on:
       redis:
+        condition: service_healthy
+      redis-apikeys:
         condition: service_healthy
     networks:
       - ai-agent-prod-net
@@ -189,6 +201,35 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Redis for user API keys (noeviction, AOF)
+  # 与缓存/队列实例隔离；Key 丢失意味着用户凭据不可恢复，不能参与 LRU 淘汰。
+  # ---------------------------------------------------------------------------
+  redis-apikeys:
+    image: redis:7-alpine
+    container_name: ai-agent-redis-apikeys-prod
+    restart: always
+    # 不暴露宿主端口：仅 API 容器通过内部网络访问
+    command: redis-server --maxmemory 128mb --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - redis-apikeys-data:/data
+    networks:
+      - ai-agent-prod-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 192M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # ---------------------------------------------------------------------------
   # Nginx Reverse Proxy
@@ -243,6 +284,8 @@ volumes:
   projects:
     driver: local
   redis-data:
+    driver: local
+  redis-apikeys-data:
     driver: local
   nginx-logs:
     driver: local

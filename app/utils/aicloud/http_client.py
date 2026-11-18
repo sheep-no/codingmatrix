@@ -9,8 +9,9 @@ aicloud 共享 HTTP 客户端模块
 
 import asyncio
 import logging
-import httpx
 from typing import Optional
+
+import httpx
 from httpx import Timeout
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,9 @@ async def get_http_client() -> httpx.AsyncClient:
             client_is_stale = _http_client_loop is not None and _http_client_loop is not current_loop
             if _http_client is None or _http_client.is_closed or client_is_stale:  # pragma: no branch - 锁内二次检查仅防并发重建
                 _http_client = httpx.AsyncClient(
-                    timeout=Timeout(300.0, connect=10.0),
+                    # 上游偶发只建连不返回响应头。给推理模型留足生成时间，
+                    # 同时避免连接无限期挂起。
+                    timeout=Timeout(300.0, connect=10.0, read=240.0),
                     limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
                 )
                 _http_client_loop = current_loop

@@ -439,6 +439,19 @@ async def test_generate_with_spec_first_static_happy_path(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_generate_with_spec_first_fails_when_required_artifact_missing(tmp_path, monkeypatch):
+    harness = _Harness(tmp_path)
+    _patch_generation_collaborators(monkeypatch, harness)
+    _fake_integrity(monkeypatch)
+
+    result = await harness.generate_with_spec_first("请生成根级 index.html 作为入口")
+
+    assert result["success"] is False
+    assert result["required_artifacts"]["missing"] == ["index.html"]
+    assert any("关键文件缺失" in error for error in harness.errors)
+
+
+@pytest.mark.asyncio
 async def test_generate_with_spec_first_runs_validation_when_enabled(tmp_path, monkeypatch):
     harness = _Harness(tmp_path)
     harness.enable_validation = True

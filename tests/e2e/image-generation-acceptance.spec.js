@@ -117,7 +117,11 @@ test.describe('AI 绘画验收', () => {
     await expect(imagePage.locator('.error-message')).toHaveCount(0)
 
     const src = await imagePage.locator('.generated-image').first().getAttribute('src')
-    expect(src, `generated image src missing: ${JSON.stringify(apiLog)}`).toMatch(/^(data:image\/|https?:\/\/|\/)/)
+    expect(src, `generated image src missing: ${JSON.stringify(apiLog)}`).toMatch(/^(data:image\/|blob:|https?:\/\/|\/)/)
+    const imageLoaded = await imagePage.locator('.generated-image').first().evaluate(image => (
+      image.complete && image.naturalWidth > 0
+    ))
+    expect(imageLoaded, 'generated image did not decode').toBeTruthy()
     await expect(imagePage.getByRole('button', { name: '下载图片' })).toBeVisible()
 
     const generated = apiLog.some((item) => (

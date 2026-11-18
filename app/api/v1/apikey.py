@@ -9,27 +9,46 @@ API Key 管理接口
 - GET /api/v1/agent/apikeys - 获取 Key 列表
 - PUT /api/v1/agent/apikey/{token}/enabled - 启用/禁用 Key
 """
-import logging
 import asyncio
-from typing import Optional
-
-from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field, field_validator
-
-from app.utils.crypto import get_rsa_key_manager
-from app.utils.rate_limiter import limiter
-from app.services.apikey_manager import (
-    APIKeyManager, SUPPORTED_PROVIDERS, TTL_OPTIONS, get_apikey_manager
-)
-from app.services.provider_health import get_health_checker
-from app.api.v1.auth import verify_token
 import csv
 import io
 import json
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
+from redis.exceptions import RedisError
+
+from app.api.v1.auth import verify_token
+from app.services.apikey_manager import SUPPORTED_PROVIDERS, TTL_OPTIONS, APIKeyManager, get_apikey_manager
+from app.services.provider_health import get_health_checker
+from app.utils.crypto import get_rsa_key_manager
+from app.utils.rate_limiter import limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/agent/apikey", tags=["API Key 管理"])
+
+
+# Redis 不可用时统一返回 503：调用方按“稍后重试”处理，避免把存储故障
+# 误判成业务失败（403/500）而让用户以为 Key 本身有问题。
+_STORAGE_UNAVAILABLE_DETAIL = {
+    "code": "storage_unavailable",
+    "message": "Key 存储服务暂不可用，请稍后重试",
+}
+
+
+def _storage_unavailable(action: str, exc: Exception) -> HTTPException:
+    """把 Redis/网络故障统一映射为 503。"""
+    logger.error(
+        f"{action}失败：存储不可用 | {type(exc).__name__}: {exc}"
+    )
+    return HTTPException(
+        status_code=503,
+        detail=dict(_STORAGE_UNAVAILABLE_DETAIL),
+        headers={"Retry-After": "5"},
+    )
 
 
 # --- 供应商 Base URL 映射 ---
@@ -180,7 +199,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         raise HTTPException(status_code=400, detail=f"不支持的供应商：{submit_request.provider}")
     
     # 验证 TTL - 支持预设选项或自定义秒数
-    from app.services.apikey_manager import resolve_ttl, MAX_CUSTOM_TTL
+    from app.services.apikey_manager import MAX_CUSTOM_TTL, resolve_ttl
     try:
         resolve_ttl(submit_request.ttl)
     except ValueError as e:
@@ -226,8 +245,11 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         logger.warning(f"提交 Key 参数错误：{e}")
         raise HTTPException(status_code=400, detail="API Key 参数无效")
     except RuntimeError as e:
+        # 仅剩配额超限这类业务错误，存储故障已被下面的 Redis/OSError 分支拦截
         logger.warning(f"提交 Key 运行错误：{e}")
-        raise HTTPException(status_code=403, detail="Key 存储失败")
+        raise HTTPException(status_code=403, detail=str(e) or "Key 数量已达上限")
+    except (RedisError, OSError) as e:
+        raise _storage_unavailable("提交 Key", e)
     except Exception as e:
         logger.error(f"提交 Key 失败：{e}")
         raise HTTPException(status_code=500, detail="提交 Key 失败")
@@ -269,6 +291,8 @@ async def test_key(request: Request, test_request: TestKeyRequest, user_id: str 
         return TestKeyResponse(success=success, message=message)
     except HTTPException:
         raise
+    except RedisError as e:
+        raise _storage_unavailable("测试 Key", e)
     except Exception as e:
         logger.error(f"测试 Key 失败：{e}")
         raise HTTPException(status_code=500, detail="测试 Key 失败")
@@ -289,6 +313,8 @@ async def delete_key(request: Request, token: str, user_id: str = Depends(get_cu
         return {"message": "Key 已清除"}
     except HTTPException:
         raise
+    except (RedisError, OSError) as e:
+        raise _storage_unavailable("删除 Key", e)
     except Exception as e:
         logger.error(f"删除 Key 失败：{e}")
         raise HTTPException(status_code=500, detail="删除 Key 失败")
@@ -316,6 +342,8 @@ async def list_keys(request: Request, user_id: str = Depends(get_current_user_id
             )
             for k in keys
         ]
+    except (RedisError, OSError) as e:
+        raise _storage_unavailable("获取 Key 列表", e)
     except Exception as e:
         logger.error(f"获取 Key 列表失败：{e}")
         raise HTTPException(status_code=500, detail="获取 Key 列表失败")
@@ -336,6 +364,8 @@ async def update_enabled(request: Request, token: str, enabled: bool = True, use
         return {"message": f"Key 已{'启用' if enabled else '禁用'}"}
     except HTTPException:
         raise
+    except (RedisError, OSError) as e:
+        raise _storage_unavailable("更新 Key 状态", e)
     except Exception as e:
         logger.error(f"更新 Key 状态失败：{e}")
         raise HTTPException(status_code=500, detail="更新 Key 状态失败")

@@ -11,12 +11,12 @@ PPT 视觉分析器
 4. 融合两层信息返回分析结果
 """
 
+import base64
 import json
 import logging
-import base64
-from pathlib import Path
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from app.agent.models import DEFAULT_VISUAL_MODEL
 from app.utils.pptx.slide_renderer import SlideRenderer, get_slide_metadata
@@ -155,15 +155,16 @@ class PPTVisualAnalyzer:
             视觉描述
         """
         try:
-            from app.utils.vision import _call_vision_model
             from httpx import Timeout
+
+            from app.utils.vision import _call_vision_model
 
             # 转为 base64
             image_base64 = base64.b64encode(image_bytes).decode('utf-8')
             image_data_uri = f"data:image/png;base64,{image_base64}"
 
             # 构建提示词
-            prompt = f"""请分析这张 PPT 幻灯片预览图的布局和样式。
+            prompt = """请分析这张 PPT 幻灯片预览图的布局和样式。
 
 要求：
 1. 描述整体布局类型（如：标题页、内容页、左文右图、居中布局等）

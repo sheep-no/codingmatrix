@@ -1,9 +1,8 @@
+from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.models.base import Base
-from sqlalchemy.sql import func
-from sqlalchemy import Column, String, Integer, DateTime
-
 from app.models.saved_project import SavedProject
 
 

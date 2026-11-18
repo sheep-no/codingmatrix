@@ -5,11 +5,11 @@ python-pptx 不直接支持动画 API，本模块通过操作底层 Open XML 标
 """
 
 import logging
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
-from lxml import etree
+from enum import Enum
+from typing import Dict, List, Optional
 
+from lxml import etree
 
 logger = logging.getLogger(__name__)
 

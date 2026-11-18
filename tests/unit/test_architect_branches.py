@@ -607,6 +607,20 @@ class TestModuleHelpers:
             "只有在用户登录后才可以上传文件"
         ) is None
 
+    def test_strict_paths_ignore_internal_pipeline_banner(self):
+        # 管线横幅中的 "edit only contracted files" 不能把普通需求误判成
+        # 显式文件集合；否则架构师会丢弃依赖文件，静态校验必然失败。
+        requirement = (
+            "[Pipeline Mode]\n"
+            "engine=core incremental=false tools=explore skills_injected=false\n"
+            "If tools=frozen, do not call list_files or read_file; "
+            "edit only contracted files.\n"
+            "If tools=explore, inspect existing files before writing.\n\n"
+            "创建一个简单的 Python FastAPI 待办事项 API，包含 main.py 入口文件，"
+            "有增删改查接口和一个简单的 index.html 前端页面"
+        )
+        assert Architect._extract_strict_file_paths(requirement) is None
+
     def test_prefer_most_specific_paths_strips_dot_slash(self):
         assert Architect._prefer_most_specific_paths({"./src/App.vue", "App.vue"}) == {
             "src/App.vue"

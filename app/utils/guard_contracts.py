@@ -12,12 +12,12 @@
     violations = check_file_against_contracts(file_path, changes)
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional
-from pathlib import Path
 import ast
-import re
 import logging
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

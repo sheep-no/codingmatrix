@@ -12,9 +12,9 @@ import asyncio
 import logging
 import signal
 import threading
-from enum import Enum
-from typing import Optional, Callable, List
 from datetime import datetime
+from enum import Enum
+from typing import Callable, List, Optional
 
 from app.core.time import utcnow_naive
 

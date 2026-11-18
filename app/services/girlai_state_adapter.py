@@ -24,9 +24,8 @@ from app.services.state_migration_service import (
     resolve_compatibility_mapping,
     upsert_compatibility_mapping,
 )
-from app.services.task_state_service import create_task
 from app.services.task_checkpoint_service import save_checkpoint
-
+from app.services.task_state_service import create_task
 
 MODULE = "girlai"
 SESSION_TYPE = "girlai_history"

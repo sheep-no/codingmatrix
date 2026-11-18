@@ -2,8 +2,9 @@ import asyncio
 import json
 import re
 from datetime import datetime
-from typing import Optional, Dict, Any, AsyncGenerator
 from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, Optional
+
 import aiofiles
 from sqlalchemy.exc import SQLAlchemyError
 

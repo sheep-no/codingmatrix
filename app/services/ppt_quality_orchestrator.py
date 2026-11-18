@@ -60,6 +60,7 @@ async def review_rendered_deck(pptx_path, slides, report, api_key_token, user_id
     import base64
     import json
     import subprocess
+
     from app.api.v1.aiGeneratorPptx import _content_slides_for_total
 
     pdf_path = pptx_path.with_suffix(".pdf")
@@ -85,9 +86,10 @@ async def review_rendered_deck(pptx_path, slides, report, api_key_token, user_id
         )
         if not rendered.stdout.startswith(b"\x89PNG"):
             raise RuntimeError("页面渲染失败")
+        from httpx import Timeout
+
         from app.agent.models import DEFAULT_VISUAL_MODEL
         from app.utils.vision import _call_vision_model
-        from httpx import Timeout
 
         response = await _call_vision_model(
             image_base64="data:image/png;base64," + base64.b64encode(rendered.stdout).decode("ascii"),

@@ -15,16 +15,18 @@
     # 方案 A：搜索并生成页面摘要
     results = await search.search_with_summaries("FastAPI 教程", count=3)
 """
-import logging
 import asyncio
-import os
 import base64
+import logging
+import os
+import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-from urllib.parse import quote, urlparse, urljoin, unquote, parse_qs
+from typing import Dict, List, Optional
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
+
 import httpx
 from bs4 import BeautifulSoup
-import re
+
 from app.agent.models import DEFAULT_REASONING_MODEL
 from app.utils.url_safety import check_outbound_url
 

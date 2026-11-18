@@ -6,6 +6,7 @@ import '../application/auth_controller.dart';
 import '../application/workbench_controller.dart';
 import '../infrastructure/agent/agent_session_client.dart';
 import 'account_overlays.dart';
+import 'agent_stats_dialog.dart';
 import 'dialog_controllers.dart';
 import 'project_files_page.dart';
 import 'shell_scaffold.dart';
@@ -57,17 +58,11 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
       if (!mounted || epoch != _epoch) return;
       showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Agent 统计'),
-          content: SingleChildScrollView(
-            child: Text(results.map((item) => '$item').join('\n\n')),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
-          ],
+        builder: (_) => AgentStatsDialog(
+          usage: results[0],
+          cache: results[1],
+          learning: results[2],
+          limits: results[3],
         ),
       );
     });
@@ -103,58 +98,22 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
   });
 
   Future<void> updateLimit() => run('更新失败', () async {
-    final roleController = TextEditingController(text: 'default');
-    final limitController = TextEditingController(text: '1');
-    final accepted = await showDialog<bool>(
+    final epoch = _epoch;
+    final api = ref.read(authenticatedClientProvider);
+    final updated = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('调整并发限制'),
-        content: DialogControllers(
-          controllers: [roleController, limitController],
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: roleController,
-                  decoration: const InputDecoration(labelText: '角色'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: limitController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '限制值'),
-                ),
-              ],
-            ),
-          ),
+      builder: (_) => _ConcurrentLimitDialog(
+        onSave: (role, limit) => api.requestJson(
+          '/api/v1/agent/concurrent-limits'
+          '?role=${Uri.encodeQueryComponent(role)}&new_limit=$limit',
+          method: 'PUT',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
-    final role = roleController.text.trim();
-    final limit = int.tryParse(limitController.text.trim());
-    if (accepted != true || role.isEmpty || limit == null || !mounted) return;
-    final epoch = _epoch;
-    await ref
-        .read(authenticatedClientProvider)
-        .requestJson(
-          '/api/v1/agent/concurrent-limits?role=${Uri.encodeQueryComponent(role)}&new_limit=$limit',
-          method: 'PUT',
-        );
-    if (mounted && epoch == _epoch)
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('并发限制已更新')));
+    if (updated != true || !mounted || epoch != _epoch) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('并发限制已更新')));
   });
 
   @override
@@ -489,6 +448,107 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
               ],
             ),
           ),
+    );
+  }
+}
+
+/// 并发限制弹窗：本地校验正整数，失败时保留弹窗和输入。
+class _ConcurrentLimitDialog extends StatefulWidget {
+  const _ConcurrentLimitDialog({required this.onSave});
+
+  final Future<Object?> Function(String role, int limit) onSave;
+
+  @override
+  State<_ConcurrentLimitDialog> createState() => _ConcurrentLimitDialogState();
+}
+
+class _ConcurrentLimitDialogState extends State<_ConcurrentLimitDialog> {
+  final role = TextEditingController(text: 'default');
+  final limit = TextEditingController(text: '1');
+  String? roleError;
+  String? limitError;
+  String? error;
+  String? hint;
+  bool busy = false;
+
+  @override
+  void dispose() {
+    role.dispose();
+    limit.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    if (busy) return;
+    final roleValue = role.text.trim();
+    final limitValue = int.tryParse(limit.text.trim());
+    setState(() {
+      roleError = roleValue.isEmpty ? '请输入角色' : null;
+      limitError = limitValue == null || limitValue < 1 ? '限制值必须为正整数' : null;
+      error = null;
+      hint = null;
+    });
+    if (roleError != null || limitError != null) return;
+
+    setState(() => busy = true);
+    try {
+      await widget.onSave(roleValue, limitValue!);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        busy = false;
+        error = '更新失败';
+        hint = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('调整并发限制'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: role,
+              enabled: !busy,
+              decoration: InputDecoration(
+                labelText: '角色',
+                errorText: roleError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: limit,
+              enabled: !busy,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '限制值',
+                errorText: limitError,
+              ),
+            ),
+            if (error != null) DialogErrorNotice(message: error!, detail: hint),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: busy ? null : save,
+          child: Text(busy ? '保存中…' : '保存'),
+        ),
+      ],
     );
   }
 }

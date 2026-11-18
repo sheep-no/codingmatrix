@@ -1854,8 +1854,20 @@ onMounted(() => {
     padding: 1rem;
   }
 
+  .header-content {
+    gap: 0.75rem;
+  }
+
+  .header-left {
+    min-width: 0;
+  }
+
   .header-title {
     font-size: 1.25rem;
+  }
+
+  .header-subtitle {
+    font-size: 0.75rem;
   }
 
   .stats-grid {
@@ -1864,6 +1876,17 @@ onMounted(() => {
 
   .admin-content {
     padding: 1rem;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .tab-btn {
+    flex: 0 0 auto;
+    padding: 0.75rem 1rem;
+    white-space: nowrap;
   }
 
   .panel-body {

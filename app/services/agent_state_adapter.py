@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.state.models import State
 from app.models.unified_state import Session
+from app.services.artifact_service import create_artifact
 from app.services.session_state_service import create_session
 from app.services.state_migration_service import (
     resolve_compatibility_mapping,
@@ -14,8 +15,6 @@ from app.services.state_migration_service import (
 from app.services.task_checkpoint_service import save_checkpoint
 from app.services.task_event_service import append_task_event
 from app.services.task_state_service import create_task
-from app.services.artifact_service import create_artifact
-
 
 MODULE = "agent"
 _ARTIFACT_VERSION_STRIDE = 100_000

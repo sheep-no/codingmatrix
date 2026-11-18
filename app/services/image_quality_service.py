@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, TypeVar
 
 from PIL import Image, UnidentifiedImageError
-
 
 _GenerationResult = TypeVar("_GenerationResult")
 

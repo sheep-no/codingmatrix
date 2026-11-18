@@ -3,12 +3,12 @@ PPT 模板管理器 - 注册、加载、推荐模板
 """
 import json
 import logging
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from app.utils.pptx.templates.base import TemplateBase, TemplateConfig, TemplateCategory
 from app.utils.pptx.design_tokens import DesignTokens, resolve_design_tokens
 from app.utils.pptx.scenario import SCENARIO_PROFILES, ScenarioResult, classify_scenario
+from app.utils.pptx.templates.base import TemplateBase, TemplateCategory, TemplateConfig
 
 logger = logging.getLogger(__name__)
 
@@ -183,14 +183,14 @@ class TemplateManager:
         """注册内置模板"""
         try:
             from app.utils.pptx.templates.presets import (
-                BusinessReportTemplate,
                 AcademicPresetTemplate,
-                PitchDeckTemplate,
+                BusinessReportTemplate,
                 EducationTemplate,
                 ElegantTemplate,
                 MedicalTemplate,
                 MinimalTemplate,
                 ModernTemplate,
+                PitchDeckTemplate,
                 TechTemplate,
             )
 

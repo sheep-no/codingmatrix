@@ -4,7 +4,8 @@
 管理功能模块的启用/禁用状态
 """
 import logging
-from typing import Optional, Dict
+from typing import Dict, Optional
+
 from app.services.resource_config import resource_config_service
 
 logger = logging.getLogger(__name__)

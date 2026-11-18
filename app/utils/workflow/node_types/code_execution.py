@@ -4,16 +4,16 @@ Code Execution Node - 代码执行节点
 在当前主机执行 Python/JS 代码
 """
 
-import logging
 import asyncio
+import logging
+import os
 import signal
 import tempfile
-import os
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from app.schema.workflow import TaskType
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

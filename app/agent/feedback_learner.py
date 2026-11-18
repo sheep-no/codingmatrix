@@ -8,6 +8,7 @@ FeedbackLearner - 模型反馈学习
 4. 错误模式匹配和预防（向量化匹配）
 """
 
+import html
 import json
 import logging
 import re
@@ -24,6 +25,16 @@ logger = logging.getLogger(__name__)
 LEARNING_DIR = Path(__file__).resolve().parents[2] / "data" / "learning_data"
 # 会话记录最大数量（超出时自动裁剪最旧的记录）
 MAX_SESSION_RECORDS = 1000
+# 错误信息来自解析器/模型输出，可能夹带 ``&#10;`` 等 HTML 实体和整段堆栈；
+# 落库与返回前统一折叠空白并限长，避免学习数据膨胀和前端渲染错乱。
+ERROR_MESSAGE_LIMIT = 200
+
+
+def _sanitize_error_message(error_msg: Any) -> str:
+    """还原 HTML 实体、折叠空白并截断错误信息。"""
+    text = html.unescape(str(error_msg or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:ERROR_MESSAGE_LIMIT]
 
 
 @dataclass
@@ -99,6 +110,7 @@ class FeedbackLearner:
             for error_msg in error_list:
                 pattern_key = self._normalize_error(error_msg)
                 pattern_key = f"{error_type}:{pattern_key}"
+                clean_error = _sanitize_error_message(error_msg)
 
                 if pattern_key in self._fix_patterns:
                     pattern = self._fix_patterns[pattern_key]
@@ -111,7 +123,7 @@ class FeedbackLearner:
                     else:
                         pattern.failed_count += 1
                         pattern.last_failed_at = datetime.now().isoformat()
-                        pattern.failure_reason = error_msg[:200]
+                        pattern.failure_reason = clean_error
                         pattern.success_rate = (
                             pattern.success_rate * (pattern.frequency - 1) + 0.0
                         ) / pattern.frequency
@@ -129,7 +141,7 @@ class FeedbackLearner:
 
                     self._fix_patterns[pattern_key] = FixPattern(
                         error_type=error_type,
-                        error_message=error_msg,
+                        error_message=clean_error,
                         error_pattern=self._build_error_regex(error_msg),
                         fix_description=fix_description,
                         fix_example=self._extract_code_diff(
@@ -141,7 +153,7 @@ class FeedbackLearner:
                         last_seen=datetime.now().isoformat(),
                         failed_count=0 if success else 1,
                         last_failed_at=None if success else datetime.now().isoformat(),
-                        failure_reason=None if success else error_msg[:200],
+                        failure_reason=None if success else clean_error,
                         error_embedding=embedding
                     )
 
@@ -251,7 +263,7 @@ class FeedbackLearner:
             if file_type in pattern.file_types or file_type == "unknown":
                 common.append({
                     "error_type": pattern.error_type,
-                    "error_message": pattern.error_message,
+                    "error_message": _sanitize_error_message(pattern.error_message),
                     "frequency": pattern.frequency,
                     "success_rate": pattern.success_rate,
                     "fix_description": pattern.fix_description

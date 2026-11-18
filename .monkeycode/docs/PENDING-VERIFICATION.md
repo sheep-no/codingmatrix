@@ -14,7 +14,7 @@
 
 2026-09-25 真实 VS Code 宿主内逐页验收：用 CDP（`--remote-debugging-port=9222` + Node 全局 WebSocket）连接扩展宿主里 webview 的内层内容 frame，逐 tab 触发刷新并读取 DOM。7/7 页均无横向溢出、无 console error，状态行分别为「会话历史已更新」「模型配置已更新」「性能指标已更新」「学习统计已更新」「缓存与并发配置已更新」，空会话 ID 时「文件版本」页为「请先填写会话 ID」。截图见 `/tmp/opencode/host_tabs_host3/`（`Page.captureScreenshot` 以 webview 元素矩形为 clip）。
 
-同轮修复两处 webview 显示缺陷并复验：学习页后端 `fix_description` 自带「修复」前缀，渲染后出现「修复：修复: …」，现剥离重复前缀；「文件版本」页提示语原称留空即用最近会话 ID，实际只在本次工作台完成生成后才自动填入，已改为与行为一致的文案。注意内联脚本位于模板字符串内，正则里的 `\s` 必须写成 `\\s`，否则会被折叠成字面 `s`（该缺陷先由新用例暴露）。回归用例 `test/workbench-log.test.mjs`「does not duplicate the fix prefix in learning stats」修前失败、修后通过；插件单测 99 → 100 passed / 0 fail。宿主内复验：学习页显示「修复：error1」；文件版本页填入 `llm-static-1790262394` 后状态为 `cloud request failed with status 404`（后端缺陷，见跨边界）；会话历史点「查看」加载出 `你：… / Agent：…`。截图见 `/tmp/opencode/host_tabs_host5/`。VSIX 已重新打包（54 files, 74.89 KB）。
+同轮修复两处 webview 显示缺陷并复验：学习页后端 `fix_description` 自带「修复」前缀，渲染后出现「修复：修复: …」，现剥离重复前缀；「文件版本」页提示语原称留空即用最近会话 ID，实际只在本次工作台完成生成后才自动填入，已改为与行为一致的文案。注意内联脚本位于模板字符串内，正则里的 `\s` 必须写成 `\\s`，否则会被折叠成字面 `s`（该缺陷先由新用例暴露）。回归用例 `test/workbench-log.test.mjs`「does not duplicate the fix prefix in learning stats」修前失败、修后通过；插件单测 99 → 100 passed / 0 fail。宿主内复验：学习页显示「修复：error1」；文件版本页填入 `llm-static-1790262394` 后状态为 `cloud request failed with status 404`（该 404 已由 2026-11-09 的 `_locate_snapshot_project_dir` 修复处理，见跨边界）；会话历史点「查看」加载出 `你：… / Agent：…`。截图见 `/tmp/opencode/host_tabs_host5/`。VSIX 已重新打包（54 files, 74.89 KB）。
 
 2026-09-25 修复对话页「连接本地 Agent Host」死控件：「连接本地 Agent Host」按钮 post `workbench_ready`，但宿主 `AgentWorkbenchController` 只处理 `workbench_prompt`、`workbench_control`、`workbench_request`，该消息自引入（`b92280c`）起无接收方，点击只改本地状态文案、不触发任何连接。现新增 `onReady` 回调并在 `extension.ts` 接到已有的 `codingmatrix.reconnectAgentSession`，按真实结果发布 `progress`（「本地 Agent Host 已连接」）或 `error`（未配置凭据时提示先配置 `apiUrl` 与 `accessToken`）。回归用例 `test/agent-workbench.test.mjs`「routes the workbench connect button to the ready handler」修前失败、修后通过；插件单测 100 → 101 passed / 0 fail。宿主内实点按钮后日志显示 `progress：本地 Agent Host 已连接`。截图见 `/tmp/opencode/host_tabs_host6/connect.png`。VSIX 已再次重新打包。
 
@@ -28,9 +28,9 @@
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| Flutter 全量测试 | 501 passed + 1 skipped（2026-11-14；skip 为需 `LIVE_BACKEND_URL` 的真实后端用例） | `flutter test --no-pub --concurrency=1` |
-| Flutter 真实后端认证链路 | 登录、鉴权头、Host 会话访问、本地登出清空全部通过（2026-11-14） | `LIVE_BACKEND_URL=http://127.0.0.1:8000 flutter test test/live_backend_auth_test.dart` |
-| Flutter 静态分析 | No issues found | `flutter analyze lib test` |
+| Flutter 全量测试 | 501 passed + 1 skipped（2026-11-15 在 `99df836a` 复跑；skip 为需 `LIVE_BACKEND_URL` 的真实后端用例） | `flutter test --no-pub --concurrency=1`，`FTEST_EXIT=0` |
+| Flutter 真实后端认证链路 | 登录、鉴权头、Host 会话访问、本地登出清空全部通过（2026-11-15 复跑，`+1` 无 skip） | `LIVE_BACKEND_URL=http://127.0.0.1:8000 flutter test test/live_backend_auth_test.dart`，`LIVE_EXIT=0` |
+| Flutter 静态分析 | No issues found（2026-11-15 复跑） | `flutter analyze lib test`，`ANALYZE_EXIT=0` |
 | Flutter 规模 | 71 个 `lib/**/*.dart` / 12,358 行、18 个页面、35 个测试文件 | `flutter_client/` |
 | 未使用依赖清理 | 移除零引用依赖 `cupertino_icons`、`json_annotation`、`build_runner`、`json_serializable`（仓库无 `*.g.dart`/`*.freezed.dart` 生成产物），`flutter pub get` 减少 33 个传递依赖；清理后 `flutter analyze lib test` 无问题、488 项测试全过、Linux debug 构建成功 | `flutter_client/pubspec.yaml`；`rg` 全仓引用计数为 0 |
 | 弹层控制器退场崩溃 | 已修并回归：管理员后台「创建用户」在提交失败（如后端 400）后关闭弹层会整屏红屏。根因是 `showDialog` 返回后立即 `dispose` 了 `TextEditingController`，退场动画期间 `TextField` 重建时 `addListener` 抛 `A TextEditingController was used after being disposed.`，级联为 `'_dependents.isEmpty': is not true.`。新增 `DialogControllers`（在子树的 `State.dispose()` 里释放，晚于退场动画），套用于 6 处弹层 | 回归测试 `test/admin_page_test.dart`「创建用户弹层随退场动画关闭时不释放仍在使用的控制器」；Linux 端实跑 400 场景不再红屏，显示「用户创建失败：请求失败（HTTP 400）…」，成功场景 `POST create_user` 200 且列表刷新 |
@@ -39,13 +39,13 @@
 | VS Code 插件构建 | tsc 退出 0 | `npm run build` |
 | VS Code 插件单测 | 126 passed / 0 fail（2026-11-14） | `npm test`（tsc + `node --test test/*.test.mjs`） |
 | VS Code 插件会话恢复路径 | 真实后端实测 401/404/410 三条路径均触发重握手，30 秒节流生效（2026-11-14） | `/tmp/opencode/live_client_e2e.mjs`、`live_410_check.mjs` 调用 `dist/connection.js`；404 为后端重启/会话清理后的真实返回 |
-| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现 | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`） |
-| VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing`：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
-| VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过 | `data/agent_host_sessions/` 中 `workspace_id=fixtures` 的会话记录终态为 `cancelled`；同目录另有一条更早运行的会话停留在 `active`，属运行残留（目录已忽略） |
+| VS Code 插件 e2e（扩展加载） | 退出 0：扩展激活、`package.json` 声明的 5 个命令全部在运行时注册、打开工作台后 webview 面板实际出现（2026-11-15 在当前提交复跑） | `xvfb-run -a node e2e/run.mjs`（`e2e/suite.mjs`，阶段标记 `[e2e] suite passed`） |
+| VS Code 插件 e2e（CLI 第二入口） | `Exit code: 0`，`2 passing (3s)`（2026-11-15 复跑）：扩展在真实 VS Code 工作区激活、工作台命令注册并可打开 | `node_modules/.bin/vscode-test`（读 `.vscode-test.mjs`，跑 `e2e/**/*.test.mjs`） |
+| VS Code 插件 e2e（后端会话生命周期） | 真实本地后端上 `active → paused → active → cancelled` 全部通过（2026-11-15 复跑：`[e2e] real backend checks passed`、`REAL_EXIT=0`） | `data/agent_host_sessions/dee0b0de-c973-4aed-9f5b-b06715490aa0.json` 中 `workspace_id=fixtures`、`control_status=cancelled`；后端日志 3 次 `POST /api/v1/agent/host/sessions/<id>/control` 对应 pause/resume/cancel |
 | VS Code 插件孤儿模块清理 | 删除生产代码零引用的 `src/compatibility.ts`（65 行）与 `src/status-view.ts`（177 行）及各自单测；两者只被自身测试 import，`compatibility` 的握手校验与生产实际逻辑（`agent-host.ts:204` 的 `protocol_version` 单值比对）不一致，且 `EXTENSION_VERSION` 与 `package.json` 版本重复。同时移除 e2e 里「自造对象自测」的假断言（它从未触及真实握手路径） | 单测 103 → 95；`rg` 全仓引用计数为 0；删后 tsc 退出 0、两套 e2e 仍通过 |
 | VS Code 插件重新打包 | `vsce package` 重建本地 vsix：包内 51 个 `dist/` 文件与当前源码 1:1，不再含已删模块（旧包为 9 月 7 日产物，`extension.js` 缺后续 52 行改动）。注意 tsc 不清理已删源码的 `dist/` 残留，打包前需手动清理 | `codingmatrix-local-validation-0.1.0.vsix`（54 files, 74.89 KB） |
 | VS Code 插件工作台事件解包 | 已修并回归：编排流混用两种封包。`PASSTHROUGH_SSE_EVENTS`（thinking、file、file_diff、step_detail、model_info、pipeline_mode 等）原样透传、字段在顶层，而 progress、done、error、critical_decisions 包在 `{type, data}`。webview 只读 `value.data`，透传帧因此全部丢载荷：thinking 退化成 `thinking：thinking`（`orchestrator_progress.py:282` 的 `message` 在顶层，实测单轮约 2000 行），progress 丢掉 `step`/`phase`/`percentage`。现按有无 `data` 解包、扩展文本回退链、过滤 heartbeat，并把消息列表上限设为 100 条（与 Flutter 客户端 `workbench_controller.dart:93,160` 一致） | 新增 `test/workbench-log.test.mjs` 3 项（自建最小 DOM 直接执行内联脚本，覆盖 heartbeat 过滤、thinking/progress/file/step_detail 解包、100 条上限）；单测 95 → 98；`xvfb-run -a node e2e/run.mjs` 仍退出 0 |
-| VS Code 插件接口契约核对 | 对真实本地后端逐个调用工作台 15 个请求：`history`、`conversation/history`、`models/agent-config`、`agent/token-usage`、`learning/stats`、`performance(+trends)`、`concurrent-limits/recommended`、`cache/stats`、`snapshots/{session}`。字段与插件解析层全部匹配（`connection.ts` 的 `optional*` 容错未触发静默回退）。唯一不可用的是「文件版本」tab，根因在后端 | 探测脚本 `/tmp/opencode/probe_workbench.py`；快照 404 详见「跨边界发现」 |
+| VS Code 插件接口契约核对 | 对真实本地后端逐个调用工作台 15 个请求：`history`、`conversation/history`、`models/agent-config`、`agent/token-usage`、`learning/stats`、`performance(+trends)`、`concurrent-limits/recommended`、`cache/stats`、`snapshots/{session}`。字段与插件解析层全部匹配（`connection.ts` 的 `optional*` 容错未触发静默回退）。「文件版本」tab 当时的快照 404 已由 2026-11-09 修复，回归覆盖 output_dir 优先与回退两条路径 | 探测脚本 `/tmp/opencode/probe_workbench.py`；`test_ai_agent_endpoint_blocking_io.py`、`test_ai_agent_endpoint_authz.py` |
 | Linux 桌面构建与运行 | `flutter build linux --debug` 成功；Xvfb 下窗口已映射 | 窗口标题 `CodingMatrix Agent`，WM_CLASS `com.codingmatrix.agent` |
 | Linux 端真实后端全流程 | 登录、会话恢复、13 个功能页渲染全部通过，客户端日志无异常 | 见下文「Linux 实跑记录」 |
 | 对话框窄屏 + 键盘溢出 | 新增复现测试 7 项全过；`创建用户` 44px、`编辑用户` 36px、`MCP 编辑` 52px 三处溢出已修 | `test/narrow_dialog_test.dart`；`admin_page.dart`、`agent_history_page.dart`、`mcp_admin_page.dart` 的 `content` 外包 `SingleChildScrollView` |
@@ -227,6 +227,11 @@ keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -
 | `tests/unit/test_llm_caller_branches.py::TestAdapterFactory::test_default_config_missing_raises` | **2026-11-14 已修**。用例依赖「未配置平台 Key」，但未替换模块级 `settings`；CI 的 `.env` 设了 `SILICONFLOW_API_KEY=test_key`，`get_adapter` 拿到真实配置而不抛 `RuntimeError`。现显式 `monkeypatch.setattr(llm_caller, "settings", ...)` |
 | `tests/unit/test_aicode_util_gaps.py::TestGetEmbeddingCachePaths` | **2026-11-14 已修**。两个过期缓存用例依赖「Key 为空」走 401，CI 配 Key 后会发起真实 embedding 请求产生偶发 `Event loop is closed`。现显式清空 `aicu.settings.SILICONFLOW_API_KEY`。反向验证：阻断 HTTP 客户端后回退版本报 `network blocked`，修复版本通过 |
 | `app/api/v1/ai_agent/orchestrate_endpoints.py:2024` | **2026-11-15 已修**。`LayeredModelRouter` 是 `DynamicModelRouter` 的类别名，`get_assignment` 为实例方法；端点以类名调用并传入 `complexity.level` 枚举，枚举被当作 `self`，方法体 `self._apply_circuit_breaker(...)` 抛 `AttributeError`，`POST /api/v1/agent/analyze_complexity` 稳定 500。现改为 `await get_dynamic_router()` 后用实例调用。回归 `test_analyze_project_complexity_uses_real_router`；反向验证回退后 2 例失败，恢复后通过；真实 HTTP `TestClient` 复测 200 |
+| `app/api/v1/apikey.py` | **2026-11-17 已修**。Redis 不可用时提交 Key 返回 403「Key 存储失败」，列表/删除/测试/启用返回 500，客户端误判为 Key 无效。现捕获 `RedisError`/`OSError` 统一返回 503，`detail.code=storage_unavailable` 并带 `Retry-After: 5`；`RuntimeError` 只保留配额超限。回归 `TestStorageUnavailable` 5 例；反向验证回退后 5 例失败 |
+| `app/utils/error_handler.py` | **2026-11-17 已修**。全局 HTTP 异常处理对字典 detail 用 `str()`，信封 `message` 变成 Python repr；`Retry-After` 只对 429 透传，503 的该头被丢弃。现字典 detail 的 `code`/`message` 平铺到信封顶层、其余键进 `details`，`Retry-After` 任意状态码有则透传、429 缺省回默认。回归 `tests/unit/test_error_handler_gaps.py` 6 例（含真实 `TestClient` 503 信封）；反向验证回退后 5 例失败 |
+| `app/main.py`（GZip） | **2026-11-17 已修**。`application/x-ndjson` 工作流事件流被 GZip 缓冲到流结束才可解码。现把该类型加入 Starlette 的 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 透传、普通 JSON 仍压缩。回归 `tests/unit/test_gzip_ndjson_streaming.py` 2 例；反向验证回退后 NDJSON 断言失败 |
+| `app/api/v1/ai_agent/orchestrate_endpoints.py`（并发限制） | **2026-11-17 已修**。`PUT /agent/concurrent-limits` 缺少上限校验。现以 `ConcurrentLimitManager.MAX_LIMIT=100` 为界，超限返回 400。回归 `test_concurrent_limit_endpoints` 增加超限断言；反向验证回退后 `DID NOT RAISE` |
+| `app/agent/feedback_learner.py` | **2026-11-17 已修**。`error_message` 原样落库/返回，含 `&#10;` 等 HTML 实体且可达 1658 字符。现 `_sanitize_error_message` 做实体还原、空白折叠与 200 字符截断，落库与 `get_common_errors` 输出均生效。回归 3 例；反向验证回退后 3 例失败 |
 
 ## 本地后端联调方法
 
@@ -257,3 +262,46 @@ CODINGMATRIX_E2E_ACCESS_TOKEN=<access_token> \
 判定 e2e 是否真的覆盖了后端链路：缺少上述两个环境变量时 `e2e/suite.mjs` 会直接 `return` 且仍以退出码 0 结束，此时只证明扩展能加载与注册命令。真实覆盖要看 `data/agent_host_sessions/` 是否新增 `workspace_id=fixtures` 记录、且 `control_status` 终态为 `cancelled`。
 
 agent host 会话存 JSON 文件（目录可用 `AGENT_HOST_SESSION_DIR` 覆盖，已被 `.gitignore` 忽略）加内存字典，不在 SQLite 中。
+
+自 2026-11-15 起 `e2e/suite.mjs` 会在各阶段打印 `[e2e]` 标记（`suite start` / `extension activated` / `N commands registered` / `workbench webview panel opened` / `real backend checks start|passed|skipped` / `suite passed`），运行脚本用 `; echo "REAL_EXIT=$?"` 保留真实退出码，避免 `| tail` 掩盖结果。
+
+## VS Code e2e 缓存与运行库（2026-11-15）
+
+`@vscode/test-electron` 的下载通道在本环境单连接被限速到约 50KB/s，390MB 需约 2 小时，且中途会因超时被杀而留下无 `is-complete` 的半成品目录。可用做法：对 CDN 直链（`https://vscode.download.prss.microsoft.com/dbazure/download/stable/<commit>/code-stable-x64-<ts>.tar.gz`，支持 Range）做 64 路并发分块下载，实测总带宽约 2.7MB/s；拼装后校验总字节数须等于 `Content-Length`，解压到 `.vscode-test/vscode-linux-x64-<version>/`（`--strip-components=1`），再在缓存根目录写空的 `is-complete` 标记，`@vscode/test-electron` 便直接复用。
+
+以 root 运行 Electron 需追加 `--no-sandbox`；`e2e/run.mjs` 已按 `process.getuid() === 0` 自动补充。系统运行库需含 `libasound2`、`libnss3`、`libatk-bridge2.0-0`、`libgtk-3-0`、`libgbm1`、`libxkbcommon0`、`libxdamage1`、`libxfixes3`、`libxrandr2`、`libpango-1.0-0`、`libcairo2`（Debian 12 上包名为 `libasound2`，无 `libasound2t64`），缺失时 `code` 报 `error while loading shared libraries: libasound.so.2` 并以 127 退出。
+
+## Android release 构建（2026-11-15）
+
+Linux 上可用 Flutter 3.47.9 + JDK 17 + command line tools 完成 `assembleRelease`，产物 `build/app/outputs/flutter-apk/app-release.apk`（23.4MB）。本机两个外部依赖不可达，必须改用镜像，否则 Gradle 在依赖解析阶段就失败：
+
+- `repo.maven.apache.org` 与 `storage.googleapis.com` 直连均返回 TLS 握手失败（status 000）。`build.gradle.kts` 的 `allprojects.repositories` 增加 `maven("https://maven.aliyun.com/repository/central")` 解决 `kotlin-parcelize-runtime` 等 Maven Central 坐标。
+- Flutter 引擎产物走 `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`（构建时环境变量，无需改仓库文件）。
+
+完整构建命令：
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+flutter build apk --release --no-pub --target-platform android-arm64
+```
+
+版本矩阵须不低于 Flutter 3.47.9 的下限：Gradle 8.14.3、AGP 8.11.1、Kotlin 2.2.20。`app/build.gradle.kts` 显式设置 `ndkVersion = flutter.ndkVersion`，避免 AGP 默认拉取 NDK r27 与本机已有的 r28 并存（双份 NDK 各约 2.2G，本机磁盘只有 20G）。`gradle.properties` 中 `android.builtInKotlin=false` 与 `android.newDsl=false` 由 Flutter migrator 自动写入。
+
+静态验收（`aapt2 dump badging` / `apksigner` / `unzip -l`）结果：
+
+- `package name='com.codingmatrix.agent'`，`versionCode=1`，`versionName=1.0.0`，`application-label='CodingMatrix Agent'`
+- `minSdkVersion=24`，`targetSdkVersion=36`，`compileSdkVersion=36`
+- `uses-permission: android.permission.INTERNET`；`allowBackup=false`；`usesCleartextTraffic=true`（与 manifest 中“后端是用户自建 HTTP 服务”的注释一致）
+- 签名 `apksigner verify` 通过，仅 v2 scheme，`CN=Android Debug`（无 `key.properties` 时回退 debug keystore，属预期）
+- `flutter_secure_storage` 已打包：`classes.dex` 含 `FlutterSecureStoragePlugin` 与 `SecureStorageAndroid`
+- 原生库：`lib/arm64-v8a/` 含 `libapp.so`、`libflutter.so`、`libdartjni.so`、`libdatastore_shared_counter.so`
+
+注意 `--target-platform android-arm64` 只裁剪 Flutter 引擎，插件自带的 `.so` 仍会打进其他 ABI 目录，因此 APK 里会同时出现 `armeabi-v7a`、`x86_64` 的 `libdartjni.so` 与 `libdatastore_shared_counter.so`，`aapt2` 的 `native-code` 也会列出三个 ABI。需要真正单 ABI 的瘦包时用 `--split-per-abi`。
+
+构建期磁盘是硬约束：根分区 20G，一次 release 构建会在 `build/app/intermediates/merged_native_libs`（约 500MB）、Gradle `caches/8.14.3/transforms`（约 1.4G）和引擎产物上占用约 3G，连续多次构建容易触顶。`transforms` 与 `build/` 均为可再生缓存，删除后重编即可；`platforms/android-34|35|36` 被插件分别用于 compileSdk 34/35/36，不可删。
+
+真机/模拟器运行验收在本环境不可行：无 `/dev/kvm`，CPU 无 `vmx`/`svm`，内存可用量不足，SDK 也未安装 system-image。Android 侧验证停在 release 构建 + 静态验收。

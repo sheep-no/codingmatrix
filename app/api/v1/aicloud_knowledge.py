@@ -16,25 +16,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 
-from app.db.database import get_db
 from app.core.config import BASE_DIR
-from app.utils.security import verify_token
-from app.utils.aicloud.permission import check_aicloud_permission
+from app.db.database import get_db
+from app.models.aicloud_knowledge import AicloudKnowledgeChunk, AicloudKnowledgeDoc
 from app.utils.aicloud.knowledge_processor import (
-    parse_document,
-    chunk_text,
-    embed_chunks,
-    search_similar_chunks,
-    compute_content_hash,
     DEFAULT_EMBEDDING_MODEL,
+    chunk_text,
+    compute_content_hash,
+    embed_chunks,
+    parse_document,
+    search_similar_chunks,
 )
+from app.utils.aicloud.permission import check_aicloud_permission
 from app.utils.AiCodeUtil import get_embedding
-from app.models.aicloud_knowledge import AicloudKnowledgeDoc, AicloudKnowledgeChunk
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/aicloud/knowledge", tags=["aicloud-knowledge"])

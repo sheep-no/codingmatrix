@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import tomllib
 import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
-import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.adapters import LanguageAdapterRegistry

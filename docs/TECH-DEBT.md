@@ -43,7 +43,7 @@
 | P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 已解决；`Dockerfile` `HEALTHCHECK` 与两个 compose 的 `healthcheck` 均指向 `/api/v1/health`，与应用挂载路径一致。补 1 项编排守卫 |
 | P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 已解决；两处端点统一读 `app.core.version.APP_VERSION` |
 | P2 | StateGraph 生产入口仍以单节点 legacy wrapper 为主 | `app/agent/state/`、`app/agent/workflow_registry.py` | 仍在 |
-| P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 仍在 |
+| P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 已解决；legacy 默认链在 `compact_project_context_for_file` 中调用 `local_context.retrieve_local_chunks`，按目标文件对架构、契约、Profile 与文件计划排序取 4 段（总 1600 字符）注入提示；core 适配器继续走 `RetrievalService` + `ContextAssembler` 信封。回归 `test_local_retrieval_context.py` 5 例 |
 | P2 | 跨工作台续跑与多 worker 恢复缺独立验收 | `app/api/v1/agent_host.py`、`app/agent/state/` | 仍在 |
 | P3 | 无时区时间调用在模型、状态、PPT 和 Skill 模块仍有残留 | `app/models/`、`app/services/` | 已解决（非 Agent 范围）；非 Agent 子系统 62 处全部迁移到 `utcnow_naive()` / `datetime.now(timezone.utc)`，剩余调用均在 Agent 子系统（`agent_memory_service`、`skill_registry`、`unified_state_service`、`state_migration_service` 等），按归属裁定不在本轮范围 |
 | P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
@@ -794,6 +794,58 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 回归新增 `test_analyze_project_complexity_uses_real_router`：不替换路由器，直接走真实 `DynamicModelRouter`，断言返回五个角色模型均非空。反向验证：回退源码后该用例与改造后的 `test_analyze_project_complexity_delegates` 均失败，恢复后 2 passed。真实 HTTP 用 `TestClient` + 超管 token 复测 `status_code=200`，返回 `level=medium`、五角色模型齐全。
 
 全量回归：`14671 passed, 2 skipped, 0 failed`（662.60s），`TOTAL 63659 stmts / 0 miss / 20412 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_r46.json`。
+
+### 后端缺陷扫描第四十二轮：客户端交回四项后端问题（2026-11-17）
+
+客户端联调交回四项后端缺陷：Redis 故障被误报为业务失败、NDJSON 流被 GZip 缓冲、并发限制缺少上限、学习数据错误信息未归一化。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P0 | Redis 不可用时 API Key 端点把存储故障混进通用异常：提交返回 403「Key 存储失败」，列表/删除/测试/启用返回 500。客户端据此提示 Key 本身有问题，用户会反复重试甚至删除有效 Key | `app/api/v1/apikey.py` | 已解决；新增 `RedisError`/`OSError` 分支，统一返回 503，`detail.code=storage_unavailable` 并带 `Retry-After: 5`；`RuntimeError` 仅保留配额超限并回显真实原因。回归 `TestStorageUnavailable` 5 例 |
+| P0 | 工作流事件流 `application/x-ndjson` 被 `GZipMiddleware` 压缩。Starlette 默认只排除 `text/event-stream`，gzip 会把小分片缓冲到流结束才可解码，前端在整个流期间拿不到任何事件 | `app/main.py`、`app/api/v1/workflow.py` | 已解决；把 `application/x-ndjson` 加入 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 走透传，普通 JSON 仍压缩。回归 `tests/unit/test_gzip_ndjson_streaming.py` 2 例 |
+| P1 | `PUT /agent/concurrent-limits` 只校验 `new_limit >= 1`，管理员可把单个角色的并发限制调到任意大，直接压垮进程 | `app/api/v1/ai_agent/orchestrate_endpoints.py` | 已解决；`ConcurrentLimitManager.MAX_LIMIT = 100`（与 `max_active_sessions`、`max_concurrent_requests` 默认值对齐），超限返回 400 |
+| P1 | `FixPattern.error_message` 直接落库解析器/模型原始输出，含 `&#10;` 等 HTML 实体且实测可达 1658 字符；`get_common_errors` 原样返回给前端 | `app/agent/feedback_learner.py` | 已解决；新增 `_sanitize_error_message`（`html.unescape` + 空白折叠 + 200 字符截断），在落库与 `get_common_errors` 输出两处生效，`failure_reason` 同步归一化 |
+
+反向验证：逐项回退源码后对应用例失败（B1 5 例、B2 1 例、B3 1 例、B4 3 例），恢复后全部通过。
+
+全量回归：`14681 passed, 2 skipped, 0 failed`（583.91s），`TOTAL 63686 stmts / 0 miss / 20414 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b_full.json`。
+
+### 后端缺陷扫描第四十三轮：B1 全局异常处理的信封与头部遗留（2026-11-17）
+
+第四十二轮把 apikey 存储故障映射为 503 后，客户端联调又暴露全局异常处理的两处遗留：字典 detail 被 `str()` 成 Python repr，503 的 `Retry-After` 被丢弃。
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 字典 detail 使响应 `message` 变成 `{'code': 'storage_unavailable', ...}` 的 Python repr，客户端已按 #461 做兼容解析，但信封本身仍是错误格式 | `app/utils/error_handler.py` 的 `http_exception_handler` | 已解决；字典 detail 的 `code`/`message` 平铺到信封顶层，其余键并入 `details`，非 str/dict detail 回退状态码映射 |
+| P1 | `Retry-After` 只在 429 分支处理，B1 的 503 虽显式带了 `Retry-After: 5` 仍被丢弃，客户端无法获知重试窗口 | 同上 | 已解决；任意状态码带该头即透传（大小写均认），仅 429 缺省时回退 `DEFAULT_RETRY_AFTER_SECONDS` |
+
+回归：`tests/unit/test_error_handler_gaps.py` 新增字典 detail（有/无 message）、非 str/dict detail、503 大小写头部、真实 `TestClient` 503 信封共 6 例。反向验证：回退 `code` 平铺后 2 例失败，回退整套修复后 5 例失败，恢复后全部通过。
+
+全量回归：`14686 passed, 2 skipped, 0 failed`（621.25s），`TOTAL 63699 stmts / 0 miss / 20422 branches / 0 partial`，覆盖率保持 **100.00%**，JSON 存 `/tmp/opencode/cov_b1_extra_full.json`。
+
+### 纵深闭合：产物门禁、检索主链与质量阈值（2026-11-17）
+
+针对四项“功能广度足够、纵深未闭合”的残留，本轮补齐可测试的硬约束。
+
+| 优先级 | 缺口 | 实际位置 | 处理 |
+|---|---|---|---|
+| P1 | 需求明确点名的根级文件缺失时仍返回 `success=true`（实测：要求根级 `index.html` 与 `README.md`，产物落在 `src/` 且无 README） | `app/agent/orchestrator_generation/coverage_checker.py`、`traditional_generate.py`、`spec_first_generate.py` | 已解决；新增 `extract_required_artifacts`/`check_required_artifacts`，仅在句内出现创建动词时生效，根级限定要求精确匹配根路径；缺失时写入 `errors` 并令 `success=false`，结果新增 `required_artifacts`。回归 6 例（纯函数 4 + 两条生成链各 1） |
+| P2 | 统一检索只接在 core 适配器，legacy 默认链未消费 | `app/agent/retrieval/local_context.py`、`app/agent/utils.py` | 已解决；新增确定性本地检索源，按目标文件排序架构/契约/Profile/文件计划，注入 `retrieved_context`，总预算 1600 字符并保留来源。已有信封检索时不再重复注入。回归 5 例 |
+| P2 | 覆盖率门槛 58% 远低于实测 100%，ruff 装了但未进门禁 | `pyproject.toml`、`.github/workflows/ci.yml` | 已解决；`fail_under` 提到 95，新增 `[tool.ruff]`（py311、120 列）与 pyflakes 规则（暂忽略存量 F401/F403/F405、F541 已清零），CI 增加 `ruff check app` |
+| P3 | 文件版本 tab 的 404 在文档中仍被当作未修复 | `.monkeycode/docs/PENDING-VERIFICATION.md` | 已澄清；该 404 由 2026-11-09 的 `_locate_snapshot_project_dir` 修复，`output_dir` 优先与回退两条路径均有回归 |
+
+仍未闭合：StateGraph 生产入口保持单节点 wrapper（迁移边界，非缺陷）、Flutter 本地验证未接入 `required_validation_scopes`（缺少跨平台命令执行器）、跨工作台多 worker 续跑缺独立验收。
+
+验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 14723 passed / 2 skipped，覆盖 99.99%（`/tmp/opencode/cov_hardening_full2.json`）；未覆盖的 7 行集中在工作流分解心跳与用户默认 Key 两条时序分支，本轮改动文件均为 100%。`ruff check app`、`mypy` 全绿。
+
+### 运行时加固与门禁第二阶段（2026-11-18）
+
+- 用户 Key 与缓存 Redis 隔离：`docker-compose.prod.yml` 新增 `redis-apikeys`（`--maxmemory-policy noeviction`、AOF、独立卷），api/celery/scheduler 统一注入 `APIKEY_REDIS_URL`。`APIKeyManager` 支持旧共享实例只读回退：首次读取时按剩余 TTL 回填新实例，索引、元数据、反向索引、全量恢复扫描均覆盖旧库，删除会同时清理两边，避免迁移期 Key “消失”或被删后复活。未配置专用地址时继续沿用 `REDIS_URL`，本地开发零改动。
+- 类型与 import 门禁：ruff 规则扩到 `E9,F,I` 并修复 250 处 import 顺序；`mypy` 以 `follow_imports=skip` 只检查新增检索、产物门禁与健康模块，CI 增加 `mypy` 步骤，存量代码按领域逐步纳入。
+- 部署可观测性：`/health` 新增 `commit`，取自 `GIT_COMMIT`；生产 compose 默认注入 `unknown`，部署脚本应导出实际 sha。`APP_VERSION` 仍由 `app/core/version.py` 单一维护。
+- 文档基线：`docs/README.md` 刷新为 474 个后端文件 / 143,984 行、35 张表、752 个单元测试文件 / 7,014 个定义、75 个 Dart 文件 / 13,498 行，消除约 22% 的规模偏差。
+
+E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩溃（单轮失败概率约 0.7），在基础设施修复前改为阻塞会制造随机红灯；当前继续出报告并人工跟踪。
 
 ### 本轮逐文件验证（2026-09-27）
 

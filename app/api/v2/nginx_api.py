@@ -13,28 +13,31 @@ Nginx 配置管理 API - 增强版（性能优化）
 - TTL: 300 秒 (5 分钟)
 """
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import re
-import json
-import hashlib
 import shutil
-import tempfile
 import subprocess
-from pathlib import Path
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, StreamingResponse
 
-from app.api.v2.guardian_router import require_admin, require_superadmin
-from app.utils.cache import get_cache
-from app.schema.nginxConf import (
-    NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
-    NginxDeployRequest, NginxDeployResponse
-)
 from app.agent.models import DEFAULT_CODE_MODEL
+from app.api.v2.guardian_router import require_admin, require_superadmin
+from app.schema.nginxConf import (
+    NginxCheck,
+    NginxDeployRequest,
+    NginxDeployResponse,
+    NginxGenerateRequest,
+    NginxGenerateResponse,
+)
+from app.utils.cache import get_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nginx", tags=["Nginx 配置管理"])
@@ -232,7 +235,7 @@ async def check_nginx(
             stream=True,
         )
         
-        logger.info(f"返回 AI 流式响应分析配置错误")
+        logger.info("返回 AI 流式响应分析配置错误")
         
         return StreamingResponse(
             stream_gen,
@@ -247,7 +250,7 @@ async def check_nginx(
         raise HTTPException(status_code=500, detail="Nginx 检查超时")
         
     except FileNotFoundError:
-        logger.error(f"nginx 命令未找到 | 请确保 nginx 已安装并在 PATH 中")
+        logger.error("nginx 命令未找到 | 请确保 nginx 已安装并在 PATH 中")
         raise HTTPException(status_code=500, detail="nginx 命令未安装或不在 PATH 中")
         
     except Exception as e:
@@ -362,7 +365,7 @@ async def deploy_nginx(
         logger.info(f"配置已写入 | path={config_path}")
         
         # 4. 测试配置（阻塞调用放进线程，避免卡住事件循环）
-        logger.info(f"测试 Nginx 配置")
+        logger.info("测试 Nginx 配置")
         result = await asyncio.to_thread(
             subprocess.run,
             ["nginx", "-t", "-c", f"{req.nginx_path}/nginx.conf"],
@@ -389,7 +392,7 @@ async def deploy_nginx(
             )
         
         # 5. 重载 Nginx（阻塞调用放进线程，避免卡住事件循环）
-        logger.info(f"重载 Nginx")
+        logger.info("重载 Nginx")
         reload_result = await asyncio.to_thread(
             subprocess.run,
             ["nginx", "-s", "reload"],
@@ -419,7 +422,7 @@ async def deploy_nginx(
         raise
 
     except subprocess.TimeoutExpired:
-        logger.error(f"Nginx 操作超时")
+        logger.error("Nginx 操作超时")
         if backup_path:
             shutil.copy2(backup_path, config_path)
         raise HTTPException(status_code=500, detail="Nginx 操作超时")

@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
+import time
 import unicodedata
-import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-import time
 from typing import Any, TypeVar
-
 
 _GenerationResult = TypeVar("_GenerationResult")
 _flight_lock: asyncio.Lock | None = None

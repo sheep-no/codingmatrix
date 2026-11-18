@@ -7,10 +7,10 @@ import asyncio
 import logging
 import threading
 import time
-from enum import Enum
-from typing import Callable, Optional, Any
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import wraps
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 

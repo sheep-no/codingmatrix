@@ -8,6 +8,7 @@ import pytest
 from app.api.v1.ai_agent import helpers, orchestrate_endpoints
 from app.db.models import ProjectSession
 from app.db.session_recovery import INTERRUPTED_SESSION_MESSAGE, reconcile_interrupted_sessions
+from app.models.unified_state import Session as UnifiedSession
 
 
 def _db_returning(sessions):
@@ -44,6 +45,35 @@ async def test_reconcile_interrupted_sessions_noop_when_none_running():
 
     assert await reconcile_interrupted_sessions(db) == 0
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_marks_stale_unified_agent_sessions_failed(
+    test_db, test_user
+):
+    agent_session = UnifiedSession(
+        id="unified-agent",
+        user_id=test_user.id,
+        module="agent",
+        external_id="orphan",
+        status="active",
+    )
+    aicloud_session = UnifiedSession(
+        id="unified-aicloud",
+        user_id=test_user.id,
+        module="aicloud",
+        external_id="chat",
+        status="active",
+    )
+    test_db.add_all([agent_session, aicloud_session])
+    await test_db.commit()
+
+    assert await reconcile_interrupted_sessions(test_db) == 0
+
+    await test_db.refresh(agent_session)
+    await test_db.refresh(aicloud_session)
+    assert agent_session.status == "failed"
+    assert aicloud_session.status == "active"
 
 
 @pytest.mark.asyncio

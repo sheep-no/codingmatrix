@@ -8,9 +8,9 @@ SystemConfigManager - 系统配置管理器
 import json
 import logging
 import threading
-from pathlib import Path
-from typing import Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from app.core.config import BASE_DIR
 
@@ -126,9 +126,10 @@ class SystemConfigManager:
     async def get_active_sessions_for_user(self, user_id: str) -> list:
         """获取用户的活跃会话列表（查询 DB 中 status=running 的会话）"""
         try:
+            from sqlalchemy import select
+
             from app.db.database import async_session
             from app.db.models import ProjectSession
-            from sqlalchemy import select
 
             async with async_session() as db:
                 result = await db.execute(

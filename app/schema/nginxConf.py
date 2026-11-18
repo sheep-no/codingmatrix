@@ -1,8 +1,9 @@
 """
 Nginx 配置管理 Schema
 """
+from typing import List, Optional
+
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
 
 
 class NginxConf(BaseModel):

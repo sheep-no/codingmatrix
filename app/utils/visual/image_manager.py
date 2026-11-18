@@ -9,16 +9,17 @@
 """
 import asyncio
 import hashlib
+import io
 import logging
 import os
 import uuid
-from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import httpx
 from PIL import Image
-import io
 
 from app.core.config import settings
 
@@ -326,8 +327,9 @@ class ImageManager:
                     
                     if is_webp:
                         # WEBP 需要转换
-                        from PIL import Image
                         import io
+
+                        from PIL import Image
                         
                         img = Image.open(io.BytesIO(response.content))
                         if img.mode in ('RGBA', 'LA', 'P'):

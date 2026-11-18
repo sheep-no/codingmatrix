@@ -9,9 +9,10 @@ MCP Server 管理接口
 
 import logging
 import threading
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import Dict, Optional, List
 
 from app.agent.mcp_client import MCP_CONFIG_PATH
 from app.utils.security import require_superadmin
@@ -51,7 +52,8 @@ class MCPServerUpdate(BaseModel):
 
 def _load_config() -> Dict:
     """加载 MCP 配置"""
-    import json, os
+    import json
+    import os
     if not os.path.exists(MCP_CONFIG_PATH):
         return {"mcp_servers": {}}
     try:
@@ -63,7 +65,9 @@ def _load_config() -> Dict:
 
 def _save_config(config: Dict) -> bool:
     """保存 MCP 配置（加锁 + 原子替换，避免并发写坏文件）"""
-    import json, os, tempfile
+    import json
+    import os
+    import tempfile
     try:
         config_dir = os.path.dirname(MCP_CONFIG_PATH)
         os.makedirs(config_dir, exist_ok=True)

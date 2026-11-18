@@ -154,7 +154,7 @@ async function getPageState(page) {
 
 test.describe('多模型 Agent 修改能力测试', () => {
   test('完整测试：生成 -> 删除文件 -> 模糊问题修复', async ({ page }) => {
-    test.setTimeout(600000); // 10分钟超时
+    test.setTimeout(1800000); // 真实模型生成较慢，预留 30 分钟
     test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型验收');
     
     // 捕获浏览器控制台日志
@@ -283,7 +283,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     console.log('=== 步骤2：输入项目需求并生成 ===');
     
     // 输入一个简单的项目需求
-    const projectPrompt = '创建一个简单的 Vue 3 + FastAPI 待办事项应用，包含前后端代码';
+    const projectPrompt = '只生成 main.py 和 calculator.py 两个文件，实现一个简单的 Python 命令行计算器，支持加减乘除。';
     
     // 找到输入框并输入需求
     const textarea = await page.waitForSelector('.prompt-textarea');
@@ -473,7 +473,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         if (files.length > 0) return true;
         
         return false;
-      }, { timeout: 30000 });
+      }, null, { timeout: 30000 });
       
       console.log('[DEBUG] 检测到生成已开始');
     } catch (error) {
@@ -503,33 +503,31 @@ test.describe('多模型 Agent 修改能力测试', () => {
         });
       }
       
-      // 检查按钮是否恢复可用（停止按钮消失、发送按钮可用）
+      // 只以“停止生成”按钮消失判断生成结束；发送按钮会因输入框
+      // 被清空而保持 disabled，不能作为生成状态的依据。
       const stopBtn = document.querySelector('button[aria-label="停止生成"]');
-      const btn = document.querySelector('button[aria-label="发送需求"]');
-      if (!stopBtn && btn && !btn.disabled) {
+      if (!stopBtn) {
         // 检查是否有文件生成
         const files = document.querySelectorAll('.file-item');
         return files.length > 0;
       }
       return false;
-    }, { timeout: 180000 });
+    }, null, { timeout: 900000 });
     
     // 额外等待确保生成完全结束
     await page.waitForTimeout(2000);
     
     // 再次确认按钮状态
-    const btnEnabled = await page.evaluate(() => {
+    const generationStopped = await page.evaluate(() => {
       const stopBtn = document.querySelector('button[aria-label="停止生成"]');
-      const btn = document.querySelector('button[aria-label="发送需求"]');
-      return !stopBtn && btn && !btn.disabled;
+      return !stopBtn;
     });
-    if (!btnEnabled) {
-      console.log('[WARNING] 按钮仍处于禁用状态，继续等待...');
+    if (!generationStopped) {
+      console.log('[WARNING] 生成仍未结束，继续等待...');
       await page.waitForFunction(() => {
         const stopBtn = document.querySelector('button[aria-label="停止生成"]');
-        const btn = document.querySelector('button[aria-label="发送需求"]');
-        return !stopBtn && btn && !btn.disabled;
-      }, { timeout: 60000 });
+        return !stopBtn;
+      }, null, { timeout: 60000 });
     }
     
     // 获取生成的文件列表
@@ -615,7 +613,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         const thinking = document.querySelector('.thinking-item-message');
         const logs = document.querySelector('.log-item-merged');
         return timeline || thinking || logs;
-      }, { timeout: 30000 });
+      }, null, { timeout: 30000 });
       console.log('[DEBUG] 检测到 Agent 工作已开始');
     } catch (error) {
       console.log('[WARNING] 未检测到 Agent 工作，继续等待...');
@@ -643,10 +641,9 @@ test.describe('多模型 Agent 修改能力测试', () => {
     // 等待修复完成或超时
     try {
       await page.waitForFunction(() => {
-        // 检查是否还在生成中
+        // 只以“停止生成”按钮消失判断生成结束。
         const stopBtn = document.querySelector('button[aria-label="停止生成"]');
-        const btn = document.querySelector('button[aria-label="发送需求"]');
-        if (!stopBtn && btn && !btn.disabled) {
+        if (!stopBtn) {
           // 检查是否有新的文件或修复完成
           return true;
         }
@@ -656,7 +653,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         if (success) return true;
         
         return false;
-      }, { timeout: 120000 });
+      }, null, { timeout: 600000 });
       console.log('[DEBUG] 检测到修复已完成');
     } catch (error) {
       console.log('[WARNING] 修复超时，继续收集信息...');

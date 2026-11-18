@@ -27,6 +27,20 @@ void main() {
     expect(second.conversationId, 42);
   });
 
+  test('聊天请求携带用户 Provider Key Token', () async {
+    final requests = <Object?>[];
+    final client = ChatClient(
+      DeliveryApi((path, method, body) async {
+        requests.add(body);
+        return {'response': 'ok'};
+      }),
+    );
+
+    await client.send(prompt: '你好', apiKeyToken: 'key-token-123');
+
+    expect((requests.single as Map)['api_key_token'], 'key-token-123');
+  });
+
   test('聊天历史读取网页端 items 契约', () async {
     final client = ChatClient(
       DeliveryApi((path, method, body) async {

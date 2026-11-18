@@ -1,18 +1,19 @@
 import asyncio
+import json
 import logging
 import time
-import json
 
 import psutil
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Depends, Query
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.db.database import get_db
-from app.utils.security import verify_token_ws
+from app.db.log_server import LogFilter, LogService
 from app.utils.permissions import is_admin
+from app.utils.security import verify_token_ws
 from app.utils.system_monitor import get_system_stats
-from app.db.log_server import LogService, LogFilter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

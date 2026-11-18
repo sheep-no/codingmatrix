@@ -5,7 +5,6 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-
 EmotionLabel = Literal[
     "neutral",
     "happy",

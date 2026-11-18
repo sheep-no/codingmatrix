@@ -9,17 +9,17 @@ Kolors 图像生成工具 - 支持文生图和图生图
 """
 import asyncio
 import base64
+import io
 import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any, List
-import io
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import httpx
-from httpx import Timeout
 from fastapi import HTTPException
+from httpx import Timeout
 
 from app.core.config import settings
 from app.services.image_resource_service import generation_concurrency

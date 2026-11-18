@@ -4,7 +4,7 @@ AI Cloud 知识库模型
 兼容 SQLite 和 MySQL。
 """
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, Index
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.time import utcnow_naive

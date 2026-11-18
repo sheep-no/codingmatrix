@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/auth_controller.dart';
 import '../application/provider_key_controller.dart';
+import '../infrastructure/errors/failure_text.dart';
 import '../infrastructure/provider/provider_key_client.dart';
 import 'account_overlays.dart';
 import 'shell_scaffold.dart';
@@ -108,10 +109,22 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
           if (state.error != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                state.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    state.error!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                  if (isStorageFailure(state.error!))
+                    const Text('后端存储（Redis）不可用，启用后即可读取和保存 Provider 授权。'),
+                ],
               ),
+            ),
+          if (!state.loading && state.error == null && state.items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text('还没有 Provider 授权。选择 Provider、填入 API Key 后点击上方按钮添加。'),
             ),
           const SizedBox(height: 20),
           ...state.items.map(

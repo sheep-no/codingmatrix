@@ -4,11 +4,11 @@ import asyncio
 import json
 import os
 import signal
+import tomllib
 from collections.abc import Iterable, Mapping
 from enum import Enum
 from pathlib import Path
 
-import tomllib
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_ALLOWED_EXECUTABLES = (

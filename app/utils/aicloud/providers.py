@@ -4,8 +4,8 @@
 定义供应商枚举类型和配置数据类。
 """
 
-from enum import Enum
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 

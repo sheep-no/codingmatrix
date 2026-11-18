@@ -8,11 +8,12 @@
 - 查询审计日志
 """
 
-from datetime import datetime, timedelta, timezone
 import json
-from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 
 from app.models.aicloud import AicloudAuditLog
 
@@ -250,7 +251,7 @@ async def cleanup_old_audit_logs(db: AsyncSession, days: int = 90) -> int:
     Returns:
         删除的记录数
     """
-    from sqlalchemy import delete, and_
+    from sqlalchemy import and_, delete
     
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
     

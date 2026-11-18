@@ -6,9 +6,10 @@
 import asyncio
 import logging
 import threading
-import psutil
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+import psutil
 
 from app.core.time import utcnow_naive
 from app.core.version import APP_VERSION
@@ -70,6 +71,7 @@ class HealthChecker:
         start = asyncio.get_running_loop().time()
         try:
             from sqlalchemy import text
+
             from app.db.database import async_session
             async with async_session() as db:
                 await db.execute(text("SELECT 1"))

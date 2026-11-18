@@ -1,30 +1,30 @@
 import ast
 import asyncio
 import functools
+import importlib.util
 import json
 import logging
 import re
-import time
+import shutil
 import subprocess
 import sys
-import importlib.util
 import tempfile
-import shutil
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tiktoken
-from pydantic import BaseModel, Field, PrivateAttr, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
-from app.schema.codeRequest import ToolDefinition, AgentConfig
+from app.adapter import ModelAdapter
+from app.schema.codeRequest import AgentConfig, ToolDefinition
 from app.utils import call_llm
 from app.utils.file_operator import FileOperator, PathSecurityError
-from app.adapter import ModelAdapter
 
 # 提示词加载器
 try:
-    from app.utils.prompt_loader import load_project_generation_prompt, load_resume_prompt, load_directory_status_prompt
+    from app.utils.prompt_loader import load_directory_status_prompt, load_project_generation_prompt, load_resume_prompt
 except ImportError:
     load_project_generation_prompt = None
     load_resume_prompt = None
@@ -1849,7 +1849,7 @@ class ProjectGeneratorAgent(BaseModel):
                 logger.info(f"压缩后Token使用量: {new_token_usage} (减少 {token_usage - new_token_usage})")
 
             # 调用LLM
-            logger.info(f"调用LLM API")
+            logger.info("调用LLM API")
             await self._progress_callback(ProgressType.STATUS, {
                 "message": "正在分析需求并规划文件结构",
                 "step": current_step
@@ -1898,7 +1898,7 @@ class ProjectGeneratorAgent(BaseModel):
 
                     if tool_name == "create_project_file" and file_path:
                         await self._progress_callback(ProgressType.FILE_CREATE_START, {
-                            "message": f"开始创建文件",
+                            "message": "开始创建文件",
                             "step": current_step,
                             "file_path": file_path,
                             "tool_name": tool_name
@@ -2042,7 +2042,7 @@ class ProjectGeneratorAgent(BaseModel):
                 else:
                     messages.append({"role": "assistant", "content": pure_text})
                     steps.append({"type": "message", "content": pure_text})
-                    logger.debug(f"添加纯文本消息到对话历史")
+                    logger.debug("添加纯文本消息到对话历史")
 
                     # 步骤结束回调（对于纯文本步骤）
                     await self._progress_callback(ProgressType.STEP_END, {
@@ -2531,7 +2531,7 @@ class ProjectGeneratorAgent(BaseModel):
         for i, result in enumerate(results):
             logger.debug(f"工具 {i + 1} 执行结果: {result.content[:200] if hasattr(result, 'content') else result}")
 
-        logger.debug(f"所有工具任务完成")
+        logger.debug("所有工具任务完成")
         return results
 
     async def _run_single_tool(

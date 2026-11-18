@@ -5,21 +5,23 @@ import re
 import time
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status, Path as PathParam
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from app.utils.async_enhanced_guard import AsyncSmartGuardian
-from app.utils.service_config_manager import ServiceConfigManager
+
+from app.db.database import async_session
+from app.models.server_config import ServerConfig
 from app.schema.guardian import StartGuard
-from app.utils.security import verify_token
-from app.utils.permissions import is_admin, is_superadmin
-from app.services.resource_config import resource_config_service
 from app.services.feature_switch import feature_switch_service
 from app.services.log_config import log_config_service
-from app.models.server_config import ServerConfig
-from app.db.database import async_session
+from app.services.resource_config import resource_config_service
+from app.utils.async_enhanced_guard import AsyncSmartGuardian
+from app.utils.permissions import is_admin, is_superadmin
+from app.utils.security import verify_token
+from app.utils.service_config_manager import ServiceConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -531,8 +533,9 @@ async def get_memory_stats(token: dict = Depends(require_admin)):
     Returns:
         内存使用详情（进程、系统、Docker 等）
     """
-    import psutil
     import os
+
+    import psutil
 
     process = psutil.Process(os.getpid())
 
@@ -599,8 +602,8 @@ async def create_backup(token: dict = Depends(require_superadmin)):
     Returns:
         备份文件路径和内容
     """
-    import shutil
     import json
+    import shutil
     from pathlib import Path
 
     try:
@@ -693,8 +696,8 @@ async def download_backup(timestamp: str, token: dict = Depends(require_admin)):
     """
     下载备份文件
     """
-    from pathlib import Path
     import json
+    from pathlib import Path
 
     # 时间戳同时用于拼接文件名，限制格式避免路径穿越
     if not re.fullmatch(r"\d{8}_\d{6}", timestamp):

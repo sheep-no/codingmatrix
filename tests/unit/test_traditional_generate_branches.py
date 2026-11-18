@@ -434,6 +434,24 @@ class TestFullGeneration:
         assert "app/__init__.py" in result["files"][-1]["path"]
 
     @pytest.mark.asyncio
+    async def test_missing_required_artifacts_fails_generation(self, tmp_path, monkeypatch):
+        _patch_collaborators(monkeypatch)
+        orchestrator = _BaseOrchestrator(tmp_path)
+        orchestrator.files_to_generate = [
+            {"path": "src/index.html"},
+            {"path": "docs/README.md"},
+            {"path": "main.py"},
+        ]
+
+        result = await orchestrator._generate_traditional(
+            "生成根级 index.html 与 README.md"
+        )
+
+        assert result["required_artifacts"]["missing"] == ["index.html", "README.md"]
+        assert result["success"] is False
+        assert any("关键文件缺失" in error for error in orchestrator.errors)
+
+    @pytest.mark.asyncio
     async def test_expanded_plan_uses_layered_generation(self, tmp_path, monkeypatch):
         _patch_collaborators(monkeypatch)
         orchestrator = _BaseOrchestrator(tmp_path, spec_cache=None)

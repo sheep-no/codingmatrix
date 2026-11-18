@@ -1,8 +1,10 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, delete
 from datetime import datetime
+from typing import List, Optional, Sequence, Tuple
+
+from sqlalchemy import and_, delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.chat_history import ChatHistory, ChatSummary
-from typing import List, Optional, Tuple, Sequence
 
 
 class ChatHistoryService:

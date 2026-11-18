@@ -1,11 +1,13 @@
 # app/models/chat_history.py
-from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Index, Boolean, CHAR
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-from app.models.base import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import CHAR, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
 from app.agent.models import DEFAULT_REASONING_MODEL
+from app.models.base import Base
 
 
 class ChatHistory(Base):

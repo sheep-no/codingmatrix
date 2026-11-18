@@ -12,9 +12,10 @@ Agent 认知 Skill 注入
 import json
 import logging
 import re
-import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import yaml
 
 from app.core.config import settings
 
@@ -106,22 +107,22 @@ class MultiAngleReviewSkill:
     def get_review_prompt(self, file_path: str, change_description: str) -> str:
         """生成审查提示词，供 Agent 使用"""
         lines = [
-            f"请对以下变更进行多角度审查：",
-            f"",
+            "请对以下变更进行多角度审查：",
+            "",
             f"文件: {file_path}",
             f"变更描述: {change_description}",
-            f"",
-            f"请从以下角度逐一审查：",
+            "",
+            "请从以下角度逐一审查：",
         ]
 
         for category, items in self.checklist.items():
-            lines.append(f"")
+            lines.append("")
             lines.append(f"### {self._get_category_name(category)}")
             for item in items:
                 lines.append(f"- [ ] {item}")
 
-        lines.append(f"")
-        lines.append(f"请逐项检查并给出审查结论。")
+        lines.append("")
+        lines.append("请逐项检查并给出审查结论。")
 
         return "\n".join(lines)
 

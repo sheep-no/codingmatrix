@@ -7,28 +7,15 @@
 - layout_decider: 布局决策器，生成 python-pptx 渲染指令
 """
 
+from app.utils.visual.image_manager import ImageAsset, ImageManager, ImageSource, image_manager
+from app.utils.visual.layout_decider import LayoutDecider, LayoutElement, LayoutType, SlideLayoutPlan, layout_decider
 from app.utils.visual.visual_analyzer import (
-    VisualAnalyzer,
-    SlideVisualDecision,
-    PPTVisualPlan,
-    ImageType,
     ImagePosition,
-    visual_analyzer
-)
-
-from app.utils.visual.image_manager import (
-    ImageManager,
-    ImageAsset,
-    ImageSource,
-    image_manager
-)
-
-from app.utils.visual.layout_decider import (
-    LayoutDecider,
-    LayoutType,
-    LayoutElement,
-    SlideLayoutPlan,
-    layout_decider
+    ImageType,
+    PPTVisualPlan,
+    SlideVisualDecision,
+    VisualAnalyzer,
+    visual_analyzer,
 )
 
 __all__ = [

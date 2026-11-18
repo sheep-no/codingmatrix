@@ -13,9 +13,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.host_action_dispatch import register_state_action_dispatcher
 from app.db.database import get_db
 from app.db.models import ProjectSession
-from app.agent.host_action_dispatch import register_state_action_dispatcher
 from app.utils.security import verify_token
 
 router = APIRouter()

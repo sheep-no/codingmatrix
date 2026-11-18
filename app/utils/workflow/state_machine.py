@@ -11,11 +11,11 @@ Workflow State Machine - 内存状态机
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Callable, Any
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional
 
 from app.schema.workflow import TaskGraph, TaskNode, TaskStatus, WorkflowStatus
 

@@ -10,10 +10,11 @@ AI 自动代码执行闭环 (Auto-Execute Loop)
 6. 循环直到没有代码块或达到最大迭代次数
 """
 
-import re
 import logging
+import re
 from typing import List, Tuple
-from app.utils.aicloud.code_executor import CodeExecutor, CodeExecutionResult
+
+from app.utils.aicloud.code_executor import CodeExecutionResult, CodeExecutor
 
 logger = logging.getLogger(__name__)
 

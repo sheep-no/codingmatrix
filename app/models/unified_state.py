@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from app.models.base import Base
 

@@ -4,7 +4,9 @@ import 'package:file_picker/file_picker.dart';
 
 import '../application/chat_controller.dart';
 import '../application/auth_controller.dart';
+import '../application/provider_key_controller.dart';
 import 'account_overlays.dart';
+import 'model_service_hint.dart';
 import 'shell_scaffold.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -80,10 +82,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     final version = ++_sendVersion;
     setState(() => _attachmentError = null);
+    var keyState = ref.read(providerKeyControllerProvider);
+    if (keyState.selected == null && keyState.items.isEmpty) {
+      await ref.read(providerKeyControllerProvider.notifier).load();
+      if (!mounted || version != _sendVersion) return;
+      keyState = ref.read(providerKeyControllerProvider);
+    }
+    var keyToken = keyState.selected?.token;
+    for (final item in keyState.items) {
+      keyToken ??= item.isUsable ? item.token : null;
+    }
     await ref
         .read(chatControllerProvider.notifier)
         .send(
           text,
+          apiKeyToken: keyToken,
           model: _modelController.text.trim().isEmpty
               ? null
               : _modelController.text.trim(),
@@ -157,10 +170,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           if (chat.error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                chat.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              child: ModelServiceHint(error: chat.error!),
             ),
           if (_attachmentError != null)
             Text(

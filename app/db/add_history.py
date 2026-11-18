@@ -1,10 +1,12 @@
 import asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
-from app.models.history import History
-from typing import Optional, Any
 import json
 import logging
+from typing import Any, Optional
+
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.history import History
 
 logger = logging.getLogger(__name__)
 

@@ -4,13 +4,13 @@ Web Search Node - 网络搜索节点
 使用现有的 FreeWebSearch 实现网络搜索功能
 """
 
-import logging
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 from app.schema.workflow import TaskType
-from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
 from app.utils.web_search import FreeWebSearch, fetch_page_text, summarize_page_with_llm
+from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)
 

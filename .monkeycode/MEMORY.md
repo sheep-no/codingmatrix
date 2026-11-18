@@ -435,6 +435,16 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 仍受影响的只有硬编码 `127.0.0.1:6379` 的两个集成文件（`test_apikey_index_ttl.py`、`test_state_recovery.py`），全量回归时需 `--ignore` 它们。
   - 排查挂起用例：`python3 -u -m pytest ... > log 2>&1` 是块缓冲、不到结束看不到输出；用 `cat /proc/<pid>/task/<tid>/stack` 看主线程是否阻塞在 `tcp_recvmsg` 来确认是网络等待。
 
+### Provider 授权依赖本机 Redis（2026-11-16）
+- Date: 2026-11-16
+- Context: Agent 复现「图片生成 → 管理 Provider 授权 → 切到 deepseek，加载失败且添加失败」时定位
+- Category: 环境配置
+- Instructions:
+  - `GET /api/v1/agent/apikeys` 与 `POST /api/v1/agent/apikey` 全部读写 Redis（`app/services/apikey_manager.py`，默认 `localhost:6379`，无内存兜底）。Redis 未启动时分别返回 500「获取 Key 列表失败」与 403「Key 存储失败」，前端只看到笼统的加载失败。
+  - 本机安装与启动：`DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends redis-server`，再用 background terminal 跑 `redis-server --port 6379 --bind 127.0.0.1 --save '' --appendonly no --dir /tmp --maxmemory 128mb`（根分区长期接近满，禁用持久化避免写盘）。
+  - Uvicorn 无需重启即可恢复：redis-py 客户端是惰性连接，Redis 起来后同一进程的下一请求即成功。
+  - 验证顺序：`redis-cli ping` → 登录 → `GET /api/v1/agent/apikeys` 应 200 `[]` → RSA 加密后 `POST /api/v1/agent/apikey` 应 200 并返回 token。
+
 ### 知识库上传的阻塞与死循环陷阱
 - Date: 2026-09-17
 - Context: Agent 在核查非 Agent 范围已建档缺陷（知识库上传同步阻塞）时总结
@@ -609,3 +619,29 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `migrations/env.py` 在库内无 `alembic_version` 时会用 `Base.metadata.create_all` 建全表并直接 stamp head，因此空库测试与 `alembic stamp` 都不会重放历史迁移链；验证某条历史迁移是否正确，必须先在库内手工建 `alembic_version` 表并写入其 `down_revision`，再执行 `alembic upgrade <该 revision>`。
   - `alembic upgrade head --sql` 离线模式使用 `MockConnection`，不支持 `sa.inspect`；迁移内需要反射的地方一律用 `op.get_context().as_sql` 分支处理。`20260908_add_github_user_config`、`20260918_add_knowledge_tags`、`20260918_unique_tasks_task_id`、`20261109_add_github_verified_at` 均已补齐，`test_offline_sql_generation_reaches_head` 用 MySQL/PostgreSQL 两方言守住。
   - 历史迁移里引用辅助函数前必须确认全仓库有定义（`if_exists_exists` 为无定义悬空调用，会让既有库升级链在 `20260425` 处 `NameError` 中断）。
+
+### 流式 NDJSON 接口的 gzip 错标排查（2026-11-16，2026-11-17 更新）
+- Date: 2026-11-16
+- Context: Agent 排查 Android 工作流「disconnected、事件数 0、logcat 无异常」时定位
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 旧版后端 `GZipMiddleware(minimum_size=500)` 会给 `/api/v1/workflow/execute` 的 NDJSON 流加 `Content-Encoding: gzip`，但响应体是明文；Dart HttpClient 自动解压时抛 `FormatException: Filter error, bad data`，异常在 onError 被捕获后表现为「连接中断」。
+  - `6d925c19` 起 `app/main.py` 把 `application/x-ndjson` 加入 Starlette 的 `DEFAULT_EXCLUDED_CONTENT_TYPES`，NDJSON 不再带 `Content-Encoding`；客户端 `Accept-Encoding: identity` 可继续保留，行为等价。
+  - 本仓库 GitHub Actions 只有 ci/e2e/frontend-ci 三套测试，不含部署；线上环境需独立重新构建部署后才会带上修复，判断是否已部署先核对线上进程对应的提交，而非 master 是否有提交。
+  - 遇到流式请求「0 事件 + 无异常日志」时，先用 curl 对比 `Content-Encoding` 与原始字节，再检查是否 gzip 错标，勿先怀疑网络或鉴权。
+
+### 模型供应商 Key 走用户授权（2026-11-17）
+- Date: 2026-11-17
+- Context: Agent 定位聊天与工作流 500 时确认系统不再内置供应商 Key
+- Category: Environment Configuration
+- Instructions:
+  - 系统环境中的 `SILICONFLOW_API_KEY`、`DEEPSEEK_API_KEY` 已废弃，供应商 Key 由用户在 Provider 授权页提交，经 RSA 加密后存入 Redis。
+  - 用户在 Provider 设置页选中 Key 后，客户端聊天请求需显式携带 `api_key_token`；后端在请求上下文有用户但未传 token 时，会自动使用该用户首个已启用且非 invalid 的 Key。
+  - Redis 当前不持久化，`redis-server` 重启后用户 Key 会丢失，复测前先检查 `/api/v1/agent/apikeys` 与 `redis-cli dbsize`。
+
+### 回复语言跟随用户
+- Date: 2026-11-17
+- Context: 用户明确要求「说中文」
+- Instructions:
+  - 面向用户的回复、进度说明与总结统一使用简体中文；代码、命令、路径和标识符保持原样。
+  - 用户切换语言时跟随最新语言。

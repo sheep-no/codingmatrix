@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint
-from sqlalchemy import func
+from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base

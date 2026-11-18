@@ -8,7 +8,6 @@ from copy import copy
 
 from pptx.dml.color import RGBColor
 
-
 # 与 aiGeneratorPptx.py 保持同步的模板定义
 PPT_TEMPLATES = {
     "modern": {

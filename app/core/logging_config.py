@@ -1,8 +1,9 @@
 import logging
 import logging.config
-import sys
 import re
+import sys
 from pathlib import Path
+
 from app.core.config import settings
 
 LOG_DIR = Path("logs")

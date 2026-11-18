@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 SLIDE_TYPES = (
     "cover", "agenda", "section", "key_points", "image_text", "data",
     "comparison", "timeline", "process", "summary", "closing",

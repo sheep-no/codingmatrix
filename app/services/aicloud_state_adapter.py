@@ -11,7 +11,6 @@ from app.services.state_migration_service import (
     upsert_compatibility_mapping,
 )
 
-
 MODULE = "aicloud"
 SESSION_TYPE = "aicloud_session"
 MESSAGE_TYPE = "aicloud_message"

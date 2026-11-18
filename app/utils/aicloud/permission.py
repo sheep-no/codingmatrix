@@ -7,12 +7,12 @@
 """
 
 from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
 from app.models.user import User
 from app.utils.permissions import is_admin
-
 
 AICLOUD_REQUIRED_PERMISSION = "admin"
 

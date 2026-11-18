@@ -1,6 +1,6 @@
 """Persistent PPT outline and quality report models."""
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.time import utcnow_naive
 from app.models.base import Base

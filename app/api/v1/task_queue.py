@@ -8,23 +8,16 @@ import logging
 import uuid
 from datetime import timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.celery_app import celery_app
 from app.core.time import utcnow_naive
 from app.db.database import get_db
-from app.utils.security import verify_token, verify_token_ws
-from app.schema.task_schema import (
-    TaskCreateRequest,
-    TaskResponse,
-    TaskListResponse,
-    TaskPriorityEnum
-)
 from app.models.task import CELERY_STATE_TO_TASK_STATUS, Task
-from app.celery_app import celery_app
-from app.services.websocket_manager import ws_manager
-from app.tasks.base import parse_priority, parse_timeout
+from app.schema.task_schema import TaskCreateRequest, TaskListResponse, TaskPriorityEnum, TaskResponse
 from app.services.unified_state_service import (
     StateConflictError,
     StateNotFoundError,
@@ -35,6 +28,9 @@ from app.services.unified_state_service import (
     replay_task_events,
     transition_task,
 )
+from app.services.websocket_manager import ws_manager
+from app.tasks.base import parse_priority, parse_timeout
+from app.utils.security import verify_token, verify_token_ws
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["任务管理"])

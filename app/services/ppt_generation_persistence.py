@@ -17,7 +17,6 @@ from app.services.ppt_state_service import save_ppt_quality_report
 from app.services.unified_state_service import create_artifact, get_owned_task, save_checkpoint
 from app.utils.pptx.templates.manager import TemplateManager
 
-
 PLANNER_VERSION = "1.0"
 TEMPLATE_VERSION = "1.0"
 

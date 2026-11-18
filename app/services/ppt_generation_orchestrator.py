@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-
 STAGES = ("planning", "assets", "rendering", "rule_qa", "reflow", "vision_qa", "completed")
 StageHandler = Callable[[dict[str, Any]], Any]
 ProgressCallback = Callable[[dict[str, Any]], Any]

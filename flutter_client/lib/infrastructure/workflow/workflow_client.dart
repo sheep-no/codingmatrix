@@ -20,7 +20,10 @@ class WorkflowClient {
     );
     request.headers.addAll({
       'Content-Type': 'application/json',
-      'Accept': 'application/x-ndjson',
+      'Accept': 'text/event-stream',
+      // 预览网关会缓冲 NDJSON，直到响应结束才下发；请求 SSE 内容类型
+      // 可让网关按长连接转发，服务端响应体仍是逐行 JSON。
+      'Accept-Encoding': 'identity',
     });
     request.body = jsonEncode({
       'natural_language_request': input.trim(),

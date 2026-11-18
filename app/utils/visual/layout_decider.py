@@ -8,26 +8,26 @@
 4. 装饰元素的添加
 """
 import logging
-from PIL import Image
-from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
+from PIL import Image
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.util import Emu, Inches, Pt
 
-from app.utils.visual.visual_analyzer import (
-    SlideVisualDecision, 
-    PPTVisualPlan, 
-    ImageType, 
-    ImagePosition,
-    ImageDecision,
-    VisualAnalyzer
-)
-from app.utils.visual.image_manager import ImageManager, ImageAsset
 from app.utils.pptx.semantic_renderer import normalize_slide_type
+from app.utils.visual.image_manager import ImageAsset, ImageManager
+from app.utils.visual.visual_analyzer import (
+    ImageDecision,
+    ImagePosition,
+    ImageType,
+    PPTVisualPlan,
+    SlideVisualDecision,
+    VisualAnalyzer,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -9,23 +9,23 @@ import shutil
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.file_validator import validate_file_path
 from app.db.database import get_db
 from app.models.file import File
 from app.models.task import Task
-from app.utils.security import verify_token
 from app.schema.file_schema import FileUploadResponse
-from app.core.config import settings
-from app.core.file_validator import validate_file_path
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/files", tags=["文件上传"])

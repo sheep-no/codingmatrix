@@ -189,6 +189,32 @@ POLL_REJECTED ProtocolError invalid_payload command must be a non-empty string a
 - 服务端吊销依赖 Redis denylist（`app/utils/token_denylist.py`）。本机无 Redis 时后端按设计 fail-open，`revoked_tokens=0` 是环境限制所致，客户端调用链完整。
 - 新增 `flutter_client/test/live_backend_auth_test.dart`（`LIVE_BACKEND_URL` 触发，默认跳过），覆盖 CSRF、登录、鉴权头、Host 会话访问与本地登出清理。
 
+### 双端真实桌面运行验证（2026-11-15）
+
+此前 P1-4 / P1-5 的结论来自脚本级联调，Linux 桌面客户端与 VS Code 宿主的真实 GUI 运行受环境缺失阻塞。本机已补齐依赖并实跑，两端均通过。
+
+**Flutter Linux 桌面**
+
+- 依赖补齐：`xvfb xauth cmake ninja-build clang libgtk-3-dev libsecret-1-dev libjsoncpp-dev x11-utils imagemagick gnome-keyring libsecret-tools dbus-x11 xdotool`。
+- 构建：`flutter build linux --release` 成功。曾因 `build/linux/x64/release/CMakeCache.txt` 残留 `CMAKE_INSTALL_PREFIX=/usr/local` 导致产物装到系统目录而 bundle 缺文件；`linux/CMakeLists.txt:82` 只在 `CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT` 时为真，故显式 `cmake -DCMAKE_INSTALL_PREFIX=$PWD/bundle . && ninja install` 后 bundle 结构恢复正常。
+- 运行：`Xvfb :98 -ac -nolisten tcp` + `dbus-run-session` + `printf 'testpass\n' | gnome-keyring-daemon --unlock --components=secrets` 后启动 bundle，`xwininfo` 显示窗口 `CodingMatrix Agent` 1280x720 已映射。xdotool 填表登录成功后工作台渲染，历史页与模型页均取到真实后端数据（`GET /api/v1/models/` 200）。
+- 注意：默认 API 地址为 `http://127.0.0.1:8080`，本地后端在 8000，需在地址栏改为 `:8000` 才能登录。`xvfb-run -a` 自建隔离 Xauthority，外部 `xwininfo`/`import` 无法连接，需用固定 `Xvfb :98`。
+
+**VS Code 插件宿主 e2e**
+
+- 先按 `PENDING-VERIFICATION.md`「VS Code e2e 缓存与运行库」补齐 1.146.0 缓存与系统运行库。
+- 离线：`xvfb-run -a node e2e/run.mjs` → `[e2e] suite passed`，`REAL_EXIT=0`；扩展激活、5 个命令注册、工作台 webview 打开均成立。
+- 真实后端：注入 `CODINGMATRIX_E2E_API_URL` 与 `CODINGMATRIX_E2E_ACCESS_TOKEN` 后 → `[e2e] real backend checks passed`，`REAL_EXIT=0`；后端侧 `workspace_id=fixtures` 会话终态 `cancelled`，日志 3 次 `POST .../control` 对应 pause/resume/cancel。
+
+**Flutter Android release 构建**
+
+- 环境：Flutter 3.47.9 + JDK 17 + Android command line tools，SDK 装 `platforms;android-36`、`build-tools;36.0.0`、`ndk;28.2.13676358`。
+- 依赖全部升到 Flutter 3.47.9 的下限而不是绕过校验：Gradle 8.14.3、AGP 8.11.1、Kotlin 2.2.20；`app/build.gradle.kts` 加 `ndkVersion = flutter.ndkVersion` 固定单一 NDK。
+- 本机 `repo.maven.apache.org` 与 `storage.googleapis.com` 直连 TLS 握手失败，分别用 `maven.aliyun.com/repository/central` 与 `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn` 绕过。
+- 产物：`flutter build apk --release --no-pub --target-platform android-arm64` → `app-release.apk` 23.4MB，SHA-256 `8c41b452828741333e2b3723ae7e59c00b0a72b3627f0f2824a08e1dd1643208`。
+- 静态验收：`com.codingmatrix.agent` / `1.0.0`(1) / minSdk 24 / targetSdk 36 / compileSdk 36；`INTERNET` 权限、`allowBackup=false`、`usesCleartextTraffic=true`；v2 签名有效（debug keystore，仓库无 `key.properties`）；`flutter_secure_storage` 的 `FlutterSecureStoragePlugin` 与 `SecureStorageAndroid` 已进 dex。
+- 环境限制：无 `/dev/kvm`、CPU 无 `vmx`/`svm`、无 system-image，真机与模拟器运行验收未做，Android 侧结论止于构建与静态检查。
+
 ---
 
 ## P2 级

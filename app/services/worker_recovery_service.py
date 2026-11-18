@@ -10,7 +10,6 @@ from app.celery_app import celery_app
 from app.models.task import Task
 from app.services.task_event_service import append_task_event
 
-
 TASK_NAMES = {
     "project_generate": "app.tasks.project_tasks.generate_project",
     "code_generate": "app.tasks.code_tasks.generate_code",

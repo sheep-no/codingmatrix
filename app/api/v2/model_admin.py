@@ -16,21 +16,22 @@
 
 import logging
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from app.agent.dynamic_model_router import (
+    MODEL_CONTEXT_LENGTHS,
+    MODEL_ID_TO_KEY,
+    _LayeredModelRouterCompat,
+    get_context_length,
+    load_agent_model_config,
+    reload_roles_config,
+    save_agent_model_config,
+)
 from app.utils.aicloud.model_registry import MODEL_REGISTRY, get_model
 from app.utils.security import require_superadmin
-from app.agent.dynamic_model_router import (
-    load_agent_model_config,
-    save_agent_model_config,
-    reload_roles_config,
-    MODEL_ID_TO_KEY,
-    MODEL_CONTEXT_LENGTHS,
-    get_context_length,
-    _LayeredModelRouterCompat,
-)
 
 logger = logging.getLogger(__name__)
 

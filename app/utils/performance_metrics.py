@@ -3,14 +3,15 @@
 
 收集各模块的执行时间、内存占用、缓存命中率，支持指标导出和告警。
 """
-import time
 import logging
-import psutil
 import os
+import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
+
+import psutil
 
 logger = logging.getLogger(__name__)
 

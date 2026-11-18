@@ -6,13 +6,13 @@ KV Cache 优化 - 提示词构建器
 
 目标: 缓存命中率从 ~0% 提升到 75-97%
 """
+import hashlib
 import json
 import logging
-import hashlib
 import re
-from typing import Optional, Dict, List, Any
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

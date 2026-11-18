@@ -58,6 +58,55 @@ def test_record_fix_skips_empty_error_lists(learner):
     assert len(learner._session_records) == 1
 
 
+def test_record_fix_sanitizes_error_message(learner):
+    raw = "SyntaxError: bad&#10;&#10;line 1" + "x" * 1000
+    learner.record_fix(
+        file_path="a.py",
+        file_type="backend",
+        original_content="a",
+        fixed_content="b",
+        errors={"syntax": [raw]},
+        model_name="m",
+        success=False,
+    )
+
+    pattern = next(iter(learner._fix_patterns.values()))
+    assert "&#10;" not in pattern.error_message
+    assert "  " not in pattern.error_message
+    assert len(pattern.error_message) == 200
+    assert pattern.failure_reason == pattern.error_message
+
+
+def test_record_fix_sanitizes_failure_reason_for_existing_pattern(learner):
+    for _ in range(2):
+        learner.record_fix(
+            file_path="a.py",
+            file_type="backend",
+            original_content="a",
+            fixed_content="b",
+            errors={"syntax": ["boom&#10;more"]},
+            model_name="m",
+            success=False,
+        )
+
+    pattern = next(iter(learner._fix_patterns.values()))
+    assert pattern.frequency == 2
+    assert pattern.failure_reason == "boom more"
+
+
+def test_get_common_errors_sanitizes_persisted_patterns(learner):
+    learner._fix_patterns["syntax:legacy"] = _pattern(
+        error_message="legacy&#10;error" + "z" * 500,
+        error_pattern="legacy",
+        file_types=[".py"],
+    )
+
+    errors = learner.get_common_errors(".py")
+
+    assert errors[0]["error_message"].startswith("legacy error")
+    assert len(errors[0]["error_message"]) == 200
+
+
 def test_record_fix_uses_provided_embedding(learner):
     learner.record_fix(
         file_path="a.py",

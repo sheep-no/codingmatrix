@@ -6,6 +6,7 @@ import '../application/auth_controller.dart';
 import '../application/workflow_controller.dart';
 import '../infrastructure/workflow/workflow_client.dart';
 import 'account_overlays.dart';
+import 'dialog_controllers.dart';
 import 'shell_scaffold.dart';
 
 class WorkflowPage extends ConsumerStatefulWidget {
@@ -43,47 +44,19 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
 
   Future<void> importWorkflow() async {
     importController.clear();
-    final accepted = await showDialog<bool>(
+    final epoch = _epoch;
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('导入工作流 JSON'),
-        content: TextField(
-          controller: importController,
-          minLines: 8,
-          maxLines: 14,
-          decoration: const InputDecoration(hintText: '{"nodes":[]}'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('导入'),
-          ),
-        ],
+      builder: (_) => _ImportWorkflowDialog(
+        controller: importController,
+        onImport: (graph) => client.importWorkflow(graph),
       ),
     );
-    if (accepted != true || !mounted) return;
-    final epoch = _epoch;
-    try {
-      final graph = jsonDecode(importController.text);
-      if (graph is! Map) throw const FormatException('工作流必须是 JSON 对象');
-      final result = await client.importWorkflow(
-        Map<String, dynamic>.from(graph),
-      );
-      if (mounted && epoch == _epoch)
-        setState(
-          () => input.text =
-              '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
-        );
-    } catch (e) {
-      if (mounted && epoch == _epoch)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('导入失败：$e')));
-    }
+    if (result == null || !mounted || epoch != _epoch) return;
+    setState(
+      () => input.text =
+          '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
+    );
   }
 
   @override
@@ -352,4 +325,111 @@ class _WorkflowHistorySheetState extends State<_WorkflowHistorySheet> {
         ),
     ],
   );
+}
+
+/// 导入弹窗先校验 JSON，失败时保留弹窗和用户输入。
+class _ImportWorkflowDialog extends StatefulWidget {
+  const _ImportWorkflowDialog({
+    required this.controller,
+    required this.onImport,
+  });
+
+  final TextEditingController controller;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>) onImport;
+
+  @override
+  State<_ImportWorkflowDialog> createState() => _ImportWorkflowDialogState();
+}
+
+class _ImportWorkflowDialogState extends State<_ImportWorkflowDialog> {
+  String? error;
+  String? hint;
+  bool busy = false;
+
+  void _fail(String message, [String? detail]) {
+    setState(() {
+      error = message;
+      hint = detail;
+    });
+  }
+
+  Future<void> submit() async {
+    if (busy) return;
+    final raw = widget.controller.text.trim();
+    if (raw.isEmpty) {
+      _fail('请输入工作流 JSON');
+      return;
+    }
+    late final Map<String, dynamic> graph;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        _fail('工作流必须是 JSON 对象');
+        return;
+      }
+      graph = Map<String, dynamic>.from(decoded);
+    } on FormatException {
+      _fail('JSON 格式错误', '请检查括号、引号和逗号');
+      return;
+    }
+
+    setState(() {
+      busy = true;
+      error = null;
+      hint = null;
+    });
+    try {
+      final result = await widget.onImport(graph);
+      if (mounted) Navigator.pop(context, result);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        busy = false;
+        error = '导入失败';
+        hint = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('导入工作流 JSON'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: widget.controller,
+                minLines: 8,
+                maxLines: 14,
+                enabled: !busy,
+                decoration: const InputDecoration(hintText: '{"nodes":[]}'),
+              ),
+              if (error != null)
+                DialogErrorNotice(message: error!, detail: hint),
+              if (busy)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: LinearProgressIndicator(),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: busy ? null : submit,
+          child: Text(busy ? '导入中…' : '导入'),
+        ),
+      ],
+    );
+  }
 }
