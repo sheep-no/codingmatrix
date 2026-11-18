@@ -86,21 +86,41 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
       if (!mounted || epoch != _epoch) return;
       showModalBottomSheet<void>(
         context: context,
-        builder: (_) => ListView(
-          children: [
-            if (events.isEmpty)
-              const ListTile(dense: true, title: Text('暂无事件')),
-            for (final event in events)
-              ListTile(
-                title: Text(
-                  '${event['event_type'] ?? event['status'] ?? '事件'}',
+        builder: (sheetContext) => SafeArea(
+          child: SizedBox(
+            height: 360,
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('任务事件'),
+                  trailing: IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
                 ),
-                subtitle: Text(
-                  '${event['created_at'] ?? ''}\n${event['payload'] ?? ''}',
+                const Divider(height: 1),
+                Expanded(
+                  child: events.isEmpty
+                      ? const Center(child: Text('暂无事件'))
+                      : ListView(
+                          children: [
+                            for (final event in events)
+                              ListTile(
+                                title: Text(
+                                  '${event['event_type'] ?? event['status'] ?? '事件'}',
+                                ),
+                                subtitle: Text(
+                                  '${event['created_at'] ?? ''}\n${event['payload'] ?? ''}',
+                                ),
+                                isThreeLine: true,
+                              ),
+                          ],
+                        ),
                 ),
-                isThreeLine: true,
-              ),
-          ],
+              ],
+            ),
+          ),
         ),
       );
     } catch (e) {
@@ -124,6 +144,7 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
       title: '任务队列',
       actions: [
         IconButton(
+          tooltip: '刷新任务列表',
           onPressed: (busy || loading) ? null : load,
           icon: const Icon(Icons.refresh),
         ),

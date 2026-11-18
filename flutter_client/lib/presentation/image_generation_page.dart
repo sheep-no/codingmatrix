@@ -1,5 +1,6 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../application/auth_controller.dart';
@@ -25,7 +26,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
   int size = 1024, count = 1;
   String? referencePath;
   String? maskPath;
-  double steps = 50, guidance = 7.5;
+  double steps = 49, guidance = 7.5;
   bool picking = false;
   int _epoch = 0;
   @override
@@ -51,7 +52,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
       maskPath = null;
       size = 1024;
       count = 1;
-      steps = 50;
+      steps = 49;
       guidance = 7.5;
     });
   }
@@ -101,7 +102,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
               Text(
                 key?.provider == 'siliconflow'
                     ? '已选择 SiliconFlow 授权'
-                    : '请先选择 SiliconFlow 授权',
+                    : '尚未绑定 SiliconFlow 授权。请前往 Provider 授权页，'
+                          '在 SiliconFlow 条目点击「用于生成」，返回本页后即可生成。',
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).push(
@@ -109,7 +111,11 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                     builder: (_) => const ProviderSettingsPage(),
                   ),
                 ),
-                child: const Text('管理 Provider 授权'),
+                child: Text(
+                  key?.provider == 'siliconflow'
+                      ? '管理 Provider 授权'
+                      : '前往 Provider 授权页绑定',
+                ),
               ),
               Wrap(
                 spacing: 8,
@@ -220,8 +226,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                     Slider(
                       value: steps,
                       min: 20,
-                      max: 100,
-                      divisions: 80,
+                      max: 49,
+                      divisions: 29,
                       onChanged: enabled
                           ? (v) => setState(() => steps = v)
                           : null,
@@ -240,6 +246,12 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                       controller: seed,
                       enabled: enabled,
                       keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
                       decoration: const InputDecoration(
                         labelText: '随机种子（留空自动生成）',
                       ),

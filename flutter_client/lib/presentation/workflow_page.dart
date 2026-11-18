@@ -54,8 +54,8 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     );
     if (result == null || !mounted || epoch != _epoch) return;
     setState(
-      () => input.text =
-          '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
+      () =>
+          input.text = '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
     );
   }
 
@@ -73,6 +73,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       title: '工作流执行',
       actions: [
         IconButton(
+          tooltip: '查看工作流历史',
           onPressed: toolsBusy
               ? null
               : () async {

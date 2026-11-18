@@ -15,6 +15,7 @@ from app.api.v1.kolors_api import ImageToImageRequest, TextToImageRequest
     [
         ("num_images", 5),
         ("num_images", 0),
+        ("num_inferences", 50),
         ("num_inferences", 101),
         ("num_inferences", 0),
         ("width", 1281),
@@ -34,6 +35,7 @@ def test_text_to_image_rejects_out_of_range(field, value):
     "field,value",
     [
         ("num_images", 5),
+        ("num_inferences", 50),
         ("num_inferences", 101),
         ("width", 1281),
         ("height", 255),
@@ -50,7 +52,7 @@ def test_image_to_image_rejects_out_of_range(field, value):
 
 def test_frontend_values_still_accepted():
     """前端实际取值（512/768/1024、steps 25、cfg 7.5、denoising 0.7）必须放行。"""
-    TextToImageRequest(prompt="x", width=1024, height=1024, steps=25, cfg_scale=7.5)
+    TextToImageRequest(prompt="x", width=1024, height=1024, steps=49, cfg_scale=7.5)
     ImageToImageRequest(
         prompt="x",
         width=512,
