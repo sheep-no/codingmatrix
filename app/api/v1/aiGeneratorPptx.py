@@ -3147,11 +3147,11 @@ async def list_ppt_history(
             if isinstance(raw_data, dict):
                 slides_list = raw_data.get("slides", [])
                 record_user_id = raw_data.get("user_id")
-                record_title = raw_data.get("title") or (slides_list[0].get("title", "未命名") if slides_list else "未命名")
+                record_title = str(raw_data.get("title") or "").strip()
             else:
                 slides_list = raw_data
                 record_user_id = None
-                record_title = slides_list[0].get("title", "未命名") if slides_list else "未命名"
+                record_title = ""
 
             # 用户过滤：跳过明确属于其他用户的记录
             if record_user_id and str(record_user_id) != str(user_id):
@@ -3159,9 +3159,10 @@ async def list_ppt_history(
 
             pptx_path = output_dir / f"{ppt_id}.pptx"
             has_file = pptx_path.exists()
-            if isinstance(slides_list, list) and slides_list:
+            if not record_title and isinstance(slides_list, list) and slides_list:
                 first = slides_list[0] if isinstance(slides_list[0], dict) else {}
-                record_title = str(first.get("title") or record_title).strip() or "未命名"
+                record_title = str(first.get("title") or "").strip()
+            record_title = record_title or "未命名"
             records.append({
                 "task_id": ppt_id,
                 "title": record_title,

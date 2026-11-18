@@ -192,63 +192,70 @@ async def persist_ppt_generation_result(
 
     report_row = None
     quality_artifact = None
-    if completed_trace.get("outline_id") and completed_trace.get("outline_version"):
-        report_row = await db.scalar(
-            select(PPTQualityReport).where(
-                PPTQualityReport.task_id == task_id,
-                PPTQualityReport.user_id == int(user_id),
-                PPTQualityReport.version == 1,
-            )
+    outline_id = str(completed_trace.get("outline_id") or task_id)
+    outline_version = int(completed_trace.get("outline_version") or 1)
+    completed_trace.update(
+        {
+            "outline_id": outline_id,
+            "outline_version": outline_version,
+        }
+    )
+    report_row = await db.scalar(
+        select(PPTQualityReport).where(
+            PPTQualityReport.task_id == task_id,
+            PPTQualityReport.user_id == int(user_id),
+            PPTQualityReport.version == 1,
         )
-        if report_row is None:
-            report_row = await save_ppt_quality_report(
-                db,
-                task_id,
-                int(user_id),
-                str(completed_trace["outline_id"]),
-                int(completed_trace["outline_version"]),
-                str(completed_trace["quality_mode"]),
-                str(completed_trace["template_id"]),
-                str(completed_trace["template_version"]),
-                int(quality["overall_score"]),
-                quality["slide_scores"],
-                quality["issues"],
-                quality["reflow_attempts"],
-                quality["degraded_stage"],
-            )
-        else:
-            report_row.outline_id = str(completed_trace["outline_id"])
-            report_row.outline_version = int(completed_trace["outline_version"])
-            report_row.quality_mode = str(completed_trace["quality_mode"])
-            report_row.template_id = str(completed_trace["template_id"])
-            report_row.template_version = str(completed_trace["template_version"])
-            report_row.overall_score = max(0, min(100, int(quality["overall_score"])))
-            report_row.slide_scores_json = quality["slide_scores"]
-            report_row.issues_json = quality["issues"]
-            report_row.reflow_attempts_json = quality["reflow_attempts"]
-            report_row.degraded_stage = quality["degraded_stage"]
-        quality_metadata = {
-            **completed_trace,
+    )
+    if report_row is None:
+        report_row = await save_ppt_quality_report(
+            db,
+            task_id,
+            int(user_id),
+            outline_id,
+            outline_version,
+            str(completed_trace["quality_mode"]),
+            str(completed_trace["template_id"]),
+            str(completed_trace["template_version"]),
+            int(quality["overall_score"]),
+            quality["slide_scores"],
+            quality["issues"],
+            quality["reflow_attempts"],
+            quality["degraded_stage"],
+        )
+    else:
+        report_row.outline_id = outline_id
+        report_row.outline_version = outline_version
+        report_row.quality_mode = str(completed_trace["quality_mode"])
+        report_row.template_id = str(completed_trace["template_id"])
+        report_row.template_version = str(completed_trace["template_version"])
+        report_row.overall_score = max(0, min(100, int(quality["overall_score"])))
+        report_row.slide_scores_json = quality["slide_scores"]
+        report_row.issues_json = quality["issues"]
+        report_row.reflow_attempts_json = quality["reflow_attempts"]
+        report_row.degraded_stage = quality["degraded_stage"]
+    quality_metadata = {
+        **completed_trace,
+        "quality_report_id": report_row.id,
+        "quality_report_version": report_row.version,
+        "manual_review_slides": quality["manual_review_slides"],
+    }
+    quality_artifact = await _upsert_artifact(
+        db,
+        user_id,
+        task_id,
+        "quality_report",
+        f"quality://{task_id}/{report_row.version}",
+        quality_metadata,
+        parent_artifact_id=primary.id,
+    )
+    task.quality_report_artifact_id = quality_artifact.id
+    completed_trace.update(
+        {
             "quality_report_id": report_row.id,
             "quality_report_version": report_row.version,
-            "manual_review_slides": quality["manual_review_slides"],
         }
-        quality_artifact = await _upsert_artifact(
-            db,
-            user_id,
-            task_id,
-            "quality_report",
-            f"quality://{task_id}/{report_row.version}",
-            quality_metadata,
-            parent_artifact_id=primary.id,
-        )
-        task.quality_report_artifact_id = quality_artifact.id
-        completed_trace.update(
-            {
-                "quality_report_id": report_row.id,
-                "quality_report_version": report_row.version,
-            }
-        )
+    )
 
     artifact_ids = {
         "output": primary.id,

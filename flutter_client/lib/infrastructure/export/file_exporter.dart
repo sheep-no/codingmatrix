@@ -31,6 +31,7 @@ class FileExporter {
 
   final SaveFilePicker _picker;
   final bool Function() _isMobile;
+  bool get isMobile => _isMobile();
   // Android/iOS hand the whole payload to the picker in one buffer, so a very
   // large artifact would risk an OOM on a phone.
   final int maxMobileBytes;

@@ -702,7 +702,13 @@ class TestTemplatesAndUploads:
         first = str(uuid.uuid4())
         _owner(output, first)
         (output / f"{first}_slides.json").write_text(
-            json.dumps({"user_id": USER_ID, "title": "标题", "slides": []})
+            json.dumps(
+                {
+                    "user_id": USER_ID,
+                    "title": "Kubernetes 基础架构概览",
+                    "slides": [{"title": "企业级容器化部署机遇分析"}],
+                }
+            )
         )
         (output / f"{first}.pptx").write_bytes(b"x")
         second = str(uuid.uuid4())
@@ -713,6 +719,9 @@ class TestTemplatesAndUploads:
         response = client.get("/api/v1/pptx/history")
         records = response.json()["records"]
         assert {r["status"] for r in records} == {"completed", "failed"}
+        first_record = next(r for r in records if r["task_id"] == first)
+        assert first_record["title"] == "Kubernetes 基础架构概览"
+        assert first_record["slide_count"] == 1
 
     def test_output_dir_missing(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(pptx, "PPT_OUTPUT_DIR", tmp_path / "missing")

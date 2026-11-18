@@ -335,7 +335,11 @@ void main() {
     await tester.tap(find.text('查看质量报告'));
     await tester.pump();
     expect(reports, 1);
-    await tester.tap(find.text('查看质量报告'), warnIfMissed: false);
+    expect(find.text('质量报告获取中...'), findsWidgets);
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, '质量报告获取中...'),
+      warnIfMissed: false,
+    );
     await tester.pump();
     expect(reports, 1);
     pending.complete({'pages': 3});
@@ -576,7 +580,10 @@ void main() {
         return {
           'records': [
             {
-              'topic': '增长',
+              'title': '增长',
+              'topic': '企业级容器化部署机遇分析',
+              'slide_count': 5,
+              'created_at': '2026-11-18T10:09:54.792920',
               'status': 'completed',
               'task_id': 'p1',
               'has_file': true,
@@ -601,6 +608,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('增长'), findsOneWidget);
+    expect(find.text('企业级容器化部署机遇分析'), findsNothing);
+    expect(find.textContaining('2026-11-18 10:09'), findsOneWidget);
+    expect(find.textContaining('5 页'), findsOneWidget);
+    expect(find.textContaining('已完成'), findsOneWidget);
 
     await tester.tap(find.text('增长'));
     await tester.pumpAndSettle();
