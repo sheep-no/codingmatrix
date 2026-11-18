@@ -177,12 +177,22 @@ class ChatClient {
                     json['content'] ??
                     json['response'] ??
                     choice['delta'];
+                final reasoning =
+                    delta is Map &&
+                    (delta['reasoning_content'] != null ||
+                        delta['reasoning'] != null);
+                final stage = json['stage'] != null
+                    ? json['stage'].toString()
+                    : reasoning
+                    ? 'reasoning'
+                    : null;
                 sink.add(
                   ChatStreamEvent(
                     conversationId: id,
                     text: delta is Map
                         ? (delta['content'] ?? '').toString()
                         : (delta ?? '').toString(),
+                    stage: stage,
                     error: error != null
                         ? (error is Map
                                   ? error['message'] ?? error['detail'] ?? error
@@ -217,12 +227,17 @@ class ChatClient {
               body: {'limit': limit, 'offset': 0},
             )
             as Map;
-    return (result['items'] as List)
-        .map(
-          (item) =>
-              ChatHistoryItem.fromJson(Map<String, dynamic>.from(item as Map)),
-        )
-        .toList();
+    final items = <ChatHistoryItem>[];
+    for (final item in (result['items'] as List? ?? const [])) {
+      try {
+        items.add(
+          ChatHistoryItem.fromJson(Map<String, dynamic>.from(item as Map)),
+        );
+      } catch (_) {
+        // A malformed record should not hide the rest of the history.
+      }
+    }
+    return items;
   }
 
   Future<List<ChatMessage>> detail(int conversationId) async {
