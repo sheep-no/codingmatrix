@@ -82,11 +82,14 @@ void main() {
     );
     await tester.pump();
 
+    await tester.tap(find.textContaining('生成选项 · 已启用'));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('generationFlag_skills')));
     await tester.tap(find.byKey(const Key('generationFlag_skills')));
     await tester.pump();
 
     await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.ensureVisible(find.byKey(const Key('startGenerationButton')));
     await tester.tap(find.byKey(const Key('startGenerationButton')));
     await tester.pump();
     await tester.pump();
@@ -134,6 +137,8 @@ void main() {
     await tester.pump();
     expect(bodies.single['enable_skills'], isTrue);
 
+    await tester.tap(find.textContaining('生成选项 · 已启用'));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('generationFlag_skills')));
     await tester.tap(find.byKey(const Key('generationFlag_skills')));
     await tester.pump();

@@ -2,6 +2,7 @@ import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/capability_registry.dart';
 import 'package:codingmatrix_desktop/domain/models/auth_session.dart';
 import 'package:codingmatrix_desktop/infrastructure/settings/capability_preferences.dart';
+import 'package:codingmatrix_desktop/presentation/agent_home_view.dart';
 import 'package:codingmatrix_desktop/presentation/capability_nav.dart';
 import 'package:codingmatrix_desktop/presentation/mcp_admin_page.dart';
 import 'package:codingmatrix_desktop/presentation/ppt_page.dart';
@@ -107,6 +108,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '聊天'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统返回键从聊天回到 Agent 工作台', (tester) async {
+    useSize(tester, const Size(600, 900));
+    await tester.pumpWidget(
+      shell(ShellAuth(Fixture())..switchAccount('alice')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('capabilityNav_chat')));
+    await tester.tap(find.byKey(const Key('capabilityNav_chat')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '聊天'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AgentHomeView), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Agent 工作台'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
