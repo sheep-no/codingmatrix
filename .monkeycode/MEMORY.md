@@ -647,3 +647,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 面向用户的回复、进度说明与总结统一使用简体中文；代码、命令、路径和标识符保持原样。
   - 用户切换语言时跟随最新语言。
+
+### PPT 历史接口字段契约（2026-11-18）
+- Date: 2026-11-18
+- Context: Agent 补全客户端历史列表的时间、页数、文件大小和下载地址
+- Category: 测试方法
+- Instructions:
+  - `GET /api/v1/pptx/history` 的记录统一由 `_ppt_history_record` 构造，字段为 `id`/`ppt_id`/`task_id`/`title`/`topic`/`slide_count`/`file_size_bytes`/`has_file`/`status`/`created_at`/`download_url`/`detail_url`/`preview_url`。
+  - `GET /api/v1/pptx/history/{ppt_id}` 返回同形状单条记录；缺快照返回 404，非本人记录返回 403。
+  - `created_at` 取 `_slides.json` 的 mtime ISO 字符串；`slide_count` 取快照 slides 长度；`file_size_bytes` 取 PPTX 实际大小；无 PPTX 时 `status=failed`、`download_url=null`。
+  - 测试夹具必须同时创建 `{ppt_id}_slides.json`、`{ppt_id}.pptx` 并登记 owner，否则记录会按 failed 断言。
