@@ -130,4 +130,66 @@ void main() {
     expect(find.textContaining('（已截断'), findsOneWidget);
     expect(find.textContaining(marker), findsNothing);
   });
+
+  testWidgets('运行中展示状态标签、运行 ID 和实时输出', (tester) async {
+    final workbench = WorkbenchController();
+    workbench.bindTask(
+      const Task(
+        taskId: 'local-1',
+        sessionId: 'run-123',
+        status: 'running',
+        stage: 'coding',
+        progress: 35,
+      ),
+    );
+    workbench.ingestSseChunk(
+      'data: ${jsonEncode({
+        'type': 'progress',
+        'data': {'step': 'coding', 'percentage': 35},
+      })}\n\n',
+    );
+
+    await _pumpHome(tester, workbench);
+
+    expect(find.byKey(const Key('agentRunStatus')), findsOneWidget);
+    expect(find.text('运行中'), findsOneWidget);
+    expect(find.text('run-123'), findsOneWidget);
+    expect(find.byKey(const Key('agentOutputStream')), findsOneWidget);
+    expect(find.textContaining('进度 · coding · 35%'), findsOneWidget);
+  });
+
+  testWidgets('任务需求和项目名称在无障碍树中有标签', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _pumpHome(tester, WorkbenchController());
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('requirementField'))).label,
+        contains('任务需求'),
+      );
+      expect(
+        tester.getSemantics(find.byKey(const Key('projectNameField'))).label,
+        contains('项目名称'),
+      );
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('生成选项标题可点按展开与收起', (tester) async {
+    await _pumpHome(tester, WorkbenchController());
+
+    final toggle = find.text('生成选项 · 已启用 7/7');
+    expect(toggle, findsOneWidget);
+    expect(find.byKey(const Key('generationFlag_review')), findsNothing);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('generationFlag_review')), findsOneWidget);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('generationFlag_review')), findsNothing);
+  });
 }

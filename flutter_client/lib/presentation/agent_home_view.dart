@@ -115,9 +115,10 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
       padding: const EdgeInsets.all(16),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compact = constraints.maxWidth < 720;
+          final compact =
+              constraints.maxWidth < 720 || constraints.maxHeight < 600;
           final overview = _OverviewCard(workbench: workbench, task: task);
-          final events = _EventsCard(events: workbench.events);
+          final events = _EventsCard(events: workbench.events, task: task);
           final isRunning = workbench.active;
           final actions = Wrap(
             spacing: 12,
@@ -162,15 +163,17 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
                   _PromptCard(
                     controller: _requirementController,
                     projectNameController: _projectNameController,
+                    task: task,
                     isRunning: isRunning,
                     onStart: () => _startGeneration(auth),
                     onStop: _confirmStop,
                   ),
                   const SizedBox(height: 16),
                   actions,
-                  overview,
                   const SizedBox(height: 16),
                   SizedBox(height: 320, child: events),
+                  const SizedBox(height: 16),
+                  overview,
                 ],
               ),
             );
@@ -184,6 +187,7 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
               _PromptCard(
                 controller: _requirementController,
                 projectNameController: _projectNameController,
+                task: task,
                 isRunning: isRunning,
                 onStart: () => _startGeneration(auth),
                 onStop: _confirmStop,
@@ -212,6 +216,7 @@ class _PromptCard extends StatelessWidget {
   const _PromptCard({
     required this.controller,
     required this.projectNameController,
+    required this.task,
     required this.isRunning,
     required this.onStart,
     required this.onStop,
@@ -219,6 +224,7 @@ class _PromptCard extends StatelessWidget {
 
   final TextEditingController controller;
   final TextEditingController projectNameController;
+  final Task? task;
   final bool isRunning;
   final VoidCallback onStart;
   final VoidCallback onStop;
@@ -235,15 +241,20 @@ class _PromptCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: TextField(
-                    key: const Key('requirementField'),
-                    controller: controller,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: '告诉 Agent 你要完成什么',
-                      hintText: '例如：创建一个带登录页的 Flutter 应用',
-                      prefixIcon: Icon(Icons.edit_note_outlined),
+                  child: Semantics(
+                    label: '任务需求',
+                    hint: '输入要交给 Agent 完成的任务',
+                    textField: true,
+                    child: TextField(
+                      key: const Key('requirementField'),
+                      controller: controller,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: '告诉 Agent 你要完成什么',
+                        hintText: '例如：创建一个带登录页的 Flutter 应用',
+                        prefixIcon: Icon(Icons.edit_note_outlined),
+                      ),
                     ),
                   ),
                 ),
@@ -264,15 +275,22 @@ class _PromptCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            TextField(
-              key: const Key('projectNameField'),
-              controller: projectNameController,
-              maxLength: 50,
-              decoration: const InputDecoration(
-                labelText: '项目名称（可选，留空自动生成）',
-                hintText: '例如：my_flutter_app',
-                prefixIcon: Icon(Icons.folder_outlined),
-                counterText: '',
+            _RunStatusStrip(task: task),
+            const SizedBox(height: 8),
+            Semantics(
+              label: '项目名称',
+              hint: '可选，输入英文项目名，留空自动生成',
+              textField: true,
+              child: TextField(
+                key: const Key('projectNameField'),
+                controller: projectNameController,
+                maxLength: 50,
+                decoration: const InputDecoration(
+                  labelText: '项目名称（可选，留空自动生成）',
+                  hintText: '例如：my_flutter_app',
+                  prefixIcon: Icon(Icons.folder_outlined),
+                  counterText: '',
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -289,12 +307,34 @@ class _PromptCard extends StatelessWidget {
 /// project cannot make one list item lay out an entire source file.
 String _eventLabel(SseEvent event) {
   final data = event.data;
-  if (data != null && (event.type == 'file' || event.type == 'file_diff')) {
+  String? text;
+  if (event.type == 'progress') {
+    final stage = data?['step'] ?? data?['phase'] ?? data?['stage'];
+    final percent = data?['percentage'] ?? data?['progress'];
+    text = [
+      '进度',
+      if (stage is String && stage.isNotEmpty) stage,
+      if (percent is num) '${percent.toInt()}%',
+    ].join(' · ');
+  } else if (event.type == 'log') {
+    final message = data?['message'] ?? data?['value'];
+    if (message is String && message.isNotEmpty) text = message;
+  } else if (event.type == 'error') {
+    final message = data?['error'] ?? data?['message'];
+    if (message is String && message.isNotEmpty) text = '失败：$message';
+  } else if (event.type == 'done') {
+    final files = data?['total_files_created'];
+    text = files is num ? '完成 · 已生成 ${files.toInt()} 个文件' : '完成';
+  } else if (event.type == 'pipeline_mode') {
+    final mode = data?['mode'] ?? data?['pipeline_mode'];
+    if (mode is String && mode.isNotEmpty) text = '生成模式 · $mode';
+  } else if (data != null &&
+      (event.type == 'file' || event.type == 'file_diff')) {
     final path = data['path'];
     if (path is String && path.isNotEmpty) {
       final operation = data['operation'];
       final size = data['file_size_human'];
-      return [
+      text = [
         event.type,
         path,
         if (operation is String && operation.isNotEmpty) operation,
@@ -302,7 +342,7 @@ String _eventLabel(SseEvent event) {
       ].join(' · ');
     }
   }
-  final text = '${event.type}: ${event.raw}';
+  text ??= '${event.type}: ${event.raw}';
   const limit = 2000;
   if (text.length <= limit) return text;
   return '${text.substring(0, limit)}…（已截断 ${text.length - limit} 字符）';
@@ -324,39 +364,145 @@ class _GenerationFlagsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final flags = ref.watch(generationFlagsControllerProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: const Key('generationFlagsPanel'),
+        initiallyExpanded: false,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 4),
+        title: Text(
           '生成选项 · 已启用 ${flags.enabledCount}/7',
-          key: const Key('generationFlagsPanel'),
-          style: Theme.of(context).textTheme.bodySmall,
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final entry in _labels.entries)
-              FilterChip(
-                key: Key('generationFlag_${entry.key.name}'),
-                label: Text(entry.value),
-                selected: switch (entry.key) {
-                  GenerationFlag.review => flags.enableReview,
-                  GenerationFlag.validation => flags.enableValidation,
-                  GenerationFlag.errorRecovery => flags.enableErrorRecovery,
-                  GenerationFlag.memory => flags.enableMemory,
-                  GenerationFlag.skills => flags.enableSkills,
-                  GenerationFlag.specFirst => flags.specFirst,
-                  GenerationFlag.dependencyGraph => flags.dependencyGraph,
-                },
-                onSelected: (_) => ref
-                    .read(generationFlagsControllerProvider.notifier)
-                    .toggle(entry.key),
+        subtitle: const Text('点按展开或收起 7 项生成能力'),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final entry in _labels.entries)
+                  FilterChip(
+                    key: Key('generationFlag_${entry.key.name}'),
+                    label: Text(entry.value),
+                    selected: switch (entry.key) {
+                      GenerationFlag.review => flags.enableReview,
+                      GenerationFlag.validation => flags.enableValidation,
+                      GenerationFlag.errorRecovery => flags.enableErrorRecovery,
+                      GenerationFlag.memory => flags.enableMemory,
+                      GenerationFlag.skills => flags.enableSkills,
+                      GenerationFlag.specFirst => flags.specFirst,
+                      GenerationFlag.dependencyGraph => flags.dependencyGraph,
+                    },
+                    onSelected: (_) => ref
+                        .read(generationFlagsControllerProvider.notifier)
+                        .toggle(entry.key),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _statusLabel(String status) {
+  return switch (status) {
+    'running' => '运行中',
+    'awaitingDecision' => '等待决策',
+    'stopping' => '停止中',
+    'disconnected' => '连接断开',
+    'success' => '已完成',
+    'failed' => '失败',
+    'cancelled' => '已停止',
+    _ => '尚未开始',
+  };
+}
+
+Color _statusColor(BuildContext context, String status) {
+  final scheme = Theme.of(context).colorScheme;
+  return switch (status) {
+    'running' || 'stopping' => Colors.orange,
+    'awaitingDecision' => Colors.blue,
+    'disconnected' || 'failed' => scheme.error,
+    'success' => Colors.green,
+    _ => scheme.primary,
+  };
+}
+
+class _RunStatusStrip extends StatelessWidget {
+  const _RunStatusStrip({required this.task});
+
+  final Task? task;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = task?.status ?? 'idle';
+    final color = _statusColor(context, status);
+    final runId = task?.sessionId ?? task?.taskId;
+    final progress = ((task?.progress ?? 0) / 100).clamp(0.0, 1.0).toDouble();
+    return Container(
+      key: const Key('agentRunStatus'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                key: const Key('agentRunStatusChip'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _statusLabel(status),
+                  style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                ),
               ),
-          ],
-        ),
-      ],
+              const SizedBox(width: 8),
+              const Text('阶段', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  task?.stage ?? '等待任务',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('${task?.progress ?? 0}%'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Text('运行 ID', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  runId ?? '尚未分配',
+                  key: const Key('agentRunId'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(value: progress),
+        ],
+      ),
     );
   }
 }
@@ -465,13 +611,46 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _EventsCard extends StatelessWidget {
-  const _EventsCard({required this.events});
+class _EventsCard extends StatefulWidget {
+  const _EventsCard({required this.events, required this.task});
 
   final List<SseEvent> events;
+  final Task? task;
+
+  @override
+  State<_EventsCard> createState() => _EventsCardState();
+}
+
+class _EventsCardState extends State<_EventsCard> {
+  final _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant _EventsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.events.length != oldWidget.events.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final active =
+        widget.task != null &&
+        const {
+          'running',
+          'awaitingDecision',
+          'stopping',
+          'disconnected',
+        }.contains(widget.task!.status);
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -480,28 +659,33 @@ class _EventsCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('实时事件', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  '实时输出',
+                  key: const Key('agentOutputStream'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const Spacer(),
                 Text(
-                  '${events.length} 条',
+                  '${widget.events.length} 条',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: events.isEmpty
+              child: widget.events.isEmpty
                   ? Center(
                       child: Text(
-                        '等待 Agent 事件流',
+                        active ? '已提交，等待服务端流式输出…' : '尚未开始运行',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     )
                   : ListView.separated(
-                      itemCount: events.length,
+                      controller: _scrollController,
+                      itemCount: widget.events.length,
                       separatorBuilder: (_, __) => const Divider(height: 16),
                       itemBuilder: (context, index) {
-                        final event = events[index];
+                        final event = widget.events[index];
                         return SelectableText(
                           _eventLabel(event),
                           style: const TextStyle(

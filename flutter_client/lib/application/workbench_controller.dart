@@ -208,39 +208,51 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     );
     final Stream<String> stream;
     try {
-      stream = await client.open(
-        accessTokenRef: accessTokenRef,
-        requirement: requirement,
-        projectName: projectName,
-        sessionId: sessionId,
-        isResume: resumeSessionId != null,
-        enableReview: flags.enableReview,
-        enableValidation: flags.enableValidation,
-        enableErrorRecovery: flags.enableErrorRecovery,
-        enableMemory: flags.enableMemory,
-        enableSkills: flags.enableSkills,
-        specFirst: flags.specFirst,
-        dependencyGraph: flags.dependencyGraph,
-        incremental: incremental,
-        // The core engine is what implements the incremental adapter; the
-        // legacy handler ignores the flag and would rebuild the whole project.
-        engine: incremental ? 'core' : null,
-        projectPath: projectPath,
-        apiKeyToken: providerKey?.isUsable == true ? providerKey!.token : null,
-        providerId: providerKey?.isUsable == true
-            ? providerKey!.provider
-            : null,
-      );
-    } catch (_) {
+      stream = await client
+          .open(
+            accessTokenRef: accessTokenRef,
+            requirement: requirement,
+            projectName: projectName,
+            sessionId: sessionId,
+            isResume: resumeSessionId != null,
+            enableReview: flags.enableReview,
+            enableValidation: flags.enableValidation,
+            enableErrorRecovery: flags.enableErrorRecovery,
+            enableMemory: flags.enableMemory,
+            enableSkills: flags.enableSkills,
+            specFirst: flags.specFirst,
+            dependencyGraph: flags.dependencyGraph,
+            incremental: incremental,
+            // The core engine is what implements the incremental adapter; the
+            // legacy handler ignores the flag and would rebuild the whole project.
+            engine: incremental ? 'core' : null,
+            projectPath: projectPath,
+            apiKeyToken: providerKey?.isUsable == true
+                ? providerKey!.token
+                : null,
+            providerId: providerKey?.isUsable == true
+                ? providerKey!.provider
+                : null,
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw AgentStreamException('连接 Agent 超时（30 秒），请确认服务端是否可用后重试'),
+          );
+    } catch (error) {
       // A superseded attempt stays silent; a current one records the disconnect
       // and rethrows so the caller can tell the user the recovery failed.
       if (!mounted || generation != _generation) return;
       if (state.active) {
+        final message = error is AgentStreamException
+            ? error.message
+            : '连接中断，服务端任务状态待确认';
         state = state.copyWith(
           task: state.task?.copyWith(
             status: 'disconnected',
-            errorJson: const <String, dynamic>{'error': '连接中断，服务端任务状态待确认'},
+            errorJson: <String, dynamic>{'error': message},
           ),
+          actionError: message,
         );
       }
       rethrow;
