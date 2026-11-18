@@ -362,7 +362,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
   - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
-  - 2026-11-09 基线：`flutter test` 497 passed、`flutter analyze lib test` 无问题；本轮使用 SDK `/tmp/opencode/flutter-sdk/flutter/bin/flutter`（3.47.9 / Dart 3.13.7）。2026-11-10 修复后：501 passed、analyze 无问题。
+  - 2026-11-09 基线：`flutter test` 497 passed、`flutter analyze lib test` 无问题；本轮使用 SDK `/tmp/opencode/flutter-sdk/flutter/bin/flutter`（3.47.9 / Dart 3.13.7）。2026-11-10 修复后：501 passed、analyze 无问题；2026-11-18 聊天修复后：562 passed / 3 skipped、analyze 无问题。
+  - 聊天流虽标记 `text/event-stream`，实际是 NDJSON：先有 `stage` 帧（`searching`/`answering`），推理模型用 `choices[].delta.reasoning_content` 持续输出思考帧，最后才是 `delta.content` 与 `conversation_id`。DeepSeek-R1 回答一句“只回复 ok”实测约 128 秒、2566 帧，排查“无回复”先区分思考帧与正文帧。
   - `flutter_client/pubspec.lock` 已由 Flutter 3.47.9 重新解析，`sdks.dart` 下限为 `>=3.11.0-0`（matcher 0.12.20 要求 Dart ^3.10.0），而 `pubspec.yaml` 与文档仍声明 `^3.9.2`。用更旧的 Flutter 构建客户端前，先跑一次 `flutter pub get` 让其按本机 SDK 重解析锁文件，否则会因锁文件版本不满足 SDK 约束而失败。
 
 ### VS Code 插件构建与依赖安装

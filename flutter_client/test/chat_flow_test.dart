@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show CheckedState;
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/chat_controller.dart';
@@ -63,6 +64,7 @@ class ChatApi extends DeliveryApi {
   bool throwOnStream = false;
   Completer<Stream<List<int>>>? streamGate;
   Completer<Object?>? historyGate;
+  Completer<Object?>? conversationGate;
   Map<String, dynamic>? syncReply;
 
   @override
@@ -99,7 +101,7 @@ class ChatApi extends DeliveryApi {
     this.body = body as Map<String, dynamic>;
     endpoint = path;
     if (path == '/api/v1/conversation/history') {
-      return {
+      final payload = {
         'conversation_id': this.body!['conversation_id'],
         'items':
             conversationItems ??
@@ -107,6 +109,8 @@ class ChatApi extends DeliveryApi {
               {'prompt': '问题', 'response': '你好'},
             ],
       };
+      if (conversationGate != null) return conversationGate!.future;
+      return payload;
     }
     if (path == '/api/v1/history') {
       historyCalls++;
@@ -151,7 +155,12 @@ class _UnconfiguredApi extends DeliveryApi {
     if (path == '/api/v1/agent/apikeys') {
       throw CloudAuthException('请求失败（HTTP 500），请确认任务状态后手动恢复');
     }
-    return super.requestJson(path, method: method, body: body, timeout: timeout);
+    return super.requestJson(
+      path,
+      method: method,
+      body: body,
+      timeout: timeout,
+    );
   }
 }
 
@@ -217,6 +226,20 @@ void main() {
     ).toList();
     expect(events.map((event) => event.text).join(), '回答');
     expect(events.last.conversationId, 19);
+  });
+
+  test('深度推理增量和阶段帧提供可见状态', () async {
+    final events = await ChatClient.parseStream(
+      Stream.fromIterable([
+        utf8.encode('{"choices":[{"delta":{"reasoning_content":"先分析问题"}}]}\n'),
+        utf8.encode('{"stage":"answering","status":"started"}\n'),
+        utf8.encode('{"choices":[{"delta":{"content":"4"}}]}\n'),
+      ]),
+    ).toList();
+    expect(events.first.stage, 'reasoning');
+    expect(events.first.text, isEmpty);
+    expect(events[1].stage, 'answering');
+    expect(events.last.text, '4');
   });
 
   test('NDJSON 跨 UTF-8 字节分片、CRLF、嵌套 delta 与无尾换行', () async {
@@ -470,6 +493,17 @@ void main() {
     expect(state.error, contains('连接中断'));
     expect(state.messages.last.text, '部分内容');
     expect(state.loading, false);
+  });
+
+  test('流正常结束但没有正文时给出明确错误', () async {
+    final pending = controller.send('问题', streaming: true);
+    await flush();
+    await api.chunks.close();
+    await pending;
+    final state = container.read(chatControllerProvider);
+    expect(state.loading, false);
+    expect(state.error, '模型没有返回内容，请重试');
+    expect(state.messages.single.fromUser, true);
   });
 
   test('发送中切换到另一会话后忽略旧流', () async {
@@ -831,7 +865,9 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authenticatedClientProvider.overrideWithValue(
-          _UnconfiguredApi((_, __, ___) async => throw const SocketException('down')),
+          _UnconfiguredApi(
+            (_, __, ___) async => throw const SocketException('down'),
+          ),
         ),
       ],
     );
@@ -849,7 +885,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('未配置模型服务'), findsOneWidget);
-    expect(find.byKey(const Key('modelServiceConfigureButton')), findsOneWidget);
+    expect(
+      find.byKey(const Key('modelServiceConfigureButton')),
+      findsOneWidget,
+    );
     expect(find.textContaining('服务内部错误'), findsNothing);
     expect(find.text('问题'), findsWidgets);
     expect(tester.takeException(), isNull);
@@ -1035,6 +1074,95 @@ void main() {
 
     expect(find.text('上一账号的会话'), findsNothing);
     expect(find.text('暂无历史会话'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点击历史会话显示加载态并按 conversation_id 拉取详情', (tester) async {
+    api.historyItems = [
+      {'conversation_id': 99, 'prompt': '历史标题'},
+    ];
+    api.conversationGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('历史标题'));
+    await tester.pump();
+
+    expect(find.text('正在加载历史会话…'), findsOneWidget);
+    expect(api.endpoint, '/api/v1/conversation/history');
+    expect(api.body!['conversation_id'], 99);
+
+    api.conversationGate!.complete({
+      'conversation_id': 99,
+      'items': [
+        {'prompt': '另一问题', 'response': '另一回答'},
+      ],
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('另一问题'), findsOneWidget);
+    expect(find.text('另一回答'), findsOneWidget);
+    expect(find.text('正在加载历史会话…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('深度推理开关暴露 checked 语义并在开启后可切换', (tester) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+
+    var node = tester.getSemantics(find.byKey(const Key('reasoningToggle')));
+    expect(node.flagsCollection.isChecked, CheckedState.isFalse);
+    await tester.tap(find.byKey(const Key('reasoningToggle')));
+    await tester.pump();
+    node = tester.getSemantics(find.byKey(const Key('reasoningToggle')));
+    expect(node.flagsCollection.isChecked, CheckedState.isTrue);
+
+    var search = tester.getSemantics(find.byKey(const Key('searchToggle')));
+    expect(search.flagsCollection.isChecked, CheckedState.isFalse);
+    await tester.tap(find.byKey(const Key('searchToggle')));
+    await tester.pump();
+    search = tester.getSemantics(find.byKey(const Key('searchToggle')));
+    expect(search.flagsCollection.isChecked, CheckedState.isTrue);
+    handle.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('深度推理阶段可见且不会在 60 秒时误超时', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('reasoningToggle')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('chatPromptField')),
+      'what is 2+2',
+    );
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    api.chunks.add(
+      utf8.encode('{"choices":[{"delta":{"reasoning_content":"先分析问题"}}]}\n'),
+    );
+    await tester.pump();
+
+    expect(find.text('深度推理中，模型正在思考…'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 61));
+    expect(find.text('等待回复超时，请稍后重试'), findsNothing);
+    expect(find.text('深度推理中，模型正在思考…'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 

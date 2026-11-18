@@ -6,41 +6,51 @@ import 'auth_controller.dart';
 import '../infrastructure/chat/chat_client.dart';
 import '../domain/models/chat_models.dart';
 
+const _unset = Object();
+
 class ChatState {
   const ChatState({
     this.messages = const [],
     this.loading = false,
+    this.loadingConversation = false,
     this.error,
     this.conversationId,
     this.history = const [],
     this.uploading = false,
     this.cancelled = false,
+    this.stage,
   });
   final List<ChatMessage> messages;
   final bool loading;
+  final bool loadingConversation;
   final String? error;
   final int? conversationId;
   final List<ChatHistoryItem> history;
   final bool uploading;
   final bool cancelled;
+  final String? stage;
 
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? loading,
+    bool? loadingConversation,
     String? error,
     int? conversationId,
     List<ChatHistoryItem>? history,
     bool? uploading,
     bool? cancelled,
+    Object? stage = _unset,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
       loading: loading ?? this.loading,
+      loadingConversation: loadingConversation ?? this.loadingConversation,
       error: error,
       conversationId: conversationId ?? this.conversationId,
       history: history ?? this.history,
       uploading: uploading ?? this.uploading,
       cancelled: cancelled ?? this.cancelled,
+      stage: identical(stage, _unset) ? this.stage : stage as String?,
     );
   }
 }
@@ -83,7 +93,13 @@ class ChatController extends Notifier<ChatState> {
 
   void cancel() {
     _invalidate();
-    state = state.copyWith(loading: false, uploading: false, cancelled: true);
+    state = state.copyWith(
+      loading: false,
+      loadingConversation: false,
+      uploading: false,
+      cancelled: true,
+      stage: null,
+    );
   }
 
   void reset() {
@@ -108,7 +124,13 @@ class ChatController extends Notifier<ChatState> {
   Future<void> loadConversation(ChatHistoryItem item) async {
     _invalidate();
     final operation = _operation;
-    state = state.copyWith(loading: true, uploading: false, cancelled: false);
+    state = state.copyWith(
+      loading: true,
+      loadingConversation: true,
+      uploading: false,
+      cancelled: false,
+      stage: null,
+    );
     try {
       final messages = await ChatClient(
         ref.read(authenticatedClientProvider),
@@ -116,13 +138,20 @@ class ChatController extends Notifier<ChatState> {
       if (operation != _operation) return;
       state = state.copyWith(
         loading: false,
+        loadingConversation: false,
         messages: messages,
         conversationId: item.id,
         error: null,
+        stage: null,
       );
     } catch (error) {
       if (operation != _operation) return;
-      state = state.copyWith(loading: false, error: error.toString());
+      state = state.copyWith(
+        loading: false,
+        loadingConversation: false,
+        error: error.toString(),
+        stage: null,
+      );
     }
   }
 
@@ -149,9 +178,11 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(
       messages: messages,
       loading: true,
+      loadingConversation: false,
       error: null,
       cancelled: false,
       uploading: filePaths.isNotEmpty,
+      stage: null,
     );
     try {
       final api = ref.read(authenticatedClientProvider);
@@ -188,19 +219,26 @@ class ChatController extends Notifier<ChatState> {
         var text = '';
         void armIdleTimer() {
           _streamIdleTimer?.cancel();
-          _streamIdleTimer = Timer(const Duration(seconds: 60), () {
-            if (operation != _operation || completion.isCompleted) return;
-            _streamIdleTimer = null;
-            final stalled = _subscription;
-            _subscription = null;
-            _completion = null;
-            unawaited(_ignoreCancel(stalled));
-            state = state.copyWith(
-              loading: false,
-              error: '等待回复超时，请稍后重试',
-            );
-            completion.complete();
-          });
+          _streamIdleTimer = Timer(
+            reasoning
+                ? const Duration(seconds: 180)
+                : const Duration(seconds: 60),
+            () {
+              if (operation != _operation || completion.isCompleted) return;
+              _streamIdleTimer = null;
+              final stalled = _subscription;
+              _subscription = null;
+              _completion = null;
+              unawaited(_ignoreCancel(stalled));
+              state = state.copyWith(
+                loading: false,
+                loadingConversation: false,
+                error: '等待回复超时，请稍后重试',
+                stage: null,
+              );
+              completion.complete();
+            },
+          );
         }
 
         _subscription = client
@@ -220,6 +258,9 @@ class ChatController extends Notifier<ChatState> {
                 text += event.text;
                 state = state.copyWith(
                   conversationId: event.conversationId,
+                  stage: event.text.isNotEmpty
+                      ? null
+                      : event.stage ?? state.stage,
                   messages: [
                     ...messages,
                     if (text.isNotEmpty)
@@ -242,6 +283,12 @@ class ChatController extends Notifier<ChatState> {
               onDone: () {
                 _streamIdleTimer?.cancel();
                 _streamIdleTimer = null;
+                if (!completion.isCompleted &&
+                    operation == _operation &&
+                    text.trim().isEmpty &&
+                    state.error == null) {
+                  state = state.copyWith(error: '模型没有返回内容，请重试', stage: null);
+                }
                 if (!completion.isCompleted) completion.complete();
               },
               cancelOnError: true,
@@ -253,7 +300,12 @@ class ChatController extends Notifier<ChatState> {
         if (operation != _operation) return;
         _subscription = null;
         _completion = null;
-        state = state.copyWith(loading: false, error: state.error);
+        state = state.copyWith(
+          loading: false,
+          loadingConversation: false,
+          error: state.error,
+          stage: null,
+        );
         return;
       }
       final reply = await Future.any<ChatReply?>([
@@ -273,11 +325,13 @@ class ChatController extends Notifier<ChatState> {
       final text = reply.text.trim();
       state = state.copyWith(
         loading: false,
+        loadingConversation: false,
         error: reply.error,
         messages: text.isEmpty
             ? messages
             : [...messages, ChatMessage(text: reply.text, fromUser: false)],
         conversationId: reply.conversationId ?? conversationId,
+        stage: null,
       );
     } catch (error) {
       if (operation != _operation) return;
@@ -290,8 +344,10 @@ class ChatController extends Notifier<ChatState> {
           : error.toString();
       state = state.copyWith(
         loading: false,
+        loadingConversation: false,
         uploading: false,
         error: message,
+        stage: null,
       );
     }
   }
