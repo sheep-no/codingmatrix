@@ -11,7 +11,10 @@ void main() {
     'today_tokens': 120,
     'this_month_tokens': 1234,
     'extra_field': 7,
-    'by_model': {'gpt-4o': {'tokens': 900}, 'deepseek': {'tokens': 334}},
+    'by_model': {
+      'gpt-4o': {'tokens': 900},
+      'deepseek': {'tokens': 334},
+    },
   };
   const cache = <String, Object?>{
     'total_requests': 2,
@@ -78,7 +81,10 @@ void main() {
     expect(find.text('0.0%'), findsWidgets);
     expect(find.text('学习统计'), findsOneWidget);
     expect(find.text('已学习模式'), findsOneWidget);
-    expect(find.text('#1 validation error · 495 次 · 修复成功率 100.0%'), findsOneWidget);
+    expect(
+      find.text('#1 validation error · 495 次 · 修复成功率 100.0%'),
+      findsOneWidget,
+    );
     expect(find.text('2 条'), findsOneWidget);
     expect(find.text('处理方式：增加枚举校验'), findsNothing);
     expect(find.text('extra field'), findsOneWidget);
@@ -107,11 +113,45 @@ void main() {
     expect(find.textContaining('error_type'), findsNothing);
   });
 
+  testWidgets('输入输出为 0 时不展示矛盾的分项，只保留总量', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AgentStatsDialog(
+            usage: {
+              'total_tokens': 319,
+              'prompt_tokens': 0,
+              'completion_tokens': 0,
+              'total_messages': 2,
+              'by_model': {'deepseek-chat': 319},
+            },
+            cache: null,
+            learning: null,
+            limits: null,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('总 Token'), findsOneWidget);
+    expect(find.text('319'), findsWidgets);
+    expect(find.text('输入 Token'), findsNothing);
+    expect(find.text('输出 Token'), findsNothing);
+    expect(find.text('按模型（总 Token）'), findsOneWidget);
+    expect(find.text('模型 deepseek-chat'), findsOneWidget);
+  });
+
   testWidgets('空数据与异常结构给出占位而不是崩溃', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
-          body: AgentStatsDialog(usage: null, cache: {}, learning: null, limits: 'oops'),
+          body: AgentStatsDialog(
+            usage: null,
+            cache: {},
+            learning: null,
+            limits: 'oops',
+          ),
         ),
       ),
     );
@@ -134,7 +174,11 @@ void main() {
             cache: cache,
             learning: {
               'top_errors': [
-                {'error_type': 'validation_error', 'error_message': long, 'frequency': 1},
+                {
+                  'error_type': 'validation_error',
+                  'error_message': long,
+                  'frequency': 1,
+                },
               ],
             },
             limits: limits,

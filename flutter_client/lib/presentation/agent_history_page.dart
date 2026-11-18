@@ -158,11 +158,17 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
               ),
             ),
             data: (sessions) => sessions.isEmpty
-                ? const Center(child: Text('暂无会话'))
+                ? const Center(
+                    child: Text(
+                      '暂无 Agent 会话\n日常聊天记录请到「聊天」查看',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
                 : ListView.builder(
                     itemCount: sessions.length,
                     itemBuilder: (context, index) {
                       final session = sessions[index];
+                      final failure = session.error?.trim();
                       return ListTile(
                         title: Text(
                           session.requirement,
@@ -170,7 +176,14 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          '${session.status} · ${session.generated}/${session.total}\n${session.updatedAt ?? session.id}',
+                          [
+                            '${session.status} · ${session.generated}/${session.total}',
+                            session.updatedAt ?? session.id,
+                            if (failure != null && failure.isNotEmpty)
+                              '失败原因：$failure',
+                          ].join('\n'),
+                          maxLines: failure == null || failure.isEmpty ? 2 : 4,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
@@ -436,8 +449,13 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
                       : () => showSnapshots(session.id),
                   child: const Text('查看快照'),
                 ),
-                if (session.error != null) Text(session.error!),
-                const Text('仅支持当前进程存活任务重连。历史事件、决策重放和进程重启续跑尚无可用契约。'),
+                if (session.error?.trim().isNotEmpty == true)
+                  Text('失败原因：${session.error!.trim()}'),
+                Text(
+                  session.reconnectable
+                      ? '任务仍在运行，可恢复实时进度连接。'
+                      : '该会话已结束，暂不支持恢复。',
+                ),
                 if (error != null) Text(error!),
                 FilledButton(
                   onPressed: session.reconnectable && !busy
@@ -445,6 +463,11 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
                       : null,
                   child: Text(busy ? '正在确认' : '恢复 SSE 连接'),
                 ),
+                if (!session.reconnectable)
+                  const Text(
+                    '实时进度连接仅在任务运行时可恢复。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
               ],
             ),
           ),

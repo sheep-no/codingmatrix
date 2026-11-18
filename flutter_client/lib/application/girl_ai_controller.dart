@@ -20,6 +20,8 @@ class GirlAiState {
     this.preferences = const [],
     this.voiceInput,
     this.busyIds = const {},
+    this.canRetryTurn = false,
+    this.customCharactersLoading = false,
   });
   final String character;
   final List<GirlHistory> messages;
@@ -40,6 +42,9 @@ class GirlAiState {
   final VoiceState? voiceInput;
   // Ids of library rows (memory/preference/character) with an in-flight request.
   final Set<String> busyIds;
+  // True after a turn failed in a way the user can retry without retyping.
+  final bool canRetryTurn;
+  final bool customCharactersLoading;
   GirlAiState copyWith({
     String? character,
     List<GirlHistory>? messages,
@@ -56,6 +61,8 @@ class GirlAiState {
     List<GirlPreference>? preferences,
     VoiceState? voiceInput,
     Set<String>? busyIds,
+    bool? canRetryTurn,
+    bool? customCharactersLoading,
   }) => GirlAiState(
     character: character ?? this.character,
     messages: messages ?? this.messages,
@@ -72,6 +79,9 @@ class GirlAiState {
     preferences: preferences ?? this.preferences,
     voiceInput: voiceInput ?? this.voiceInput,
     busyIds: busyIds ?? this.busyIds,
+    canRetryTurn: canRetryTurn ?? this.canRetryTurn,
+    customCharactersLoading:
+        customCharactersLoading ?? this.customCharactersLoading,
   );
 }
 
@@ -92,9 +102,15 @@ class GirlAiController extends Notifier<GirlAiState> {
   // the new one, and this notifier instance is reused across rebuilds, so a
   // one-way flag would stay latched and mute every later request.
   int _epoch = 0;
+  String? _retryText;
+  String? _retryTurnId;
+  bool _retryVoice = false;
   GirlAiClient get api => GirlAiClient(ref.read(authenticatedClientProvider));
   @override
   GirlAiState build() {
+    _retryText = null;
+    _retryTurnId = null;
+    _retryVoice = false;
     ref.watch(
       authControllerProvider.select((auth) => auth.session?.accessTokenRef),
     );
@@ -124,40 +140,96 @@ class GirlAiController extends Notifier<GirlAiState> {
   // the same companion turn, surfacing `voice_input` on the response.
   Future<void> sendVoice(String text) => _turn(text, voice: true);
 
-  Future<void> _turn(String text, {required bool voice}) async {
+  Future<void> retryLastTurn() async {
+    final text = _retryText;
+    if (text == null || state.loading) return;
+    await _turn(
+      text,
+      voice: _retryVoice,
+      turnId: _retryTurnId,
+      appendUser: false,
+    );
+  }
+
+  Future<void> _turn(
+    String text, {
+    required bool voice,
+    String? turnId,
+    bool appendUser = true,
+  }) async {
     if (text.trim().isEmpty || state.loading) return;
     final g = ++_generation;
+    final requestTurnId =
+        turnId ?? 'girlai-turn-${DateTime.now().microsecondsSinceEpoch}';
+    _retryText = text.trim();
+    _retryTurnId = requestTurnId;
+    _retryVoice = voice;
     state = state.copyWith(
       loading: true,
       error: null,
+      canRetryTurn: false,
       messages: [
-        ...state.messages,
-        GirlHistory(id: 'local', role: 'user', content: text),
+        if (appendUser) ...[
+          ...state.messages,
+          GirlHistory(id: 'local', role: 'user', content: text),
+        ] else
+          ...state.messages,
       ],
     );
     try {
-      final r = voice
-          ? await api.transcribe(text.trim(), state.character)
-          : await api.turn(text.trim(), state.character);
+      final events = voice
+          ? api.transcribeStream(
+              text.trim(),
+              state.character,
+              turnId: requestTurnId,
+            )
+          : api.turnStream(text.trim(), state.character, turnId: requestTurnId);
+      CompanionTurnResponse? response;
+      await for (final event in events.timeout(const Duration(seconds: 30))) {
+        if (g != _generation) return;
+        final type = '${event['event'] ?? ''}';
+        if (type == 'error') {
+          throw StateError('${event['message'] ?? 'AI 服务暂时不可用，请稍后重试'}');
+        }
+        if (type != 'turn') continue;
+        final data = event['data'];
+        if (data is Map) {
+          response = CompanionTurnResponse.fromJson(
+            Map<String, dynamic>.from(data),
+          );
+        }
+      }
+      if (response == null) {
+        throw const FormatException('响应提前结束，请点击重试');
+      }
       if (g == _generation) {
+        _retryText = null;
+        _retryTurnId = null;
         state = state.copyWith(
           loading: false,
-          emotion: r.emotion,
-          intent: r.intent,
-          voiceInput: r.voiceInput,
-          memoryCandidates: r.memories,
+          canRetryTurn: false,
+          emotion: response.emotion,
+          intent: response.intent,
+          voiceInput: response.voiceInput,
+          memoryCandidates: response.memories,
           messages: [
             ...state.messages,
             GirlHistory(
-              id: r.turnId ?? 'local',
+              id: response.turnId ?? 'local',
               role: 'assistant',
-              content: r.text,
+              content: response.text,
             ),
           ],
         );
       }
     } catch (e) {
-      if (g == _generation) state = state.copyWith(loading: false, error: '$e');
+      if (g == _generation) {
+        state = state.copyWith(
+          loading: false,
+          error: _turnFailureText(e),
+          canRetryTurn: true,
+        );
+      }
     }
   }
 
@@ -244,10 +316,12 @@ class GirlAiController extends Notifier<GirlAiState> {
 
   Future<void> loadCustomCharacters() async {
     final epoch = _epoch;
+    state = state.copyWith(customCharactersLoading: true);
     try {
       final list = await api.customCharacters();
       if (epoch != _epoch) return;
       state = state.copyWith(
+        customCharactersLoading: false,
         customCharacters: [
           for (final c in list)
             GirlCharacter(
@@ -262,7 +336,7 @@ class GirlAiController extends Notifier<GirlAiState> {
       );
     } catch (e) {
       if (epoch != _epoch) return;
-      state = state.copyWith(error: '$e');
+      state = state.copyWith(customCharactersLoading: false, error: '$e');
     }
   }
 
@@ -428,4 +502,19 @@ class GirlAiController extends Notifier<GirlAiState> {
       state = state.copyWith(error: '$e');
     }
   }
+}
+
+String _turnFailureText(Object error) {
+  final text = '$error';
+  if (text.contains('SocketException') ||
+      text.contains('connection lost') ||
+      text.contains('连接中断') ||
+      text.contains('结果未知') ||
+      text.contains('TimeoutException') ||
+      text.contains('响应超时')) {
+    return '网络中断，请点击重试';
+  }
+  if (text.contains('响应提前结束')) return '网络中断，请点击重试';
+  if (text.contains('正在处理或已失败')) return '上一条回复仍在处理，请稍后再试';
+  return text;
 }

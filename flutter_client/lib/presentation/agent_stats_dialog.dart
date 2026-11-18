@@ -55,14 +55,21 @@ class _UsageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = _asMap(payload);
     final models = _asMap(data.remove('by_model'));
+    final promptTokens = _asNumber(data['prompt_tokens']) ?? 0;
+    final completionTokens = _asNumber(data['completion_tokens']) ?? 0;
+    final hasTokenBreakdown = promptTokens > 0 || completionTokens > 0;
+    if (!hasTokenBreakdown) {
+      data.remove('prompt_tokens');
+      data.remove('completion_tokens');
+    }
     return _StatsCard(
       icon: Icons.toll_outlined,
       title: 'Token 用量',
       children: [
-        _metricWrap(data, const [
+        _metricWrap(data, [
           'total_tokens',
-          'prompt_tokens',
-          'completion_tokens',
+          if (hasTokenBreakdown) 'prompt_tokens',
+          if (hasTokenBreakdown) 'completion_tokens',
           'total_messages',
           'today_tokens',
           'this_month_tokens',
@@ -70,7 +77,7 @@ class _UsageCard extends StatelessWidget {
         if (models.isEmpty)
           _emptyRow('暂无模型用量')
         else ...[
-          _subTitle('按模型'),
+          _subTitle('按模型（总 Token）'),
           for (final entry in models.entries)
             _MetricRow('模型 ${entry.key}', _valueText(entry.key, entry.value)),
         ],
@@ -100,7 +107,10 @@ class _CacheCard extends StatelessWidget {
       icon: Icons.memory_outlined,
       title: '缓存',
       children: [
-        if (tiles.isEmpty) _emptyRow('暂无缓存数据') else Wrap(spacing: 8, runSpacing: 8, children: tiles),
+        if (tiles.isEmpty)
+          _emptyRow('暂无缓存数据')
+        else
+          Wrap(spacing: 8, runSpacing: 8, children: tiles),
       ],
     );
   }
@@ -114,7 +124,9 @@ class _LearningCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = _asMap(payload);
     final errors = data.remove('top_errors');
-    final items = errors is List ? errors.whereType<Map>().toList() : const <Map>[];
+    final items = errors is List
+        ? errors.whereType<Map>().toList()
+        : const <Map>[];
     return _StatsCard(
       icon: Icons.school_outlined,
       title: '学习统计',
@@ -149,7 +161,10 @@ class _LimitCard extends StatelessWidget {
       icon: Icons.speed_outlined,
       title: '推荐并发上限',
       children: [
-        if (tiles.isEmpty) _emptyRow('暂无推荐值') else Wrap(spacing: 8, runSpacing: 8, children: tiles),
+        if (tiles.isEmpty)
+          _emptyRow('暂无推荐值')
+        else
+          Wrap(spacing: 8, runSpacing: 8, children: tiles),
       ],
     );
   }
@@ -195,9 +210,7 @@ class _ErrorListState extends State<_ErrorList> {
                 minimumSize: const Size(0, 28),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              child: Text(
-                _expanded ? '收起错误列表' : '展开全部 ${items.length} 条',
-              ),
+              child: Text(_expanded ? '收起错误列表' : '展开全部 ${items.length} 条'),
             ),
           ),
       ],
@@ -218,15 +231,15 @@ class _ErrorItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final type = _clean('${data['error_type'] ?? '未知类型'}')
-        .replaceAll('_', ' ')
-        .trim();
+    final type = _clean(
+      '${data['error_type'] ?? '未知类型'}',
+    ).replaceAll('_', ' ').trim();
     final frequency = _valueText('frequency', data['frequency']);
     final rate = _valueText('success_rate', data['success_rate']);
     final message = _clean('${data['error_message'] ?? ''}').trim();
-    final fix = _clean('${data['fix_description'] ?? ''}')
-        .replaceFirst(RegExp(r'^修复[:：]\s*'), '')
-        .trim();
+    final fix = _clean(
+      '${data['fix_description'] ?? ''}',
+    ).replaceFirst(RegExp(r'^修复[:：]\s*'), '').trim();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
@@ -282,9 +295,9 @@ class _StatsCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -364,10 +377,8 @@ Widget _metricWrap(Map<String, Object?> data, List<String> order) {
 Widget _emptyRow(String text) =>
     Text(text, style: const TextStyle(fontSize: 12, color: Colors.grey));
 
-Widget _subTitle(String text) => Text(
-      text,
-      style: const TextStyle(fontSize: 12, color: Colors.grey),
-    );
+Widget _subTitle(String text) =>
+    Text(text, style: const TextStyle(fontSize: 12, color: Colors.grey));
 
 TextStyle? _secondary(BuildContext context) => Theme.of(context)
     .textTheme
@@ -437,7 +448,10 @@ String _valueText(String key, Object? value) {
     if (value.isEmpty) return '—';
     return _clip(
       value.entries
-          .map((entry) => '${_label('${entry.key}')} ${_valueText('${entry.key}', entry.value)}')
+          .map(
+            (entry) =>
+                '${_label('${entry.key}')} ${_valueText('${entry.key}', entry.value)}',
+          )
           .join(' · '),
     );
   }

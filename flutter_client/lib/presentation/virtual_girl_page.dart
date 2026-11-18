@@ -68,6 +68,11 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        isDismissible: true,
+        enableDrag: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        barrierLabel: '关闭历史记录',
         builder: (_) => const _HistorySheet(),
       );
     } finally {
@@ -80,13 +85,17 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
     final epoch = _epoch;
     setState(() => libraryBusy = true);
     try {
-      await ref.read(girlAiControllerProvider.notifier).loadCustomCharacters();
-      if (!mounted || epoch != _epoch) return;
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        isDismissible: true,
+        enableDrag: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        barrierLabel: '关闭角色库',
         builder: (_) => const _CharacterSheet(),
       );
+      if (!mounted || epoch != _epoch) return;
     } finally {
       if (mounted) setState(() => libraryBusy = false);
     }
@@ -106,6 +115,11 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        isDismissible: true,
+        enableDrag: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        barrierLabel: '关闭记忆库',
         builder: (_) => const _MemorySheet(),
       );
     } finally {
@@ -184,6 +198,14 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
             Expanded(
               child: state.loading && state.messages.isEmpty
                   ? const Center(child: CircularProgressIndicator())
+                  : state.error != null &&
+                        state.messages.isEmpty &&
+                        state.characters.isEmpty
+                  ? _PageFailure(
+                      error: state.error!,
+                      onRetry: () =>
+                          ref.read(girlAiControllerProvider.notifier).load(),
+                    )
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: state.messages.length,
@@ -203,10 +225,27 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
                       },
                     ),
             ),
-            if (state.error != null)
+            if (state.error != null &&
+                !(state.messages.isEmpty && state.characters.isEmpty))
               Padding(
                 padding: const EdgeInsets.all(8),
-                child: ModelServiceHint(error: state.error!),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ModelServiceHint(error: state.error!),
+                    if (state.canRetryTurn)
+                      TextButton.icon(
+                        key: const Key('girlRetryTurnButton'),
+                        onPressed: state.loading
+                            ? null
+                            : () => ref
+                                  .read(girlAiControllerProvider.notifier)
+                                  .retryLastTurn(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('点击重试'),
+                      ),
+                  ],
+                ),
               ),
             for (final memory in state.memoryCandidates)
               Card(
@@ -280,6 +319,124 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
   }
 }
 
+class _PageFailure extends StatelessWidget {
+  const _PageFailure({required this.error, required this.onRetry});
+
+  final String error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off,
+              size: 44,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text('伴侣服务暂时不可用', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              '上游服务没有响应，你可以稍后重试；其他模块仍可正常使用。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                error,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              key: const Key('girlPageRetryButton'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('重试'),
+            ),
+            if (isModelServiceFailure(error)) ...[
+              const SizedBox(height: 12),
+              ModelServiceHint(error: error),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryEmpty extends StatelessWidget {
+  const _LibraryEmpty({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onRetry,
+    this.compact = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onRetry;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: compact ? 16 : 32,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: compact ? 28 : 40,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 8),
+          Text(title, style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('重新加载'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _HistorySheet extends ConsumerStatefulWidget {
   const _HistorySheet();
   @override
@@ -338,7 +495,7 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
     final controller = ref.read(girlAiControllerProvider.notifier);
     return SafeArea(
       child: SizedBox(
-        height: 460,
+        height: MediaQuery.sizeOf(context).height * 0.7,
         child: Column(
           children: [
             Padding(
@@ -353,20 +510,40 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                       decoration: const InputDecoration(
                         isDense: true,
                         prefixIcon: Icon(Icons.search),
+                        labelText: '搜索历史记录',
                         hintText: '搜索历史记录',
+                        helperText: '输入关键词后回车搜索',
                       ),
                     ),
                   ),
-                  TextButton(
-                    onPressed: records.isEmpty || busy ? null : _clearAll,
-                    child: const Text('清空'),
+                  Tooltip(
+                    message: records.isEmpty ? '暂无记录可清空' : '清空全部历史记录',
+                    child: TextButton(
+                      onPressed: records.isEmpty || busy ? null : _clearAll,
+                      child: const Text('清空'),
+                    ),
                   ),
                 ],
               ),
             ),
+            if (records.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '暂无可清空的记录',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
             Expanded(
               child: records.isEmpty
-                  ? const Center(child: Text('暂无历史记录'))
+                  ? const _LibraryEmpty(
+                      icon: Icons.history,
+                      title: '暂无历史记录',
+                      subtitle: '完成一次对话后，记录会出现在这里',
+                    )
                   : ListView.builder(
                       itemCount: records.length,
                       itemBuilder: (_, index) {
@@ -403,6 +580,20 @@ class _CharacterSheet extends ConsumerStatefulWidget {
 }
 
 class _CharacterSheetState extends ConsumerState<_CharacterSheet> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_reload);
+  }
+
+  Future<void> _reload() async {
+    final controller = ref.read(girlAiControllerProvider.notifier);
+    if (ref.read(girlAiControllerProvider).characters.isEmpty) {
+      await controller.load();
+    }
+    await controller.loadCustomCharacters();
+  }
+
   Future<void> _create() async {
     await showDialog<bool>(
       context: context,
@@ -417,9 +608,11 @@ class _CharacterSheetState extends ConsumerState<_CharacterSheet> {
     final builtIns = state.characters
         .where((c) => !c.id.startsWith('custom_'))
         .toList();
+    final loading = state.loading || state.customCharactersLoading;
+    final empty = builtIns.isEmpty && state.customCharacters.isEmpty;
     return SafeArea(
       child: SizedBox(
-        height: 520,
+        height: MediaQuery.sizeOf(context).height * 0.7,
         child: Column(
           children: [
             Padding(
@@ -432,6 +625,11 @@ class _CharacterSheetState extends ConsumerState<_CharacterSheet> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
+                  IconButton(
+                    tooltip: '关闭角色库',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
                   TextButton.icon(
                     onPressed: state.busyIds.contains('character:create')
                         ? null
@@ -443,34 +641,47 @@ class _CharacterSheetState extends ConsumerState<_CharacterSheet> {
               ),
             ),
             Expanded(
-              child: ListView(
-                children: [
-                  for (final character in builtIns)
-                    _CharacterTile(
-                      character: character,
-                      selected: state.character == character.id,
-                      onUse: () {
-                        controller.useCharacter(character);
-                        Navigator.of(context).pop();
-                      },
+              child: loading && empty
+                  ? const Center(child: CircularProgressIndicator())
+                  : empty
+                  ? _LibraryEmpty(
+                      icon: Icons.face_retouching_natural,
+                      title: '暂无可用角色',
+                      subtitle: state.error == null
+                          ? '还没有内置或自定义角色，可以新建一个角色开始对话'
+                          : '角色加载失败：${state.error}',
+                      onRetry: _reload,
+                    )
+                  : ListView(
+                      children: [
+                        for (final character in builtIns)
+                          _CharacterTile(
+                            character: character,
+                            selected: state.character == character.id,
+                            onUse: () {
+                              controller.useCharacter(character);
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                        if (state.customCharacters.isNotEmpty) ...[
+                          const Divider(height: 1),
+                          for (final character in state.customCharacters)
+                            _CharacterTile(
+                              character: character,
+                              selected: state.character == character.id,
+                              onUse: () {
+                                controller.useCharacter(character);
+                                Navigator.of(context).pop();
+                              },
+                              onDelete: state.busyIds.contains(character.id)
+                                  ? null
+                                  : () => controller.deleteCharacter(
+                                      character.id,
+                                    ),
+                            ),
+                        ],
+                      ],
                     ),
-                  if (state.customCharacters.isNotEmpty) ...[
-                    const Divider(height: 1),
-                    for (final character in state.customCharacters)
-                      _CharacterTile(
-                        character: character,
-                        selected: state.character == character.id,
-                        onUse: () {
-                          controller.useCharacter(character);
-                          Navigator.of(context).pop();
-                        },
-                        onDelete: state.busyIds.contains(character.id)
-                            ? null
-                            : () => controller.deleteCharacter(character.id),
-                      ),
-                  ],
-                ],
-              ),
             ),
           ],
         ),
@@ -685,12 +896,35 @@ class _MemorySheetState extends ConsumerState<_MemorySheet> {
     final controller = ref.read(girlAiControllerProvider.notifier);
     return SafeArea(
       child: SizedBox(
-        height: 520,
+        height: MediaQuery.sizeOf(context).height * 0.7,
         child: ListView(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '记忆库',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭记忆库',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
             const ListTile(dense: true, title: Text('已保存记忆')),
             if (state.memories.isEmpty)
-              const ListTile(dense: true, title: Text('暂无已保存记忆')),
+              const _LibraryEmpty(
+                icon: Icons.psychology_alt,
+                title: '暂无已保存记忆',
+                subtitle: '确认记忆候选后，它们会保存在这里',
+                compact: true,
+              ),
             for (final memory in state.memories)
               ListTile(
                 dense: true,
@@ -707,7 +941,12 @@ class _MemorySheetState extends ConsumerState<_MemorySheet> {
             const Divider(height: 1),
             const ListTile(dense: true, title: Text('偏好')),
             if (state.preferences.isEmpty)
-              const ListTile(dense: true, title: Text('暂无偏好')),
+              const _LibraryEmpty(
+                icon: Icons.tune,
+                title: '暂无偏好',
+                subtitle: '对话中确认的偏好会显示在这里',
+                compact: true,
+              ),
             for (final preference in state.preferences)
               ListTile(
                 dense: true,

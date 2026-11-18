@@ -130,11 +130,32 @@ async def reserve_session_event(
     schema_version: str = "1",
     reclaim_after_seconds: Optional[float] = None,
     reservation_token: Optional[str] = None,
+    retry_failed_event: bool = False,
 ) -> tuple[SessionEvent, bool]:
     """Reserve a user-owned event and report whether this call created it."""
     session = await get_owned_session(db, session_id, user_id)
     existing = await get_session_event_by_turn_id(db, session_id, user_id, turn_id)
     if existing:
+        if retry_failed_event and existing.event_type.endswith(".failed"):
+            retry = await db.execute(
+                update(SessionEvent)
+                .where(
+                    SessionEvent.id == existing.id,
+                    SessionEvent.event_type == existing.event_type,
+                )
+                .values(
+                    event_type=event_type,
+                    payload_json=payload or {},
+                    schema_version=str(schema_version),
+                    reservation_token=reservation_token,
+                    created_at=datetime.utcnow(),
+                )
+            )
+            if retry.rowcount == 1:
+                await db.flush()
+                await db.refresh(existing)
+                session.updated_at = datetime.utcnow()
+                return existing, True
         if reclaim_after_seconds is not None and existing.event_type == event_type:
             reservation_time = datetime.utcnow()
             stale_before = reservation_time - timedelta(
