@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Any
 
 # 覆盖率检查可调参数（模块级常量，调优入口；与 memory.py 阈值常量风格一致）
@@ -152,6 +153,7 @@ def extract_required_artifacts(requirement: str) -> list[dict[str, Any]]:
 def check_required_artifacts(
     requirement: str,
     generated_paths: list[str],
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Verify requirement-named artifacts exist in the generated paths.
 
@@ -177,6 +179,8 @@ def check_required_artifacts(
                 candidate == path or candidate.endswith("/" + path)
                 for candidate in existing
             )
+        if not satisfied and output_dir is not None:
+            satisfied = _artifact_exists_on_disk(output_dir, path, item["root"])
         if not satisfied:
             missing.append(path)
     return {
@@ -185,3 +189,19 @@ def check_required_artifacts(
         "missing": missing,
         "passed": not missing,
     }
+
+
+def _artifact_exists_on_disk(
+    output_dir: str | Path,
+    path: str,
+    root_scoped: bool,
+) -> bool:
+    root_dir = Path(output_dir)
+    relative = Path(path)
+    if not root_dir.is_dir() or relative.is_absolute() or ".." in relative.parts:
+        return False
+    if (root_dir / relative).is_file():
+        return True
+    if root_scoped:
+        return False
+    return any(candidate.is_file() for candidate in root_dir.glob(f"**/{path}"))

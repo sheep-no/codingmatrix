@@ -75,3 +75,31 @@ def test_empty_requirement_skips_check():
         "missing": [],
         "passed": True,
     }
+
+
+def test_artifact_written_to_disk_satisfies_requirement(tmp_path):
+    (tmp_path / "requirements.txt").write_text("fastapi\n")
+
+    result = check_required_artifacts(
+        "包含 requirements.txt",
+        ["src/main.py"],
+        output_dir=tmp_path,
+    )
+
+    assert result["missing"] == []
+    assert result["passed"] is True
+
+
+def test_root_artifact_must_be_at_output_root_on_disk(tmp_path):
+    nested = tmp_path / "src"
+    nested.mkdir()
+    (nested / "index.html").write_text("<html></html>")
+
+    result = check_required_artifacts(
+        "生成根级 index.html",
+        ["src/main.py"],
+        output_dir=tmp_path,
+    )
+
+    assert result["missing"] == ["index.html"]
+    assert result["passed"] is False

@@ -362,6 +362,7 @@ class TraditionalGenerateMixin:
                 for item in self.generated_files
                 if isinstance(item, dict) and item.get("path")
             ],
+            output_dir=self.output_dir,
         )
         if artifact_check["checked"] and artifact_check["missing"]:
             self.errors.append(
