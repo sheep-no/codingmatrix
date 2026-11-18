@@ -25,6 +25,7 @@
    params: operation, path, content
 5. llm_call - 调用大语言模型处理文本
    params: prompt, model, system_prompt, temperature, max_tokens, input_variable, output_variable
+   model 请省略或留空，服务端会自动使用本次任务规划实际可用的模型。
 6. conditional - 条件分支判断
    params: variable, operator(==,!=,>,>=,<,<=,in,contains,is_empty), value, true_branch, false_branch
 7. human_approval - 人工审批确认

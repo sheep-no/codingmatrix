@@ -41,6 +41,15 @@ from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerErr
 logger = logging.getLogger(__name__)
 
 _LEGACY_LLM_MODELS = {"gpt-3.5-turbo", "gpt-3.5-turbo-0125"}
+_PLACEHOLDER_LLM_MODELS = {
+    "default-model",
+    "default_model",
+    "model",
+    "model-name",
+    "model_name",
+    "your-model",
+    "your_model",
+}
 
 
 def _normalize_llm_node_models(task_graph: TaskGraph, fallback_model: str) -> None:
@@ -52,9 +61,14 @@ def _normalize_llm_node_models(task_graph: TaskGraph, fallback_model: str) -> No
             continue
         params = node.params or {}
         model = params.get("model")
-        if not model or model in _LEGACY_LLM_MODELS:
+        normalized = str(model).strip().lower() if model else ""
+        if (
+            not normalized
+            or normalized in _LEGACY_LLM_MODELS
+            or normalized in _PLACEHOLDER_LLM_MODELS
+        ):
             logger.info(
-                "工作流节点 %s 的模型 %s 不在当前供应商能力内，改用 %s",
+                "工作流节点 %s 的模型 %r 不在当前供应商能力内，改用 %s",
                 node.id,
                 model,
                 fallback_model,
