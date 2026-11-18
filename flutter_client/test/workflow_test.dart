@@ -717,8 +717,33 @@ void main() {
     await tester.tap(find.text('查询状态'));
     await tester.pump();
     await tester.pump();
-    expect(find.text('状态查询失败；任务可能已过期或当前服务进程没有记录'), findsOneWidget);
+    expect(find.textContaining('状态查询失败'), findsOneWidget);
+    expect(find.textContaining('网络连接中断'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查询状态 404 展示服务端可读原因', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final api = streamingApi(source.stream, (path, method, body) async {
+      expect(path, '/api/v1/workflow/status/w1');
+      expect(method, 'GET');
+      throw StateError('工作流状态不存在或已超过 24 小时保留期（HTTP 404）');
+    });
+    await pumpWorkflow(tester, api);
+    await executeUntilId(tester, source);
+    await tester.tap(find.text('断开本地连接'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('查询状态'));
+    await tester.tap(find.text('查询状态'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('状态查询失败'), findsOneWidget);
+    expect(find.textContaining('24 小时保留期'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
