@@ -400,13 +400,28 @@ class TestListHistory:
         ppt_id = str(uuid.uuid4())
         with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
             json.dump(sample_outline["slides"], f)
+        _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
         _register_owner(tmp_output, ppt_id)
 
         resp = client.get("/api/v1/pptx/history")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
-        assert data["records"][0]["task_id"] == ppt_id
+        record = data["records"][0]
+        assert record["task_id"] == ppt_id
+        assert record["ppt_id"] == ppt_id
+        assert record["id"] == ppt_id
+        assert record["slide_count"] == 3
+        assert record["file_size_bytes"] > 0
+        assert record["created_at"]
+        assert record["status"] == "completed"
+        assert record["download_url"] == (
+            f"/api/v1/pptx/download/{ppt_id}?format=pptx"
+        )
+        assert record["detail_url"] == f"/api/v1/pptx/history/{ppt_id}"
+        assert record["preview_url"] == (
+            f"/api/v1/pptx/preview/{ppt_id}?format=pptx"
+        )
 
     def test_history_pagination(self, client, tmp_output, sample_outline):
         # 创建 3 个快照
@@ -421,6 +436,68 @@ class TestListHistory:
         data = resp.json()
         assert data["total"] == 3
         assert len(data["records"]) == 2
+
+    def test_history_without_pptx_has_no_download_url(
+        self, client, tmp_output, sample_outline
+    ):
+        ppt_id = str(uuid.uuid4())
+        with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
+            json.dump(sample_outline["slides"], f)
+        _register_owner(tmp_output, ppt_id)
+
+        record = client.get("/api/v1/pptx/history").json()["records"][0]
+        assert record["status"] == "failed"
+        assert record["file_size_bytes"] == 0
+        assert record["download_url"] is None
+
+
+# ===========================================================================
+# 7.1 GET /api/v1/pptx/history/{ppt_id}
+# ===========================================================================
+
+class TestPptHistoryDetail:
+    """单条历史详情端点测试"""
+
+    def test_detail_returns_metadata_and_download_url(
+        self, client, tmp_output, sample_outline
+    ):
+        ppt_id = str(uuid.uuid4())
+        with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
+            json.dump(
+                {
+                    "title": "Kubernetes 基础架构概览",
+                    "slides": sample_outline["slides"],
+                },
+                f,
+            )
+        _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
+
+        resp = client.get(f"/api/v1/pptx/history/{ppt_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ppt_id"] == ppt_id
+        assert data["task_id"] == ppt_id
+        assert data["title"] == "Kubernetes 基础架构概览"
+        assert data["slide_count"] == 3
+        assert data["file_size_bytes"] > 0
+        assert data["created_at"]
+        assert data["status"] == "completed"
+        assert data["download_url"] == (
+            f"/api/v1/pptx/download/{ppt_id}?format=pptx"
+        )
+
+    def test_detail_missing_record_returns_404(self, client, tmp_output):
+        resp = client.get(f"/api/v1/pptx/history/{uuid.uuid4()}")
+        assert resp.status_code == 404
+
+    def test_detail_foreign_record_returns_403(self, client, tmp_output):
+        ppt_id = str(uuid.uuid4())
+        with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
+            json.dump([], f)
+        _register_owner(tmp_output, ppt_id, user_id="other_user")
+        resp = client.get(f"/api/v1/pptx/history/{ppt_id}")
+        assert resp.status_code == 403
 
 
 # ===========================================================================
