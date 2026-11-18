@@ -49,6 +49,23 @@ def test_normalize_llm_node_models_replaces_legacy_default():
     assert graph.nodes[0].params["model"] == "Qwen/Qwen2.5-7B-Instruct"
 
 
+def test_normalize_llm_node_models_replaces_placeholder_default():
+    graph = TaskGraph(
+        workflow_id="w2",
+        nodes=[
+            TaskNode(
+                id="n1",
+                type=TaskType.LLM_CALL,
+                params={"prompt": "calc", "model": "default-model"},
+            )
+        ],
+    )
+
+    workflow._normalize_llm_node_models(graph, "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
+
+    assert graph.nodes[0].params["model"] == "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+
+
 @pytest.mark.asyncio
 async def test_execute_emits_real_ndjson_contract_with_fake_execution(monkeypatch):
     graph = TaskGraph(workflow_id="mock-run", nodes=[TaskNode(id="n1", type=TaskType.DATA_TRANSFORM)])
