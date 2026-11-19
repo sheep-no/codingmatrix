@@ -10,13 +10,14 @@
 
 import asyncio
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.agent.llm_client import (
+    MAX_CONCURRENT_LLM_CALLS,
     LLMClient,
     LLMClientError,
-    MAX_CONCURRENT_LLM_CALLS,
     get_global_semaphore,
 )
 
@@ -574,6 +575,57 @@ class TestLLMClientError:
     def test_is_exception(self):
         err = LLMClientError("test")
         assert isinstance(err, Exception)
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_preserves_fatal_api_key_code(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        from app.core.llm_errors import USER_API_KEY_NOT_FOUND
+        from app.utils.aicloud.llm_caller import UserAPIKeyNotFoundError
+
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096,
+            "thinking_budget": 0,
+            "temperature": 0.7,
+            "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+        mock_call_llm.side_effect = UserAPIKeyNotFoundError()
+
+        client = LLMClient(model_name="test-model")
+        with pytest.raises(LLMClientError) as exc_info:
+            await client.call_stream("Hi", on_chunk=AsyncMock())
+
+        assert exc_info.value.code == USER_API_KEY_NOT_FOUND
+        assert "API Key" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_call_preserves_fatal_api_key_code(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        from app.core.llm_errors import USER_API_KEY_NOT_FOUND
+        from app.utils.aicloud.llm_caller import UserAPIKeyNotFoundError
+
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096,
+            "thinking_budget": 0,
+            "temperature": 0.7,
+            "timeout": 300,
+        }
+        mock_get_router.return_value = AsyncMock()
+        mock_call_llm.side_effect = UserAPIKeyNotFoundError()
+
+        client = LLMClient(model_name="test-model")
+        with pytest.raises(LLMClientError) as exc_info:
+            await client.call("Hi")
+
+        assert exc_info.value.code == USER_API_KEY_NOT_FOUND
 
 
 class TestCallStreamSemantics:

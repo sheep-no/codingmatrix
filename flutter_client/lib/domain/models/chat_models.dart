@@ -1,9 +1,15 @@
 class ChatStreamEvent {
-  const ChatStreamEvent({this.text = '', this.conversationId, this.error});
+  const ChatStreamEvent({
+    this.text = '',
+    this.conversationId,
+    this.error,
+    this.stage,
+  });
 
   final String text;
   final int? conversationId;
   final String? error;
+  final String? stage;
 }
 
 class ChatReply {
@@ -38,9 +44,13 @@ class ChatHistoryItem {
   final String title;
 
   factory ChatHistoryItem.fromJson(Map<String, dynamic> json) {
-    final id = (json['conversation_id'] ?? json['id']) as num;
+    final raw = json['conversation_id'] ?? json['id'];
+    final id = raw is num ? raw.toInt() : int.tryParse('$raw');
+    if (id == null) {
+      throw const FormatException('历史会话缺少有效的 conversation_id');
+    }
     return ChatHistoryItem(
-      id: id.toInt(),
+      id: id,
       title: (json['prompt'] ?? json['title'] ?? '历史会话').toString(),
     );
   }

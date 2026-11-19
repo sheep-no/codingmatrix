@@ -20,6 +20,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from app.core.llm_errors import (
+    error_code_of,
+    fatal_error_message,
+    is_fatal_llm_error,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,6 +124,7 @@ class TopologyScheduler:
         self._running_tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
+        self._fatal_error: BaseException | None = None
 
     def build_from_dependency_graph(self, dep_graph: Any) -> None:
         """从 DependencyGraph 构建调度状态"""
@@ -200,6 +207,7 @@ class TopologyScheduler:
         await self.initialize_ready_queue()
 
         self._stop_event.clear()
+        self._fatal_error = None
         active_count = 0
         parallelism_samples = []
         last_progress_time = time.time()
@@ -305,7 +313,11 @@ class TopologyScheduler:
                 for node in self.nodes.values():
                     if node.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING):
                         node.status = FileStatus.FAILED
-                        node.error = node.error or "调度器在任务完成前停止"
+                        node.error = node.error or (
+                            fatal_error_message(self._fatal_error)
+                            if self._fatal_error
+                            else "调度器在任务完成前停止"
+                        )
                         self.stats.failed_files += 1
         finally:
             if cancel_watcher and not cancel_watcher.done():
@@ -327,11 +339,16 @@ class TopologyScheduler:
             for node in self.nodes.values()
         )
 
+        fatal_code = error_code_of(self._fatal_error) if self._fatal_error else None
         return {
             "success": terminal and len(failed_files) == 0,
             "generated_files": self.completed_files,
             "failed_files": failed_files,
-            "stats": self.stats
+            "stats": self.stats,
+            "error_code": fatal_code,
+            "error_message": (
+                fatal_error_message(self._fatal_error) if self._fatal_error else None
+            ),
         }
 
     async def _generate_file_with_retry(
@@ -399,6 +416,29 @@ class TopologyScheduler:
                 raise
 
             except Exception as e:
+                if is_fatal_llm_error(e):
+                    node.retry_count += 1
+                    node.error = fatal_error_message(e)
+                    logger.error(
+                        "[Scheduler] 致命 LLM 配置错误，终止调度: file=%s code=%s error=%s",
+                        file_path,
+                        error_code_of(e),
+                        e,
+                    )
+                    self._fatal_error = e
+                    async with self._lock:
+                        node.status = FileStatus.FAILED
+                        self.stats.failed_files += 1
+                        await self._block_downstream(file_path)
+                    self._stop_event.set()
+                    if progress_callback:
+                        progress_callback(
+                            "failed",
+                            file_path,
+                            self.stats.completed_files,
+                            self.stats.total_files,
+                        )
+                    raise
                 node.retry_count += 1
                 node.error = str(e)
                 logger.error(f"文件生成失败: {file_path} - {e} (尝试 {attempt + 1}/{self.max_retries + 1})")

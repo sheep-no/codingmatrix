@@ -19,14 +19,6 @@ from app.services.task_state_service import create_task
 
 MODULE = "agent"
 _ARTIFACT_VERSION_STRIDE = 100_000
-_UNIFIED_SESSION_STATUS = {
-    "running": "running",
-    "completed": "completed",
-    "failed": "failed",
-    "cancelled": "cancelled",
-    "timed_out": "failed",
-    "waiting_local_validation": "active",
-}
 
 
 async def ensure_project_session(
@@ -85,7 +77,11 @@ async def save_graph_checkpoint(
 async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> str:
     """Persist a graph snapshot and its new messages/files in one adapter call."""
     session = await ensure_project_session(db, user_id, state.session_id)
-    session.status = _UNIFIED_SESSION_STATUS.get(state.status, "active")
+    # 统一会话默认 active；图走到终态后必须同步关闭，否则会话列表长期
+    # 显示运行中，并让基于 status=active 的并发/保留策略一直误判。
+    terminal_status = _TERMINAL_SESSION_STATUS.get((state.status or "").lower())
+    if terminal_status and getattr(session, "status", None) != terminal_status:
+        session.status = terminal_status
     session.updated_at = datetime.utcnow()
     unified_state = State.from_dict(state.to_dict())
     unified_state.session_id = session.id
@@ -132,6 +128,15 @@ async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> s
         )
     await db.commit()
     return task_id
+
+
+_TERMINAL_SESSION_STATUS = {
+    "completed": "completed",
+    "failed": "failed",
+    "partial_success": "failed",
+    "cancelled": "cancelled",
+    "timed_out": "failed",
+}
 
 
 __all__ = ["ensure_project_session", "persist_agent_state", "save_graph_checkpoint"]

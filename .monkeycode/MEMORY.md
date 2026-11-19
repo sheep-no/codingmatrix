@@ -362,7 +362,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
   - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
-  - 2026-11-09 基线：`flutter test` 497 passed、`flutter analyze lib test` 无问题；本轮使用 SDK `/tmp/opencode/flutter-sdk/flutter/bin/flutter`（3.47.9 / Dart 3.13.7）。2026-11-10 修复后：501 passed、analyze 无问题。
+  - 2026-11-09 基线：`flutter test` 497 passed、`flutter analyze lib test` 无问题；本轮使用 SDK `/tmp/opencode/flutter-sdk/flutter/bin/flutter`（3.47.9 / Dart 3.13.7）。2026-11-10 修复后：501 passed、analyze 无问题；2026-11-18 聊天修复后：562 passed / 3 skipped、analyze 无问题。
+  - 聊天流虽标记 `text/event-stream`，实际是 NDJSON：先有 `stage` 帧（`searching`/`answering`），推理模型用 `choices[].delta.reasoning_content` 持续输出思考帧，最后才是 `delta.content` 与 `conversation_id`。DeepSeek-R1 回答一句“只回复 ok”实测约 128 秒、2566 帧，排查“无回复”先区分思考帧与正文帧。
   - `flutter_client/pubspec.lock` 已由 Flutter 3.47.9 重新解析，`sdks.dart` 下限为 `>=3.11.0-0`（matcher 0.12.20 要求 Dart ^3.10.0），而 `pubspec.yaml` 与文档仍声明 `^3.9.2`。用更旧的 Flutter 构建客户端前，先跑一次 `flutter pub get` 让其按本机 SDK 重解析锁文件，否则会因锁文件版本不满足 SDK 约束而失败。
 
 ### VS Code 插件构建与依赖安装
@@ -517,6 +518,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 插件 e2e 的 `@vscode/test-electron` 把 `stable` 解析为最新版，与本地缓存版不一致时两个入口都会改走下载，且该 326MB 包会被 CDN 反复中断（curl 18 / `Error: aborted`），只留下无 `is-complete` 的半成品目录。可对 `https://update.code.visualstudio.com/<ver>/linux-x64/stable` 断点续传补齐 `.vscode-test/vscode-linux-x64-<ver>` 再 `touch is-complete`，不改仓库代码即复用缓存。
   - 宿主 harness 启动 VS Code 必须带 `DISPLAY`（Xvfb `:99` 常驻），缺失时报 `Missing X server or $DISPLAY` 并以 SIGTRAP 结束；webview 内容需从内层 frame 读取，`Page.captureScreenshot` 以 webview 元素矩形为 `clip`。
   - 编排流 SSE 的 `thinking` 事件除增量 `message` 外还带一份全量累积 `accumulated`（真实 legacy 流 88MB 中占 66MB），插件已在解析处剥离；判定事件字段形状要取全部样本的并集，首个样本可能缺字段。编排端有磁盘守卫：可用 <1GB 或可用率 <10% 直接 507（`app/utils/guardrails.py`）。token 有效期 30 分钟，跑长流程前先重新登录。
+  - Android release APK 构建输出指向 `/dev/shm/flutter-build` 与 `/dev/shm/gradle-transforms`，交付包放 `/dev/shm/apk` 并由 `:8090` 提供下载；构建前先确认 `/dev/shm` 余量（旧构建产物合计约 2.6GB），根盘已满时 Gradle 会直接失败。
 
 ### 生产就绪修复的范围边界
 - Date: 2026-09-26
@@ -645,3 +647,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 面向用户的回复、进度说明与总结统一使用简体中文；代码、命令、路径和标识符保持原样。
   - 用户切换语言时跟随最新语言。
+
+### PPT 历史接口字段契约（2026-11-18）
+- Date: 2026-11-18
+- Context: Agent 补全客户端历史列表的时间、页数、文件大小和下载地址
+- Category: 测试方法
+- Instructions:
+  - `GET /api/v1/pptx/history` 的记录统一由 `_ppt_history_record` 构造，字段为 `id`/`ppt_id`/`task_id`/`title`/`topic`/`slide_count`/`file_size_bytes`/`has_file`/`status`/`created_at`/`download_url`/`detail_url`/`preview_url`。
+  - `GET /api/v1/pptx/history/{ppt_id}` 返回同形状单条记录；缺快照返回 404，非本人记录返回 403。
+  - `created_at` 取 `_slides.json` 的 mtime ISO 字符串；`slide_count` 取快照 slides 长度；`file_size_bytes` 取 PPTX 实际大小；无 PPTX 时 `status=failed`、`download_url=null`。
+  - 测试夹具必须同时创建 `{ppt_id}_slides.json`、`{ppt_id}.pptx` 并登记 owner，否则记录会按 failed 断言。

@@ -54,8 +54,8 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     );
     if (result == null || !mounted || epoch != _epoch) return;
     setState(
-      () => input.text =
-          '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
+      () =>
+          input.text = '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
     );
   }
 
@@ -73,6 +73,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       title: '工作流执行',
       actions: [
         IconButton(
+          tooltip: '查看工作流历史',
           onPressed: toolsBusy
               ? null
               : () async {
@@ -106,7 +107,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              const Text('输入任务后立即执行。离开页面会断开本地订阅，服务端任务状态以查询结果为准。'),
+              const Text('输入任务后立即执行。离开页面会断开本地订阅，已完成状态会保留至少 24 小时。'),
               Form(
                 key: form,
                 child: Column(

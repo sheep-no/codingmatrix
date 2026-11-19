@@ -116,6 +116,17 @@ def test_generation_result_error_variants():
         == "a；b"
     )
     assert (
+        endpoints._generation_result_error(
+            {
+                "success": False,
+                "errors": [
+                    {"code": "USER_API_KEY_NOT_FOUND", "message": "用户 API Key 已过期"},
+                ],
+            }
+        )
+        == "用户 API Key 已过期"
+    )
+    assert (
         endpoints._generation_result_error({"success": False})
         == "生成流程未达到成功终态"
     )
@@ -691,6 +702,29 @@ async def test_stream_unexpected_failure_marks_session_failed(monkeypatch, tmp_p
 
     assert sm.complete_session.await_args.kwargs["errors"] == ["kaboom"]
     assert any('"type": "error"' in event for event in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_api_key_failure_emits_error_and_fails_session(monkeypatch, tmp_path):
+    message = "用户 API Key 未找到或已过期，请重新配置"
+    db, sm, _, _ = _patch_stream_common(
+        monkeypatch, tmp_path, work_error=RuntimeError(message)
+    )
+    response = await endpoints.orchestrate_project_stream(
+        OrchestratorRequest(requirement="build", enable_skills=False),
+        ConnectedRequest(),
+        {"sub": "1", "role": "user"},
+        db,
+    )
+    events = await _drain(response)
+
+    assert sm.complete_session.await_args.kwargs["errors"] == [message]
+    error_events = [
+        json.loads(event[6:])["data"]["error"]
+        for event in events
+        if '"type": "error"' in event
+    ]
+    assert error_events == [message]
 
 
 @pytest.mark.asyncio

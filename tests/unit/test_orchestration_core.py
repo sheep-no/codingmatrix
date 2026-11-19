@@ -22,10 +22,10 @@ from app.agent.orchestration import (
 from app.agent.orchestration.generation_scheduler import (
     GeneratedContent,
     GenerationNodeResult,
+    GenerationNodeStatus,
     GenerationScheduleResult,
     GenerationScheduleStats,
     GenerationScheduleStatus,
-    GenerationNodeStatus,
 )
 from app.agent.orchestration.plan import build_file_plan
 from app.agent.shared_context import SharedContext
@@ -449,6 +449,51 @@ async def test_finish_schedule_maps_timeout_to_single_terminal_state(tmp_path) -
     assert node_details["status"] == "timed_out"
     assert node_details["attempts"] == 2
     assert node_details["diagnostics"][0]["code"] == "file_timeout"
+
+
+@pytest.mark.asyncio
+async def test_finish_schedule_surfaces_fatal_api_key_root_cause(tmp_path) -> None:
+    from app.core.llm_errors import USER_API_KEY_NOT_FOUND
+
+    core = OrchestratorCore(OrchestrationCheckpointStore(tmp_path))
+    started = await core.run(make_command())
+    schedule = GenerationScheduleResult(
+        status=GenerationScheduleStatus.FAILED,
+        nodes={
+            "main.py": GenerationNodeResult(
+                path="main.py",
+                status=GenerationNodeStatus.FAILED,
+                attempts=1,
+                diagnostics=(ArtifactDiagnostic(
+                    code=USER_API_KEY_NOT_FOUND,
+                    message="用户 API Key 未找到或已过期，请重新配置",
+                    path="main.py",
+                ),),
+            )
+        },
+        stats=GenerationScheduleStats(
+            total_files=1,
+            completed_files=0,
+            failed_files=1,
+            timed_out_files=0,
+            cancelled_files=0,
+            blocked_files=0,
+            max_parallelism=1,
+        ),
+        root_causes=(ArtifactDiagnostic(
+            code=USER_API_KEY_NOT_FOUND,
+            message="用户 API Key 未找到或已过期，请重新配置",
+            path="main.py",
+        ),),
+    )
+
+    result = await core.finish_schedule(
+        "task-1", schedule, event_id="terminal-key-expired", expected_revision=started.state.revision
+    )
+
+    assert result.state.status is OrchestrationStatus.FAILED
+    assert result.state.diagnostics[-1]["code"] == USER_API_KEY_NOT_FOUND
+    assert "API Key" in result.state.diagnostics[-1]["message"]
 
 
 @pytest.mark.asyncio

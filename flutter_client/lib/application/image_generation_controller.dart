@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/image_generation.dart';
 import '../domain/models/provider_key.dart';
 import '../infrastructure/image/image_generation_client.dart';
+import '../infrastructure/auth/cloud_auth_client.dart';
 import 'auth_controller.dart';
 
 class ImageGenerationState {
@@ -40,7 +41,7 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     ImageGenerationInput input,
     ProviderKeySummary? key,
   ) async {
-    if (!mounted || state.busy || state.saving != null) return;
+    if (!mounted || state.busy) return;
     if (!input.valid) {
       state = const ImageGenerationState(error: '请填写有效参数并选择可用的 SiliconFlow 授权');
       return;
@@ -50,7 +51,9 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     final op = ++_operation;
     state = const ImageGenerationState(busy: true);
     try {
-      final result = await client.generate(input, usableKey.token);
+      final result = await client
+          .generate(input, usableKey.token)
+          .timeout(const Duration(minutes: 3));
       if (!_active(op)) return;
       state = ImageGenerationState(
         busy: true,
@@ -62,9 +65,13 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
         if (!_active(op)) return;
       }
       state = ImageGenerationState(images: state.images, cached: result.cached);
-    } catch (_) {
+    } catch (error) {
       if (_active(op)) {
-        state = const ImageGenerationState(error: '生成请求失败或结果未知，请确认后手动提交');
+        state = ImageGenerationState(
+          error: error is CloudAuthException
+              ? error.message
+              : '生成请求失败或结果未知，请确认后手动提交',
+        );
       }
     }
   }
@@ -99,7 +106,9 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     try {
       updated = GeneratedImage(
         source: image.source,
-        bytes: await client.read(image.source),
+        bytes: await client
+            .read(image.source)
+            .timeout(const Duration(seconds: 30)),
       );
     } catch (_) {
       updated = GeneratedImage(source: image.source, error: '图片读取失败，可重新加载');

@@ -170,6 +170,35 @@ async def test_generation_result_is_idempotent_and_enforces_task_ownership(db, t
 
 
 @pytest.mark.asyncio
+async def test_direct_generation_persists_quality_report_without_outline(db, tmp_path: Path):
+    task = await create_task(db, 1, "ppt_generation", task_id="ppt-direct")
+    output = tmp_path / "ppt-direct.pptx"
+    output.write_bytes(b"direct-pptx")
+    trace = build_ppt_trace_context({}, "business")
+
+    artifact_ids = await persist_ppt_generation_result(
+        db,
+        task.task_id,
+        1,
+        output,
+        "pptx",
+        {"filename": output.name},
+        trace,
+        [{"id": "slide-1"}],
+        _quality_report(),
+    )
+
+    report = await db.scalar(
+        select(PPTQualityReport).where(PPTQualityReport.task_id == task.task_id)
+    )
+    assert report is not None
+    assert report.outline_id == task.task_id
+    assert report.outline_version == 1
+    assert report.overall_score == 85
+    assert artifact_ids["quality_report"] == task.quality_report_artifact_id
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("quality_mode", ["standard", "refined"])
 async def test_celery_pipeline_persists_approved_outline_result(monkeypatch, tmp_path: Path, quality_mode):
     database_path = tmp_path / "celery-ppt.db"

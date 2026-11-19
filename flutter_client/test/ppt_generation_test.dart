@@ -335,7 +335,11 @@ void main() {
     await tester.tap(find.text('查看质量报告'));
     await tester.pump();
     expect(reports, 1);
-    await tester.tap(find.text('查看质量报告'), warnIfMissed: false);
+    expect(find.text('质量报告获取中...'), findsWidgets);
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, '质量报告获取中...'),
+      warnIfMissed: false,
+    );
     await tester.pump();
     expect(reports, 1);
     pending.complete({'pages': 3});
@@ -567,6 +571,52 @@ void main() {
     await tester.pump();
     expect(find.textContaining('历史读取失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点击历史条目选中 PPT 并显示下载入口', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/history') {
+        return {
+          'records': [
+            {
+              'title': '增长',
+              'topic': '企业级容器化部署机遇分析',
+              'slide_count': 5,
+              'created_at': '2026-11-18T10:09:54.792920',
+              'status': 'completed',
+              'task_id': 'p1',
+              'has_file': true,
+            },
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('增长'), findsOneWidget);
+    expect(find.text('企业级容器化部署机遇分析'), findsNothing);
+    expect(find.textContaining('2026-11-18 10:09'), findsOneWidget);
+    expect(find.textContaining('5 页'), findsOneWidget);
+    expect(find.textContaining('已完成'), findsOneWidget);
+
+    await tester.tap(find.text('增长'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择历史 PPT：p1'), findsOneWidget);
+    expect(find.text('下载 PPTX'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -828,6 +878,55 @@ void main() {
     await tester.pump();
     expect(find.text('PPT 大纲'), findsNothing);
     expect(find.text('已按大纲提交生成：t9'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('大纲弹窗结构化展示幻灯片而不是输出 Map.toString', (tester) async {
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/outlines') {
+        return {
+          'id': 'o1',
+          'user_id': '10',
+          'version': 1,
+          'status': 'draft',
+          'title': 'Flutter intro',
+          'scenario': 'business',
+          'template_id': 'modern',
+          'slide_limit': 10,
+          'slides': [
+            {
+              'id': 'slide-1',
+              'position': 0,
+              'slide_type': 'key_points',
+              'narrative_role': 'opportunity_map',
+              'title': '为什么选择 Flutter',
+              'key_message': '一套代码多端运行',
+              'content_blocks': [
+                {'type': 'text', 'content': '统一渲染引擎'},
+              ],
+              'asset_intent': {
+                'description': '手机与桌面并排',
+                'keywords': ['flutter'],
+                'asset_type': 'diagram',
+              },
+              'speaker_notes': '先讲跨端价值',
+            },
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+
+    await openOutlineDialog(tester, api);
+
+    expect(find.text('Flutter intro'), findsOneWidget);
+    expect(find.text('为什么选择 Flutter'), findsOneWidget);
+    expect(find.text('一套代码多端运行'), findsOneWidget);
+    expect(find.text('统一渲染引擎'), findsOneWidget);
+    expect(find.textContaining('{id:'), findsNothing);
+    expect(find.textContaining('user_id'), findsNothing);
+    expect(find.textContaining('narrative_role'), findsNothing);
+    expect(find.text('批准并生成'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

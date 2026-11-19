@@ -273,10 +273,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(
-      find.text('Provider 配置加载失败：获取 Key 列表失败（HTTP 500）'),
-      findsOneWidget,
-    );
+    expect(find.text('Provider 配置加载失败：获取 Key 列表失败（HTTP 500）'), findsOneWidget);
   });
 
   testWidgets('没有授权时显示空状态引导', (tester) async {
@@ -349,7 +346,8 @@ void main() {
         providerKeyControllerProvider.overrideWith(
           (_) => ProviderKeyController(
             ProviderKeyClient(
-              RecordingApi((_, __, ___) async {
+              RecordingApi((path, __, ___) async {
+                if (!path.endsWith('/apikeys')) return {'token': null};
                 calls++;
                 return [];
               }),
@@ -389,7 +387,8 @@ void main() {
         providerKeyControllerProvider.overrideWith(
           (_) => ProviderKeyController(
             ProviderKeyClient(
-              RecordingApi((_, __, ___) async {
+              RecordingApi((path, __, ___) async {
+                if (!path.endsWith('/apikeys')) return {'token': null};
                 calls++;
                 if (calls == 1) return pending.future;
                 return [
@@ -463,7 +462,8 @@ void main() {
           (_) => ProviderKeyController(
             ProviderKeyClient(
               RecordingApi((path, method, body) async {
-                if (path.contains('/apikeys')) return [];
+                if (path.endsWith('/apikeys')) return [];
+                if (path.endsWith('/selection')) return {'token': null};
                 submits += 1;
                 return {'public_key': 'unused'};
               }),
@@ -958,5 +958,55 @@ void main() {
     expect(find.text('更新 Provider 状态失败，请重试'), findsNothing);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(lists, 2);
+  });
+
+  test('生成授权从账号读取并在选择时保存', () async {
+    String? saved;
+    final controller = ProviderKeyController(
+      ProviderKeyClient(
+        RecordingApi((path, method, body) async {
+          if (path == '/api/v1/agent/apikeys') return [listedKey()];
+          if (path == '/api/v1/agent/apikey/selection') {
+            if (method == 'PUT') {
+              saved = (body as Map)['token'] as String?;
+              return {'token': saved};
+            }
+            return {'token': 'sensitive-token-reference'};
+          }
+          fail('unexpected $method $path');
+        }),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.load();
+    expect(controller.state.selected?.token, 'sensitive-token-reference');
+
+    await controller.select(controller.state.items.single);
+    expect(saved, 'sensitive-token-reference');
+  });
+
+  test('保存生成授权失败时恢复之前的选择', () async {
+    final controller = ProviderKeyController(
+      ProviderKeyClient(
+        RecordingApi((path, method, body) async {
+          if (path == '/api/v1/agent/apikeys') return [listedKey()];
+          if (path == '/api/v1/agent/apikey/selection') {
+            if (method == 'PUT') {
+              throw const SocketException('connection lost');
+            }
+            return {'token': null};
+          }
+          fail('unexpected $method $path');
+        }),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.load();
+    final item = controller.state.items.single;
+    await controller.select(item);
+    expect(controller.state.selectedToken, isNull);
+    expect(controller.state.error, '保存生成授权失败，请重试');
   });
 }

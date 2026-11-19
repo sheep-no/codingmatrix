@@ -113,6 +113,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  String _loadingLabel(ChatState chat) {
+    if (chat.loadingConversation) return '正在加载历史会话…';
+    if (chat.uploading) return '正在上传附件…';
+    return switch (chat.stage) {
+      'parsing' => '正在解析附件…',
+      'searching' => '正在联网搜索…',
+      'reasoning' => '深度推理中，模型正在思考…',
+      'answering' => '正在生成回复…',
+      _ => '正在接收回复…',
+    };
+  }
+
+  Widget _toggleChip({
+    required Key key,
+    required String label,
+    required bool selected,
+    required ValueChanged<bool>? onSelected,
+  }) {
+    return Semantics(
+      key: key,
+      container: true,
+      button: true,
+      enabled: onSelected != null,
+      checked: selected,
+      label: label,
+      onTap: onSelected == null ? null : () => onSelected(!selected),
+      child: ExcludeSemantics(
+        child: FilterChip(
+          label: Text(label),
+          selected: selected,
+          onSelected: onSelected,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -177,7 +213,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               _attachmentError!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
-          if (chat.loading) Text(chat.uploading ? '正在上传附件…' : '正在接收回复…'),
+          if (chat.loading) Text(_loadingLabel(chat)),
           if (chat.cancelled) const Text('已取消，已接收的内容已保留'),
           if (_attachments.isNotEmpty)
             ConstrainedBox(
@@ -250,15 +286,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     decoration: const InputDecoration(labelText: '模型（可选）'),
                   ),
                 ),
-                FilterChip(
-                  label: const Text('深度推理'),
+                _toggleChip(
+                  key: const Key('reasoningToggle'),
+                  label: '深度推理',
                   selected: _reasoning,
                   onSelected: chat.loading
                       ? null
                       : (value) => setState(() => _reasoning = value),
                 ),
-                FilterChip(
-                  label: const Text('联网搜索'),
+                _toggleChip(
+                  key: const Key('searchToggle'),
+                  label: '联网搜索',
                   selected: _search,
                   onSelected: chat.loading
                       ? null

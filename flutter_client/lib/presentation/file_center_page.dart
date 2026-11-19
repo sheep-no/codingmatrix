@@ -5,8 +5,25 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../application/auth_controller.dart';
-import 'saved_file_actions.dart';
+import '../infrastructure/share/file_sharer.dart';
 import 'shell_scaffold.dart';
+
+typedef DownloadWriter =
+    Future<String> Function(http.StreamedResponse response, String name);
+
+Future<String> _writeDownload(
+  http.StreamedResponse response,
+  String name,
+) async {
+  final folder = await getTemporaryDirectory();
+  final output = File('${folder.path}/$name');
+  await output.writeAsBytes(await response.stream.toBytes(), flush: true);
+  return output.path;
+}
+
+final fileDownloadWriterProvider = Provider<DownloadWriter>(
+  (ref) => _writeDownload,
+);
 
 class FileCenterPage extends ConsumerStatefulWidget {
   const FileCenterPage({super.key});
@@ -17,7 +34,6 @@ class FileCenterPage extends ConsumerStatefulWidget {
 class _FileCenterPageState extends ConsumerState<FileCenterPage> {
   bool busy = false;
   String? message;
-  String? savedPath;
   final files = <Map<String, dynamic>>[];
   // Bumped on account change so a late upload/download result cannot land in
   // the next account's page state.
@@ -58,7 +74,16 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
         if (!mounted || epoch != _epoch) return;
         setState(() => files.add(result));
       }
-      if (mounted && epoch == _epoch) setState(() => message = '上传完成');
+      if (mounted && epoch == _epoch) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('上传完成'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+      }
     } catch (e) {
       if (mounted && epoch == _epoch) setState(() => message = '上传失败：$e');
     } finally {
@@ -68,26 +93,58 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
 
   void _resetAccount() {
     _epoch++;
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
     setState(() {
       files.clear();
       message = null;
-      savedPath = null;
       busy = false;
     });
   }
+
+  String _fileId(Map<String, dynamic> file) =>
+      '${file['file_id'] ?? file['id'] ?? ''}';
 
   // FileUploadResponse exposes `filename`; resumable/legacy payloads may use `name`.
   String _displayName(Map<String, dynamic> file, String id) =>
       '${file['name'] ?? file['filename'] ?? 'file-$id'}';
 
+  String _safeName(String name) {
+    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    return safe.isEmpty ? 'download' : safe;
+  }
+
+  String _formatSize(Object? value) {
+    final bytes = value is num ? value.toInt() : int.tryParse('${value ?? ''}');
+    if (bytes == null || bytes < 0) return '大小未知';
+    if (bytes < 1024) return '$bytes B';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    var size = bytes / 1024;
+    var unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit++;
+    }
+    final text = size >= 10 ? size.toStringAsFixed(0) : size.toStringAsFixed(1);
+    return '$text ${units[unit]}';
+  }
+
+  String _formatTime(Object? value) {
+    final raw = '${value ?? ''}';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw.isEmpty ? '时间未知' : raw;
+    final time = parsed.isUtc ? parsed.toLocal() : parsed;
+    String two(int part) => part.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
+  }
+
   Future<void> download(Map<String, dynamic> file) async {
-    final id = '${file['file_id'] ?? file['id'] ?? ''}';
+    final id = _fileId(file);
     if (id.isEmpty || busy) return;
     final epoch = _epoch;
     setState(() {
       busy = true;
       message = '下载中...';
-      savedPath = null;
     });
     try {
       final api = ref.read(authenticatedClientProvider);
@@ -98,21 +155,28 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
         ),
       );
       if (response.statusCode != 200) throw StateError('文件下载失败');
-      final folder = await getApplicationDocumentsDirectory();
-      final name = _displayName(
-        file,
-        id,
-      ).replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-      final output = File('${folder.path}/$name');
-      await output.writeAsBytes(await response.stream.toBytes(), flush: true);
+      final name = _safeName(_displayName(file, id));
+      final path = await ref.read(fileDownloadWriterProvider)(response, name);
+      await ref.read(fileSharerProvider).share(path, subject: name);
       if (mounted && epoch == _epoch) {
-        setState(() {
-          savedPath = output.path;
-          message = '已保存到：${output.path}';
-        });
+        setState(() => message = null);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('下载完成，请选择要使用的应用'),
+              duration: Duration(seconds: 2),
+            ),
+          );
       }
     } catch (e) {
-      if (mounted && epoch == _epoch) setState(() => message = '下载失败：$e');
+      if (mounted && epoch == _epoch) {
+        setState(
+          () => message = e is FileShareException
+              ? '下载完成，但无法打开分享：${e.message}'
+              : '下载失败：$e',
+        );
+      }
     } finally {
       if (mounted && epoch == _epoch) setState(() => busy = false);
     }
@@ -136,19 +200,21 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
             label: Text(busy ? '上传中...' : '选择文件上传'),
           ),
           if (message != null) Text(message!),
-          if (savedPath != null) SavedFileActions(path: savedPath!),
           const Divider(),
-          if (files.isEmpty)
-            const ListTile(dense: true, title: Text('尚未上传文件')),
+          if (files.isEmpty) const ListTile(dense: true, title: Text('尚未上传文件')),
           for (final file in files)
             ListTile(
-              title: Text('${file['name'] ?? file['filename'] ?? '文件'}'),
-              subtitle: Text(
-                '${file['file_id'] ?? file['id'] ?? ''}\n'
-                '${file['file_path'] ?? file['server_path'] ?? file['download_url'] ?? ''}',
+              title: Text(
+                _displayName(file, _fileId(file)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              isThreeLine: true,
+              subtitle: Text(
+                '${_formatSize(file['file_size'])} · '
+                '${_formatTime(file['created_at'])}',
+              ),
               trailing: IconButton(
+                tooltip: '下载并分享',
                 onPressed: busy ? null : () => download(file),
                 icon: const Icon(Icons.download),
               ),

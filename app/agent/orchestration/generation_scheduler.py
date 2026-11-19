@@ -11,6 +11,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.llm_errors import (
+    error_code_of,
+    fatal_error_message,
+    is_fatal_llm_error,
+)
+
 from ..contract_index import ContractEntry, ContractIndex
 from ..synthesis_protocol import ModelOperation, ModelOperationKind
 from ..workflow_ir import TechnologyProfile
@@ -187,6 +193,8 @@ class GenerationScheduler:
         self._active_tasks: set[asyncio.Task[None]] = set()
         self._max_parallelism = 0
         self._termination_status: GenerationNodeStatus | None = None
+        self._stop_event = asyncio.Event()
+        self._fatal_error: BaseException | None = None
 
     @property
     def active_task_count(self) -> int:
@@ -250,6 +258,12 @@ class GenerationScheduler:
                         )
                         return self._result(GenerationScheduleStatus.CANCELLED)
                     await schedule_task
+            if self._stop_event.is_set() and self._fatal_error is not None:
+                self._termination_status = GenerationNodeStatus.FAILED
+                self._converge_unfinished(
+                    GenerationNodeStatus.FAILED,
+                    fatal_error_message(self._fatal_error),
+                )
         except TimeoutError:
             self._termination_status = GenerationNodeStatus.TIMED_OUT
             schedule_task.cancel()
@@ -281,6 +295,8 @@ class GenerationScheduler:
         self._active_tasks.clear()
         self._max_parallelism = 0
         self._termination_status = None
+        self._stop_event.clear()
+        self._fatal_error = None
 
     async def _run_graph(
         self,
@@ -307,7 +323,10 @@ class GenerationScheduler:
         loop = asyncio.get_running_loop()
 
         async with asyncio.TaskGroup() as task_group:
-            while not all(node.status.is_terminal for node in self.nodes.values()):
+            while (
+                not self._stop_event.is_set()
+                and not all(node.status.is_terminal for node in self.nodes.values())
+            ):
                 while ready and self.active_task_count < self.max_concurrent:
                     path = ready.pop(0)
                     node = self.nodes[path]
@@ -515,6 +534,21 @@ class GenerationScheduler:
                     )
                     break
                 except Exception as exc:
+                    if is_fatal_llm_error(exc):
+                        self._fatal_error = exc
+                        self._stop_event.set()
+                        self._termination_status = GenerationNodeStatus.FAILED
+                        self._fail_node(
+                            node,
+                            GenerationNodeStatus.FAILED,
+                            str(error_code_of(exc) or "generation_failed"),
+                            fatal_error_message(exc),
+                        )
+                        current_task = asyncio.current_task()
+                        for task in tuple(self._active_tasks):
+                            if task is not current_task:
+                                task.cancel()
+                        break
                     model_diagnostic = getattr(exc, "diagnostic", None)
                     if isinstance(model_diagnostic, dict):
                         code = str(model_diagnostic.get("code") or "generation_failed")

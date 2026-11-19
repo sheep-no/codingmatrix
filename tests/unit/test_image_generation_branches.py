@@ -342,6 +342,29 @@ class TestGenerationEntrypoints:
         assert result["success"] is True
 
     @pytest.mark.asyncio
+    async def test_text_to_image_caps_steps_at_provider_limit(self, monkeypatch):
+        captured = {}
+
+        async def fake_call(data, timeout, api_key_token=None):
+            captured.update(data)
+            return {"data": []}
+
+        monkeypatch.setattr(ig, "_call_kolors_api", fake_call)
+
+        await ig.text_to_image("cat", num_inferences=100)
+
+        assert captured["num_inference_steps"] == 49
+
+    def test_kolors_error_detail_surfaces_provider_message(self):
+        detail = ig._kolors_error_detail(
+            400,
+            '{"code":20015,"message":"num_inference_steps: Must be less than or equal to 50"}',
+        )
+
+        assert "图像生成参数无效" in detail
+        assert "num_inference_steps" in detail
+
+    @pytest.mark.asyncio
     async def test_text_to_image_omits_seed_when_none(self, monkeypatch):
         captured = {}
 

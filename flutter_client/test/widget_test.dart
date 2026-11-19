@@ -203,7 +203,7 @@ void main() {
     expect(find.text('Agent 工作台'), findsOneWidget);
     expect(find.text('alice'), findsOneWidget);
     expect(find.textContaining('sess-1'), findsOneWidget);
-    expect(find.textContaining('log:'), findsOneWidget);
+    expect(find.textContaining('started'), findsOneWidget);
   });
 
   testWidgets('compact workbench handles short windows and long usernames', (
@@ -239,7 +239,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('任务概览'), findsOneWidget);
-    expect(find.text('实时事件'), findsOneWidget);
+    expect(find.text('实时输出'), findsOneWidget);
   });
 
   AuthController signedInAuth(CredentialStore store, String tokenRef) {

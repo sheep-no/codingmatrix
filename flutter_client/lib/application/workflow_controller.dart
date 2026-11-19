@@ -51,10 +51,8 @@ class WorkflowController extends StateNotifier<WorkflowState> {
             _failed(op, '工作流事件格式异常，执行结果未知');
           }
         },
-        onError: (Object error) => _failed(
-          op,
-          '${streamFailureText(error)}；执行结果未知，可查询状态',
-        ),
+        onError: (Object error) =>
+            _failed(op, '${streamFailureText(error)}；执行结果未知，可查询状态'),
         onDone: () {
           if (_current(op) && state.active) _failed(op, '响应提前结束，执行结果未知，可查询状态');
         },
@@ -191,12 +189,12 @@ class WorkflowController extends StateNotifier<WorkflowState> {
       if (_current(op)) {
         state = WorkflowState(snapshot: snapshot, events: previous.events);
       }
-    } catch (_) {
+    } catch (error) {
       if (_current(op)) {
         state = WorkflowState(
           snapshot: previous.snapshot,
           events: previous.events,
-          error: '状态查询失败；任务可能已过期或当前服务进程没有记录',
+          error: '状态查询失败：${streamFailureText(error)}',
         );
       }
     }

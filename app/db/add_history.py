@@ -16,6 +16,45 @@ logger = logging.getLogger(__name__)
 _conversation_id_locks: dict[int, asyncio.Lock] = {}
 
 
+def _database_dialect(db: AsyncSession) -> str:
+    try:
+        return db.get_bind().dialect.name
+    except Exception:
+        return ""
+
+
+async def _acquire_conversation_id_lock(db: AsyncSession, user_id: int):
+    if _database_dialect(db) != "mysql":
+        return None
+    bind = getattr(db, "bind", None)
+    connect = getattr(bind, "connect", None)
+    if connect is None:
+        return None
+    # 命名锁绑定在连接上，必须用独立连接持有到事务提交后再释放。
+    lock_conn = await connect()
+    try:
+        result = await lock_conn.execute(
+            text("SELECT GET_LOCK(:name, :timeout)"),
+            {"name": f"conversation_id:{user_id}", "timeout": 10},
+        )
+        if result.scalar() != 1:
+            raise RuntimeError("等待会话 ID 生成锁超时")
+    except BaseException:
+        await lock_conn.close()
+        raise
+    return lock_conn
+
+
+async def _release_conversation_id_lock(lock_conn, user_id: int) -> None:
+    try:
+        await lock_conn.execute(
+            text("SELECT RELEASE_LOCK(:name)"),
+            {"name": f"conversation_id:{user_id}"},
+        )
+    finally:
+        await lock_conn.close()
+
+
 async def save_history_to_db(
         db: AsyncSession,
         user_id: int,
@@ -36,18 +75,13 @@ async def save_history_to_db(
         if conversation_id is None else None
     if lock is not None:
         await lock.acquire()
+    mysql_lock = None
     try:
         if conversation_id is not None:
             new_conv_id = conversation_id
         else:
-            # 多进程 PostgreSQL 部署另有 advisory xact lock 兜底
-            try:
-                await db.execute(text(
-                    "SELECT pg_advisory_xact_lock(hashtext(:uid), hashtext('conversation_id'))"
-                ), {"uid": f"user_{user_id}"})
-            except Exception:
-                pass  # SQLite 或不支持 advisory lock 的数据库
-
+            # MySQL 多 worker 部署用命名锁串行化「读取 max→写入」。
+            mysql_lock = await _acquire_conversation_id_lock(db, user_id)
             max_conv_stmt = select(func.max(History.conversation_id)).where(
                 History.user_id == user_id
             )
@@ -71,8 +105,12 @@ async def save_history_to_db(
             await db.flush()
         await db.refresh(history)
     finally:
-        if lock is not None:
-            lock.release()
+        try:
+            if mysql_lock:
+                await _release_conversation_id_lock(mysql_lock, user_id)
+        finally:
+            if lock is not None:
+                lock.release()
 
     if commit:
         await invalidate_history_caches()

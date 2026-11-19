@@ -1,6 +1,6 @@
 # 生产部署指南
 
-**最后核验**: 2026-09-23 | **适用范围**: 当前仓库实现
+**最后核验**: 2026-11-19 | **适用范围**: 当前仓库实现
 
 本文档描述仓库中已经存在的生产部署配置、运行命令和已知阻塞。配置核验范围包括 `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile`、`configs/nginx.conf`、`src/vite.config.js`、`app/api/v1/health.py`、`configs/alembic.ini`、`configs/requirements.txt` 和 `configs/requirements-test.txt`。
 
@@ -13,7 +13,7 @@
 1. ~~Vite 从 `src/` 执行 `npm run build`，`src/vite.config.js` 的 `build.outDir` 是 `../dist`，因此输出目录为仓库根目录 `dist/`。~~ 已修复：输出目录改为 `src/dist`。
 2. ~~`docker-compose.yml`、`docker-compose.prod.yml` 和 `configs/nginx.conf` 都使用 `src/dist`；`Dockerfile` 的前端阶段实际会生成 `/app/dist`，后续却执行 `COPY --from=frontend-builder /app/src/dist ./src/dist`。~~ 已修复：前端阶段产物即 `/app/src/dist`，COPY 与 `ln -sfn /app/src/dist /workspace/src/dist` 指向同一目录。
 3. ~~两份 Compose 都向 API 设置 `ENV=production`，但没有 `env_file` 或 `SECRET_KEY` 环境项。~~ 已修复：两份 Compose 都以 `${SECRET_KEY:?...}` 强制注入 `SECRET_KEY`，未设置时编排在启动前即报错。
-4. ~~两份 Compose 都没有向 API 传递 `DATABASE_URL`。~~ 已修复：两份 Compose 都以 `${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}` 注入，默认落在 `api-data` 卷内，API 与 celery/scheduler 连接同一持久化数据库。
+4. ~~两份 Compose 都没有向 API 传递 `DATABASE_URL`。~~ 已修复：本地 Compose 默认使用 `api-data` 卷内的 SQLite；生产 Compose 新增 MySQL 8.4 服务，api/celery/scheduler 必须显式提供同一个 `DATABASE_URL` 并等待数据库健康。
 5. ~~`Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。~~ 已修复：镜像新增文档转换工具链层，安装 `libreoffice-impress`、`poppler-utils`、`fonts-noto-cjk`，PPT 转 PDF 与 PDF 转 PNG 预览/质量复审在容器内可用。该层使镜像增大约 0.7-1 GB。
 
 运行期配置已补齐：两份 Compose 的 api/celery/scheduler 统一设置 `RSA_KEY_DIR=/app/keys` 并共享 `api-keys` 卷，避免各容器各自生成密钥导致密文不可互通；同时显式挂载 `data/unified_model_config.yaml`、`data/agent_model_config.yaml` 和 `configs/system_config.json`（`api-data` 空卷会遮蔽镜像内 `data/`）。`app/main.py` 在生产环境缺失这些配置文件时抛出 `RuntimeError` 拒绝启动，避免静默回退到硬编码默认模型。`Dockerfile` 另将 `configs/system_config.json` 打进镜像作为兜底。
@@ -37,12 +37,14 @@
 
 ### 生产 Compose
 
-`docker-compose.prod.yml` 的 `services` 实际包含 5 个服务：`api`、`celery`、`scheduler`、`redis`、`nginx`。
+`docker-compose.prod.yml` 的 `services` 实际包含 7 个服务：`api`、`celery`、`scheduler`、`mysql`、`redis`、`redis-apikeys`、`nginx`。
 
 - `api` 使用 2 个 Uvicorn worker，绑定 `127.0.0.1:8080`，使用 `api-logs`、`api-data`、`api-keys`、`ppt-artifacts` 命名卷。
 - `celery` 使用 1 个 worker，健康检查显式禁用，使用 `api-logs`、`api-data`、`ppt-artifacts`。
 - `scheduler` 执行 `python -m app.db.scheduler_runner`，健康检查显式禁用；它使用 `api-data` 和 `api-logs`。
+- `mysql` 使用 MySQL 8.4、`mysql-data` 卷和 `mysqladmin ping` 健康检查，承载多 worker 共享的会话、任务与统一状态。
 - `redis` 使用 AOF、256 MB `allkeys-lru` 和 `redis-data`，健康检查为 `redis-cli ping`。
+- `redis-apikeys` 独立保存用户 API Key，使用 AOF 与 `noeviction`，避免被缓存淘汰策略清除。
 - `nginx` 等待 `api` 健康后启动，暴露 `80:80`，使用 `nginx-logs`；静态目录仍挂载为 `./src/dist:/workspace/src/dist:ro`。
 
 生产 Compose 没有 Jaeger 服务。应用的 `app/agent/tracing.py` 支持 `OTEL_ENABLED`、`OTEL_EXPORTER`、`OTEL_JAEGER_ENDPOINT` 和 OTLP 配置，默认关闭追踪；当前 Compose 没有提供 Jaeger 或 OTEL Collector，因此仅设置 `OTEL_ENABLED=1` 不能形成完整的追踪链路。
@@ -53,7 +55,7 @@
 
 两份编排的 `command` 都会覆盖该 CMD，其中的 `su appuser` 不再执行，因此非 root 启动需要编排显式声明：`docker-compose.prod.yml` 的 api/celery/scheduler 均设置 `user: appuser`。本地 `docker-compose.yml` 使用 bind mount（`./logs`、`./data`、`./uploads` 等属主为宿主用户），切到 `appuser` 会失去写权限，故保持默认 root 运行。
 
-后端依赖来自 `configs/requirements.txt`。该文件包含 FastAPI、Uvicorn、Celery、Redis、SQLAlchemy、Alembic、OpenTelemetry、`python-pptx`、Pillow、OpenCV、Matplotlib、NumPy、Pandas、Scrapy 等依赖。它没有 `gunicorn`、`asyncpg`、`pdf2image`；文档转换能力由镜像的系统包层提供（`libreoffice-impress`、`poppler-utils`），不来自 pip。`configs/requirements-test.txt` 是测试工具补充依赖，不会被当前 Dockerfile 安装。
+后端依赖来自 `configs/requirements.txt`。该文件包含 FastAPI、Uvicorn、Celery、Redis、SQLAlchemy、Alembic、`aiomysql`、`PyMySQL`、OpenTelemetry、`python-pptx`、Pillow、Matplotlib、NumPy 等依赖。它没有 `gunicorn`、`pdf2image`；文档转换能力由镜像的系统包层提供（`libreoffice-impress`、`poppler-utils`），不来自 pip。`configs/requirements-test.txt` 是测试工具补充依赖，不会被当前 Dockerfile 安装。
 
 Dockerfile 将 `configs/alembic.ini` 复制为 `/app/alembic.ini`，同时将迁移脚本复制到 `/app/migrations`。配置内的 `script_location = %(here)s/../migrations` 在这个新位置会解析为 `/migrations`；镜像内也不存在 `/app/configs/alembic.ini`。因此要求的 `alembic -c configs/alembic.ini ...` 命令当前只能在仓库目录结构中使用，镜像内迁移路径需要部署实现修复。
 
@@ -81,7 +83,10 @@ export SECRET_KEY=$(openssl rand -hex 32)
 # 启动基础 Compose
 docker compose up -d
 
-# 启动生产 Compose
+# 启动生产 Compose（数据库与密码必须显式提供）
+export MYSQL_PASSWORD=$(openssl rand -hex 16)
+export MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)
+export DATABASE_URL="mysql+aiomysql://ai_agent:${MYSQL_PASSWORD}@mysql:3306/ai_agent?charset=utf8mb4"
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -131,7 +136,7 @@ PYTHONPATH=/workspace python3 -m app.db.scheduler_runner
 
 `configs/alembic.ini` 将迁移脚本定位到 `migrations/`（`script_location = %(here)s/../migrations`），`migrations/env.py` 读取统一的 `settings.DATABASE_URL`：生产由环境变量注入、本地默认仓库根 `app.db`。镜像将 ini 复制到 `/app/configs/alembic.ini`，与 `COPY migrations/ ./migrations/` 配套，因此容器内 alembic 命中与 API 相同的库。当前 Alembic 头为 `20260918_unique_tasks_task_id`。
 
-应用启动由 `migrations/runner.py` 依据 `Base.metadata` 幂等建表并补列。`migrations/env.py` 的首次接入契约以同一份 metadata 为 schema 真相来源：
+应用启动由 `migrations/runner.py` 依据 `Base.metadata` 幂等建表并补列，支持 SQLite 和 MySQL。MySQL 启动迁移会先取 `GET_LOCK` 命名锁，避免多个 uvicorn worker 并发执行 DDL。`migrations/env.py` 的首次接入契约以同一份 metadata 为 schema 真相来源：
 
 - 库内没有 `alembic_version` 时，先按 metadata 建全量表，再把版本登记为 head，不重放历史修订。从零建库的历史链本身无法自洽——起点 `56882bedb846` 是空迁移，紧随的 `a1b2c3d4e5f6_add_performance_indexes` 就假设 `user` 等基础表已存在。
 - 库内已有 `alembic_version` 时走标准迁移，只执行尚未应用的新修订。

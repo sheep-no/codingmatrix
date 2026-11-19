@@ -5,7 +5,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
-from migrations.runner import run_async_migrations
+from migrations import runner as migration_runner
+from migrations.runner import (
+    _acquire_mysql_migration_lock,
+    _has_unique_user_id_index,
+    _release_mysql_migration_lock,
+    run_async_migrations,
+)
 
 
 @pytest.mark.asyncio
@@ -199,3 +205,101 @@ async def test_runtime_runner_keeps_fresh_permission_constraint(tmp_path, monkey
 
     # 新建库由模型约束给出唯一性，重复执行不应再叠加一个同义索引
     assert len(await _unique_user_id_indexes(database_path)) == 1
+
+
+class _FakeResult:
+    def __init__(self, rows=None, scalar=None):
+        self._rows = rows or []
+        self._scalar = scalar
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def scalar(self):
+        return self._scalar
+
+
+class _FakeConnection:
+    def __init__(self, results):
+        self.results = list(results)
+        self.statements = []
+
+    async def execute(self, statement, params=None):
+        self.statements.append((str(statement), params))
+        return self.results.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_mysql_migration_lock_acquires_and_releases():
+    conn = _FakeConnection([_FakeResult(scalar=1), _FakeResult(scalar=1)])
+
+    await _acquire_mysql_migration_lock(conn)
+    await _release_mysql_migration_lock(conn)
+
+    assert "GET_LOCK" in conn.statements[0][0]
+    assert conn.statements[0][1]["name"] == "ai_agent_schema_migration"
+    assert "RELEASE_LOCK" in conn.statements[1][0]
+
+
+@pytest.mark.asyncio
+async def test_mysql_migration_lock_raises_on_timeout():
+    conn = _FakeConnection([_FakeResult(scalar=0)])
+
+    with pytest.raises(RuntimeError, match="迁移锁超时"):
+        await _acquire_mysql_migration_lock(conn)
+
+
+@pytest.mark.asyncio
+async def test_mysql_migrations_release_lock_and_dispose_on_failure(monkeypatch):
+    calls = []
+
+    class _FakeLockConnection:
+        async def execute(self, statement, params=None):
+            calls.append(str(statement))
+            return _FakeResult(scalar=1)
+
+        async def close(self):
+            calls.append("close")
+
+    class _FakeEngine:
+        async def connect(self):
+            return _FakeLockConnection()
+
+        def begin(self):
+            raise RuntimeError("migration failed")
+
+        async def dispose(self):
+            calls.append("dispose")
+
+    async def _fail_migration(conn, db_type, db_name):
+        raise AssertionError("begin should fail before applying migrations")
+
+    monkeypatch.setattr(settings, "DATABASE_URL", "mysql+aiomysql://u:p@db:3306/ai_agent")
+    monkeypatch.setattr(migration_runner, "create_async_engine", lambda url: _FakeEngine())
+    monkeypatch.setattr(migration_runner, "_apply_schema_migrations", _fail_migration)
+
+    with pytest.raises(RuntimeError, match="migration failed"):
+        await run_async_migrations()
+
+    assert any("GET_LOCK" in call for call in calls)
+    assert any("RELEASE_LOCK" in call for call in calls)
+    assert calls[-2:] == ["close", "dispose"]
+
+
+@pytest.mark.asyncio
+async def test_mysql_unique_permission_index_detection():
+    conn = _FakeConnection([
+        _FakeResult(rows=[("uq_permission_user_id", "user_id")]),
+    ])
+
+    assert await _has_unique_user_id_index(conn, "mysql", "ai_agent") is True
+    assert "information_schema.statistics" in conn.statements[0][0]
+
+
+@pytest.mark.asyncio
+async def test_mysql_permission_index_rejects_compound_index():
+    conn = _FakeConnection([
+        _FakeResult(rows=[("uq_permission_user_role", "user_id"), ("uq_permission_user_role", "role")]),
+    ])
+
+    assert await _has_unique_user_id_index(conn, "mysql", "ai_agent") is False

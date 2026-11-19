@@ -364,6 +364,83 @@ def _verify_ppt_owner(ppt_id: str, user_id: str) -> None:
         raise HTTPException(status_code=403, detail="无权访问此 PPT")
 
 
+def _ppt_history_record(
+    ppt_id: str,
+    json_path: Path,
+    user_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Build one history record, returning None when the user cannot read it."""
+    owner_path = PPT_OWNER_DIR / f"{ppt_id}.json"
+    if not owner_path.exists():
+        return None
+    try:
+        with open(owner_path, "r", encoding="utf-8") as owner_file:
+            owner = json.load(owner_file)
+    except (OSError, ValueError, TypeError):
+        return None
+    if str(owner.get("user_id")) != str(user_id):
+        return None
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as slides_file:
+            raw_data = json.load(slides_file)
+    except (OSError, ValueError, TypeError):
+        return None
+
+    # 兼容新格式（dict）和旧格式（list）
+    if isinstance(raw_data, dict):
+        slides_list = raw_data.get("slides", [])
+        record_user_id = raw_data.get("user_id")
+        record_title = str(raw_data.get("title") or "").strip()
+    else:
+        slides_list = raw_data
+        record_user_id = None
+        record_title = ""
+    if not isinstance(slides_list, list):
+        slides_list = []
+    if record_user_id and str(record_user_id) != str(user_id):
+        return None
+
+    if not record_title and slides_list:
+        first = slides_list[0] if isinstance(slides_list[0], dict) else {}
+        record_title = str(first.get("title") or "").strip()
+    record_title = record_title or "未命名"
+
+    pptx_path = PPT_OUTPUT_DIR / f"{ppt_id}.pptx"
+    has_file = pptx_path.exists()
+    file_size_bytes = 0
+    if has_file:
+        try:
+            file_size_bytes = pptx_path.stat().st_size
+        except OSError:
+            has_file = False
+    download_url = (
+        f"/api/v1/pptx/download/{ppt_id}?format=pptx" if has_file else None
+    )
+    try:
+        created_at = datetime.fromtimestamp(json_path.stat().st_mtime).isoformat()
+    except OSError:
+        return None
+
+    return {
+        "id": ppt_id,
+        "ppt_id": ppt_id,
+        "task_id": ppt_id,
+        "title": record_title,
+        "topic": record_title,
+        "slide_count": len(slides_list),
+        "file_size_bytes": file_size_bytes,
+        "has_file": has_file,
+        "status": "completed" if has_file else "failed",
+        "created_at": created_at,
+        "download_url": download_url,
+        "detail_url": f"/api/v1/pptx/history/{ppt_id}",
+        "preview_url": (
+            f"/api/v1/pptx/preview/{ppt_id}?format=pptx" if has_file else None
+        ),
+    }
+
+
 def _preview_url(ppt_id: str, output_format: "OutputFormat") -> str:
     """Return a preview URL that preserves the generated artifact format."""
     return f"/api/v1/pptx/preview/{ppt_id}?format={output_format.value}"
@@ -3134,45 +3211,10 @@ async def list_ppt_history(
     records = []
     for json_path in sorted(output_dir.glob("*_slides.json"), reverse=True):
         ppt_id = json_path.name.replace("_slides.json", "")
-        try:
-            owner_path = PPT_OWNER_DIR / f"{ppt_id}.json"
-            if not owner_path.exists():
-                continue
-            with open(owner_path, "r", encoding="utf-8") as owner_file:
-                if str(json.load(owner_file).get("user_id")) != str(user_id):
-                    continue
-            with open(json_path, "r", encoding="utf-8") as f:
-                raw_data = json.load(f)
-            # 兼容新格式（dict）和旧格式（list）
-            if isinstance(raw_data, dict):
-                slides_list = raw_data.get("slides", [])
-                record_user_id = raw_data.get("user_id")
-                record_title = raw_data.get("title") or (slides_list[0].get("title", "未命名") if slides_list else "未命名")
-            else:
-                slides_list = raw_data
-                record_user_id = None
-                record_title = slides_list[0].get("title", "未命名") if slides_list else "未命名"
-
-            # 用户过滤：跳过明确属于其他用户的记录
-            if record_user_id and str(record_user_id) != str(user_id):
-                continue
-
-            pptx_path = output_dir / f"{ppt_id}.pptx"
-            has_file = pptx_path.exists()
-            if isinstance(slides_list, list) and slides_list:
-                first = slides_list[0] if isinstance(slides_list[0], dict) else {}
-                record_title = str(first.get("title") or record_title).strip() or "未命名"
-            records.append({
-                "task_id": ppt_id,
-                "title": record_title,
-                "topic": record_title,
-                "slide_count": len(slides_list) if isinstance(slides_list, list) else 0,
-                "has_file": has_file,
-                "status": "completed" if has_file else "failed",
-                "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
-            })
-        except Exception:
+        record = _ppt_history_record(ppt_id, json_path, str(user_id))
+        if record is None:
             continue
+        records.append(record)
 
     total = len(records)
     start = (page - 1) * page_size
@@ -3241,6 +3283,23 @@ async def get_ppt_stats(
     total = sum((output_dir / f"{ppt_id}_slides.json").exists() for ppt_id in owned_ids)
     completed = sum((output_dir / f"{ppt_id}.pptx").exists() for ppt_id in owned_ids)
     return {"total": total, "completed": completed, "failed": 0}
+
+
+@router.get("/pptx/history/{ppt_id}")
+async def get_ppt_history_detail(
+    ppt_id: str,
+    token: dict = Depends(verify_token)
+):
+    """按 PPT ID 返回单条历史记录及下载地址。"""
+    user_id = str(token.get("sub", "anonymous"))
+    _verify_ppt_owner(ppt_id, user_id)
+    json_path = PPT_OUTPUT_DIR / f"{ppt_id}_slides.json"
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="记录不存在")
+    record = _ppt_history_record(ppt_id, json_path, user_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return record
 
 
 # =============================================================================

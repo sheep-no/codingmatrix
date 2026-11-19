@@ -338,7 +338,16 @@ class SessionManager:
         if files_total > 0:
             state.files_total = files_total
         await self._save_session(state)
-        await self._sync_to_db(session_id, status, files_generated, files_total)
+        error_message = None
+        if status == SessionStatus.FAILED.value and state.errors:
+            error_message = "\n".join(str(item) for item in state.errors[-3:])[:2000]
+        await self._sync_to_db(
+            session_id,
+            status,
+            state.files_generated,
+            state.files_total,
+            error_message=error_message,
+        )
 
     async def cancel_session(self, session_id: str):
         """取消会话（写透到 DB）"""

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
+import 'package:codingmatrix_desktop/infrastructure/share/file_sharer.dart';
 import 'package:codingmatrix_desktop/presentation/file_center_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -241,6 +242,59 @@ void main() {
     );
     await tester.pump();
     expect(find.text('尚未上传文件'), findsOneWidget);
+  });
+
+  testWidgets('文件列表展示文件名、大小和时间，不暴露后端路径', (tester) async {
+    FilePicker.platform = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(FileApi())],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('a.txt'), findsOneWidget);
+    expect(find.textContaining('10 B · 2026-01-01'), findsOneWidget);
+    expect(find.textContaining('/api/v1/files'), findsNothing);
+    expect(find.byTooltip('下载并分享'), findsOneWidget);
+  });
+
+  testWidgets('上传完成提示自动消失', (tester) async {
+    FilePicker.platform = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(FileApi())],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('上传完成'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('上传完成'), findsNothing);
   });
 
   testWidgets('切换账号清空文件列表和提示', (tester) async {
@@ -523,6 +577,53 @@ void main() {
     expect(find.textContaining('下载失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('下载完成后直接打开分享，不展示私有目录路径', (tester) async {
+    FilePicker.platform = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    final shared = <String>[];
+    final api = FileApi()
+      ..downloadSend = (_) async =>
+          http.StreamedResponse(Stream.value(const [1, 2, 3]), 200);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(api),
+        fileDownloadWriterProvider.overrideWithValue(
+          (response, name) async => '/tmp/$name',
+        ),
+        fileSharerProvider.overrideWithValue(
+          FileSharer(
+            share: (path, {subject}) async {
+              shared.add('$path|$subject');
+            },
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.download));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('已保存到'), findsNothing);
+    expect(find.textContaining('/tmp/'), findsNothing);
+    expect(shared, hasLength(1));
+    expect(shared.single, endsWith('a.txt|a.txt'));
   });
 
   testWidgets('文件中心下载中退出再进入不会带回列表', (tester) async {

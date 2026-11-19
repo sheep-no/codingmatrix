@@ -31,9 +31,8 @@ services:
       - WS_MAX_CONNECTIONS=100
       - LOG_LEVEL=INFO
       - ENABLE_SCHEDULER=false
-      # 与 celery/scheduler 共用 api-data 卷上的同一 SQLite 文件；缺省会落到
-      # 容器内 /app/app.db（各容器各自独立、重建即丢），导致调度任务看不到 API 数据
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      # 多 worker/多容器必须共用外部数据库；示例见 .env.example
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       # 与 celery/scheduler 共用同一密钥卷，避免各容器各自生成 RSA 密钥
       - RSA_KEY_DIR=/app/keys
@@ -53,6 +52,8 @@ services:
       - generated-images:/app/generated_images
       - projects:/app/projects
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
       redis-apikeys:
@@ -93,7 +94,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - APIKEY_REDIS_URL=redis://redis-apikeys:6379/0
       - LOG_LEVEL=INFO
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - RSA_KEY_DIR=/app/keys
       - RSA_KEY_PASSPHRASE=${RSA_KEY_PASSPHRASE:-}
@@ -109,6 +110,8 @@ services:
       - generated-images:/app/generated_images
       - projects:/app/projects
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
       redis-apikeys:
@@ -142,7 +145,7 @@ services:
       - ENV=production
       - REDIS_URL=redis://redis:6379/0
       - APIKEY_REDIS_URL=redis://redis-apikeys:6379/0
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - RSA_KEY_DIR=/app/keys
       - RSA_KEY_PASSPHRASE=${RSA_KEY_PASSPHRASE:-}
@@ -158,6 +161,8 @@ services:
       - generated-images:/app/generated_images
       - projects:/app/projects
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
       redis-apikeys:
@@ -172,6 +177,37 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # MySQL - shared task/session state for all API workers
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: ai-agent-mysql-prod
+    restart: always
+    environment:
+      - MYSQL_DATABASE=ai_agent
+      - MYSQL_USER=ai_agent
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - ai-agent-prod-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ---------------------------------------------------------------------------
   # Redis Cache / Message Queue
@@ -284,6 +320,8 @@ volumes:
   projects:
     driver: local
   redis-data:
+    driver: local
+  mysql-data:
     driver: local
   redis-apikeys-data:
     driver: local

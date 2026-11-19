@@ -352,7 +352,16 @@ async def test_pause_and_resume_missing_session_noop(tmp_path):
 
 @pytest.mark.asyncio
 async def test_complete_session_with_errors_and_counts(tmp_path):
-    manager = _manager(tmp_path)
+    db_session = SimpleNamespace(
+        status=None,
+        last_activity_at=None,
+        files_generated=0,
+        files_total=0,
+        error_message=None,
+        completed_at=None,
+    )
+    db = _FakeDB(db_session)
+    manager = _manager(tmp_path, db_session_factory=lambda: db)
     state = await manager.create_session("req", str(tmp_path / "out"))
 
     await manager.complete_session(
@@ -364,6 +373,9 @@ async def test_complete_session_with_errors_and_counts(tmp_path):
     assert state.files_generated == 2
     assert state.files_total == 4
     assert state.completed_at
+    assert db_session.error_message == "boom"
+    assert db_session.files_generated == 2
+    assert db_session.files_total == 4
 
 
 @pytest.mark.asyncio

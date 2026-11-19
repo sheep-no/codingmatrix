@@ -10,6 +10,7 @@ Kolors 图像生成工具 - 支持文生图和图生图
 import asyncio
 import base64
 import io
+import json
 import logging
 import time
 import uuid
@@ -35,11 +36,14 @@ KOLORS_BASE_URL = "https://api.siliconflow.cn/v1"
 SUPPORTED_FORMATS = ['.png', '.jpg', '.jpeg', '.webp']
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
+# Kolors 对 num_inference_steps=50 返回 400，实际可用上限为 49。
+KOLORS_MAX_INFERENCE_STEPS = 49
+
 # 默认参数
 DEFAULT_CONFIG = {
     "width": 1024,
     "height": 1024,
-    "num_inferences": 50,
+    "num_inferences": KOLORS_MAX_INFERENCE_STEPS,
     "guidance_scale": 7.5,
     "num_images": 1,
 }
@@ -205,7 +209,7 @@ async def text_to_image(
     negative_prompt: str = "",
     width: int = 1024,
     height: int = 1024,
-    num_inferences: int = 50,
+    num_inferences: int = KOLORS_MAX_INFERENCE_STEPS,
     guidance_scale: float = 7.5,
     num_images: int = 1,
     output_format: str = "png",
@@ -221,7 +225,7 @@ async def text_to_image(
         negative_prompt: 反向提示词，描述不想出现的内容
         width: 图像宽度 (512/768/1024/1280)
         height: 图像高度 (512/768/1024/1280)
-        num_inferences: 推理步数 (20-100，默认 50)
+        num_inferences: 推理步数 (20-49，默认 49)
         guidance_scale: 引导系数 (1-20，默认 7.5)
         num_images: 生成图片数量 (1-4)
         output_format: 输出格式 (png/jpg)
@@ -241,7 +245,7 @@ async def text_to_image(
         raise ValueError("prompt 不能为空")
     width = max(256, min(1280, width))
     height = max(256, min(1280, height))
-    num_inferences = max(1, min(100, num_inferences))
+    num_inferences = max(1, min(KOLORS_MAX_INFERENCE_STEPS, num_inferences))
     num_images = max(1, min(4, num_images))
     
     data = {
@@ -282,7 +286,7 @@ async def image_to_image(
     strength: float = 0.75,
     width: Optional[int] = None,
     height: Optional[int] = None,
-    num_inferences: int = 50,
+    num_inferences: int = KOLORS_MAX_INFERENCE_STEPS,
     guidance_scale: float = 7.5,
     num_images: int = 1,
     output_format: str = "png",
@@ -316,6 +320,9 @@ async def image_to_image(
             "prompt": "原始 prompt"
         }
     """
+    num_inferences = max(1, min(KOLORS_MAX_INFERENCE_STEPS, num_inferences))
+    num_images = max(1, min(4, num_images))
+
     data = {
         "model": KOLORS_MODEL,
         "prompt": prompt,
@@ -355,7 +362,7 @@ async def inpaint_image(
     prompt: str,
     negative_prompt: str = "",
     strength: float = 0.75,
-    num_inferences: int = 50,
+    num_inferences: int = KOLORS_MAX_INFERENCE_STEPS,
     guidance_scale: float = 7.5,
     output_format: str = "png",
     seed: Optional[int] = None,
@@ -385,6 +392,8 @@ async def inpaint_image(
             "prompt": prompt
         }
     """
+    num_inferences = max(1, min(KOLORS_MAX_INFERENCE_STEPS, num_inferences))
+
     data = {
         "model": KOLORS_MODEL,
         "prompt": prompt,
@@ -440,7 +449,10 @@ async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = No
                 
                 error_msg = f"status={response.status_code} | {response.text}"
                 logger.warning(f"Kolors API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
-                last_error = HTTPException(status_code=response.status_code, detail="图像生成服务暂时不可用，请稍后重试")
+                last_error = HTTPException(
+                    status_code=response.status_code,
+                    detail=_kolors_error_detail(response.status_code, response.text),
+                )
                 
                 if response.status_code >= 500:
                     wait_time = (2 ** attempt) * 1.0
@@ -464,6 +476,24 @@ async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = No
                 break
         
         raise last_error or HTTPException(status_code=500, detail="图像生成失败")
+
+
+def _kolors_error_detail(status_code: int, body: str) -> str:
+    """把供应商错误转换成可操作提示，避免前端只看到笼统失败。"""
+    message = ""
+    try:
+        payload = json.loads(body)
+        if isinstance(payload, dict):
+            message = str(payload.get("message") or "").strip()
+    except (TypeError, ValueError):
+        message = ""
+    message = message[:200]
+
+    if status_code == 400 and message:
+        return f"图像生成参数无效：{message}"
+    if status_code in (401, 403):
+        return "图像生成授权无效，请检查 SiliconFlow 授权后重试"
+    return "图像生成服务暂时不可用，请稍后重试"
 
 
 # 快捷函数 - 常用场景

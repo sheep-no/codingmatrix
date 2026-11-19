@@ -170,6 +170,7 @@ async def reserve_companion_turn_state(
         {"turn_id": turn_id, "conversation_id": session_id},
         reclaim_after_seconds=settings.GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS,
         reservation_token=str(uuid.uuid4()),
+        retry_failed_event=True,
     )
 
 

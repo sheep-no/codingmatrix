@@ -284,6 +284,8 @@ async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
 def _build_agent_config(req: GenerateRequest, stream: bool = False) -> AgentConfig:
     return AgentConfig(
         model=req.model,
+        api_key_token=getattr(req, "api_key_token", None),
+        provider_id=getattr(req, "provider_id", None),
         stream=stream,
         max_thinking_tokens=req.max_thinking_tokens,
         max_output_tokens=req.max_output_tokens,

@@ -21,6 +21,11 @@ from typing import Any
 import httpx
 
 from app.agent.dynamic_model_router import LayeredModelRouter, get_dynamic_router
+from app.core.llm_errors import (
+    error_code_of,
+    fatal_error_message,
+    is_fatal_llm_error,
+)
 from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
@@ -107,6 +112,11 @@ def _evict_idle_model_semaphores(keep: str) -> None:
 
 class LLMClientError(Exception):
     """LLM 调用不可恢复错误"""
+
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 class LLMClient:
@@ -258,9 +268,15 @@ class LLMClient:
             )
             logger.error(f"LLM 流式调用失败: {self.model_name} - [{type(e).__name__}] {e}")
 
+            if is_fatal_llm_error(e):
+                raise LLMClientError(
+                    fatal_error_message(e), code=error_code_of(e)
+                ) from e
+
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (401, 403):
                 raise LLMClientError(
-                    f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置"
+                    f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置",
+                    code="LLM_AUTH_FAILED",
                 ) from e
 
             raise LLMClientError(f"LLM 流式调用失败: {self.model_name} - {e}") from e
@@ -490,9 +506,15 @@ class LLMClient:
             )
             logger.error(f"LLM 调用失败: {self.model_name} - [{type(e).__name__}] {e}")
 
+            if is_fatal_llm_error(e):
+                raise LLMClientError(
+                    fatal_error_message(e), code=error_code_of(e)
+                ) from e
+
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (401, 403):
                 raise LLMClientError(
-                    f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置"
+                    f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置",
+                    code="LLM_AUTH_FAILED",
                 ) from e
 
             raise LLMClientError(f"LLM 调用失败: {self.model_name} - {e}") from e

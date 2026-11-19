@@ -131,9 +131,7 @@ class TestHelpers:
         now = datetime.now()
         old = (now - timedelta(seconds=100)).isoformat()
         monkeypatch.setattr(wf, "_MAX_SESSION_WORKFLOWS", 2)
-        wf._session_workflows["stale"] = {
-            "updated_at": (now - timedelta(days=2)).isoformat()
-        }
+        wf._session_workflows["stale"] = {"updated_at": (now - timedelta(days=2)).isoformat()}
         wf._session_workflows["bad"] = {"updated_at": old}
         wf._session_workflows[("u", "a")] = {"updated_at": "1"}
         wf._session_workflows[("u", "b")] = {"updated_at": "2"}
@@ -194,13 +192,35 @@ class TestExecuteWorkflow:
         assert exported and "export_data" in exported[0]
 
     @pytest.mark.asyncio
+    async def test_node_completion_updates_graph_and_export(self, runtime):
+        events = await _collect(
+            await wf.execute_workflow(
+                WorkflowRequest(natural_language_request="do"),
+                {"sub": "u1"},
+                _db(),
+            )
+        )
+        workflow_id = next(event["workflow_id"] for event in events if event["event"] == "task_graph_generated")
+        graph = wf._workflows[workflow_id]["task_graph"]
+        completed = next(node for node in graph.nodes if node.id == "n1")
+        skipped = next(node for node in graph.nodes if node.id == "n2")
+        assert completed.status.value == "completed"
+        assert completed.result == {"x": 1}
+        assert completed.error is None
+        assert skipped.status.value == "skipped"
+
+        exported = await wf.export_workflow(workflow_id, {"sub": "u1"})
+        nodes = {node["id"]: node for node in exported["export_data"]["nodes"]}
+        assert nodes["n1"]["status"] == "completed"
+        assert nodes["n1"]["result"] == {"x": 1}
+        assert nodes["n2"]["status"] == "skipped"
+
+    @pytest.mark.asyncio
     async def test_invalid_graph(self, runtime):
         FakeValidator.valid = False
         FakeValidator.errors = ["cycle"]
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["event"] == "workflow_error"
         assert "cycle" in events[-1]["message"]
@@ -209,9 +229,7 @@ class TestExecuteWorkflow:
     async def test_decomposer_error(self, runtime):
         FakeDecomposer.error = wf.TaskDecomposerError("bad")
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["error"] == "decomposition_failed"
 
@@ -219,9 +237,7 @@ class TestExecuteWorkflow:
     async def test_executor_exception_sets_failed(self, runtime):
         FakeExecutor.error = RuntimeError("boom")
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["error"] == "execution_failed"
 
@@ -251,9 +267,7 @@ class TestExecuteWorkflow:
         db = _db()
         db.commit = AsyncMock(side_effect=RuntimeError("db down"))
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, db
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, db)
         )
         assert events[-1]["event"] == "workflow_completed"
         assert any("保存工作流历史记录失败" in m for m in messages)
@@ -262,11 +276,7 @@ class TestExecuteWorkflow:
     async def test_cache_limit_evicts_oldest(self, runtime, monkeypatch):
         monkeypatch.setattr(wf, "_MAX_WORKFLOWS", 1)
         wf._workflows["existing"] = {"updated_at": datetime.now().isoformat()}
-        await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
-        )
+        await _collect(await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()))
         assert "existing" not in wf._workflows
 
     @pytest.mark.asyncio
@@ -277,9 +287,7 @@ class TestExecuteWorkflow:
 
         monkeypatch.setattr(FakeExecutor, "execute", _execute)
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         completed = [e for e in events if e["event"] == "node_completed"][0]
         assert completed["success"] is False
@@ -296,9 +304,7 @@ class TestExecuteWorkflow:
 
         monkeypatch.setattr(FakeExecutor, "execute", _execute)
         monkeypatch.setattr(wf, "_drain_event_queue", _drain)
-        response = await wf.execute_workflow(
-            WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-        )
+        response = await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         stream = response.body_iterator
         await anext(stream)
         await anext(stream)
@@ -320,9 +326,7 @@ class TestExecuteWorkflow:
 
         monkeypatch.setattr(FakeExecutor, "execute", _execute)
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["event"] == "workflow_completed"
         assert any(e["event"] == "node_started" for e in events)
@@ -336,9 +340,7 @@ class TestExecuteWorkflow:
 
         monkeypatch.setattr(FakeExecutor, "execute", _execute)
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["event"] == "workflow_completed"
 
@@ -349,9 +351,7 @@ class TestExecuteWorkflow:
 
         monkeypatch.setattr(FakeExecutor, "execute", _execute)
         events = await _collect(
-            await wf.execute_workflow(
-                WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db()
-            )
+            await wf.execute_workflow(WorkflowRequest(natural_language_request="do"), {"sub": "u1"}, _db())
         )
         assert events[-1]["event"] == "workflow_error"
 
@@ -359,9 +359,59 @@ class TestExecuteWorkflow:
 class TestStatusEndpoint:
     @pytest.mark.asyncio
     async def test_not_found(self):
+        class _Result:
+            def scalars(self):
+                return self
+
+            def first(self):
+                return None
+
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=_Result())
         with pytest.raises(wf.HTTPException) as exc:
-            await wf.get_workflow_status("missing", {"sub": "u1"})
+            await wf.get_workflow_status("missing", {"sub": "u1"}, fake_db)
         assert exc.value.status_code == 404
+        assert "24 小时" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_persisted_history(self):
+        record = SimpleNamespace(
+            workflow_id="wf_old",
+            user_id="u1",
+            status="completed",
+            task_graph={
+                "workflow_id": "wf_old",
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "type": "data_transform",
+                        "params": {},
+                        "depends_on": [],
+                        "status": "running",
+                    }
+                ],
+            },
+            result_summary=json.dumps({"completed_nodes": 1}),
+            updated_at=datetime.now(),
+        )
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def first(self):
+                return record
+
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=_Result())
+
+        result = await wf.get_workflow_status("wf_old", {"sub": "u1"}, fake_db)
+
+        assert result["status"] == "completed"
+        assert result["source"] == "history"
+        assert result["summary"] == {"completed_nodes": 1}
+        assert result["task_graph"]["nodes"][0]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_wrong_user(self):
@@ -382,9 +432,7 @@ class TestStatusEndpoint:
     async def test_with_executor_and_results(self):
         graph = TaskGraph(workflow_id="w", nodes=[TaskNode(id="n1", type=TaskType.DATA_TRANSFORM)])
         aggregator = MagicMock()
-        aggregator.get_all_results.return_value = {
-            "n1": SimpleNamespace(success=True, data={"d": 1}, error=None)
-        }
+        aggregator.get_all_results.return_value = {"n1": SimpleNamespace(success=True, data={"d": 1}, error=None)}
         aggregator.get_workflow_summary.return_value = {"completed_nodes": 1}
         executor = MagicMock()
         executor.get_aggregator.return_value = aggregator
@@ -441,12 +489,8 @@ class TestImportExport:
 
     @pytest.mark.asyncio
     async def test_export_fallback_shape(self):
-        node = SimpleNamespace(
-            id="n1", type=SimpleNamespace(value="data_transform"), params={}, depends_on=[]
-        )
-        graph = SimpleNamespace(
-            workflow_id="w", version="1.0", nodes=[node], timeout=10, exportable=True
-        )
+        node = SimpleNamespace(id="n1", type=SimpleNamespace(value="data_transform"), params={}, depends_on=[])
+        graph = SimpleNamespace(workflow_id="w", version="1.0", nodes=[node], timeout=10, exportable=True)
         wf._workflows["w"] = {"user_id": "u1", "task_graph": graph}
         result = await wf.export_workflow("w", {"sub": "u1"})
         assert result["export_data"]["nodes"][0]["id"] == "n1"
@@ -491,11 +535,13 @@ class TestExecuteImported:
     async def test_success(self, runtime):
         graph = TaskGraph(workflow_id="w", nodes=[TaskNode(id="n1", type=TaskType.DATA_TRANSFORM)])
         wf._workflows["w"] = {"user_id": "u1", "task_graph": graph}
-        events = await _collect(
-            await wf.execute_imported_workflow("w", {"sub": "u1"}, _db())
-        )
+        events = await _collect(await wf.execute_imported_workflow("w", {"sub": "u1"}, _db()))
         assert events[-1]["event"] == "workflow_completed"
         assert events[-1]["status"] == "completed"
+        exported = await wf.export_workflow("w", {"sub": "u1"})
+        node = exported["export_data"]["nodes"][0]
+        assert node["status"] == "completed"
+        assert node["result"] == {"x": 1}
 
     @pytest.mark.asyncio
     async def test_history_save_error(self, runtime, monkeypatch):
@@ -602,6 +648,10 @@ class TestExecuteImported:
         completed = [e for e in events if e["event"] == "node_completed"][0]
         assert completed["error"] == "bad"
         assert "data" not in completed
+        exported = await wf.export_workflow("w", {"sub": "u1"})
+        node = exported["export_data"]["nodes"][0]
+        assert node["status"] == "failed"
+        assert node["error"] == "bad"
 
     @pytest.mark.asyncio
     async def test_slow_executor_polls_and_final_drain(self, runtime, monkeypatch):
@@ -621,12 +671,8 @@ class TestExecuteImported:
 
     @pytest.mark.asyncio
     async def test_fallback_graph_dump(self, runtime):
-        node = SimpleNamespace(
-            id="n1", type=SimpleNamespace(value="data_transform"), params={}, depends_on=[]
-        )
-        graph = SimpleNamespace(
-            workflow_id="w", nodes=[node], timeout=10
-        )
+        node = SimpleNamespace(id="n1", type=SimpleNamespace(value="data_transform"), params={}, depends_on=[])
+        graph = SimpleNamespace(workflow_id="w", nodes=[node], timeout=10)
         wf._workflows["w"] = {"user_id": "u1", "task_graph": graph}
         events = await _collect(await wf.execute_imported_workflow("w", {"sub": "u1"}, _db()))
         assert events[-1]["event"] == "workflow_completed"
