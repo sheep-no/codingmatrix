@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import AsyncIterator, Optional, Union
 
 import httpx
-from fastapi import HTTPException
 from httpx import Timeout
 
 from app.core.config import settings
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.errors import LLMCallError, code_for_status, error_from_response
 from app.utils.aicloud.http_client import _max_concurrent_calls, call_with_retry, get_http_client
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
@@ -259,9 +259,11 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                         async for item in _stream_once(payload):
                             yield item
                         return
-                    error = Exception(f"HTTP {e.status_code}: {e.body[:500]}")
-                    error.status_code = e.status_code
-                    raise error from e
+                    raise LLMCallError(
+                        f"HTTP {e.status_code}: {e.body[:500]}",
+                        status_code=e.status_code,
+                        code=code_for_status(e.status_code),
+                    ) from e
 
             return generate()
         else:
@@ -317,9 +319,9 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                         
                         resp = await call_with_retry(request_func_retry, max_retries=3)
                         if resp.status_code != 200:
-                            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                            raise error_from_response(resp)
                     else:
-                        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                        raise error_from_response(resp)
                 return resp.json()
     
     async def call_embedding(
@@ -353,7 +355,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             resp = await call_with_retry(request_func, max_retries=3)
             
             if resp.status_code != 200:
-                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                raise error_from_response(resp)
             return resp.json()
     
     def _get_headers(self) -> dict:

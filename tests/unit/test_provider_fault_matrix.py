@@ -5,6 +5,7 @@ import pytest
 
 from app.utils.aicloud import llm_caller
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.errors import LLMCallError, normalize_llm_error
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
@@ -185,10 +186,10 @@ async def test_stream_error_body_is_truncated():
         async def aiter_bytes(self):
             yield b"x" * 3000
 
-    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+    with pytest.raises(LLMCallError) as exc_info:
         await BaseProviderAdapter._raise_for_stream_status(LargeErrorResponse())
 
-    assert exc_info.value.response.status_code == 502
+    assert exc_info.value.status_code == 502
     assert str(exc_info.value).count("x") == 500
 
 
@@ -201,8 +202,47 @@ async def test_stream_error_body_read_failure_still_raises():
             raise httpx.ReadError("cannot read body")
             yield b"never"
 
-    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+    with pytest.raises(LLMCallError) as exc_info:
         await BaseProviderAdapter._raise_for_stream_status(BrokenErrorResponse())
 
-    assert exc_info.value.response.status_code == 500
-    assert "HTTP 500: " in str(exc_info.value)
+    assert exc_info.value.status_code == 500
+    assert "HTTP 500" in str(exc_info.value)
+
+
+def test_normalize_http_error_preserves_rate_limit_metadata():
+    request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+    response = httpx.Response(429, headers={"Retry-After": "30"}, request=request)
+    error = httpx.HTTPStatusError("busy", request=request, response=response)
+
+    normalized = normalize_llm_error(error)
+
+    assert normalized is not None
+    assert normalized.status_code == 429
+    assert normalized.code == "LLM_RATE_LIMITED"
+    assert normalized.retry_after == 30.0
+
+
+@pytest.mark.asyncio
+async def test_empty_stream_is_counted_and_logged(monkeypatch):
+    llm_caller.reset_empty_stream_stats()
+    warnings = []
+
+    def capture(message, *args, **_kwargs):
+        warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(llm_caller.logger, "warning", capture)
+
+    async def factory():
+        async def empty():
+            if False:
+                yield ""
+
+        return empty()
+
+    result = await llm_caller._invoke_adapter_with_retry(
+        factory, model="empty-model", stream=True, skip_semaphore=True
+    )
+    assert [chunk async for chunk in result] == []
+
+    assert llm_caller.get_empty_stream_stats() == {"empty_stream_total": 1}
+    assert any("empty_stream model=empty-model" in message for message in warnings)

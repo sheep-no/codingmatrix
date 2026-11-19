@@ -10,8 +10,7 @@ import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
-import httpx
-
+from app.utils.aicloud.errors import error_from_response
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 logger = logging.getLogger(__name__)
@@ -168,11 +167,7 @@ class BaseProviderAdapter(abc.ABC):
                     break
         except Exception:
             pass
-        raise httpx.HTTPStatusError(
-            f"HTTP {response.status_code}: {error_body[:500]}",
-            request=getattr(response, "request", None),
-            response=response,
-        )
+        raise error_from_response(response, error_body[:500])
 
     @abc.abstractmethod
     def _get_headers(self) -> dict:

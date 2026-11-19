@@ -73,6 +73,7 @@ python_version = "3.11"
 files = [
     "app/core/llm_errors.py",
     "app/core/version.py",
+    "app/utils/aicloud/errors.py",
     "app/agent/retrieval/local_context.py",
     "app/agent/orchestrator_generation/coverage_checker.py",
     "app/api/v1/health.py",

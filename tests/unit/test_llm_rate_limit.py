@@ -3,6 +3,7 @@ import types
 import pytest
 
 from app.utils.aicloud import llm_caller
+from app.utils.aicloud.errors import LLMCallError
 
 
 @pytest.fixture(autouse=True)
@@ -167,6 +168,7 @@ async def test_stream_429_waits_retry_after_seconds(monkeypatch):
 @pytest.mark.asyncio
 async def test_zhipu_stream_raises_http_status_error_with_retry_after(monkeypatch):
     import httpx
+
     from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
     from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
@@ -191,8 +193,9 @@ async def test_zhipu_stream_raises_http_status_error_with_retry_after(monkeypatc
 
     adapter = ZhipuAdapter(ProviderConfig(provider=ModelProvider.ZHIPU, api_key="test-key"))
     agen = await adapter.call_llm(model="glm-4.7-flash", prompt="hi", stream=True)
-    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+    with pytest.raises(LLMCallError) as exc_info:
         async for _ in agen:
             pass
-    assert exc_info.value.response.status_code == 429
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 20.0
     assert llm_caller._retry_after_seconds(exc_info.value) == 20.0

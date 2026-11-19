@@ -9,13 +9,13 @@ import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
-from fastapi import HTTPException
 from httpx import Timeout
 
 from app.utils.aicloud.adapters.base import (
     BaseProviderAdapter,
     anthropic_sse_to_openai_chunk,
 )
+from app.utils.aicloud.errors import error_from_response
 from app.utils.aicloud.http_client import _max_concurrent_calls, call_with_retry, get_http_client
 from app.utils.aicloud.providers import ModelProvider
 
@@ -111,7 +111,7 @@ class AnthropicAdapter(BaseProviderAdapter):
                 resp = await call_with_retry(request_func, max_retries=3)
                 
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                    raise error_from_response(resp)
                 
                 # 转换为 OpenAI 兼容格式
                 anthropic_response = resp.json()

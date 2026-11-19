@@ -8,7 +8,7 @@
 
 | 层级 | 当前位置 | 配置或工具 | 静态清点 |
 |---|---|---|---:|
-| 后端单元 | `tests/unit/test_*.py` | pytest、pytest-asyncio | 145 个文件，1854 个 `test_*` 定义 |
+| 后端单元 | `tests/unit/test_*.py` | pytest、pytest-asyncio | 145 个文件，1856 个 `test_*` 定义 |
 | 后端集成 | `tests/integration/test_*.py` | pytest、数据库、Redis | 5 个文件，35 个 `test_*` 定义 |
 | Web 单元 | `src/**/*.test.js` | Vitest、jsdom、Vue Test Utils | 15 个文件，31 个直接 `test/it` 定义 |
 | 浏览器 E2E | `tests/e2e/*.spec.js` | Playwright | 2026-09-12 目录 97 个 spec；2026-09-03 曾清点 77 个文件 / 433 个 `test(...)` |

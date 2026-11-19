@@ -1,13 +1,14 @@
 """
 动态供应商适配器单元测试
 """
-import pytest
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from fastapi import HTTPException
+from unittest.mock import AsyncMock, Mock, patch
 
-from app.utils.aicloud.dynamic_provider import Protocol, DynamicProvider, ModelInfo
+import pytest
+
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
+from app.utils.aicloud.dynamic_provider import DynamicProvider, Protocol
+from app.utils.aicloud.errors import LLMCallError
 
 
 class TestDynamicAdapterInit:
@@ -157,7 +158,7 @@ class TestDynamicAdapterCallLLM:
         
         with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
             with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(LLMCallError) as exc_info:
                     await adapter.call_llm(model="gpt-3.5-turbo", prompt="Hello")
                 
                 assert exc_info.value.status_code == 401
@@ -182,7 +183,7 @@ class TestDynamicAdapterCallLLM:
         
         with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
             with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(LLMCallError) as exc_info:
                     await adapter.call_llm(model="claude-3-haiku-20240307", prompt="Hello")
                 
                 assert exc_info.value.status_code == 403

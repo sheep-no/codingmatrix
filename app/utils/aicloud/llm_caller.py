@@ -17,6 +17,7 @@ from typing import Any, AsyncIterator, Dict, Optional, Union
 
 from app.core.config import settings
 from app.core.llm_errors import (
+    LLM_RATE_LIMITED,
     PROVIDER_API_KEY_NOT_CONFIGURED,
     USER_API_KEY_NOT_FOUND,
 )
@@ -28,6 +29,7 @@ from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.aicloud.adapters.openai import OpenAIAdapter
 from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
 from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
+from app.utils.aicloud.errors import LLMCallError, normalize_llm_error
 from app.utils.aicloud.provider_router import ProviderRouter
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
@@ -131,6 +133,18 @@ _model_cooldown_until: Dict[str, float] = {}
 # 流式取消后若未释放，后续请求会永久卡在 acquire；超时后失败并释放已拿到的额度
 _SEMAPHORE_ACQUIRE_TIMEOUT = 30.0
 
+# 200 空流代表供应商可能在首包前断开；计数并告警，先观测再决定是否升级为错误。
+_empty_stream_total = 0
+
+
+def get_empty_stream_stats() -> Dict[str, int]:
+    return {"empty_stream_total": _empty_stream_total}
+
+
+def reset_empty_stream_stats() -> None:
+    global _empty_stream_total
+    _empty_stream_total = 0
+
 
 def reset_model_cooldowns() -> None:
     """Clear per-model 429 cooldowns (tests)."""
@@ -138,6 +152,8 @@ def reset_model_cooldowns() -> None:
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
+    if getattr(exc, "code", None) == LLM_RATE_LIMITED:
+        return True
     if getattr(exc, "status_code", None) == 429:
         return True
     if getattr(getattr(exc, "response", None), "status_code", None) == 429:
@@ -147,6 +163,12 @@ def _is_rate_limit_error(exc: Exception) -> bool:
 
 
 def _retry_after_seconds(exc: Exception) -> float:
+    explicit = getattr(exc, "retry_after", None)
+    if explicit is not None:
+        try:
+            return min(max(float(explicit), _MODEL_COOLDOWN_MIN), _MODEL_COOLDOWN_MAX)
+        except (TypeError, ValueError):
+            pass
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", None) if response is not None else None
     header = None
@@ -298,6 +320,14 @@ async def _invoke_adapter_with_retry(
                 try:
                     first_chunk = await iterator.__anext__()
                 except StopAsyncIteration:
+                    global _empty_stream_total
+                    _empty_stream_total += 1
+                    logger.warning(
+                        "empty_stream model=%s attempt=%d/%d",
+                        model,
+                        attempt + 1,
+                        max_attempts,
+                    )
                     global_sem, model_sem = lease.transfer()
                     return _SemaphoreWrappedAsyncIterator(result, global_sem, model_sem)
                 except Exception:
@@ -337,15 +367,6 @@ async def _invoke_adapter_with_retry(
             lease.release()
             raise
     raise last_error
-
-
-class LLMCallError(Exception):
-    """LLM 调用基础异常"""
-    def __init__(self, message: str, status_code: int = 500, code: str = "LLM_CALL_ERROR"):
-        super().__init__(message)
-        self.status_code = status_code
-        self.message = message
-        self.code = code
 
 
 class UserAPIKeyNotFoundError(LLMCallError):
@@ -797,13 +818,9 @@ async def call_llm(
                     if fallback_global_acquired:
                         global_sem.release()
                     continue
-        status_code = getattr(e, "status_code", None)
-        if status_code in (401, 403) and not getattr(e, "code", None):
-            raise LLMCallError(
-                str(e),
-                status_code=status_code,
-                code="LLM_AUTH_FAILED",
-            ) from e
+        normalized = normalize_llm_error(e)
+        if normalized is not None:
+            raise normalized from e
         raise
 
 

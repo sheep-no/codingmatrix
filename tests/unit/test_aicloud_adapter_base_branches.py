@@ -1,15 +1,14 @@
 """Branch coverage for app/utils/aicloud/adapters/base.py."""
 
-import asyncio
 import json
 
-import httpx
 import pytest
 
 from app.utils.aicloud.adapters.base import (
     BaseProviderAdapter,
     anthropic_sse_to_openai_chunk,
 )
+from app.utils.aicloud.errors import LLMCallError
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
@@ -89,7 +88,7 @@ class TestStreamStatus:
             async def aiter_bytes(self):
                 yield b"x" * 3000
 
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await BaseProviderAdapter._raise_for_stream_status(Resp())
 
         assert "HTTP 500" in str(exc_info.value)
@@ -104,10 +103,10 @@ class TestStreamStatus:
                 return
                 yield b""
 
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await BaseProviderAdapter._raise_for_stream_status(Resp())
 
-        assert exc_info.value.response.status_code == 502
+        assert exc_info.value.status_code == 502
 
     async def test_multiple_small_chunks_accumulate(self):
         class Resp:
@@ -118,7 +117,7 @@ class TestStreamStatus:
                 yield b"first"
                 yield b"second"
 
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await BaseProviderAdapter._raise_for_stream_status(Resp())
 
         assert "firstsecond" in str(exc_info.value)
@@ -132,10 +131,10 @@ class TestStreamStatus:
                 raise RuntimeError("socket broken")
                 yield b""
 
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await BaseProviderAdapter._raise_for_stream_status(Resp())
 
-        assert exc_info.value.response.status_code == 503
+        assert exc_info.value.status_code == 503
 
 
 class TestAnthropicSse:

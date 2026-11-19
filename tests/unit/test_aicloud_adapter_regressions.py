@@ -11,6 +11,7 @@
 
 import pytest
 
+from app.utils.aicloud.errors import LLMCallError
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
@@ -321,8 +322,6 @@ async def test_official_adapter_stream_raises_on_non_200(
     """ADP11：非 200 流式响应必须抛错，而非把错误 JSON 当 SSE 逐行产出。"""
     import importlib
 
-    import httpx
-
     module = importlib.import_module(f"app.utils.aicloud.adapters.{module_name}")
     adapter_cls = getattr(module, adapter_name)
 
@@ -333,9 +332,11 @@ async def test_official_adapter_stream_raises_on_non_200(
     adapter = adapter_cls(_openai_config(provider))
 
     stream = await adapter.call_llm(model=model, prompt="hi", stream=True)
-    with pytest.raises(httpx.HTTPStatusError, match="401"):
+    with pytest.raises(LLMCallError, match="invalid api key") as exc_info:
         async for _ in stream:
             pass
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.code == "LLM_AUTH_FAILED"
 
 
 @pytest.mark.asyncio

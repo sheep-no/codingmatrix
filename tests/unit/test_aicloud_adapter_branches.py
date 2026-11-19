@@ -5,13 +5,20 @@ import json
 
 import httpx
 import pytest
-from fastapi import HTTPException
 
 from app.utils.aicloud.adapters import (
     anthropic as anthropic_module,
+)
+from app.utils.aicloud.adapters import (
     dashscope as dashscope_module,
+)
+from app.utils.aicloud.adapters import (
     deepseek as deepseek_module,
+)
+from app.utils.aicloud.adapters import (
     openai as openai_module,
+)
+from app.utils.aicloud.adapters import (
     zhipu as zhipu_module,
 )
 from app.utils.aicloud.adapters.anthropic import AnthropicAdapter
@@ -19,6 +26,7 @@ from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
 from app.utils.aicloud.adapters.deepseek import DeepSeekAdapter
 from app.utils.aicloud.adapters.openai import OpenAIAdapter
 from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
+from app.utils.aicloud.errors import LLMCallError
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
@@ -144,7 +152,7 @@ class TestCommonAdapters:
 
         assert client.post_calls[0][1]["json"]["messages"] == messages
 
-    async def test_non_stream_error_status_raises_http_exception(self, adapter_case, monkeypatch):
+    async def test_non_stream_error_status_raises_llm_call_error(self, adapter_case, monkeypatch):
         module, cls, provider = adapter_case
         client = _FakeClient(
             response=_FakeResponse(status_code=400, text="bad request")
@@ -152,11 +160,11 @@ class TestCommonAdapters:
         _patch_client(monkeypatch, module, client)
         adapter = cls(_config(provider))
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await adapter.call_llm("model", "prompt")
 
         assert exc_info.value.status_code == 400
-        assert exc_info.value.detail == "bad request"
+        assert "bad request" in exc_info.value.message
 
     async def test_non_stream_cancel_event_raises(self, adapter_case, monkeypatch):
         module, cls, provider = adapter_case
@@ -216,10 +224,10 @@ class TestCommonAdapters:
 
         stream = await adapter.call_llm("model", "prompt", stream=True)
 
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             async for _ in stream:
                 pass
-        assert exc_info.value.response.status_code == 502
+        assert exc_info.value.status_code == 502
 
     async def test_embedding_returns_payload(self, adapter_case, monkeypatch):
         module, cls, provider = adapter_case
@@ -234,13 +242,13 @@ class TestCommonAdapters:
         assert result == {"data": [{"embedding": [0.1]}]}
         assert client.post_calls[0][0] == "https://example.test/v1/embeddings"
 
-    async def test_embedding_error_status_raises_http_exception(self, adapter_case, monkeypatch):
+    async def test_embedding_error_status_raises_llm_call_error(self, adapter_case, monkeypatch):
         module, cls, provider = adapter_case
         client = _FakeClient(response=_FakeResponse(status_code=401, text="unauthorized"))
         _patch_client(monkeypatch, module, client)
         adapter = cls(_config(provider))
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await adapter.call_embedding("embed-model", "hello")
 
         assert exc_info.value.status_code == 401
@@ -324,7 +332,7 @@ class TestAnthropicAdapter:
         client = _FakeClient(response=_FakeResponse(status_code=529, text="overloaded"))
         _patch_client(monkeypatch, anthropic_module, client)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await self._adapter().call_llm("claude", "prompt")
 
         assert exc_info.value.status_code == 529

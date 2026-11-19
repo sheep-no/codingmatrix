@@ -4,13 +4,13 @@ import asyncio
 
 import httpx
 import pytest
-from fastapi import HTTPException
 
 from app.utils.aicloud.adapters import siliconflow as module
 from app.utils.aicloud.adapters.siliconflow import (
     SiliconFlowAdapter,
     _StreamRequestError,
 )
+from app.utils.aicloud.errors import LLMCallError
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
@@ -277,7 +277,7 @@ class TestNonStreamRetries:
         adapter = _adapter()
         adapter._reasoning_models = set()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await adapter.call_llm("plain", "prompt")
 
         assert exc_info.value.status_code == 500
@@ -289,7 +289,7 @@ class TestNonStreamRetries:
         adapter = _adapter()
         adapter._reasoning_models = set()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await adapter.call_llm("plain", "prompt")
 
         assert exc_info.value.status_code == 429
@@ -478,7 +478,7 @@ class TestEmbedding:
         _patch_client(monkeypatch, client)
         _patch_retry(monkeypatch)
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(LLMCallError):
             await _adapter().call_embedding("embed", "text")
 
 

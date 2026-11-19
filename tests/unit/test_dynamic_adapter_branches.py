@@ -3,13 +3,12 @@
 import asyncio
 import json
 
-import httpx
 import pytest
-from fastapi import HTTPException
 
 from app.utils.aicloud.adapters import dynamic as module
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.aicloud.dynamic_provider import DynamicProvider, Protocol
+from app.utils.aicloud.errors import LLMCallError
 
 
 class _FakeResponse:
@@ -116,11 +115,11 @@ class TestOpenAiPath:
         _patch_client(monkeypatch, client)
         _patch_retry(monkeypatch)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(LLMCallError) as exc_info:
             await self._adapter().call_llm("m", "p")
 
         assert exc_info.value.status_code == 500
-        assert exc_info.value.detail == "boom"
+        assert "boom" in exc_info.value.message
 
     async def test_non_stream_cancel_event(self, monkeypatch):
         _patch_client(monkeypatch, _FakeClient(response=_FakeResponse()))
@@ -206,7 +205,7 @@ class TestAnthropicPath:
         _patch_client(monkeypatch, client)
         _patch_retry(monkeypatch)
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(LLMCallError):
             await self._adapter().call_llm("m", "p")
 
     async def test_non_stream_cancel_event(self, monkeypatch):
