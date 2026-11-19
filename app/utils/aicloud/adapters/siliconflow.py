@@ -13,6 +13,7 @@ from typing import AsyncIterator, Optional, Union
 
 import httpx
 from fastapi import HTTPException
+from httpx import Timeout
 
 from app.core.config import settings
 from app.utils.aicloud.adapters.base import BaseProviderAdapter

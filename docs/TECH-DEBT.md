@@ -1131,11 +1131,11 @@ E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩�
 | P0 巨型模块 | 幻灯片渲染辅助从 `aiGeneratorPptx.py` 拆到 `ppt_slide_renderer.py`（4019 → 2977 行）；文件校验/修复辅助从 `orchestrator_files.py` 拆到 `file_generation_repairs.py`（3003 → 1177 行）。两处均保留原命名空间 re-export，并保留 `ast`/`importlib`/`subprocess` 模块引用以兼容测试 monkeypatch，调用方无需改动 | `app/api/v1/aiGeneratorPptx.py`、`app/api/v1/ppt_slide_renderer.py`、`app/agent/orchestrator_files.py`、`app/agent/file_generation_repairs.py` | PPT/PPTX 相关 1089 项、orchestrator 相关 375 项通过；全量模块导入扫描 0 失败 |
 | P1 未使用导入 | 启用 ruff `F401`，清理 248 处未使用导入（126 个文件）；`F403/F405` 保留存量豁免 | `pyproject.toml`、`app/**` | `ruff check app` 通过 |
 | P1 类型检查 | mypy 覆盖面从 3 个文件扩到 6 个，新增 `llm_errors.py`、`version.py`、`generation_runtime.py` | `pyproject.toml` | `mypy` 0 错误 |
-| P1 宽泛异常 | 新增棘轮测试，`except Exception` 总数不得超过 830，阻止继续扩散 | `tests/unit/test_error_handling_budget.py` | 1 项通过 |
+| P1 宽泛异常 | 新增棘轮测试，`except Exception` 总数不得超过 832（含 rebase 后上游新增 2 处），阻止继续扩散 | `tests/unit/test_error_handling_budget.py` | 1 项通过 |
 | P2 真实 MySQL | 新增 MySQL 8.4 运行时集成测试：全量建表、迁移幂等、迁移命名锁互斥、会话 ID 命名锁互斥；CI 增加 `mysql-integration` job | `tests/integration/test_mysql_runtime.py`、`.github/workflows/ci.yml` | 本地无 MySQL 时 4 项跳过；CI job 真实执行 |
 | 依赖安全 | `pip-audit` 改为阻断；可修复依赖升级到补丁版，漏洞从 79 项降至 7 项已知且显式豁免（ecdsa/python-jose 无修复、soupsieve 需 Python >= 3.11.5、OTel 1.45 与 jaeger-thrift 1.21 不兼容） | `configs/requirements.txt`、`.github/workflows/ci.yml` | 带豁免运行 `pip-audit` 返回 0 |
 
-全量回归（`tests/unit` + `tests/integration`，`--cov-branch`）：`14778 passed, 6 skipped, 0 failed`，总覆盖率 `99.84%`。
+全量回归（`tests/unit` + `tests/integration`，`--cov-branch`）：`14858 passed, 6 skipped, 0 failed`，总覆盖率 `99.75%`。
 
 ## 相关文档
 

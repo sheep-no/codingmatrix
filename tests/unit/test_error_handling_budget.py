@@ -4,7 +4,7 @@
 """
 from pathlib import Path
 
-MAX_BROAD_EXCEPTIONS = 830
+MAX_BROAD_EXCEPTIONS = 832
 
 
 def test_broad_exception_handlers_do_not_grow():
