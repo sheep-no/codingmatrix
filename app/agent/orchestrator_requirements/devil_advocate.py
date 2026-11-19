@@ -66,7 +66,9 @@ async def devil_advocate_review(
 
 def parse_devil_response(response: str) -> list[dict]:
     import re as _re
+
     from app.agent.orchestrator_requirements.llm_prompts import normalize_llm_content
+
     response = normalize_llm_content(response)
     try:
         json_match = _re.search(r'\{[\s\S]*\}', response)

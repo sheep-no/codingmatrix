@@ -15,10 +15,10 @@ from app.agent.llm_client import (  # noqa: F401  (re-exported for specialists.p
     get_global_semaphore as get_global_llm_semaphore,
 )
 from app.agent.react_engine import ReActEngine
-from app.agent.topology_scheduler import HeartbeatTracker
 
 # 工具注册表（从 tools.py 导入）
 from app.agent.tools import SPECIALIST_TOOLS
+from app.agent.topology_scheduler import HeartbeatTracker
 from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
