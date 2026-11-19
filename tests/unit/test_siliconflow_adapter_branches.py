@@ -345,6 +345,7 @@ class TestStreaming:
             async for _ in stream:
                 pass
         assert "HTTP 500" in str(exc_info.value)
+        assert exc_info.value.status_code == 500
 
     async def test_stream_options_rejected_then_retried_without(self, monkeypatch):
         rejected = _FakeStreamResponse(

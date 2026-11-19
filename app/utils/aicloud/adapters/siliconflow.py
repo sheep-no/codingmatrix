@@ -259,7 +259,9 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                         async for item in _stream_once(payload):
                             yield item
                         return
-                    raise Exception(f"HTTP {e.status_code}: {e.body[:500]}")
+                    error = Exception(f"HTTP {e.status_code}: {e.body[:500]}")
+                    error.status_code = e.status_code
+                    raise error from e
 
             return generate()
         else:

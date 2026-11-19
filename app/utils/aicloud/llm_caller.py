@@ -798,6 +798,13 @@ async def call_llm(
                     if fallback_global_acquired:
                         global_sem.release()
                     continue
+        status_code = getattr(e, "status_code", None)
+        if status_code in (401, 403) and not getattr(e, "code", None):
+            raise LLMCallError(
+                str(e),
+                status_code=status_code,
+                code="LLM_AUTH_FAILED",
+            ) from e
         raise
 
 
