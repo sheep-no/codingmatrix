@@ -749,7 +749,7 @@ class TestLLMFixHelpers:
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
             assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
-    def test_fix_with_llm_single_file_timeout_is_reraised(self):
+    def test_fix_with_llm_single_file_timeout_keeps_original(self):
         validator = _plain_validator()
         files = {"a.py": "missing_call()\n"}
         issues = [{"type": "symbol_not_found", "file": "a.py", "message": "m"}]
@@ -762,10 +762,9 @@ class TestLLMFixHelpers:
             raise TimeoutError("slow")
 
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
-            with pytest.raises(TimeoutError):
-                asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+            assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
-    def test_batch_timeout_is_reraised(self):
+    def test_batch_timeout_keeps_original(self):
         validator = _plain_validator()
         files = {"a.py": "missing_call()\n"}
         issues = [{"type": "symbol_not_found", "file": "a.py", "message": "m"}]
@@ -774,8 +773,7 @@ class TestLLMFixHelpers:
             raise TimeoutError("slow")
 
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
-            with pytest.raises(TimeoutError):
-                asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+            assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
     def test_batch_response_with_empty_content_keeps_files(self):
         validator = _plain_validator()

@@ -535,7 +535,9 @@ async def persistence_db():
 
 
 @pytest.mark.asyncio
-async def test_persist_without_outline_skips_quality_report(persistence_db, tmp_path):
+async def test_persist_without_outline_uses_task_id_for_quality_report(
+    persistence_db, tmp_path
+):
     from app.services.ppt_generation_persistence import persist_ppt_generation_result
     from app.services.unified_state_service import create_task
     from app.utils.pptx.quality import QualityReport
@@ -543,7 +545,13 @@ async def test_persist_without_outline_skips_quality_report(persistence_db, tmp_
     task = await create_task(persistence_db, 1, "ppt_generation", task_id="ppt-no-outline")
     output = tmp_path / "no-outline.pptx"
     output.write_bytes(b"ppt")
-    trace = {"outline_id": None, "outline_version": None}
+    trace = {
+        "outline_id": None,
+        "outline_version": None,
+        "quality_mode": "standard",
+        "template_id": "default",
+        "template_version": "1.0",
+    }
 
     ids = await persist_ppt_generation_result(
         persistence_db,
@@ -557,7 +565,7 @@ async def test_persist_without_outline_skips_quality_report(persistence_db, tmp_
         QualityReport(),
     )
 
-    assert ids["quality_report"] is None
+    assert ids["quality_report"] is not None
 
 
 @pytest.mark.asyncio
