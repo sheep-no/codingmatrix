@@ -179,6 +179,95 @@ async def test_stream_5xx_is_not_retried(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stream_transport_error_before_first_chunk_retries(monkeypatch):
+    attempts = []
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(llm_caller.asyncio, "sleep", fake_sleep)
+
+    async def factory():
+        attempts.append(1)
+
+        async def failing():
+            raise httpx.ConnectError("connection refused")
+            yield "never"
+
+        async def ok():
+            yield "recovered\n"
+
+        return failing() if len(attempts) == 1 else ok()
+
+    result = await llm_caller._invoke_adapter_with_retry(
+        factory, model="m", stream=True, skip_semaphore=True
+    )
+
+    assert [chunk async for chunk in result] == ["recovered\n"]
+    assert len(attempts) == 2
+    assert slept == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_stream_wrapped_transport_error_retries_via_cause(monkeypatch):
+    attempts = []
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(llm_caller.asyncio, "sleep", fake_sleep)
+
+    async def factory():
+        attempts.append(1)
+
+        async def failing():
+            try:
+                raise httpx.ConnectError("dns failure")
+            except httpx.ConnectError as cause:
+                raise Exception("连接失败: dns failure") from cause
+            yield "never"
+
+        async def ok():
+            yield "ok\n"
+
+        return failing() if len(attempts) == 1 else ok()
+
+    result = await llm_caller._invoke_adapter_with_retry(
+        factory, model="m", stream=True, skip_semaphore=True
+    )
+
+    assert [chunk async for chunk in result] == ["ok\n"]
+    assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_transport_error_exhausts_attempts(monkeypatch):
+    attempts = []
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(llm_caller.asyncio, "sleep", fake_sleep)
+
+    async def factory():
+        attempts.append(1)
+
+        async def failing():
+            raise httpx.ReadTimeout("read timed out")
+            yield "never"
+
+        return failing()
+
+    with pytest.raises(httpx.ReadTimeout):
+        await llm_caller._invoke_adapter_with_retry(
+            factory, model="m", stream=True, skip_semaphore=True
+        )
+
+    assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
 async def test_stream_error_body_is_truncated():
     class LargeErrorResponse:
         status_code = 502

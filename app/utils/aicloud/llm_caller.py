@@ -15,6 +15,8 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Optional, Union
 
+import httpx
+
 from app.core.config import settings
 from app.core.llm_errors import (
     LLM_RATE_LIMITED,
@@ -181,6 +183,14 @@ def _retry_after_seconds(exc: Exception) -> float:
         except ValueError:
             pass
     return _MODEL_COOLDOWN_MIN
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """Detect transport failures, including adapters that wrap them with context."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    cause = exc.__cause__
+    return isinstance(cause, httpx.TransportError)
 
 
 def _set_model_cooldown(model: str, seconds: float) -> None:
@@ -363,6 +373,19 @@ async def _invoke_adapter_with_retry(
                 )
                 lease.release()
                 last_error = e
+                continue
+            if _is_transport_error(e) and attempt < max_attempts - 1:
+                delay = float(2 ** attempt)
+                logger.warning(
+                    "transport_retry model=%s wait=%.1fs attempt=%s/%s",
+                    model or "unknown",
+                    delay,
+                    attempt + 1,
+                    max_attempts,
+                )
+                lease.release()
+                last_error = e
+                await asyncio.sleep(delay)
                 continue
             lease.release()
             raise
