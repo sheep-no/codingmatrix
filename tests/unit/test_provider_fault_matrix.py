@@ -1,0 +1,208 @@
+"""Provider 故障矩阵回归：认证、限流、流式中断与错误体边界。"""
+
+import httpx
+import pytest
+
+from app.utils.aicloud import llm_caller
+from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.providers import ModelProvider, ProviderConfig
+
+
+def _response(status_code: int) -> httpx.Response:
+    request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+    return httpx.Response(status_code, request=request)
+
+
+@pytest.mark.asyncio
+async def test_non_stream_403_is_fatal_auth_error(monkeypatch):
+    class AuthError(Exception):
+        status_code = 403
+
+    class Adapter:
+        provider = ModelProvider.SILICONFLOW
+        api_key = "sk-invalid"
+        timeout = 0
+
+        async def call_llm(self, **_kwargs):
+            raise AuthError("HTTP 403: forbidden")
+
+    async def fake_get_adapter(_provider, _config=None):
+        return Adapter()
+
+    monkeypatch.setattr(llm_caller, "get_adapter", fake_get_adapter)
+
+    with pytest.raises(llm_caller.LLMCallError) as exc_info:
+        await llm_caller.call_llm("m", "p", disable_fallback=True)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.code == "LLM_AUTH_FAILED"
+
+
+class _RateLimitedStream:
+    """SiliconFlow 风格：首 chunk 前抛出带 status_code 的通用异常。"""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        error = Exception("HTTP 429: rate limited")
+        error.status_code = 429
+        raise error
+
+    async def aclose(self):
+        return None
+
+
+class _OkStream:
+    def __init__(self):
+        self._sent = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._sent:
+            raise StopAsyncIteration
+        self._sent = True
+        return "ok\n"
+
+    async def aclose(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_siliconflow_style_429_stream_is_retried(monkeypatch):
+    attempts = []
+
+    async def factory():
+        attempts.append(1)
+        return _RateLimitedStream() if len(attempts) == 1 else _OkStream()
+
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(llm_caller.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(llm_caller.time, "monotonic", lambda: 1000.0)
+
+    result = await llm_caller._invoke_adapter_with_retry(
+        factory, model="m", stream=True, skip_semaphore=True
+    )
+
+    assert [chunk async for chunk in result] == ["ok\n"]
+    assert attempts == [1, 1]
+    assert slept == [15.0]
+
+
+class _PartialThenDisconnectResponse:
+    status_code = 200
+
+    async def aiter_lines(self):
+        yield 'data: {"choices":[{"delta":{"content":"first"}}]}'
+        raise httpx.ReadError("connection lost")
+
+    async def aclose(self):
+        return None
+
+
+class _StreamContext:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self._response
+
+    async def __aexit__(self, *_exc_info):
+        return False
+
+
+class _StreamClient:
+    def __init__(self, response):
+        self._response = response
+
+    def stream(self, *_args, **_kwargs):
+        return _StreamContext(self._response)
+
+
+@pytest.mark.asyncio
+async def test_stream_disconnect_after_first_chunk_keeps_partial_output(monkeypatch):
+    from app.utils.aicloud.adapters import siliconflow
+    from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+
+    async def fake_get_client():
+        return _StreamClient(_PartialThenDisconnectResponse())
+
+    monkeypatch.setattr(siliconflow, "get_http_client", fake_get_client)
+
+    adapter = SiliconFlowAdapter(
+        ProviderConfig(
+            provider=ModelProvider.SILICONFLOW,
+            api_key="test-key",
+            base_url="https://provider.test/v1",
+        )
+    )
+    adapter._reasoning_models = set()
+    adapter._stream_usage_supported = False
+
+    stream = await adapter.call_llm("plain-model", "prompt", stream=True)
+    chunks = []
+    with pytest.raises(Exception, match="读取响应失败"):
+        async for chunk in stream:
+            chunks.append(chunk)
+
+    assert chunks == ['{"choices":[{"delta":{"content":"first"}}]}\n']
+
+
+@pytest.mark.asyncio
+async def test_stream_5xx_is_not_retried(monkeypatch):
+    request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+    response = httpx.Response(502, request=request)
+    attempts = []
+
+    async def factory():
+        attempts.append(1)
+
+        async def failing():
+            raise httpx.HTTPStatusError("bad gateway", request=request, response=response)
+            yield "never"
+
+        return failing()
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await llm_caller._invoke_adapter_with_retry(
+            factory, model="m", stream=True, skip_semaphore=True
+        )
+
+    assert attempts == [1]
+
+
+@pytest.mark.asyncio
+async def test_stream_error_body_is_truncated():
+    class LargeErrorResponse:
+        status_code = 502
+
+        async def aiter_bytes(self):
+            yield b"x" * 3000
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await BaseProviderAdapter._raise_for_stream_status(LargeErrorResponse())
+
+    assert exc_info.value.response.status_code == 502
+    assert str(exc_info.value).count("x") == 500
+
+
+@pytest.mark.asyncio
+async def test_stream_error_body_read_failure_still_raises():
+    class BrokenErrorResponse:
+        status_code = 500
+
+        async def aiter_bytes(self):
+            raise httpx.ReadError("cannot read body")
+            yield b"never"
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await BaseProviderAdapter._raise_for_stream_status(BrokenErrorResponse())
+
+    assert exc_info.value.response.status_code == 500
+    assert "HTTP 500: " in str(exc_info.value)
