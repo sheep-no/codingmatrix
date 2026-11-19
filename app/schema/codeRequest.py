@@ -58,6 +58,12 @@ class GenerateRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述（自然语言）")
     session_id: str = Field(..., description="会话 ID（用于文件锁隔离）")
     conversation_id: Optional[int] = Field(None, description="对话上下文 ID（可选，用于携带历史）")
+    api_key_token: Optional[str] = Field(
+        None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）"
+    )
+    provider_id: Optional[str] = Field(
+        None, description="动态供应商 ID（直接指定动态供应商调用）"
+    )
 
     @field_validator("session_id")
     @classmethod
@@ -109,6 +115,8 @@ class GenerateResponse(BaseModel):
 class AgentConfig(BaseModel):
     """Agent 配置模型（支持 Docker 容器化验证）"""
     model: str = DEFAULT_REASONING_MODEL
+    api_key_token: Optional[str] = None
+    provider_id: Optional[str] = None
     max_thinking_tokens: int = 8192
     max_output_tokens: int = 128000
     temperature: float = 0.1

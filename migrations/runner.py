@@ -2,9 +2,8 @@
 """
 完全独立的异步迁移运行器，支持 MySQL 和 SQLite
 """
-import asyncio
-from pathlib import Path
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -16,219 +15,284 @@ project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
 
 from app.core.config import settings  # 使用统一的配置
+from app.db.models import ProjectSession
 from app.models.base import Base
+from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference
+from app.models.github_config import GithubUserConfig
+from app.models.history import History
 
 # 导入所有模型以注册到 Base.metadata
 from app.models.server_config import ServerConfig
-from app.models.user import User
-from app.models.github_config import GithubUserConfig
-from app.models.history import History
 from app.models.task import Task
-from app.db.models import ProjectSession
-from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference
 from app.models.unified_state import (
-    Session, Message, SessionEvent, TaskEvent, Checkpoint, Artifact,
-    StateCompatibilityMapping, StateRetentionRecord,
+    Artifact,
+    Checkpoint,
+    Message,
+    Session,
+    SessionEvent,
+    StateCompatibilityMapping,
     StateReconciliationRecord,
+    StateRetentionRecord,
+    TaskEvent,
 )
+from app.models.user import User
+
+MYSQL_MIGRATION_LOCK = "ai_agent_schema_migration"
+MYSQL_MIGRATION_LOCK_TIMEOUT = 60
+
+
+async def _acquire_mysql_migration_lock(conn) -> None:
+    """Serialize startup DDL when multiple uvicorn workers migrate together."""
+    result = await conn.execute(
+        text("SELECT GET_LOCK(:name, :timeout)"),
+        {"name": MYSQL_MIGRATION_LOCK, "timeout": MYSQL_MIGRATION_LOCK_TIMEOUT},
+    )
+    if result.scalar() != 1:
+        raise RuntimeError("等待 MySQL 迁移锁超时，无法安全执行建表迁移")
+
+
+async def _release_mysql_migration_lock(conn) -> None:
+    await conn.execute(
+        text("SELECT RELEASE_LOCK(:name)"),
+        {"name": MYSQL_MIGRATION_LOCK},
+    )
 
 
 async def run_async_migrations():
     """根据 DATABASE_URL 自动适配数据库类型"""
     database_url = settings.DATABASE_URL
     parsed = urlparse(database_url)
-    db_type = parsed.scheme.split('+')[0]  # 'mysql' or 'sqlite'
+    db_type = parsed.scheme.split("+")[0]
+    db_name = parsed.path.strip("/")
 
-    print(f"正在初始化数据库: {db_type}://{parsed.hostname or 'localhost'}/{parsed.path.strip('/')}")
+    print(
+        f"正在初始化数据库: {db_type}://{parsed.hostname or 'localhost'}"
+        f"/{parsed.path.strip('/')}"
+    )
 
     engine = create_async_engine(database_url)
+    lock_conn = None
+    try:
+        if db_type == "mysql":
+            lock_conn = await engine.connect()
+            await _acquire_mysql_migration_lock(lock_conn)
+        async with engine.begin() as conn:
+            await _apply_schema_migrations(conn, db_type, db_name)
+    finally:
+        if lock_conn is not None:
+            try:
+                await _release_mysql_migration_lock(lock_conn)
+            finally:
+                await lock_conn.close()
+        await engine.dispose()
 
-    async with engine.begin() as conn:
-        if db_type == 'sqlite':
-            # SQLite: 检查 sqlite_master
-            result = await conn.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table'")
-            )
-            existing_tables = {row[0] for row in result}
-        elif db_type == 'mysql':
-            # MySQL: 检查 information_schema
-            db_name = parsed.path.strip('/')
-            result = await conn.execute(
-                text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{db_name}'")
-            )
-            existing_tables = {row[0] for row in result}
+
+async def _apply_schema_migrations(conn, db_type: str, db_name: str) -> None:
+    if db_type == "sqlite":
+        # SQLite: 检查 sqlite_master
+        result = await conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'")
+        )
+        existing_tables = {row[0] for row in result}
+    elif db_type == "mysql":
+        # MySQL: 检查 information_schema
+        result = await conn.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = :db_name"
+            ),
+            {"db_name": db_name},
+        )
+        existing_tables = {row[0] for row in result}
+    else:
+        raise ValueError(f"不支持的数据库类型: {db_type}")
+
+    # 只创建不存在的表
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in existing_tables:
+            await conn.execute(CreateTable(table))
+            print(f"✅ 创建表: {table_name}")
+            # CreateTable 只建表结构，不建索引；tasks.task_id 等唯一索引是其他表外键的解析目标
+            for index in table.indexes:
+                await conn.execute(CreateIndex(index))
+                print(f"✅ 创建索引: {index.name}")
         else:
-            raise ValueError(f"不支持的数据库类型: {db_type}")
+            print(f"⏭ 表已存在，跳过: {table_name}")
 
-        # 只创建不存在的表
-        for table_name, table in Base.metadata.tables.items():
-            if table_name not in existing_tables:
-                await conn.execute(CreateTable(table))
-                print(f"✅ 创建表: {table_name}")
-                # CreateTable 只建表结构，不建索引；tasks.task_id 等唯一索引是其他表外键的解析目标
-                for index in table.indexes:
-                    await conn.execute(CreateIndex(index))
-                    print(f"✅ 创建索引: {index.name}")
-            else:
-                print(f"⏭ 表已存在，跳过: {table_name}")
-
-        # create_all does not evolve an existing tasks table. Add the unified
-        # state columns here so upgrades remain safe for existing SQLite/MySQL
-        # deployments that predate the unified state model.
-        if "tasks" in existing_tables:
-            if db_type == "sqlite":
-                columns_result = await conn.execute(text("PRAGMA table_info(tasks)"))
-                task_columns = {row[1] for row in columns_result}
-            else:
-                columns_result = await conn.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = :db_name AND table_name = 'tasks'"
-                    ),
-                    {"db_name": parsed.path.strip("/")},
-                )
-                task_columns = {row[0] for row in columns_result}
-
-            additions = {
-                "session_id": "VARCHAR(64)",
-                "revision": "INTEGER NOT NULL DEFAULT 0",
-                "idempotency_key": "VARCHAR(128)",
-                "stage": "VARCHAR(80)",
-                "lease_until": "DATETIME",
-                "error_json": "JSON",
-                "result_json": "JSON",
-                "updated_at": "DATETIME",
-                "finished_at": "DATETIME",
-                "outline_id": "VARCHAR(64)",
-                "outline_version": "INTEGER",
-                "quality_mode": "VARCHAR(20)",
-                "quality_report_artifact_id": "VARCHAR(64)",
-            }
-            for column_name, column_type in additions.items():
-                if column_name not in task_columns:
-                    await conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column_name} {column_type}"))
-                    print(f"已升级 tasks 表字段: {column_name}")
-
-        if "project_sessions" in existing_tables:
-            if db_type == "sqlite":
-                columns_result = await conn.execute(text("PRAGMA table_info(project_sessions)"))
-                project_columns = {row[1] for row in columns_result}
-                indexes_result = await conn.execute(text("PRAGMA index_list(project_sessions)"))
-                project_indexes = {row[1] for row in indexes_result}
-            else:
-                columns_result = await conn.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
-                    ),
-                    {"db_name": parsed.path.strip("/")},
-                )
-                project_columns = {row[0] for row in columns_result}
-                indexes_result = await conn.execute(
-                    text(
-                        "SELECT DISTINCT index_name FROM information_schema.statistics "
-                        "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
-                    ),
-                    {"db_name": parsed.path.strip("/")},
-                )
-                project_indexes = {row[0] for row in indexes_result}
-
-            project_additions = {
-                "lifecycle_status": "VARCHAR(30) NOT NULL DEFAULT 'active'",
-                "retention_class": "VARCHAR(30) NOT NULL DEFAULT 'standard'",
-                "pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
-                "archived_at": "DATETIME",
-                "purge_after": "DATETIME",
-            }
-            for column_name, column_type in project_additions.items():
-                if column_name not in project_columns:
-                    await conn.execute(
-                        text(f"ALTER TABLE project_sessions ADD COLUMN {column_name} {column_type}")
-                    )
-                    print(f"已升级 project_sessions 表字段: {column_name}")
-
-            if "ix_project_sessions_lifecycle_status" not in project_indexes:
-                await conn.execute(
-                    text(
-                        "CREATE INDEX ix_project_sessions_lifecycle_status "
-                        "ON project_sessions (lifecycle_status)"
-                    )
-                )
-                print("已升级 project_sessions 索引: ix_project_sessions_lifecycle_status")
-
-        if "user_preferences" in existing_tables:
-            if db_type == "sqlite":
-                columns_result = await conn.execute(text("PRAGMA table_info(user_preferences)"))
-                preference_columns = {row[1] for row in columns_result}
-            else:
-                columns_result = await conn.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = :db_name AND table_name = 'user_preferences'"
-                    ),
-                    {"db_name": parsed.path.strip("/")},
-                )
-                preference_columns = {row[0] for row in columns_result}
-
-            additions = {
-                "status": "VARCHAR(20) NOT NULL DEFAULT 'confirmed'",
-                "consent_source": "VARCHAR(30) NOT NULL DEFAULT 'system_derived'",
-                "visibility": "VARCHAR(30) NOT NULL DEFAULT 'companion_allowed'",
-                "last_used_at": "DATETIME",
-            }
-            for column_name, column_type in additions.items():
-                if column_name not in preference_columns:
-                    await conn.execute(
-                        text(f"ALTER TABLE user_preferences ADD COLUMN {column_name} {column_type}")
-                    )
-                    print(f"已升级 user_preferences 表字段: {column_name}")
-
-        # 既有库的 github_user_configs 是 2026-09-08 新建的，CreateTable 不会
-        # 补列。验证状态列后加，需要在这里演进，否则 GET /github/config 读取
-        # 会因缺列而 503。
-        if "github_user_configs" in existing_tables:
-            if db_type == "sqlite":
-                columns_result = await conn.execute(text("PRAGMA table_info(github_user_configs)"))
-                github_columns = {row[1] for row in columns_result}
-            else:
-                columns_result = await conn.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = :db_name AND table_name = 'github_user_configs'"
-                    ),
-                    {"db_name": parsed.path.strip("/")},
-                )
-                github_columns = {row[0] for row in columns_result}
-
-            if "verified_at" not in github_columns:
-                await conn.execute(
-                    text("ALTER TABLE github_user_configs ADD COLUMN verified_at DATETIME")
-                )
-                print("已升级 github_user_configs 表字段: verified_at")
-
-        # Permission.user_id 的唯一约束是后补的模型约束（2026-09-18），
-        # CreateTable 只对新库生效；既有库里已经有 permission 表，需要补建
-        # 唯一索引，否则同一用户可能出现多行权限，uselist=False 读取会抛
-        # MultipleResultsFound。存在重复数据时只告警不删除，留待人工清理。
-        if "permission" in existing_tables and not await _has_unique_user_id_index(
-            conn, db_type, parsed.path.strip("/")
-        ):
-            duplicates_result = await conn.execute(
+    # create_all does not evolve an existing tasks table. Add the unified
+    # state columns here so upgrades remain safe for existing SQLite/MySQL
+    # deployments that predate the unified state model.
+    if "tasks" in existing_tables:
+        if db_type == "sqlite":
+            columns_result = await conn.execute(text("PRAGMA table_info(tasks)"))
+            task_columns = {row[1] for row in columns_result}
+        else:
+            columns_result = await conn.execute(
                 text(
-                    "SELECT user_id FROM permission "
-                    "GROUP BY user_id HAVING COUNT(*) > 1 LIMIT 5"
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :db_name AND table_name = 'tasks'"
+                ),
+                {"db_name": db_name},
+            )
+            task_columns = {row[0] for row in columns_result}
+
+        additions = {
+            "session_id": "VARCHAR(64)",
+            "revision": "INTEGER NOT NULL DEFAULT 0",
+            "idempotency_key": "VARCHAR(128)",
+            "stage": "VARCHAR(80)",
+            "lease_until": "DATETIME",
+            "error_json": "JSON",
+            "result_json": "JSON",
+            "updated_at": "DATETIME",
+            "finished_at": "DATETIME",
+            "outline_id": "VARCHAR(64)",
+            "outline_version": "INTEGER",
+            "quality_mode": "VARCHAR(20)",
+            "quality_report_artifact_id": "VARCHAR(64)",
+        }
+        for column_name, column_type in additions.items():
+            if column_name not in task_columns:
+                await conn.execute(
+                    text(f"ALTER TABLE tasks ADD COLUMN {column_name} {column_type}")
+                )
+                print(f"已升级 tasks 表字段: {column_name}")
+
+    if "project_sessions" in existing_tables:
+        if db_type == "sqlite":
+            columns_result = await conn.execute(
+                text("PRAGMA table_info(project_sessions)")
+            )
+            project_columns = {row[1] for row in columns_result}
+            indexes_result = await conn.execute(
+                text("PRAGMA index_list(project_sessions)")
+            )
+            project_indexes = {row[1] for row in indexes_result}
+        else:
+            columns_result = await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
+                ),
+                {"db_name": db_name},
+            )
+            project_columns = {row[0] for row in columns_result}
+            indexes_result = await conn.execute(
+                text(
+                    "SELECT DISTINCT index_name FROM information_schema.statistics "
+                    "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
+                ),
+                {"db_name": db_name},
+            )
+            project_indexes = {row[0] for row in indexes_result}
+
+        project_additions = {
+            "lifecycle_status": "VARCHAR(30) NOT NULL DEFAULT 'active'",
+            "retention_class": "VARCHAR(30) NOT NULL DEFAULT 'standard'",
+            "pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "archived_at": "DATETIME",
+            "purge_after": "DATETIME",
+        }
+        for column_name, column_type in project_additions.items():
+            if column_name not in project_columns:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE project_sessions ADD COLUMN "
+                        f"{column_name} {column_type}"
+                    )
+                )
+                print(f"已升级 project_sessions 表字段: {column_name}")
+
+        if "ix_project_sessions_lifecycle_status" not in project_indexes:
+            await conn.execute(
+                text(
+                    "CREATE INDEX ix_project_sessions_lifecycle_status "
+                    "ON project_sessions (lifecycle_status)"
                 )
             )
-            duplicates = [row[0] for row in duplicates_result]
-            if duplicates:
-                print(f"⚠️ permission 表存在重复 user_id={duplicates}，跳过唯一索引创建")
-            else:
-                await conn.execute(
-                    text("CREATE UNIQUE INDEX uq_permission_user_id ON permission (user_id)")
-                )
-                print("已升级 permission 表唯一索引: uq_permission_user_id")
+            print("已升级 project_sessions 索引: ix_project_sessions_lifecycle_status")
 
-    await engine.dispose()
+    if "user_preferences" in existing_tables:
+        if db_type == "sqlite":
+            columns_result = await conn.execute(
+                text("PRAGMA table_info(user_preferences)")
+            )
+            preference_columns = {row[1] for row in columns_result}
+        else:
+            columns_result = await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :db_name AND table_name = 'user_preferences'"
+                ),
+                {"db_name": db_name},
+            )
+            preference_columns = {row[0] for row in columns_result}
+
+        additions = {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'confirmed'",
+            "consent_source": "VARCHAR(30) NOT NULL DEFAULT 'system_derived'",
+            "visibility": "VARCHAR(30) NOT NULL DEFAULT 'companion_allowed'",
+            "last_used_at": "DATETIME",
+        }
+        for column_name, column_type in additions.items():
+            if column_name not in preference_columns:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE user_preferences ADD COLUMN "
+                        f"{column_name} {column_type}"
+                    )
+                )
+                print(f"已升级 user_preferences 表字段: {column_name}")
+
+    # 既有库的 github_user_configs 是 2026-09-08 新建的，CreateTable 不会
+    # 补列。验证状态列后加，需要在这里演进，否则 GET /github/config 读取
+    # 会因缺列而 503。
+    if "github_user_configs" in existing_tables:
+        if db_type == "sqlite":
+            columns_result = await conn.execute(
+                text("PRAGMA table_info(github_user_configs)")
+            )
+            github_columns = {row[1] for row in columns_result}
+        else:
+            columns_result = await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :db_name AND table_name = 'github_user_configs'"
+                ),
+                {"db_name": db_name},
+            )
+            github_columns = {row[0] for row in columns_result}
+
+        if "verified_at" not in github_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE github_user_configs ADD COLUMN "
+                    "verified_at DATETIME"
+                )
+            )
+            print("已升级 github_user_configs 表字段: verified_at")
+
+    # Permission.user_id 的唯一约束是后补的模型约束（2026-09-18），
+    # CreateTable 只对新库生效；既有库里已经有 permission 表，需要补建
+    # 唯一索引，否则同一用户可能出现多行权限，uselist=False 读取会抛
+    # MultipleResultsFound。存在重复数据时只告警不删除，留待人工清理。
+    if "permission" in existing_tables and not await _has_unique_user_id_index(
+        conn, db_type, db_name
+    ):
+        duplicates_result = await conn.execute(
+            text(
+                "SELECT user_id FROM permission "
+                "GROUP BY user_id HAVING COUNT(*) > 1 LIMIT 5"
+            )
+        )
+        duplicates = [row[0] for row in duplicates_result]
+        if duplicates:
+            print(f"⚠️ permission 表存在重复 user_id={duplicates}，跳过唯一索引创建")
+        else:
+            await conn.execute(
+                text("CREATE UNIQUE INDEX uq_permission_user_id ON permission (user_id)")
+            )
+            print("已升级 permission 表唯一索引: uq_permission_user_id")
 
 
 async def _has_unique_user_id_index(conn, db_type: str, db_name: str) -> bool:

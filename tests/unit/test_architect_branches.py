@@ -37,6 +37,47 @@ def _complexity(
     )
 
 
+def test_extract_strict_paths_from_multiline_file_list():
+    requirement = """只生成以下 3 个文件：
+1. main.py
+2. todo.py
+3. test_main.py
+"""
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "main.py",
+        "todo.py",
+        "test_main.py",
+    }
+
+
+@pytest.mark.asyncio
+async def test_expand_file_plan_respects_frozen_multiline_scope():
+    architect = _architect()
+    architecture = {
+        "language": "python",
+        "strict_file_paths": ["main.py", "todo.py", "test_main.py"],
+        "file_plan": [
+            {"path": "main.py", "imports": []},
+            {"path": "todo.py", "imports": []},
+            {"path": "test_main.py", "imports": []},
+        ],
+    }
+
+    result = await architect.expand_file_plan(
+        architecture,
+        _complexity(estimated_files=20),
+        target_file_count=20,
+        target_language="python",
+    )
+
+    assert [item["path"] for item in result["file_plan"]] == [
+        "main.py",
+        "todo.py",
+        "test_main.py",
+    ]
+
+
 class TestPrompts:
     def test_system_prompt_prefers_registry(self, monkeypatch):
         import app.services.skill_registry as registry
@@ -45,8 +86,8 @@ class TestPrompts:
         assert _architect().SYSTEM_PROMPT == "custom prompt"
 
     def test_system_prompt_swallows_registry_error_then_uses_loader(self, monkeypatch):
-        import app.services.skill_registry as registry
         import app.agent.architect as module
+        import app.services.skill_registry as registry
 
         def boom(_name):
             raise RuntimeError("registry down")
@@ -56,8 +97,8 @@ class TestPrompts:
         assert _architect().SYSTEM_PROMPT == "loaded prompt"
 
     def test_system_prompt_falls_back_when_loader_returns_none(self, monkeypatch):
-        import app.services.skill_registry as registry
         import app.agent.architect as module
+        import app.services.skill_registry as registry
 
         monkeypatch.setattr(registry, "get_skill", lambda name: None)
         monkeypatch.setattr(module, "load_architect_prompt", lambda: None)

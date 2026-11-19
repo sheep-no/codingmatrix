@@ -5,17 +5,19 @@ from pathlib import Path
 
 import pytest
 
+from app.agent.contract_index import ContractIndex
+from app.agent.llm_client import LLMClientError
 from app.agent.orchestration import (
     ArtifactCommitter,
     ExecutionBudget,
     GeneratedContent,
     GenerationNodeStatus,
-    GenerationScheduleStatus,
     GenerationScheduler,
+    GenerationScheduleStatus,
     build_file_plan,
 )
 from app.agent.shared_context import SharedContext
-from app.agent.contract_index import ContractIndex
+from app.core.llm_errors import USER_API_KEY_NOT_FOUND
 
 
 def make_scheduler(tmp_path: Path, *, max_concurrent: int = 2, max_retries: int = 0):
@@ -454,3 +456,63 @@ async def test_scheduler_converges_cycle_to_blocked_without_waiting_forever(tmp_
     assert result.status is GenerationScheduleStatus.FAILED
     assert all(node.status is GenerationNodeStatus.BLOCKED for node in result.nodes.values())
     assert scheduler.active_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_aborts_all_nodes_when_api_key_expires(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path, max_retries=2, max_concurrent=2)
+    plan = build_file_plan(
+        [{"path": "a.py"}, {"path": "b.py"}],
+        requested_paths=["a.py", "b.py"],
+    )
+    attempts = {"a.py": 0, "b.py": 0}
+
+    async def generator(context):
+        attempts[context.file_path] += 1
+        raise LLMClientError("用户 API Key 未找到或已过期，请重新配置", code=USER_API_KEY_NOT_FOUND)
+
+    result = await asyncio.wait_for(
+        scheduler.run(
+            plan,
+            generator,
+            make_budget(task_seconds=60, stage_seconds=60, file_seconds=30),
+            task_id="task-1",
+            stage_id="stage-1",
+        ),
+        timeout=1,
+    )
+
+    assert result.status is GenerationScheduleStatus.FAILED
+    assert all(node.status.is_terminal for node in result.nodes.values())
+    assert all(node.attempts <= 1 for node in result.nodes.values())
+    assert any(
+        cause.code == USER_API_KEY_NOT_FOUND for cause in result.root_causes
+    )
+    assert scheduler.active_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_detects_api_key_error_inside_wrapper_chain(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path, max_retries=2)
+    plan = build_file_plan([{"path": "main.py"}], requested_paths=["main.py"])
+
+    async def generator(context):
+        try:
+            raise LLMClientError("用户 API Key 未找到或已过期", code=USER_API_KEY_NOT_FOUND)
+        except LLMClientError as exc:
+            raise RuntimeError("adapter generation failed") from exc
+
+    result = await asyncio.wait_for(
+        scheduler.run(
+            plan,
+            generator,
+            make_budget(task_seconds=60, stage_seconds=60, file_seconds=30),
+            task_id="task-1",
+            stage_id="stage-1",
+        ),
+        timeout=1,
+    )
+
+    assert result.status is GenerationScheduleStatus.FAILED
+    assert result.root_causes[0].code == USER_API_KEY_NOT_FOUND
+    assert result.nodes["main.py"].attempts == 1

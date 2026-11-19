@@ -32,6 +32,7 @@ from app.agent.workflow_registry import (
 )
 from app.db.database import get_db
 from app.db.models import ProjectSession
+from app.services.generation_runtime import generation_runtime
 from app.utils.security import verify_token
 
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
@@ -227,7 +228,12 @@ def _generation_result_error(result: dict[str, Any]) -> str | None:
     if isinstance(errors, str):
         errors = [errors]
     if errors:
-        return "；".join(str(error) for error in errors)
+        return "；".join(
+            str(error.get("message") or error)
+            if isinstance(error, dict)
+            else str(error)
+            for error in errors
+        )
     return "生成流程未达到成功终态"
 
 
@@ -334,7 +340,32 @@ def _register_pending_stream(session_id: str, user_id: str) -> asyncio.Event:
     if event is None:
         event = asyncio.Event()
         _cancel_events[session_id] = event
+    generation_runtime.register_cancel_event(session_id, event)
     return event
+
+
+def _signal_session_cancel(session_id: str) -> None:
+    """Cancel in this worker and publish the signal to the other workers."""
+    event = _cancel_events.get(session_id)
+    if event is not None:
+        event.set()
+    generation_runtime.request_cancel(session_id)
+
+
+def _register_concurrent_session(manager, role: str, session_id: str) -> None:
+    register_for = getattr(manager, "register_session_for", None)
+    if register_for is not None:
+        register_for(role, session_id)
+    else:
+        manager.register_session(role)
+
+
+def _unregister_concurrent_session(manager, role: str, session_id: str) -> None:
+    unregister_for = getattr(manager, "unregister_session_for", None)
+    if unregister_for is not None:
+        unregister_for(role, session_id)
+    else:
+        manager.unregister_session(role)
 
 
 def _cancelled_stream_response() -> StreamingResponse:
@@ -410,9 +441,7 @@ async def _supersede_running_generation(
     reason: str = "客户端断开后被新任务取代",
 ) -> None:
     session_id = session.session_id
-    cancel_ev = _cancel_events.get(session_id)
-    if cancel_ev:
-        cancel_ev.set()
+    _signal_session_cancel(session_id)
     await _cancel_active_generation(session_id)
     sm = await get_session_manager()
     try:
@@ -629,12 +658,15 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
     _decision_queues.pop(session_id, None)
     if current_event is not None:
         del _cancel_events[session_id]
+        generation_runtime.release_cancel_event(session_id, current_event)
     # cancel_event 可能已被其它路径清理，owner 仍需回收，避免字典无界增长。
     _pending_stream_owners.pop(session_id, None)
 
 
 async def _cleanup_all_queues():
     """清理所有队列（用于异常恢复）"""
+    for session_id, event in list(_cancel_events.items()):
+        generation_runtime.release_cancel_event(session_id, event)
     _approval_queues.clear()
     _decision_queues.clear()
     _cancel_events.clear()
@@ -1176,7 +1208,7 @@ async def orchestrate_project_stream(
     # 每用户锁：防止并发请求的 TOCTOU 竞争
     lock = _user_creation_locks.setdefault(user_id, asyncio.Lock())
     
-    async with lock:
+    async with generation_runtime.user_lock(user_id), lock:
         # 僵尸会话检测：清理 DB 中 status=running 但内存中无状态的会话
         await _detect_and_clean_zombie_sessions(db, user_id)
         
@@ -1391,7 +1423,7 @@ async def orchestrate_project_stream(
     # 注册并发计数
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
     concurrent_mgr = ConcurrentLimitManager()
-    concurrent_mgr.register_session(user_role)
+    _register_concurrent_session(concurrent_mgr, user_role, session_id)
 
     # 释放注入的 DB session，避免 SSE 长连接期间占用连接池
     await db.close()
@@ -1597,7 +1629,7 @@ async def orchestrate_project_stream(
                     channel.publish(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
                     await _cleanup_session_queues(session_id, cancel_event)
-                    concurrent_mgr.unregister_session(user_role)
+                    _unregister_concurrent_session(concurrent_mgr, user_role, session_id)
                     channel.publish("[DONE]")
 
             logger.info(f"[SSE] 创建生成任务 | session={session_id}")
@@ -1738,9 +1770,7 @@ async def stop_project(
         raise HTTPException(status_code=400, detail=f"项目不在运行中，当前状态: {session.status}")
     
     # 1. 设置 cancel_event 通知生成任务停止
-    cancel_ev = _cancel_events.get(session_id)
-    if cancel_ev:
-        cancel_ev.set()
+    _signal_session_cancel(session_id)
 
     from app.agent.workflow_registry import cancel_workflows_for_session
     await cancel_workflows_for_session(
@@ -2254,9 +2284,7 @@ async def session_action_endpoint(
 
     if action == "cancel":
         # 设置 cancel_event 通知正在运行的生成任务停止
-        cancel_ev = _cancel_events.get(session_id)
-        if cancel_ev:
-            cancel_ev.set()
+        _signal_session_cancel(session_id)
         
         # 取消活跃任务并等待其 finally 清理资源
         await _cancel_active_generation(session_id)
@@ -2286,7 +2314,9 @@ async def session_action_endpoint(
         # 释放并发计数
         user_role = token.get("role", "user")
         from app.utils.dynamic_concurrent import ConcurrentLimitManager
-        ConcurrentLimitManager().unregister_session(user_role)
+        _unregister_concurrent_session(
+            ConcurrentLimitManager(), user_role, session_id
+        )
         return {"status": "cancelled", "session_id": session_id, "files_deleted": files_deleted}
     elif action == "resume":
         await sm.resume_from_pause(session_id, approved=True)
@@ -2390,9 +2420,7 @@ async def delete_session_endpoint(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     # 停止运行中的生成任务并清理内存态，避免任务继续写文件或回写已删除会话
-    cancel_event = _cancel_events.get(session_id)
-    if cancel_event:
-        cancel_event.set()
+    _signal_session_cancel(session_id)
     await _cancel_active_generation(session_id)
     await _cleanup_session_queues(session_id)
 
@@ -2401,7 +2429,9 @@ async def delete_session_endpoint(
         sm._active_sessions.pop(session_id, None)
 
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
-    ConcurrentLimitManager().unregister_session(token.get("role", "user"))
+    _unregister_concurrent_session(
+        ConcurrentLimitManager(), token.get("role", "user"), session_id
+    )
 
     # 清理会话文件
     # session_id 虽然来自数据库，但历史数据可能包含遍历字符；只允许清理

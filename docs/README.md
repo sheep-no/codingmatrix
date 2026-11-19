@@ -1,8 +1,8 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-11-18 | 后端：474 个 Python 文件 / 143,984 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：35 张表 | Alembic：15 个有效迁移文件 | Flutter：75 个 Dart 文件 / 13,498 行
+> 最后更新：2026-11-19 | 后端：475 个 Python 文件 / 144,321 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：35 张表 | Alembic：15 个有效迁移文件 | Flutter：75 个 Dart 文件 / 13,498 行
 
-CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
+CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite/MySQL 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
 ## 文档时效范围
 
@@ -88,7 +88,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 | 维度 | 当前数量 | 口径 |
 |------|---------:|------|
-| 后端 Python | 474 个文件 / 143,984 行 | `app/**/*.py` |
+| 后端 Python | 475 个文件 / 144,321 行 | `app/**/*.py` |
 | FastAPI Router | 28 个挂载 | `app/main.py` 中 20 个 v1 + 8 个 v2 Router |
 | 业务路由 | 275 条 | 271 条 HTTP + 4 条 WebSocket，排除框架文档、静态资源和前端 catch-all |
 | ORM | 35 张表 | `app/models/` 中的有效 `__tablename__` 声明 |
@@ -107,7 +107,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 | 层级 | 当前数量 | 说明 |
 |------|---------:|------|
-| 后端单元测试 | 752 个文件 / 7,014 个定义 | `tests/unit/test_*.py` 中的 `test_*` 定义 |
+| 后端单元测试 | 753 个文件 / 7,030 个定义 | `tests/unit/test_*.py` 中的顶层 `test_*` 定义 |
 | 后端集成测试 | 7 个文件 / 23 个定义 | 认证、健康、PPT 大纲和统一状态恢复 |
 | 前端 Vitest | 71 个文件 | `src/**/*.test.js` |
 | 浏览器 E2E | 77 个 spec / 433 个直接定义 | `tests/e2e/*.spec.js` 中的直接 `test(...)` 定义 |
@@ -120,12 +120,12 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 |------|------|----------|
 | 后端 | FastAPI + Python 3.11 | 异步 API、Agent 与业务服务 |
 | 前端 | Vue 3 + Vite 5 + Pinia + Element Plus | 单页应用与响应式 Agent 工作台 |
-| 数据 | SQLAlchemy 2.0 + SQLite + Alembic | 业务、统一状态与迁移 |
+| 数据 | SQLAlchemy 2.0 + SQLite/MySQL + Alembic | 本地单进程 SQLite；多 worker 生产 MySQL |
 | 缓存与任务 | Redis + Celery + APScheduler | Key、缓存、任务队列和定时任务 |
 | 流式通信 | SSE + WebSocket | Agent 事件、任务进度和系统状态 |
 | Flutter 客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
 | 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和 Flutter 客户端验证 |
-| 部署 | Docker Compose + Nginx | API、Worker、Redis 和前端入口 |
+| 部署 | Docker Compose + Nginx | API、Worker、MySQL、Redis 和前端入口 |
 
 ## 最新能力状态
 

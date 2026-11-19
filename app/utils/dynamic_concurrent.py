@@ -8,13 +8,26 @@ v4.8.0 新增：
 - 负载自适应推荐
 """
 
+import asyncio
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from app.core.config import settings
+
+try:  # pragma: no cover - optional dependency
+    import redis
+except ImportError:  # pragma: no cover
+    redis = None
+
 logger = logging.getLogger(__name__)
+
+_COUNTER_TTL_SECONDS = 7 * 24 * 60 * 60
+_COUNTER_LEASE_SECONDS = 120
+_COUNTER_HEARTBEAT_SECONDS = 30
 
 
 @dataclass
@@ -65,14 +78,105 @@ class ConcurrentLimitManager:
     # 变更日志只用于审计展示，保留最近 N 条即可，避免长期运行无限增长。
     MAX_CHANGE_LOG = 500
 
-    def __init__(self, load_monitor=None):
+    def __init__(self, load_monitor=None, *, redis_client=None):
         if getattr(self, "_initialized", False):
             return
         self.load_monitor = load_monitor
+        self._redis_client = redis_client
+        self._redis_resolved = redis_client is not None
         self._limits: Dict[str, int] = dict(self.BASE_LIMITS)
         self._active_sessions: Dict[str, int] = {}
         self._change_log: List[LimitChangeRecord] = []
+        self._redis_refreshers: dict[tuple[str, str], asyncio.Task] = {}
         self._initialized = True
+
+    def _get_redis(self):
+        if self._redis_resolved:
+            return self._redis_client
+        self._redis_resolved = True
+        if redis is None or not settings.REDIS_URL or settings.ENV != "production":
+            return None
+        try:
+            self._redis_client = redis.Redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
+            )
+        except Exception:
+            logger.warning("初始化并发计数 Redis 失败，回退进程内计数", exc_info=True)
+            self._redis_client = None
+        return self._redis_client
+
+    @staticmethod
+    def _active_key(role: str) -> str:
+        return f"concurrent:active:{role}"
+
+    @classmethod
+    def _legacy_key(cls, role: str) -> str:
+        return f"{cls._active_key(role)}:legacy"
+
+    def _redis_active_count(self, role: str) -> int:
+        client = self._get_redis()
+        if client is None:
+            return 0
+        key = self._active_key(role)
+        try:
+            now = time.time()
+            active = 0
+            stale = []
+            for session_id, expires_at in client.hgetall(key).items():
+                try:
+                    if float(expires_at) > now:
+                        active += 1
+                    else:
+                        stale.append(session_id)
+                except (TypeError, ValueError):
+                    stale.append(session_id)
+            if stale:
+                client.hdel(key, *stale)
+            raw = client.get(self._legacy_key(role))
+            return active + max(0, int(raw or 0))
+        except Exception:
+            logger.warning("读取 Redis 并发计数失败 | role=%s", role, exc_info=True)
+            return 0
+
+    def _start_refresher(self, role: str, session_id: str) -> None:
+        key = (role, session_id)
+        if key in self._redis_refreshers:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._redis_refreshers[key] = loop.create_task(
+            self._refresh_session_lease(role, session_id)
+        )
+
+    async def _refresh_session_lease(self, role: str, session_id: str) -> None:
+        client = self._get_redis()
+        if client is None:
+            return
+        key = self._active_key(role)
+        try:
+            while True:
+                await asyncio.sleep(_COUNTER_HEARTBEAT_SECONDS)
+                if not client.hexists(key, session_id):
+                    return
+                client.hset(
+                    key,
+                    session_id,
+                    int(time.time()) + _COUNTER_LEASE_SECONDS,
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.warning(
+                "刷新 Redis 并发租约失败 | role=%s session=%s",
+                role,
+                session_id,
+                exc_info=True,
+            )
 
     async def update_limit(
         self,
@@ -121,20 +225,63 @@ class ConcurrentLimitManager:
         渐进式生效：当前活跃会话数 < 当前限制值时允许。
         已有的超额会话允许继续运行。
         """
-        active = self._active_sessions.get(role, 0)
+        active = max(self._active_sessions.get(role, 0), self._redis_active_count(role))
         limit = self._limits.get(role, 1)
         return active < limit
 
-    def register_session(self, role: str) -> None:
+    def register_session(self, role: str, session_id: str | None = None) -> None:
         """注册新会话"""
         self._active_sessions[role] = self._active_sessions.get(role, 0) + 1
+        client = self._get_redis()
+        if client is None:
+            return
+        key = self._active_key(role)
+        try:
+            if session_id:
+                client.hset(
+                    key,
+                    session_id,
+                    int(time.time()) + _COUNTER_LEASE_SECONDS,
+                )
+                client.expire(key, _COUNTER_TTL_SECONDS)
+                self._start_refresher(role, session_id)
+            else:
+                legacy_key = self._legacy_key(role)
+                client.incr(legacy_key)
+                client.expire(legacy_key, _COUNTER_TTL_SECONDS)
+        except Exception:
+            logger.warning("写入 Redis 并发计数失败 | role=%s", role, exc_info=True)
 
-    def unregister_session(self, role: str) -> None:
+    def register_session_for(self, role: str, session_id: str) -> None:
+        """Register a session while keeping its id for accurate cleanup."""
+        self.register_session(role, session_id)
+
+    def unregister_session(self, role: str, session_id: str | None = None) -> None:
         """注销会话（会话结束时调用）"""
         if role in self._active_sessions:
             self._active_sessions[role] -= 1
             if self._active_sessions[role] <= 0:
                 del self._active_sessions[role]
+        client = self._get_redis()
+        if client is None:
+            return
+        key = self._active_key(role)
+        try:
+            if session_id:
+                client.hdel(key, session_id)
+                refresher = self._redis_refreshers.pop((role, session_id), None)
+                if refresher is not None and not refresher.done():
+                    refresher.cancel()
+            else:
+                remaining = client.decr(self._legacy_key(role))
+                if remaining <= 0:
+                    client.delete(self._legacy_key(role))
+        except Exception:
+            logger.warning("清理 Redis 并发计数失败 | role=%s", role, exc_info=True)
+
+    def unregister_session_for(self, role: str, session_id: str) -> None:
+        """Unregister the exact session that was counted on registration."""
+        self.unregister_session(role, session_id)
 
     def get_limit(self, role: str) -> int:
         """获取当前限制值"""
@@ -142,7 +289,7 @@ class ConcurrentLimitManager:
 
     def get_active_count(self, role: str) -> int:
         """获取当前活跃会话数"""
-        return self._active_sessions.get(role, 0)
+        return max(self._active_sessions.get(role, 0), self._redis_active_count(role))
 
     async def get_recommended_limits(self) -> Dict[str, int]:
         """

@@ -524,8 +524,11 @@ class ReActEngine:
                     await asyncio.sleep(1.0)
                     try:
                         response = await self.call_llm_fn(current_prompt, enhanced_system)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        from app.core.llm_errors import is_fatal_llm_error
+
+                        if is_fatal_llm_error(exc):
+                            raise
                     if response:
                         break
                 if not response:

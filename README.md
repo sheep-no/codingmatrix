@@ -2,7 +2,7 @@
 
 **AI 驱动的全栈代码生成与开发平台**
 
-> 版本：见 [CHANGELOG.md](CHANGELOG.md) | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite + Flutter (Riverpod) + Playwright
+> 版本：见 [CHANGELOG.md](CHANGELOG.md) | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite/MySQL + Flutter (Riverpod) + Playwright
 
 当前项目基线（代码规模、能力状态、API 口径）以 [`docs/README.md`](docs/README.md) 为单一来源。
 
@@ -119,7 +119,7 @@ pytest tests/integration/ -v
 ### 环境要求
 - Python 3.11+
 - Node.js 18+
-- SQLite 3.35+
+- SQLite 3.35+（本地）或 MySQL 8.4（多 worker 生产）
 - Flutter SDK（构建 Flutter 客户端时需要，Dart SDK ^3.9.2）
 - Docker (可选)
 

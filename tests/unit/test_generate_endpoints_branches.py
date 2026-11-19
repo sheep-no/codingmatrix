@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1.ai_agent import generate_endpoints as endpoints
-from app.schema.codeRequest import GenerateRequest
+from app.schema.codeRequest import AgentConfig, GenerateRequest
 
 
 class _Request:
@@ -487,3 +487,50 @@ async def test_delete_saved_project_guards_and_paths():
             1, {"sub": "1"}, SimpleNamespace(execute=_boom, commit=AsyncMock())
         )
     assert error.value.status_code == 500
+
+
+def test_build_agent_config_forwards_user_key_credentials():
+    request = GenerateRequest(
+        requirement="build",
+        session_id="session-1",
+        api_key_token="user-token",
+        provider_id="provider-1",
+    )
+
+    config = endpoints._build_agent_config(request)
+
+    assert config.api_key_token == "user-token"
+    assert config.provider_id == "provider-1"
+
+
+@pytest.mark.asyncio
+async def test_agent_call_llm_forwards_user_key_credentials(monkeypatch):
+    from app.utils import agent_core
+
+    captured = {}
+
+    async def fake_call_llm(**kwargs):
+        captured.update(kwargs)
+        return {"choices": []}
+
+    class _Adapter:
+        def __init__(self, _model):
+            pass
+
+        def get_config(self, _key, default):
+            return default
+
+    monkeypatch.setattr(agent_core, "ModelAdapter", _Adapter)
+    monkeypatch.setattr(agent_core, "call_llm", fake_call_llm)
+    agent = agent_core.ProjectGeneratorAgent(
+        config=AgentConfig(
+            model="Qwen/Qwen2.5-7B-Instruct",
+            api_key_token="user-token",
+            provider_id="provider-1",
+        )
+    )
+
+    await agent._call_llm([{"role": "user", "content": "hello"}])
+
+    assert captured["api_key_token"] == "user-token"
+    assert captured["provider_id"] == "provider-1"

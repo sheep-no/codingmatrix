@@ -1129,13 +1129,13 @@ language 字段要求：
             match = re.search(
                 r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",
                 requirement,
-                re.IGNORECASE,
+                re.IGNORECASE | re.DOTALL,
             )
         if not match:
             match = re.search(
                 r"generate\s+exactly\s+(?:these|the following)\s+files(?:\s+and\s+no\s+others)?\s*:\s*(.{1,500}?)(?=\.\s+(?-i:[A-Z])|$)",
                 requirement,
-                re.IGNORECASE,
+                re.IGNORECASE | re.DOTALL,
             )
         if not match:
             return None

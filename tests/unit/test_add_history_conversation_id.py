@@ -7,6 +7,9 @@ max 而拿到相同 id。这里用带交错窗口的假 DB 检验按用户锁的
 
 import asyncio
 import importlib
+from types import SimpleNamespace
+
+import pytest
 
 add_history = importlib.import_module("app.db.add_history")
 save_history_to_db = add_history.save_history_to_db
@@ -20,17 +23,46 @@ class _FakeResult:
         return self._value
 
 
+class _FakeLockConnection:
+    def __init__(self, db):
+        self.db = db
+
+    async def execute(self, stmt, params=None):
+        self.db.statements.append((str(stmt), params))
+        if "GET_LOCK" in str(stmt):
+            return _FakeResult(self.db.lock_result)
+        return _FakeResult(1)
+
+    async def close(self):
+        self.db.lock_connection_closed = True
+
+
+class _FakeBind:
+    def __init__(self, db):
+        self.db = db
+
+    async def connect(self):
+        return _FakeLockConnection(self.db)
+
+
 class _FakeDb:
     """只实现被测路径用到的接口，并在 max 查询处制造 await 交错点。"""
 
-    def __init__(self):
+    def __init__(self, dialect: str = "sqlite", lock_result: int = 1):
+        self.dialect = dialect
+        self.lock_result = lock_result
         self._maxes: dict[int, int] = {}
         self.added = []
+        self.statements = []
+        self.lock_connection_closed = False
+        self.bind = _FakeBind(self)
 
-    async def execute(self, stmt):
-        if "advisory" in str(stmt):
-            # 模拟 SQLite：不支持 advisory lock，调用方必须容忍
-            raise RuntimeError("no advisory lock on sqlite")
+    def get_bind(self):
+        return SimpleNamespace(dialect=SimpleNamespace(name=self.dialect))
+
+    async def execute(self, stmt, params=None):
+        statement = str(stmt)
+        self.statements.append((statement, params))
         # 在查询开始瞬间取快照，还原「两个并发 SELECT 都读到旧 max」
         snapshot = self._maxes.get(self._user_id_of(stmt), 0)
         await asyncio.sleep(0.02)
@@ -90,3 +122,24 @@ async def test_continuing_conversation_keeps_given_id():
     conv_id = await save_history_to_db(db, 1, 7, "hi", "r", commit=False)
 
     assert conv_id == 7
+
+
+async def test_mysql_new_conversation_uses_named_lock():
+    db = _FakeDb(dialect="mysql")
+
+    conv_id = await save_history_to_db(db, 3, None, "hi", "r", commit=False)
+
+    assert conv_id == 1
+    assert any("GET_LOCK" in statement for statement, _ in db.statements)
+    assert any("RELEASE_LOCK" in statement for statement, _ in db.statements)
+    assert db.lock_connection_closed is True
+
+
+async def test_mysql_lock_timeout_raises_and_unlocks_process_lock():
+    db = _FakeDb(dialect="mysql", lock_result=0)
+
+    with pytest.raises(RuntimeError, match="会话 ID 生成锁超时"):
+        await save_history_to_db(db, 4, None, "hi", "r", commit=False)
+
+    assert not add_history._conversation_id_locks[4].locked()
+    assert db.lock_connection_closed is True

@@ -1645,6 +1645,9 @@ class SpecFirstGenerateMixin:
         result = await scheduler.run(file_generator, progress_report)
 
         files_failed = len(result.get("failed_files", []))
+        fatal_error_message_text = result.get("error_message")
+        if fatal_error_message_text:
+            raise RuntimeError(str(fatal_error_message_text))
         for failed_file in result.get("failed_files", []):
             errors_list.append(f"文件生成失败: {failed_file}")
             ctx.add_error(f"文件生成失败: {failed_file}")

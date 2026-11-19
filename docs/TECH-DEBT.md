@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后核对：2026-09-23
+> 最后核对：2026-11-19
 
 `已解决` 表示当前代码保持对应修复；`仍在` 表示当前实现可直接定位；`部分解决` 表示原修复范围仍有同类残留。历史测试数字保留其发生时的范围。
 
@@ -83,7 +83,7 @@
 | P3 | `tests/e2e/` 下有大量一次性诊断脚本与依赖外部模型的在线探针，无法全部纳入 CI 门禁 | `tests/e2e/` | 部分解决；3 个零 Agent 引用的草稿探针与 1 个失效 spec 已移入 `tests/archive/playwright/`（该目录不在 `playwright.config.js` 的 `testDir` 内），当前 `tests/e2e/` 下 94 个 spec。`e2e.yml` 门禁由 5 个扩到 13 个稳定非 Agent spec：新增 `theme-switcher`/`10-admin`/`tools`/`capability-center`（串行与默认并行各跑一遍，`28 passed`），修复后复跑全绿的 `tools-panel`（11 项）与 `admin-panel-scenarios`（2 项），以及重写后复跑全绿的 `system-monitor`（7 项）与 `upload-file`（6 项）。**剩余非 Agent spec 的失败已逐条定性**：`03-chat.spec.js` 的 6 项失败为纯负载型 flaky（本机负载 7.5 时超时；负载 1.8 时 11 项全过），非产品缺陷；`tools-panel`（2 项过期工具清单选择器）、`admin-panel-scenarios`（错误断言 `模型管理` 不存在，实为 superadmin 有意保留）已修复；`system-monitor`、`upload-file` 两个「断言不存在功能」的过期 spec 已按真实功能重写并纳入门禁；`sprint-1-rbac`（17 项，断言产品未实现的高级 RBAC）已归档（详见下方说明）；2026-09-26 复核：对 5 个额外非 Agent 候选（`smoke`、`smoke-test-simple`、`auth`、`api-endpoint-validation`、`chart-editor`）与门禁 13 spec 合并串行跑得 `117 passed, 3 skipped, 0 failed`，但候选断言偏弱（`smoke` 多数 `catch` 后 `test.skip`）、`api-endpoint-validation` 内嵌大量 Agent 硬编码路由、`chart-editor` 曾在大批次 flake，故不纳入门禁 |
 | P3 | `dynamic_package_manager.py` 全库零生产引用，但含「AI 评估安全性后安装包」能力，语义与 Agent 相邻 | `app/utils/dynamic_package_manager.py`、`tests/unit/test_service_dependency*.py` | 已裁定保留；判定为 Agent 相邻的预留能力，按本轮「不触碰 Agent 子系统」的范围约定保留，不计入死代码，其 3 个相关测试一并保留 |
 | P2 | Alembic 与 `migrations/runner.py` 双轨并存且互相冲突 | `migrations/env.py`、`migrations/runner.py`、`migrations/versions/`、`configs/alembic.ini` | 已解决；首次接入契约收敛到 `Base.metadata`：库内无 `alembic_version` 时建全量表并登记 head、不重放历史修订，已有版本走标准迁移，空库与 runner.py 管理过的库均可 `upgrade head`。`Makefile`/`scripts/migrate.sh` 补齐 `-c configs/alembic.ini` 并修正无效的 `history -n`。补 3 项引导回归用例。残留：`versions/` 下的历史修订不再被执行（仅供已有版本库的增量），认知负担仍在 |
-| P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已缓解；`app/db/database.py` 对 SQLite 连接统一开启 `journal_mode=WAL`、`busy_timeout=30000` 与 `connect_args timeout=30`，抑制 `database is locked`。结构性缺口仍在（单写者模型），高并发生产仍建议改用 Postgres |
+| P3 | 2 个 uvicorn worker + celery + scheduler 共用单个 SQLite 文件 | `docker-compose.prod.yml`、`app/db/database.py` | 已解决；生产 Compose 改为共享 MySQL 8.4 服务，`DATABASE_URL` 必须显式注入；api/celery/scheduler 全部等待 `mysql` 健康。`migrations/runner.py` 使用 MySQL `GET_LOCK` 命名锁串行化多 worker 启动迁移。SQLite WAL 保留为本地与单进程回退 |
 | P3 | compose 的 `command` 覆盖 Dockerfile 的 `CMD`，绕过其中 `su appuser` 的非 root 启动 | `docker-compose.yml`、`docker-compose.prod.yml`、`Dockerfile` | 已解决；`docker-compose.prod.yml` 的 api/celery/scheduler 显式 `user: appuser`，Dockerfile 已 `chown -R appuser:appuser /app` 并预建全部挂载点、bind mount 源文件 644 可读。本地 `docker-compose.yml` 因 bind mount 属主保持 root 并加注释。补 2 项守卫用例。注意：既有 root 属主的 named volume 需重建或手工 `chown` |
 | P3 | 生产镜像安装全量 `configs/requirements.txt`，其中 Django、Scrapy 全依赖链（Twisted/parsel/w3lib/itemadapter/itemloaders/Protego/PyDispatcher/queuelib/cssselect/Automat/constantly/hyperlink/Incremental/service-identity/zope.interface/pyasn1-modules）、Flask 全链（Werkzeug/Jinja2/itsdangerous/blinker）、pandas、opencv-python 在代码中零引用，且无任何硬反向依赖 | `configs/requirements.txt`、`Dockerfile` | 已解决；裁剪 33 个包：`Django`、`Scrapy` 及其依赖链、`Flask`/`Werkzeug`/`Jinja2`/`itsdangerous`/`blinker`、`pandas`、`opencv-python`，以及 `asgiref`/`sqlparse`/`defusedxml`/`tldextract`/`filelock`/`requests-file`/`jmespath`/`pyOpenSSL`/`w3lib` 等传递依赖，并顺带删除一行重复的 `slowapi`。保留 `passlib`（Agent 子系统 `code_validator.py`/`code_reviewer.py` 引用）、`email-validator`/`dnspython`（pydantic `EmailStr`）、`aiosqlite`（SQLAlchemy 方言）、`python-multipart`（FastAPI 表单/上传）——这些按需动态加载，静态 import 扫描不到。三重验证：①静态零 `import` 且零硬反向依赖；②把 33 个包从 site-packages 物理移走后 `from app.main import app` 成功，全量测试 `5044 passed, 2 skipped`（唯一失败为高负载下 `test_aicloud_execution_regressions` 的 10s 执行超时 flake，单体复跑 0.39s 通过）；③`pip install --dry-run --ignore-installed -r configs/requirements.txt` 的解析结果不含任何被删包。生产镜像预计减重约 215 MB |
 | P3 | `ecdsa 0.19.2` 存在 `PYSEC-2026-1325` 且无上游修复版本，被 `python-jose` 硬依赖 | `configs/requirements.txt`、`app/utils/security.py`、`app/api/v1/auth.py` | 已评估，不可达；`python-jose` 确为生产依赖（`app/utils/security.py`、`app/middleware/rate_limiter.py`、`app/api/v1/auth.py` 三处 `from jose import jwt`），但 JWT 签名算法固定为 `HS256`（`settings.ALGORITHM`），且全部 `jwt.decode` 调用传入 `algorithms=["HS256"]` 白名单，攻击者无法通过算法混淆触发 ecdsa 的 ECDSA 验证路径。按「不可达风险」接受，不为此移除 python-jose |
@@ -847,6 +847,27 @@ CI 同款环境变量（`SILICONFLOW_API_KEY=test_key`）下全量复跑：`1467
 
 E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩溃（单轮失败概率约 0.7），在基础设施修复前改为阻塞会制造随机红灯；当前继续出报告并人工跟踪。
 
+### 生成链路三处缺陷修复（2026-11-18）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 旧 `/api/v1/agent/generate` 请求未携带用户 Key，`AgentConfig` 也没有 Key 字段，最终落到未配置的系统默认供应商并稳定 500 | `app/schema/codeRequest.py`、`app/api/v1/ai_agent/helpers.py`、`app/utils/agent_core.py` | 已解决；`GenerateRequest` 与 `AgentConfig` 增加 `api_key_token`/`provider_id`，配置构建与 `ProjectGeneratorAgent._call_llm` 全链透传到 `call_llm`。回归覆盖配置字段与真实调用参数，回退源码后两用例均失败 |
+| P2 | `只生成以下 N 个文件` 后接换行的文件清单时，严格范围正则缺少 `DOTALL`，提取为空后退回“按复杂度扩展”，3 个文件被扩成 10 个 | `app/agent/architect.py` | 已解决；中文与英文严格文件清单正则均启用 `DOTALL`，多行清单可冻结 `strict_file_paths`，`expand_file_plan` 直接跳过扩展。回归覆盖多行提取与冻结后不扩展，回退源码后提取用例失败 |
+| P2 | 统一会话 `sessions` 默认 `status=active`，工作流落库时未按图终态关闭，完成/失败/取消后仍长期显示 active | `app/services/agent_state_adapter.py` | 已解决；`persist_agent_state` 按 `completed`/`failed`/`partial_success`/`cancelled`/`timed_out` 同步关闭会话，运行中与等待本地验证保持 active。回归参数化覆盖五种终态及运行中分支，回退源码后终态用例全部失败 |
+
+验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 `14732 passed / 2 skipped`，覆盖 99.99%（`/tmp/opencode/cov_bugfix_round3b.json`）；改动文件 `ruff check` 与关键模块 `mypy` 通过。全量首轮另有一次 `test_log_server_stream` 轮转用例偶发 `StopAsyncIteration`，单跑与复跑均通过。
+
+### 生产状态外置（2026-11-18）
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | 取消信号、用户创建锁和并发计数都在进程内，2 个 uvicorn worker 之间互不可见：在 A worker 点停止，B worker 的生成任务继续运行 | `app/api/v1/ai_agent/orchestrate_endpoints.py`、`app/utils/dynamic_concurrent.py` | 已解决；新增 `app/services/generation_runtime.py`，生产环境把取消信号写入 Redis 并由各 worker 轮询，用户创建锁使用 Redis `SET NX PX` 跨进程串行化；并发计数改为 Redis Set 按 `session_id` 登记/注销。Redis 不可用或本地开发时全部回退进程内实现 |
+| P1 | 生产 Compose 的 api/celery/scheduler 共用 SQLite 文件，多 worker 写锁竞争且无法横向扩展 | `docker-compose.prod.yml`、`migrations/runner.py`、`app/db/add_history.py`、`configs/requirements.txt` | 已解决；2026-11-19 按部署环境要求将外部数据库定为 MySQL 8.4，新增 `mysql` 服务与 `mysql-data` 卷，三服务统一要求显式 `DATABASE_URL`，并依赖 `mysqladmin ping` 健康检查；runner 使用 `GET_LOCK` 命名锁串行化多 worker DDL；会话 ID 生成的跨进程锁由 PostgreSQL advisory lock 改为独立连接持有的 MySQL `GET_LOCK`，提交后再释放；依赖新增 `aiomysql` 与 `PyMySQL` |
+
+回归：新增 `tests/unit/test_generation_runtime.py` 覆盖跨 worker 取消、Redis 用户锁、分布式并发计数、崩溃租约回收与本地回退；迁移测试覆盖 MySQL 迁移锁与唯一索引识别；会话 ID 测试覆盖 MySQL 命名锁获取/释放与超时回滚；生产编排测试改为校验 MySQL 服务、显式 `DATABASE_URL` 与三服务依赖关系。
+
+验证：`pytest tests/unit tests/integration -q -p no:randomly` 得 `14760 passed / 2 skipped`，覆盖 99.88%（`/tmp/opencode/cov_mysql_final.json`）。反向验证时移除 Redis 取消写入与 Redis 并发登记后，对应用例分别超时失败与计数为 0，恢复后通过。
+
 ### 本轮逐文件验证（2026-09-27）
 
 - 逐个测试文件独立进程运行 `tests/unit` + `tests/integration`（425 文件）：`5053 passed, 2 skipped, 0 failed`。唯一非通过文件 `tests/unit/test_agent_capabilities.py` 为脚本式文件、收集 0 用例，属 Agent 范围；跳过 2 项为 `test_dynamic_adapter.py` 标注需真实环境的流式 mock。
@@ -1109,4 +1130,4 @@ E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩�
 
 ---
 
-最后核对：2026-09-03
+最后核对：2026-11-19

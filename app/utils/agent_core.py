@@ -2163,7 +2163,9 @@ class ProjectGeneratorAgent(BaseModel):
                 max_tokens=max_tokens,
                 thinking_budget=thinking_budget,
                 temperature=temperature,
-                cancel_event=cancel_event
+                cancel_event=cancel_event,
+                api_key_token=self.config.api_key_token,
+                provider_id=self.config.provider_id,
             )
 
             if not stream:

@@ -208,7 +208,7 @@ async def llm_call_error_handler(
         ProviderAPIKeyNotConfiguredError: "PROVIDER_API_KEY_NOT_CONFIGURED",
         LLMCallError: "LLM_CALL_ERROR",
     }
-    code = code_map.get(type(exc), "LLM_CALL_ERROR")
+    code = getattr(exc, "code", None) or code_map.get(type(exc), "LLM_CALL_ERROR")
     logger.warning(
         f"LLM 调用异常 | path={request.url.path} | code={code} | message={exc.message}"
     )

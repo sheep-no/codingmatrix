@@ -2,8 +2,7 @@
 
 这三个问题在本地开发不会暴露，但会让生产部署静默降级或直接不可用：
 
-- api/celery 未声明 DATABASE_URL，各自落到容器内 `/app/app.db`，而 scheduler
-  指向 `/app/data/app.db`：三个进程三个库，调度任务看不到 API 数据。
+- api/celery/scheduler 必须共用同一个外部 MySQL，不能各自落到容器内 SQLite。
 - 应用以非 root 的 appuser 运行，但镜像未预建 compose 里的写入挂载点，Docker
   会创建 root 属主目录，导致上传/生成物写入失败。
 
@@ -50,9 +49,18 @@ def test_app_services_share_single_database():
     assert len(set(urls.values())) == 1, f"数据库来源不一致: {urls}"
 
     raw = next(iter(urls.values()))
-    # 缺省回退必须是共享卷上的绝对路径，而非随 CWD 漂移的 ./data
-    assert f"sqlite+aiosqlite:///{SHARED_DB_PATH}" in raw, raw
-    assert "/./" not in raw, raw
+    # 数据库地址由生产 .env 显式提供，避免静默回退到容器内 SQLite
+    assert ":?" in raw, raw
+    assert "mysql" in services
+    assert services["mysql"]["image"] == "mysql:8.4"
+    mysql_env = _env_map(services["mysql"])
+    assert mysql_env.get("MYSQL_DATABASE") == "ai_agent"
+    assert mysql_env.get("MYSQL_USER") == "ai_agent"
+    assert ":?" in mysql_env.get("MYSQL_PASSWORD", "")
+    assert ":?" in mysql_env.get("MYSQL_ROOT_PASSWORD", "")
+    assert "mysql-data:/var/lib/mysql" in services["mysql"]["volumes"]
+    for name in APP_SERVICES:
+        assert "mysql" in (services[name].get("depends_on") or {}), name
 
 
 def test_app_services_require_secret_key_explicitly():

@@ -16,6 +16,10 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Optional, Union
 
 from app.core.config import settings
+from app.core.llm_errors import (
+    PROVIDER_API_KEY_NOT_CONFIGURED,
+    USER_API_KEY_NOT_FOUND,
+)
 from app.utils.aicloud.adapters.anthropic import AnthropicAdapter
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
 from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
@@ -338,16 +342,17 @@ async def _invoke_adapter_with_retry(
 
 class LLMCallError(Exception):
     """LLM 调用基础异常"""
-    def __init__(self, message: str, status_code: int = 500):
+    def __init__(self, message: str, status_code: int = 500, code: str = "LLM_CALL_ERROR"):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
+        self.code = code
 
 
 class UserAPIKeyNotFoundError(LLMCallError):
     """用户 API Key 未找到或已过期"""
     def __init__(self, message: str = "用户 API Key 未找到或已过期，请重新配置"):
-        super().__init__(message, status_code=401)
+        super().__init__(message, status_code=401, code=USER_API_KEY_NOT_FOUND)
 
 
 class ProviderAPIKeyNotConfiguredError(LLMCallError):
@@ -356,6 +361,7 @@ class ProviderAPIKeyNotConfiguredError(LLMCallError):
         super().__init__(
             f"{provider} 供应商的 API Key 未配置，请在 Settings → API Key 管理中添加",
             status_code=401,
+            code=PROVIDER_API_KEY_NOT_CONFIGURED,
         )
 
 

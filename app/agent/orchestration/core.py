@@ -17,6 +17,7 @@ from app.agent.workflow_ir import (
     WorkflowNode,
     WorkflowNodeKind,
 )
+from app.core.llm_errors import FATAL_LLM_ERROR_CODES
 
 from .adapters import GenerationRequest
 from .artifact_committer import (
@@ -395,9 +396,25 @@ class OrchestratorCore:
             GenerationScheduleStatus.CANCELLED: OrchestrationStatus.CANCELLED,
             GenerationScheduleStatus.TIMED_OUT: OrchestrationStatus.TIMED_OUT,
         }.get(schedule.status, OrchestrationStatus.FAILED)
+        fatal_root_cause = next(
+            (
+                cause
+                for cause in schedule.root_causes
+                if cause.code in FATAL_LLM_ERROR_CODES
+            ),
+            None,
+        )
         diagnostic = {
-            "code": f"generation_schedule.{schedule.status.value}",
-            "message": f"generation schedule ended with status {schedule.status.value}",
+            "code": (
+                fatal_root_cause.code
+                if fatal_root_cause is not None
+                else f"generation_schedule.{schedule.status.value}"
+            ),
+            "message": (
+                fatal_root_cause.message
+                if fatal_root_cause is not None
+                else f"generation schedule ended with status {schedule.status.value}"
+            ),
             "details": {
                 "nodes": {
                     path: {
