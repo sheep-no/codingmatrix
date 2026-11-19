@@ -12,14 +12,13 @@ PPT 视觉分析器
 """
 
 import base64
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.agent.models import DEFAULT_VISUAL_MODEL
-from app.utils.pptx.slide_renderer import SlideRenderer, get_slide_metadata
+from app.utils.pptx.slide_renderer import SlideRenderer
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ import logging
 import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 try:
     import redis.asyncio as aioredis

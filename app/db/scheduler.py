@@ -7,7 +7,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR

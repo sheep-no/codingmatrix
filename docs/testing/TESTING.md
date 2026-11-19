@@ -1,6 +1,6 @@
 # 测试文档
 
-> 最后核对：2026-09-12
+> 最后核对：2026-11-19
 
 本文档以当前测试目录和实际配置为准。后端与 Web 文件数是 2026-09-03 的静态清点；Flutter 测试是 2026-09-10 的目录清点与运行记录。验收数字保留原始记录的范围和日期。
 
@@ -9,7 +9,7 @@
 | 层级 | 当前位置 | 配置或工具 | 静态清点 |
 |---|---|---|---:|
 | 后端单元 | `tests/unit/test_*.py` | pytest、pytest-asyncio | 144 个文件，1848 个 `test_*` 定义 |
-| 后端集成 | `tests/integration/test_*.py` | pytest、数据库、Redis | 4 个文件，31 个 `test_*` 定义 |
+| 后端集成 | `tests/integration/test_*.py` | pytest、数据库、Redis | 5 个文件，35 个 `test_*` 定义 |
 | Web 单元 | `src/**/*.test.js` | Vitest、jsdom、Vue Test Utils | 15 个文件，31 个直接 `test/it` 定义 |
 | 浏览器 E2E | `tests/e2e/*.spec.js` | Playwright | 2026-09-12 目录 97 个 spec；2026-09-03 曾清点 77 个文件 / 433 个 `test(...)` |
 | VS Code 单元 | `vscode-extension/test/*.test.mjs` | Node test、TypeScript | `npm --prefix vscode-extension test` |
@@ -22,6 +22,7 @@
 
 - `tests/integration/test_auth_api.py`
 - `tests/integration/test_health_api.py`
+- `tests/integration/test_mysql_runtime.py`
 - `tests/integration/test_ppt_outline_api.py`
 - `tests/integration/test_state_recovery.py`
 
@@ -36,6 +37,10 @@ python3 -m pytest tests/integration -q
 
 # 统一状态恢复专项
 python3 -m pytest tests/integration/test_state_recovery.py -q
+
+# 真实 MySQL 运行时专项（未设置 MYSQL_TEST_URL 时自动跳过）
+MYSQL_TEST_URL="mysql+aiomysql://ai_agent:ai_agent_test_pw@127.0.0.1:3306/ai_agent_test?charset=utf8mb4" \
+  python3 -m pytest tests/integration/test_mysql_runtime.py -q
 
 # 前端 Vitest
 npm --prefix src run test:run

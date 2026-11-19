@@ -4,13 +4,11 @@ Agent Memory Service
 提供 Agent 记忆的数据库操作服务
 """
 
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, delete, desc, func, select, update
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.agent_memory import (
     AgentReflection,

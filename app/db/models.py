@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 
 from app.models.base import Base
 

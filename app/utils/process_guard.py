@@ -1,11 +1,9 @@
 import asyncio
 import logging
-import os
 import platform
-import socket
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import psutil
 

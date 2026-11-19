@@ -9,12 +9,10 @@
 """
 
 import hashlib
-import json
 import logging
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 from app.agent.models import DEFAULT_EMBEDDING_MODEL
 

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import sys
@@ -36,13 +35,12 @@ except Exception as e:  # pragma: no cover - .env 读取失败的环境
     logging.getLogger(__name__).error(f"加载.env 文件失败：{e}")
 
 import starlette.middleware.gzip as _starlette_gzip
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from slowapi.middleware import SlowAPIASGIMiddleware
 from sqlalchemy import delete
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
@@ -75,9 +73,9 @@ from app.api.v2.model_config_api import router as modelConfigRouter
 from app.api.v2.nginx_api import router as nginxRouter
 from app.api.v2.user_manage import router as userManageRouter
 from app.core.config import BASE_DIR, settings
-from app.core.graceful_shutdown import GracefulShutdownManager, shutdown_manager
+from app.core.graceful_shutdown import shutdown_manager
 from app.core.logging_config import setup_logging
-from app.db.database import async_session, get_db
+from app.db.database import async_session
 from app.db.scheduler import start_scheduler, stop_scheduler
 from app.db.session_recovery import reconcile_interrupted_sessions
 from app.middleware.feature_switch import FeatureSwitchMiddleware
@@ -86,9 +84,8 @@ from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.response_start_dedup import ResponseStartDedupMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.history import History
-from app.models.saved_project import SavedProject
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
-from app.utils.cache import get_cache, get_cache_manager
+from app.utils.cache import get_cache_manager
 from app.utils.error_handler import register_exception_handlers
 from app.utils.logging import RequestLoggingMiddleware
 from app.utils.performance_monitor import setup_performance_monitoring
@@ -305,9 +302,8 @@ async def clear_history_table():
 
 async def _restore_user_providers():
     """从 Redis 恢复用户 API Key 对应的供应商模型列表（重启后重建 CustomProvider）"""
-    from app.api.v1.apikey import _OPENAI_COMPAT_PROVIDERS, _PROVIDER_BASE_URLS, _sync_provider_models
+    from app.api.v1.apikey import _OPENAI_COMPAT_PROVIDERS, _sync_provider_models
     from app.services.apikey_manager import get_apikey_manager
-    from app.services.custom_provider_manager import get_custom_provider_manager
     
     try:
         apikey_manager = get_apikey_manager()

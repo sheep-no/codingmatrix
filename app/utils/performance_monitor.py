@@ -9,7 +9,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Optional
+from typing import Dict
 
 from app.utils.logging import generate_request_id, set_request_context
 

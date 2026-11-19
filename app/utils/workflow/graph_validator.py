@@ -9,9 +9,9 @@ Graph Validator - 任务图验证器
 
 import logging
 from collections import Counter, deque
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from app.schema.workflow import TaskGraph, TaskNode, TaskType
+from app.schema.workflow import TaskGraph, TaskType
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,6 @@ WebSocket Manager
 Manages WebSocket connections for real-time task notifications.
 """
 import asyncio
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

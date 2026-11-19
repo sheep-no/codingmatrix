@@ -6,29 +6,22 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, Generator, Optional
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import and_, delete, func, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import and_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.paths import PROJECTS_BASE_DIR
-from app.db.database import get_db
 from app.models.agent_memory import AgentSession, ModelUsageStats, ToolExecutionLog
-from app.models.saved_project import SavedProject
 from app.schema.codeRequest import AgentConfig, GenerateRequest
-from app.schema.task_schema import TaskResponse
-from app.utils.agent_core import ProjectGeneratorAgent
 from app.utils.security import verify_token
-from app.utils.task_manager import task_manager
 
 router = APIRouter(prefix="/agent", tags=["项目生成 Agent"])
 logger = logging.getLogger(__name__)

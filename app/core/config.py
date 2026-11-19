@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).parent.parent.parent

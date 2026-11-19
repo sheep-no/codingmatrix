@@ -1,11 +1,11 @@
 # utils/async_enhanced_guard.py
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 import psutil
 
-from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, get_circuit_breaker
+from app.utils.circuit_breaker import CircuitBreakerConfig, get_circuit_breaker
 from app.utils.process_guard import AsyncProcessGuardian
 from app.utils.service_config_manager import ServiceConfigManager
 

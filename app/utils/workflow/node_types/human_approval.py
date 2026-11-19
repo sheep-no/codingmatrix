@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-from app.schema.workflow import TaskStatus, TaskType
+from app.schema.workflow import TaskType
 from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase
 
 logger = logging.getLogger(__name__)

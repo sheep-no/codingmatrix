@@ -33,7 +33,7 @@ import math
 import os
 from collections.abc import Callable
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

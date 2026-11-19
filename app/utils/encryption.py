@@ -16,7 +16,6 @@ RSA + AES 混合加密模块
 
 import asyncio
 import base64
-import hashlib
 import json
 import logging
 import os

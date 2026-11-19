@@ -13,9 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,6 @@ from app.core.config import settings
 from app.core.file_validator import validate_file_path
 from app.db.database import get_db
 from app.models.file import File
-from app.models.task import Task
 from app.schema.file_schema import FileUploadResponse
 from app.utils.security import verify_token
 

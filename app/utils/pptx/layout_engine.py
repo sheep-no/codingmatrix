@@ -5,7 +5,7 @@
 
 import math
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pptx.util import Inches, Pt
 

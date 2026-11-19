@@ -9,7 +9,7 @@ layer importing the Web layer.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any
 
 StateActionDispatcher = Callable[[str, Any], int]
 

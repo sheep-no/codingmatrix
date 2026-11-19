@@ -5,9 +5,9 @@ python-pptx 不直接支持动画 API，本模块通过操作底层 Open XML 标
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from lxml import etree
 

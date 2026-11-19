@@ -9,7 +9,6 @@ import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
-import httpx
 from fastapi import HTTPException
 from httpx import Timeout
 
@@ -18,7 +17,7 @@ from app.utils.aicloud.adapters.base import (
     anthropic_sse_to_openai_chunk,
 )
 from app.utils.aicloud.http_client import _max_concurrent_calls, call_with_retry, get_http_client
-from app.utils.aicloud.providers import ModelProvider, ProviderConfig
+from app.utils.aicloud.providers import ModelProvider
 
 logger = logging.getLogger(__name__)
 

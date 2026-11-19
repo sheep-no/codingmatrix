@@ -23,10 +23,9 @@ import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.agent.models import DEFAULT_CODE_MODEL
 from app.api.v2.guardian_router import require_admin, require_superadmin

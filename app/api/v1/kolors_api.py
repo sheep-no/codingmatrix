@@ -10,11 +10,11 @@ Kolors 图像生成 API - 重构版
 import json
 import logging
 import tempfile
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select

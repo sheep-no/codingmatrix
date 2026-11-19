@@ -4,13 +4,11 @@ Chart Generation Node - 图表生成节点
 使用 matplotlib 生成各种类型的图表
 """
 
-import asyncio
 import logging
 import os
 import tempfile
 import threading
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 import matplotlib
 
@@ -221,7 +219,6 @@ class ChartGenerationNode(TaskNodeBase):
 
         _configure_fonts()
 
-        import numpy as np
 
         fig, ax = plt.subplots(figsize=(10, 6), dpi=dpi)
 
@@ -295,7 +292,6 @@ class ChartGenerationNode(TaskNodeBase):
 
     async def _plot_line(self, ax, data: Any, x_label: str, y_label: str) -> None:
         """绘制折线图"""
-        import numpy as np
 
         if isinstance(data, dict):
             x_data = list(data.keys())
@@ -316,7 +312,6 @@ class ChartGenerationNode(TaskNodeBase):
 
     async def _plot_scatter(self, ax, data: Any, x_label: str, y_label: str) -> None:
         """绘制散点图"""
-        import numpy as np
 
         if isinstance(data, dict):
             x_data = data.get('x', [])
@@ -331,7 +326,6 @@ class ChartGenerationNode(TaskNodeBase):
 
     async def _plot_histogram(self, ax, data: Any, x_label: str) -> None:
         """绘制直方图"""
-        import numpy as np
 
         if isinstance(data, list):
             values = data

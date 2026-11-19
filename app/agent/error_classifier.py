@@ -5,7 +5,7 @@ import logging
 import re
 from collections import deque
 from dataclasses import dataclass
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from app.agent.json_parser import extract_first_json_object
 from app.agent.models import DEFAULT_CODE_MODEL

@@ -13,7 +13,6 @@ import os
 import re
 import tomllib
 from pathlib import Path
-from typing import Optional
 
 from app.agent.test_framework_config import (
     FRAMEWORK_PRESETS,

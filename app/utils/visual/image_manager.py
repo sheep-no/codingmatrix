@@ -7,19 +7,16 @@
 3. 图片缓存管理
 4. 图片裁剪和适配
 """
-import asyncio
 import hashlib
-import io
 import logging
-import os
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import httpx
-from PIL import Image
+from PIL import Image  # noqa: F401 - 保持模块属性，供测试替换占位图生成路径
 
 from app.core.config import settings
 
@@ -384,7 +381,7 @@ class ImageManager:
         """创建专业的占位符图片"""
         _ensure_cache_dir()
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import Image, ImageDraw
             
             filename = f"placeholder_{uuid.uuid4().hex[:8]}.png"
             local_path = IMAGE_CACHE_DIR / filename
@@ -500,7 +497,7 @@ class ImageManager:
         _ensure_cache_dir()
         # 创建图标图片
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import Image, ImageDraw
             
             size = 128
             img = Image.new('RGBA', (size, size), (255, 255, 255, 0))

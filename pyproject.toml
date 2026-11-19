@@ -64,16 +64,19 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-# 先启用 pyflakes、import 顺序与语法错误；F401/F403/F405 的存量清理另行推进
+# 启用 pyflakes、import 顺序与语法错误；F403/F405 的星号导入存量另行推进
 select = ["E9", "F", "I"]
-ignore = ["F401", "F403", "F405"]
+ignore = ["F403", "F405"]
 
 [tool.mypy]
 python_version = "3.11"
 files = [
+    "app/core/llm_errors.py",
+    "app/core/version.py",
     "app/agent/retrieval/local_context.py",
     "app/agent/orchestrator_generation/coverage_checker.py",
     "app/api/v1/health.py",
+    "app/services/generation_runtime.py",
 ]
 # 存量代码尚无类型基线，先只检查新增模块；后续按领域逐步扩大 files。
 follow_imports = "skip"

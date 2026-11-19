@@ -7,9 +7,8 @@ AI 内容分析器
 - 文件内容过滤
 """
 
-import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 MALICIOUS_PATTERNS = [
     # 删除类：目标含根、家目录、通配与变量展开；只匹配 "/" 会漏掉 ~/*/$HOME/.

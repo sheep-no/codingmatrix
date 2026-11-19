@@ -8,7 +8,6 @@ API 端点：
 - DELETE /api/v1/kolors/history - 清空所有历史记录
 """
 
-import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query

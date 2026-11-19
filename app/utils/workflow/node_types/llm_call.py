@@ -6,7 +6,7 @@ LLM Call Node - LLM 调用节点
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.agent.models import DEFAULT_FAST_MODEL
 from app.schema.workflow import TaskType

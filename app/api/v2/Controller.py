@@ -4,12 +4,10 @@ import logging
 import time
 
 import psutil
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
 from app.db.log_server import LogFilter, LogService
 from app.utils.permissions import is_admin
 from app.utils.security import verify_token_ws

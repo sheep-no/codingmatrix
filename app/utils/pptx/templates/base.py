@@ -3,7 +3,7 @@ PPT 模板基类 - 定义模板数据结构和接口
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 
 
 class SlideLayout(Enum):
@@ -159,8 +159,6 @@ class TemplateBase:
 
     def apply_decorations(self, prs, slide, template_config: TemplateConfig, page_num: int, total_pages: int):
         """应用装饰元素（页眉/页脚/页码/角标等）"""
-        from pptx.dml.color import RGBColor
-        from pptx.util import Inches
 
         # 顶部装饰条
         if template_config.has_header_bar:

@@ -12,13 +12,12 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import BASE_DIR
@@ -27,7 +26,6 @@ from app.models.aicloud_knowledge import AicloudKnowledgeChunk, AicloudKnowledge
 from app.utils.aicloud.knowledge_processor import (
     DEFAULT_EMBEDDING_MODEL,
     chunk_text,
-    compute_content_hash,
     embed_chunks,
     parse_document,
     search_similar_chunks,

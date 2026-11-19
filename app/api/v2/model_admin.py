@@ -25,7 +25,6 @@ from app.agent.dynamic_model_router import (
     MODEL_CONTEXT_LENGTHS,
     MODEL_ID_TO_KEY,
     _LayeredModelRouterCompat,
-    get_context_length,
     load_agent_model_config,
     reload_roles_config,
     save_agent_model_config,

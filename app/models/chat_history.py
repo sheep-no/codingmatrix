@@ -1,6 +1,5 @@
 # app/models/chat_history.py
 import uuid
-from datetime import datetime
 
 from sqlalchemy import CHAR, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship

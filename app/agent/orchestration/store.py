@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Protocol
 
 from .models import OrchestrationState
 

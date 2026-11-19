@@ -15,13 +15,11 @@ PPT 修改处理器
 """
 
 import logging
-from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.util import Emu, Inches, Pt
+from pptx.util import Pt
 
 from app.utils.pptx.modify_intent_parser import ModifyIntent, ModifyTarget
 

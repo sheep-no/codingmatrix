@@ -15,12 +15,10 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Response
 
 from app.core.config import settings
 from app.core.version import APP_VERSION
-from app.db.database import get_db
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
 from app.utils.security import verify_token

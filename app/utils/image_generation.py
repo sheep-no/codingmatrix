@@ -9,7 +9,6 @@ Kolors 图像生成工具 - 支持文生图和图生图
 """
 import asyncio
 import base64
-import io
 import json
 import logging
 import time

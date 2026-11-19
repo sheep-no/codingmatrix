@@ -9,11 +9,10 @@ Agent 认知 Skill 注入
 5. 风险自评：评估修改的风险等级
 """
 
-import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import yaml
 

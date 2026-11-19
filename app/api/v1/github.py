@@ -8,20 +8,17 @@ GitHub Integration API - GitHub 集成接口
 """
 
 import logging
-import os
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.models.github_config import GithubUserConfig
-from app.models.user import User
 from app.services.github_config_service import (
     config_summary,
     format_verified_at,

@@ -8,7 +8,6 @@ import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
-import httpx
 from fastapi import HTTPException
 from httpx import Timeout
 

@@ -3,9 +3,7 @@
 管理用户上传的自定义提示词 skill
 """
 import json
-import os
 import re
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional

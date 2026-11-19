@@ -6,10 +6,9 @@ import functools
 import hashlib
 import json
 import logging
-from typing import Any, Awaitable, Callable, Optional, Union
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
 
 from app.utils.cache import get_cache_manager
 

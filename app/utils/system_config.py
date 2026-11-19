@@ -10,7 +10,7 @@ import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from app.core.config import BASE_DIR
 

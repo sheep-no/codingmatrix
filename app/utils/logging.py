@@ -14,10 +14,7 @@ import traceback
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
-
-from fastapi import Request, Response
+from typing import Optional
 
 # 纯 ASGI 中间件不再依赖 starlette.middleware.base.BaseHTTPMiddleware
 

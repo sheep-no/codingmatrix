@@ -15,8 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from pptx.util import Emu, Inches, Pt
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
 
 from app.utils.pptx.semantic_renderer import normalize_slide_type
 from app.utils.visual.image_manager import ImageAsset, ImageManager
@@ -24,7 +24,6 @@ from app.utils.visual.visual_analyzer import (
     ImageDecision,
     ImagePosition,
     ImageType,
-    PPTVisualPlan,
     SlideVisualDecision,
     VisualAnalyzer,
 )

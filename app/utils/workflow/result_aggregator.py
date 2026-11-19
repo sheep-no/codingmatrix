@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from app.schema.workflow import TaskGraph, TaskNode, TaskStatus
+from app.schema.workflow import TaskGraph, TaskNode
 from app.utils.workflow.node_types.base import NodeResult
 
 logger = logging.getLogger(__name__)

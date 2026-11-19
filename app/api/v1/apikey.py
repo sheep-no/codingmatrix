@@ -15,7 +15,6 @@ import csv
 import io
 import json
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -25,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import verify_token
 from app.db.database import get_db
 from app.db.models import UserProviderSelection
-from app.services.apikey_manager import SUPPORTED_PROVIDERS, TTL_OPTIONS, APIKeyManager, get_apikey_manager
+from app.services.apikey_manager import SUPPORTED_PROVIDERS, get_apikey_manager
 from app.services.provider_health import get_health_checker
 from app.utils.crypto import get_rsa_key_manager
 from app.utils.rate_limiter import limiter
@@ -225,7 +224,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         raise HTTPException(status_code=400, detail=f"不支持的供应商：{submit_request.provider}")
 
     # 验证 TTL - 支持预设选项或自定义秒数
-    from app.services.apikey_manager import MAX_CUSTOM_TTL, resolve_ttl
+    from app.services.apikey_manager import resolve_ttl
 
     try:
         resolve_ttl(submit_request.ttl)

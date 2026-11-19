@@ -9,8 +9,7 @@ import logging
 import os
 import signal
 import tempfile
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.schema.workflow import TaskType
 from app.utils.workflow.node_types.base import NodeResult, TaskNodeBase

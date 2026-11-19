@@ -11,7 +11,6 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 import httpx
-from fastapi import HTTPException
 
 from app.utils.url_safety import check_outbound_url
 

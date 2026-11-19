@@ -28,7 +28,6 @@ from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.aicloud.adapters.openai import OpenAIAdapter
 from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
 from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
-from app.utils.aicloud.dynamic_provider import DynamicProvider
 from app.utils.aicloud.provider_router import ProviderRouter
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 

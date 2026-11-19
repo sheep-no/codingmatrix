@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pptx.util import Emu, Inches, Pt
+from pptx.util import Inches, Pt
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class SlideRenderer:
             PNG 图片的 bytes，失败返回 None
         """
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import Image, ImageDraw
 
             # 获取幻灯片
             slide_idx = slide_number - 1

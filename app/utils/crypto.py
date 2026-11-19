@@ -12,7 +12,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization

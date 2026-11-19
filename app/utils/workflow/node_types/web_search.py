@@ -6,7 +6,7 @@ Web Search Node - 网络搜索节点
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.schema.workflow import TaskType
 from app.utils.web_search import FreeWebSearch, fetch_page_text, summarize_page_with_llm

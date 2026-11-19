@@ -1,7 +1,7 @@
 """
 Nginx 配置管理 Schema
 """
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 

@@ -17,7 +17,7 @@ from app.celery_app import celery_app
 from app.core.time import utcnow_naive
 from app.db.database import get_db
 from app.models.task import CELERY_STATE_TO_TASK_STATUS, Task
-from app.schema.task_schema import TaskCreateRequest, TaskListResponse, TaskPriorityEnum, TaskResponse
+from app.schema.task_schema import TaskCreateRequest, TaskListResponse, TaskResponse
 from app.services.unified_state_service import (
     StateConflictError,
     StateNotFoundError,

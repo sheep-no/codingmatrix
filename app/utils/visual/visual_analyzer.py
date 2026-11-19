@@ -500,7 +500,6 @@ class VisualAnalyzer:
 
     def _extract_json_by_regex(self, content: str) -> Dict[str, Any]:
         """使用正则表达式提取关键 JSON 数据"""
-        import re
         result = {"slides_analysis": [], "overall_style": {}}
 
         overall_style = self._json_field_value(content, "overall_style")

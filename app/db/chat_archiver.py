@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from datetime import timedelta
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy import and_, delete, distinct, select
 from sqlalchemy.exc import SQLAlchemyError

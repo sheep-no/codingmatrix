@@ -9,7 +9,7 @@ PPT 文本处理模块
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List
 
 logger = logging.getLogger(__name__)
 

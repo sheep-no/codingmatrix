@@ -1,7 +1,7 @@
 """Adapters from legacy Agent sessions and graph state to unified state."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

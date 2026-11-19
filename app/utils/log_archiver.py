@@ -7,10 +7,8 @@
 - 自动清理过期日志
 - 定时执行归档任务
 """
-import asyncio
 import gzip
 import logging
-import os
 import shutil
 import threading
 from contextlib import contextmanager

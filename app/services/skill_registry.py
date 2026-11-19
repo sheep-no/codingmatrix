@@ -9,9 +9,8 @@
 """
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from app.agent.skill_catalog import SkillCatalog

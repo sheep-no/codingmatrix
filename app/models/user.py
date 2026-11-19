@@ -3,7 +3,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.models.base import Base
-from app.models.saved_project import SavedProject
 
 
 class User(Base):

@@ -34,7 +34,6 @@ from app.schema.aicloud import (
     FileWriteRequest,
     FileWriteResponse,
     MessageResponse,
-    ModelInfoResponse,
     ModelsListResponse,
     ReviewActionRequest,
     ReviewResponse,
@@ -182,7 +181,7 @@ async def chat(
         import json
 
         from app.models.aicloud_knowledge import AicloudKnowledgeChunk
-        from app.utils.aicloud.knowledge_processor import cosine_similarity, search_similar_chunks
+        from app.utils.aicloud.knowledge_processor import search_similar_chunks
         from app.utils.AiCodeUtil import get_embedding
 
         # 查询向量化

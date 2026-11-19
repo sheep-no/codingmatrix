@@ -5,7 +5,7 @@ import os
 import re
 import threading
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 

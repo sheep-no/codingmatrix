@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi import File as FastAPIFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.utils.security import verify_token
 from app.utils.vision import (

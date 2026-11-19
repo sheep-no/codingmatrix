@@ -4,7 +4,6 @@
 支持用户通过 base_url 和协议类型（OpenAI 兼容 / Anthropic 原生）添加自定义供应商，
 自动拉取模型列表并进行调用。
 """
-import json
 import logging
 import time
 import uuid

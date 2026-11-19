@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Path as PathParam
@@ -21,7 +21,6 @@ from app.services.resource_config import resource_config_service
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
 from app.utils.permissions import is_admin, is_superadmin
 from app.utils.security import verify_token
-from app.utils.service_config_manager import ServiceConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -603,7 +602,6 @@ async def create_backup(token: dict = Depends(require_superadmin)):
         备份文件路径和内容
     """
     import json
-    import shutil
     from pathlib import Path
 
     try:
