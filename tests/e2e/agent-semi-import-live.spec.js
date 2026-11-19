@@ -38,10 +38,10 @@ const GLM_MODELS = [
 ]
 
 const ROLE_MODELS = {
-  architect: 'glm-4.7-flash',
-  frontend: 'glm-4-flash-250414',
-  backend: 'glm-4-flash-250414',
-  reviewer: 'glm-z1-flash',
+  architect: process.env.TEST_ZHIPU_ARCHITECT_MODEL || 'glm-4.7-flash',
+  frontend: process.env.TEST_ZHIPU_FRONTEND_MODEL || 'glm-4-flash-250414',
+  backend: process.env.TEST_ZHIPU_BACKEND_MODEL || 'glm-4-flash-250414',
+  reviewer: process.env.TEST_ZHIPU_REVIEWER_MODEL || 'glm-z1-flash',
 }
 
 const REQUIREMENT = [
@@ -221,7 +221,7 @@ test.describe('半成品放入 Agent 观察反应', () => {
       const confirm = page.locator('.el-message-box .el-button--primary')
       await expect(confirm).toBeVisible({ timeout: 5000 })
       await confirm.click()
-      await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已清除' })).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已清除' })).toBeVisible({ timeout: 10000 })
       await page.waitForTimeout(400)
     }
   }
@@ -242,7 +242,7 @@ test.describe('半成品放入 Agent 观察反应', () => {
     await page.locator('.add-key-form-expanded .submit-btn').click()
     const submit = await submitResp
     expect(submit.ok(), `提交 Key HTTP ${submit.status()}`).toBeTruthy()
-    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM Key 已添加' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM API Key/接口密钥已添加' })).toBeVisible({ timeout: 10000 })
   }
 
   /**

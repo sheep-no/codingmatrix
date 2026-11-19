@@ -423,6 +423,23 @@ def test_finalize_change_plan_collapses_duplicates(tmp_path):
     assert [item["path"] for item in result].count("a.py") == 1
 
 
+def test_finalize_change_plan_resolves_unique_path_prefix(tmp_path):
+    harness = _ArchitectHarness(tmp_path, architect=None)
+    graph = DependencyGraph()
+    graph.add_file("calc.py")
+    graph.add_file("main.py")
+
+    result = harness._finalize_change_plan(
+        [
+            {"action": "modify", "path": "src/calc.py"},
+            {"action": "modify", "path": "src/main.py"},
+        ],
+        graph,
+    )
+
+    assert [item["path"] for item in result] == ["calc.py", "main.py"]
+
+
 class _TopologyHarness(IncrementalModifyMixin):
     def __init__(self, output_dir, result="print('ok')\n"):
         self.output_dir = output_dir

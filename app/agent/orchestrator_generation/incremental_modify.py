@@ -467,10 +467,12 @@ class IncrementalModifyMixin:
         from app.agent.change_plan import (
             collapse_change_items,
             expand_change_plan_for_missing_exports,
+            resolve_change_paths,
         )
 
         known = [str(path) for path in getattr(dep_graph, "nodes", {}) or ()]
-        collapsed = collapse_change_items(change_plan, known_paths=known)
+        resolved = resolve_change_paths(change_plan, known)
+        collapsed = collapse_change_items(resolved, known_paths=known)
         return expand_change_plan_for_missing_exports(
             collapsed,
             output_dir=self.output_dir,
