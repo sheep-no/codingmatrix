@@ -1,314 +1,286 @@
 import { test, expect } from '@playwright/test'
+import { apiLogin } from './fixtures/auth.js'
+import {
+  doneEvent,
+  fileEvent,
+  mockModelContext,
+  mockProjectStream,
+  seedMockKeys,
+} from './fixtures/agentMock.js'
+
+async function openAgent(page) {
+  await page.goto('/agent', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('textbox', { name: '项目需求' })).toBeVisible({ timeout: 15000 })
+}
+
+async function generateOnce(page, events = [fileEvent('src/App.vue', '<template><div>e2e</div></template>'), doneEvent('e2e-project')]) {
+  await mockProjectStream(page, events)
+  await openAgent(page)
+  await page.getByRole('textbox', { name: '项目需求' }).fill('生成一个演示项目')
+  await page.getByRole('button', { name: '发送需求' }).click()
+  await expect(page.locator('.topbar-status')).toHaveClass(/status-completed/, { timeout: 15000 })
+}
 
 test.describe('扩展功能测试', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await seedMockKeys(page)
+    await apiLogin(page)
+    await mockModelContext(page)
   })
 
-  test('1. 项目模板选择测试', async ({ page }) => {
-    console.log('测试项目模板选择功能')
-    
-    // 等待页面加载
-    await expect(page.locator('h1.page-title')).toHaveText('Agent')
-    
-    // 查找快速模板按钮
-    const templateButtons = await page.locator('.template-btn').count()
-    expect(templateButtons).toBeGreaterThan(0)
-    
-    // 点击第一个模板
-    await page.locator('.template-btn').first().click()
-    
-    // 验证文本区域是否填充了模板内容
-    const textarea = page.locator('textarea.prompt-textarea')
-    await expect(textarea).not.toBeEmpty()
-    
-    console.log('✓ 项目模板选择功能正常')
+  test('1. 需求输入与快捷提示', async ({ page }) => {
+    await openAgent(page)
+    const prompt = page.getByRole('textbox', { name: '项目需求' })
+    await expect(prompt).toHaveAttribute('placeholder', /描述你想要生成的项目/)
+
+    const guideItems = page.locator('.empty-guide li')
+    await expect(guideItems).toHaveCount(3)
+    await expect(guideItems.nth(0)).toContainText('描述需求')
+    await expect(guideItems.nth(1)).toContainText('跟进执行')
+    await expect(guideItems.nth(2)).toContainText('查看产物')
   })
 
-  test('2. 文件编辑和保存测试', async ({ page }) => {
-    console.log('测试文件编辑和保存功能')
-    
-    // 首先确保有文件存在（这个测试需要已有项目数据）
-    // 这里我们跳过实际文件编辑，只测试UI元素是否存在
-    const fileItems = await page.locator('.file-item').count()
-    
-    if (fileItems > 0) {
-      // 点击第一个文件
-      await page.locator('.file-item').first().click()
-      
-      // 验证文件预览显示
-      await expect(page.locator('.file-preview')).toBeVisible()
-      
-      // 测试复制按钮
-      const copyButton = page.locator('.preview-header button:has-text("复制")')
-      if (await copyButton.isVisible()) {
-        await copyButton.click()
-        console.log('✓ 文件编辑UI正常')
-      }
-    } else {
-      console.log('⚠ 没有找到文件，跳过文件编辑测试')
-    }
+  test('2. 文件编辑与右键面板', async ({ page }) => {
+    await generateOnce(page)
+    const fileItem = page.locator('.file-item').first()
+    await fileItem.click()
+
+    const panel = page.locator('.agent-file-panel')
+    await expect(panel).toContainText('src/App.vue')
+    await expect(panel.locator('.code-block')).toContainText('e2e')
+    await expect(panel.getByRole('button', { name: '保存' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '历史' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '复制' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '下载' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '删除' })).toBeVisible()
   })
 
-  test('3. 日志显示和过滤测试', async ({ page }) => {
-    console.log('测试日志显示和过滤功能')
-    
-    // 查找日志容器
-    const logsContainer = page.locator('.logs-container')
-    
-    // 测试日志区域是否存在
-    await expect(logsContainer).toBeVisible()
-    
-    // 查找日志项
-    const logItems = await page.locator('.log-item').count()
-    console.log(`找到 ${logItems} 条日志`)
-    
-    // 检查不同类型的日志是否存在（info, success, warning, error）
-    const logTypes = ['info', 'success', 'warning', 'error']
-    for (const type of logTypes) {
-      const typeLogs = await page.locator(`.log-item.log-${type}`).count()
-      if (typeLogs > 0) {
-        console.log(`✓ 找到 ${typeLogs} 条 ${type} 类型日志`)
-      }
-    }
-    
-    console.log('✓ 日志显示功能正常')
+  test('3. 日志显示与清空', async ({ page }) => {
+    await generateOnce(page, [
+      { type: 'log', data: { message: '扩展功能日志' } },
+      fileEvent('src/App.vue'),
+      doneEvent('e2e-logs'),
+    ])
+
+    const header = page.locator('.merged-section-header[aria-label="展开或收起消息日志"]')
+    await expect(header).toBeVisible()
+    await header.click()
+    await expect(page.locator('.log-item-merged').filter({ hasText: '扩展功能日志' })).toBeVisible()
+    await expect(page.locator('.log-item-merged.log-info').first()).toBeVisible()
+    await expect(page.locator('.log-item-merged.log-success').filter({ hasText: '项目生成完成' })).toBeVisible()
+
+    await page.locator('.merged-clear-btn').click()
+    await expect(page.locator('.log-item-merged')).toHaveCount(0)
   })
 
-  test('4. 项目保存功能测试', async ({ page }) => {
-    console.log('测试项目保存功能')
-    
-    // 查找保存项目按钮
-    const saveButton = page.locator('button:has-text("保存项目")')
-    
-    if (await saveButton.isVisible()) {
-      // 点击保存按钮
-      await saveButton.click()
-      
-      // 等待可能的模态框出现
-      await page.waitForTimeout(1000)
-      
-      // 查找保存模态框（如果存在）
-      const modal = page.locator('.modal-content')
-      if (await modal.isVisible()) {
-        console.log('✓ 保存模态框显示正常')
-        
-        // 查找保存确认按钮
-        const confirmButton = page.locator('.modal-content button:has-text("保存")')
-        if (await confirmButton.isVisible()) {
-          console.log('✓ 保存确认按钮存在')
-        }
-      }
-    } else {
-      console.log('⚠ 保存按钮不可见（可能需要先生成项目）')
-    }
+  test('4. 项目保存功能', async ({ page }) => {
+    const saved = []
+    await page.route('**/api/v1/agent/save', route => {
+      saved.push(JSON.parse(route.request().postData()))
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"id":1}' })
+    })
+    await page.route('**/api/v1/github/config', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{"use_github":false}',
+    }))
+
+    await generateOnce(page)
+    await page.getByRole('button', { name: '更多 Agent 操作' }).click()
+    const saveButton = page.locator('.topbar-dropdown button', { hasText: '保存项目' })
+    await expect(saveButton).toBeEnabled()
+    await saveButton.click()
+
+    await expect.poll(() => saved.length, { timeout: 10000 }).toBe(1)
+    expect(saved[0].project_data).toContain('src/App.vue')
+    await expect(page.locator('.el-message').filter({ hasText: '项目已保存到数据库' })).toBeVisible()
   })
 
-  test('5. 项目导入功能测试', async ({ page }) => {
-    console.log('测试项目导入功能')
-    
-    // 等待"我的项目"标签页可点击
-    await page.locator('button.tab-btn:has-text("我的项目")').click()
-    
-    // 查找导入按钮
-    const importButton = page.locator('button:has-text("导入")')
-    
-    if (await importButton.isVisible()) {
-      await importButton.click()
-      
-      // 验证导入模态框出现
-      const uploadModal = page.locator('.modal-content:has-text("导入项目")')
-      await expect(uploadModal).toBeVisible()
-      
-      // 验证上传区域存在
-      const uploadZone = page.locator('.upload-zone')
-      await expect(uploadZone).toBeVisible()
-      
-      // 关闭模态框
-      await page.locator('.modal-close').first().click()
-      
-      console.log('✓ 项目导入功能正常')
-    } else {
-      console.log('⚠ 导入按钮不可见')
-    }
+  test('5. 项目导入弹窗', async ({ page }) => {
+    await openAgent(page)
+    await page.getByRole('button', { name: '导入项目' }).click()
+
+    const modal = page.locator('.modal-content', { hasText: '导入项目' })
+    await expect(modal).toBeVisible()
+    await expect(modal.locator('.upload-zone')).toBeVisible()
+    await expect(modal.locator('.upload-zone input[type="file"]')).toHaveAttribute('accept', '.zip')
+    await expect(modal.locator('.upload-zone')).toContainText('拖拽 ZIP 文件到此处')
+
+    await modal.getByRole('button', { name: '关闭导入项目窗口' }).click()
+    await expect(modal).toHaveCount(0)
   })
 
-  test('6. 项目删除功能测试', async ({ page }) => {
-    console.log('测试项目删除功能')
-    
-    // 切换到"我的项目"标签页
-    await page.locator('button.tab-btn:has-text("我的项目")').click()
-    await page.waitForTimeout(500)
-    
-    // 查找项目卡片
-    const projectCards = await page.locator('.project-card').count()
-    
-    if (projectCards > 0) {
-      // 查找删除按钮
-      const deleteButton = page.locator('.project-card').first().locator('button:has-text("删除")')
-      await expect(deleteButton).toBeVisible()
-      
-      console.log('✓ 项目删除按钮存在')
-    } else {
-      console.log('⚠ 没有找到项目卡片，跳过删除测试')
-    }
+  test('6. 会话删除确认', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('agent_project_sessions', JSON.stringify([{
+        id: 'seed-delete', prompt: '待删除项目', timestamp: Date.now(), filesCount: 1,
+        files: [], logs: [], thinking: [], steps: [], workflowStages: [],
+        pendingDecisions: [], decisionHistory: [], currentPhase: '', currentStep: 0,
+        totalSteps: 0, startTime: null, modelAssignments: {}, modelConfigVersion: '',
+        modelContextRevision: null, currentModel: null, currentAgent: null,
+        fallbackHistory: [], recoveryAttempts: [],
+      }]))
+    })
+    await page.route('**/api/v1/agent/projects/*', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{"ok":true}',
+    }))
+    await openAgent(page)
+
+    const sessionItem = page.locator('.session-item').first()
+    await expect(sessionItem).toBeVisible({ timeout: 15000 })
+    await sessionItem.getByRole('button', { name: '永久删除项目' }).click()
+
+    const confirm = page.locator('.el-message-box')
+    await expect(confirm).toBeVisible()
+    await expect(confirm).toContainText('永久删除')
+    await confirm.getByRole('button', { name: '取消' }).click()
+    await expect(sessionItem).toBeVisible()
   })
 
-  test('7. 决策对话框功能测试', async ({ page }) => {
-    console.log('测试决策对话框功能')
-    
-    // 决策对话框通常在生成过程中出现
-    // 我们测试模态框的结构是否正确
-    
-    // 查找决策对话框（可能不显示）
-    const decisionModal = page.locator('.modal-content.decision-modal')
-    const isVisible = await decisionModal.isVisible().catch(() => false)
-    
-    if (!isVisible) {
-      console.log('⚠ 决策对话框未显示（需要生成项目触发）')
-    } else {
-      // 测试决策选项
-      const decisionOptions = await page.locator('.decision-option').count()
-      if (decisionOptions > 0) {
-        console.log(`✓ 找到 ${decisionOptions} 个决策选项`)
-        
-        // 测试"使用默认值"按钮
-        const skipButton = page.locator('button:has-text("使用默认值")')
-        await expect(skipButton).toBeVisible()
-        
-        // 测试"确认决策"按钮
-        const confirmButton = page.locator('button:has-text("确认决策")')
-        await expect(confirmButton).toBeVisible()
-      }
-    }
+  test('7. 决策面板交互', async ({ page }) => {
+    const decisionCalls = []
+    await page.route('**/api/v1/agent/session/*/decision', route => {
+      decisionCalls.push(JSON.parse(route.request().postData()))
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+    })
+    await generateOnce(page, [
+      {
+        type: 'critical_decisions',
+        data: {
+          decisions: [{
+            id: 'storage',
+            question: '数据存储方式',
+            context: '选择持久化方案',
+            options: [
+              { label: 'SQLite', description: '本地文件' },
+              { label: 'PostgreSQL', description: '服务端数据库' },
+            ],
+            default: 'SQLite',
+          }],
+        },
+      },
+      fileEvent('src/App.vue', '<template><div>decision</div></template>'),
+      doneEvent('e2e-decision'),
+    ])
+
+    const card = page.locator('.decision-card')
+    await expect(card).toBeVisible()
+    await expect(page.locator('.decision-btn')).toHaveCount(2)
+    await expect(card.getByRole('button', { name: '默认值' })).toBeVisible()
+
+    await card.getByRole('button', { name: '默认值' }).click()
+    await expect(page.locator('.decision-btn.active')).toContainText('SQLite')
+    await card.getByRole('button', { name: '确认', exact: true }).click()
+
+    await expect.poll(() => decisionCalls.length, { timeout: 10000 }).toBe(1)
+    expect(decisionCalls[0]).toEqual({ storage: 'SQLite' })
+    await expect(card).toHaveCount(0)
   })
 
-  test('8. 响应式设计测试', async ({ page }) => {
-    console.log('测试响应式设计')
-    
-    // 测试桌面视图
+  test('8. 响应式布局', async ({ page }) => {
+    await openAgent(page)
+
     await page.setViewportSize({ width: 1920, height: 1080 })
-    await page.waitForTimeout(500)
-    const desktopElements = await page.locator('.page-content').count()
-    expect(desktopElements).toBeGreaterThan(0)
-    console.log('✓ 桌面视图正常')
-    
-    // 测试平板视图
-    await page.setViewportSize({ width: 1024, height: 768 })
-    await page.waitForTimeout(500)
-    const tabletElements = await page.locator('.page-content').count()
-    expect(tabletElements).toBeGreaterThan(0)
-    console.log('✓ 平板视图正常')
-    
-    // 测试手机视图
+    await expect(page.locator('.agent-sidebar')).toBeInViewport()
+    await expect(page.locator('.agent-file-panel')).toBeInViewport()
+    await expect(page.locator('.agent-mobile-toolbar')).toBeHidden()
+
     await page.setViewportSize({ width: 375, height: 667 })
-    await page.waitForTimeout(500)
-    const mobileElements = await page.locator('.page-content').count()
-    expect(mobileElements).toBeGreaterThan(0)
-    console.log('✓ 手机视图正常')
+    await expect(page.locator('.agent-mobile-toolbar')).toBeVisible()
+    await expect(page.locator('.agent-main')).toBeVisible()
+
+    await page.getByRole('button', { name: '打开会话列表' }).click()
+    await expect(page.locator('.agent-sidebar')).toHaveClass(/mobile-drawer-open/)
+    await expect(page.locator('.agent-mobile-scrim')).toBeVisible()
+    await page.getByRole('button', { name: '关闭面板' }).click()
+    await expect(page.locator('.agent-sidebar')).not.toHaveClass(/mobile-drawer-open/)
   })
 
-  test('9. 键盘快捷键测试', async ({ page }) => {
-    console.log('测试键盘快捷键')
-    
-    // 测试Enter键（可能在某些表单中）
-    const textarea = page.locator('textarea.prompt-textarea')
-    await textarea.focus()
-    await page.keyboard.type('测试文本')
-    await page.keyboard.press('Enter')
-    
-    // 验证文本是否输入成功
-    const value = await textarea.inputValue()
-    expect(value).toContain('测试')
-    
-    console.log('✓ 键盘输入正常')
+  test('9. 输入框键盘行为', async ({ page }) => {
+    await page.route('**/api/v1/agent/orchestrate/stream', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: [
+        `data: ${JSON.stringify(fileEvent('src/App.vue', '<template><div>keyboard</div></template>'))}`,
+        `data: ${JSON.stringify(doneEvent('e2e-keyboard'))}`,
+        '',
+      ].join('\n\n'),
+    }))
+    const streamRequest = page.waitForRequest(
+      (req) => req.url().includes('/agent/orchestrate/stream') && req.method() === 'POST',
+      { timeout: 10000 },
+    )
+    await openAgent(page)
+    const prompt = page.getByRole('textbox', { name: '项目需求' })
+
+    await prompt.focus()
+    await prompt.type('键盘输入')
+    await expect(prompt).toHaveValue('键盘输入')
+
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('键盘输入\n')
+
+    await prompt.press('Control+Enter')
+    const request = await streamRequest
+    expect(JSON.parse(request.postData()).requirement).toContain('键盘输入')
+    await expect(page.locator('.file-item').first()).toBeVisible({ timeout: 10000 })
   })
 
-  test('10. 性能和资源加载测试', async ({ page }) => {
-    console.log('测试性能和资源加载')
-    
-    // 监控网络请求
-    const requests = []
-    page.on('request', request => {
-      requests.push({
-        url: request.url(),
-        resourceType: request.resourceType()
-      })
+  test('10. 设置面板分区', async ({ page }) => {
+    await openAgent(page)
+    await page.getByRole('button', { name: '打开 Agent 设置' }).click()
+
+    const modal = page.locator('.modal-content', { hasText: '设置' })
+    await expect(modal).toBeVisible()
+    await expect(modal.locator('h4')).toContainText(['API Key 配置', 'AI 模型配置', 'GitHub 保存', 'MCP 工具扩展'])
+    await modal.locator('.modal-close').click()
+    await expect(modal).toHaveCount(0)
+  })
+
+  test('11. 复杂度分析调用真实端点', async ({ page }) => {
+    await openAgent(page)
+    await page.getByRole('textbox', { name: '项目需求' }).fill(
+      '生成一个待办事项管理系统：FastAPI 后端 + Vue 3 前端 + SQLite 数据库，包含 JWT 认证、任务增删改查与优先级排序',
+    )
+
+    const analyzeResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/agent/analyze_complexity') && resp.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: '更多 Agent 操作' }).click()
+    await page.locator('.topbar-dropdown button', { hasText: '复杂度分析' }).click()
+
+    const response = await analyzeResponse
+    expect(response.status()).toBe(200)
+    const data = await response.json()
+    expect(data.level).toBeTruthy()
+    expect(data.estimated_files).toBeGreaterThan(0)
+    expect(data.model_assignment).toBeTruthy()
+
+    await expect(page.locator('.el-message').filter({ hasText: `复杂度级别: ${data.level}` })).toBeVisible({
+      timeout: 10000,
     })
-    
-    // 等待页面完全加载
-    await page.waitForLoadState('networkidle')
-    
-    // 分析资源加载
-    const jsRequests = requests.filter(r => r.resourceType === 'script')
-    const cssRequests = requests.filter(r => r.resourceType === 'stylesheet')
-    const apiRequests = requests.filter(r => r.resourceType === 'fetch' || r.resourceType === 'xhr')
-    
-    console.log(`✓ 加载了 ${jsRequests.length} 个JS文件`)
-    console.log(`✓ 加载了 ${cssRequests.length} 个CSS文件`)
-    console.log(`✓ 发起了 ${apiRequests.length} 个API请求`)
-    
-    // 检查是否有失败的请求
-    const failedRequests = []
-    page.on('response', response => {
-      if (response.status() >= 400) {
-        failedRequests.push({
-          url: response.url(),
-          status: response.status()
-        })
-      }
-    })
-    
-    if (failedRequests.length > 0) {
-      console.log('⚠ 发现失败的请求:')
-      failedRequests.forEach(req => {
-        console.log(`  ${req.status}: ${req.url}`)
-      })
-    } else {
-      console.log('✓ 所有请求成功')
-    }
   })
 })
 
 test.describe('下载功能专项测试', () => {
-  test('1. 下载按钮显示测试', async ({ page }) => {
-    console.log('测试下载按钮显示')
-    
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
-    
-    // 生成项目后测试下载按钮
-    // 这里我们测试按钮元素是否存在
-    const downloadButton = page.locator('button:has-text("下载")')
-    const isVisible = await downloadButton.isVisible().catch(() => false)
-    
-    if (isVisible) {
-      console.log('✓ 下载按钮可见')
-    } else {
-      console.log('⚠ 下载按钮不可见（可能需要先生成项目）')
-    }
+  test.beforeEach(async ({ page }) => {
+    await seedMockKeys(page)
+    await apiLogin(page)
+    await mockModelContext(page)
   })
 
-  test('2. 下载功能完整性测试', async ({ page }) => {
-    console.log('测试下载功能完整性')
-    
-    // 这个测试需要实际生成项目才能完整测试
-    // 这里我们测试API端点的可访问性
-    
-    // 模拟下载请求
-    const downloadUrl = '/api/v1/agent/generate/download/test_project'
-    
-    try {
-      const response = await page.request.get(downloadUrl)
-      // 404是预期的，因为项目不存在，但端点应该存在
-      if (response.status() === 404 || response.status() === 401) {
-        console.log('✓ 下载端点可访问（需要认证或项目存在）')
-      } else {
-        console.log(`⚠ 下载端点返回状态: ${response.status()}`)
-      }
-    } catch (error) {
-      console.log('✗ 下载端点不可访问:', error.message)
-    }
+  test('1. 文件下载触发', async ({ page }) => {
+    await generateOnce(page)
+    await page.locator('.file-item').first().click()
+
+    const downloadPromise = page.waitForEvent('download', { timeout: 10000 })
+    await page.locator('.agent-file-panel').getByRole('button', { name: '下载' }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toBe('App.vue')
+    await expect(page.locator('.el-message').filter({ hasText: '已保存' })).toBeVisible()
+  })
+
+  test('2. 下载端点鉴权', async ({ page }) => {
+    await openAgent(page)
+    const anonymous = await page.request.get('/api/v1/agent/generate/download/test_project')
+    expect([401, 403, 404]).toContain(anonymous.status())
   })
 })

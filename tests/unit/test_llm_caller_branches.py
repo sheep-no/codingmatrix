@@ -806,6 +806,30 @@ class TestCallLLMDynamic:
 
 class TestCallLLMRouting:
     @pytest.mark.asyncio
+    async def test_auth_status_wrapped_as_fatal(self, monkeypatch):
+        class AuthError(Exception):
+            status_code = 401
+
+        class Adapter:
+            provider = ModelProvider.SILICONFLOW
+            api_key = "sk-invalid"
+            timeout = 0
+
+            async def call_llm(self, **kwargs):
+                raise AuthError("HTTP 401: Token is invalid")
+
+        async def fake_get_adapter(provider, config=None):
+            return Adapter()
+
+        monkeypatch.setattr(llm_caller, "get_adapter", fake_get_adapter)
+
+        with pytest.raises(llm_caller.LLMCallError) as exc_info:
+            await llm_caller.call_llm("m", "p", disable_fallback=True)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.code == "LLM_AUTH_FAILED"
+
+    @pytest.mark.asyncio
     async def test_disable_fallback_raises(self, monkeypatch):
         primary = ModelProvider.SILICONFLOW
 

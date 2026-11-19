@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -57,6 +58,21 @@ async function syncSiliconflowKeys(page) {
   expect(keySync.count, '需要至少一条已配置的硅基流动 Key').toBeGreaterThan(0)
 }
 
+async function seedMockKeys(page) {
+  await page.evaluate(() => {
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
+      token: 'e2e-mock-siliconflow-token',
+      provider: 'siliconflow',
+      remark: 'E2E Mock Key',
+      status: 'verified',
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      ttl_seconds: 86400,
+      enabled: true,
+    }]))
+  })
+}
+
 async function openImagePage(page) {
   await page.locator('#toolkit').click()
   const menu = page.locator('#toolkit-menu')
@@ -85,7 +101,7 @@ test.describe('AI 绘画浏览器场景', () => {
   test('空生成禁用、切模式、选风格、返回后再进仍保留描述', async ({ page }) => {
     test.setTimeout(90000)
     await loginOnFrontend(page)
-    await syncSiliconflowKeys(page)
+    await seedMockKeys(page)
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     const imagePage = await openImagePage(page)
@@ -118,6 +134,7 @@ test.describe('AI 绘画浏览器场景', () => {
   })
 
   test('真实生成后刷新仍能看到图，途中返回可再打开', async ({ page }) => {
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实文生图验收')
     test.setTimeout(360000)
     let delayNextGenerate = false
     await page.route('**/api/v1/kolors/text-to-image', async (route) => {
@@ -150,7 +167,7 @@ test.describe('AI 绘画浏览器场景', () => {
     await expect(imagePage.locator('.generated-image')).toBeVisible({ timeout: 180000 })
     await expect(imagePage.locator('.error-message')).toHaveCount(0)
     const src = await imagePage.locator('.generated-image').first().getAttribute('src')
-    expect(src).toMatch(/^(data:image\/|https?:\/\/|\/)/)
+    expect(src).toMatch(/^(data:image\/|blob:|https?:\/\/|\/)/)
 
     await imagePage.reload({ waitUntil: 'domcontentloaded' })
     await expect(imagePage.locator('.image-generate-page')).toBeVisible()

@@ -3,6 +3,7 @@
 from app.agent.orchestrator_requirements.llm_prompts import (
     build_llm_prompt,
     llm_system_prompt,
+    normalize_llm_content,
     parse_llm_response,
     summarize_items,
 )
@@ -12,6 +13,39 @@ def test_system_prompt_contains_contract():
     prompt = llm_system_prompt()
     assert "functional_requirements" in prompt
     assert "confidence" in prompt
+
+
+def test_normalize_openai_dict_response():
+    response = {
+        "choices": [
+            {"message": {"content": '{"functional_requirements":[{"item":"a"}]}'}}
+        ]
+    }
+    assert normalize_llm_content(response).startswith('{"functional_requirements"')
+
+
+def test_normalize_handles_unknown_shapes():
+    assert normalize_llm_content(None) == ""
+    assert normalize_llm_content({"choices": []}) == ""
+    assert normalize_llm_content({"unexpected": 1}) == ""
+    assert normalize_llm_content("plain") == "plain"
+
+
+def test_parse_accepts_openai_dict_response():
+    """call_llm 默认返回 OpenAI 兼容 dict，解析层必须能直接消费。"""
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": (
+                        '{"functional_requirements":[{"item":"登录","confidence":0.9}]}'
+                    )
+                }
+            }
+        ]
+    }
+    items = parse_llm_response(response)
+    assert [item.content for item in items] == ["登录"]
 
 
 def test_build_prompt_with_all_sections():

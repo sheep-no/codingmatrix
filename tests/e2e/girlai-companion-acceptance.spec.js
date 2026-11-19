@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -71,6 +72,7 @@ test.describe('虚拟姬验收', () => {
   test.use({ viewport: { width: 1400, height: 900 } })
 
   test('工具集打开窗口后完成一轮真实伙伴对话', async ({ page }) => {
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实伙伴对话验收')
     test.setTimeout(180000)
     const apiLog = []
     page.on('response', (response) => {

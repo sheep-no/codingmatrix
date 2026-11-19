@@ -3,6 +3,7 @@
 from app.agent.orchestrator_generation.coverage_checker import (
     check_required_artifacts,
     extract_required_artifacts,
+    materialize_scaffold_artifacts,
 )
 
 
@@ -75,3 +76,68 @@ def test_empty_requirement_skips_check():
         "missing": [],
         "passed": True,
     }
+
+
+def test_artifact_written_to_disk_satisfies_requirement(tmp_path):
+    (tmp_path / "requirements.txt").write_text("fastapi\n")
+
+    result = check_required_artifacts(
+        "包含 requirements.txt",
+        ["src/main.py"],
+        output_dir=tmp_path,
+    )
+
+    assert result["missing"] == []
+    assert result["passed"] is True
+
+
+def test_root_artifact_must_be_at_output_root_on_disk(tmp_path):
+    nested = tmp_path / "src"
+    nested.mkdir()
+    (nested / "index.html").write_text("<html></html>")
+
+    result = check_required_artifacts(
+        "生成根级 index.html",
+        ["src/main.py"],
+        output_dir=tmp_path,
+    )
+
+    assert result["missing"] == ["index.html"]
+    assert result["passed"] is False
+
+
+def test_ignores_artifacts_named_in_skill_context():
+    requirement = (
+        "[Pipeline Mode]\nengine=legacy tools=explore skills_injected=true\n\n"
+        "生成 README.md\n\n"
+        "[Available Skills]\n[deploy]\n包含 package.json、src/package.json、"
+        "manage.py 与 main.go\n"
+    )
+
+    assert extract_required_artifacts(requirement) == [
+        {"path": "README.md", "root": False}
+    ]
+
+
+def test_materializes_required_readme(tmp_path):
+    created = materialize_scaffold_artifacts(
+        [{"path": "README.md", "root": False}],
+        tmp_path,
+        "python",
+        {"project_name": "demo", "file_plan": [{"path": "main.py"}]},
+    )
+
+    assert [item["path"] for item in created] == ["README.md"]
+    assert (tmp_path / "README.md").is_file()
+
+
+def test_does_not_materialize_unknown_source_file(tmp_path):
+    created = materialize_scaffold_artifacts(
+        [{"path": "app.py", "root": False}],
+        tmp_path,
+        "python",
+        {"project_name": "demo"},
+    )
+
+    assert created == []
+    assert not (tmp_path / "app.py").exists()

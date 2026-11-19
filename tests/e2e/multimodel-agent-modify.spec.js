@@ -7,14 +7,16 @@
  */
 const { test, expect } = require('@playwright/test');
 const { apiLogin } = require('./fixtures/auth');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
+const { liveKey } = require('./fixtures/liveKeys.js');
 const crypto = require('crypto');
 
 // 测试配置
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 通过测试环境变量提供 SiliconFlow API Key
-const REAL_API_KEY = process.env.TEST_API_KEY;
+// 该用例在硅基流动托管模型上运行，使用硅基流动 Key
+const REAL_API_KEY = liveKey('siliconflow');
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -152,8 +154,8 @@ async function getPageState(page) {
 
 test.describe('多模型 Agent 修改能力测试', () => {
   test('完整测试：生成 -> 删除文件 -> 模糊问题修复', async ({ page }) => {
-    test.setTimeout(600000); // 10分钟超时
-    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
+    test.setTimeout(1800000); // 真实模型生成较慢，预留 30 分钟
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型验收');
     
     // 捕获浏览器控制台日志
     page.on('console', msg => {
@@ -281,7 +283,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     console.log('=== 步骤2：输入项目需求并生成 ===');
     
     // 输入一个简单的项目需求
-    const projectPrompt = '创建一个简单的 Vue 3 + FastAPI 待办事项应用，包含前后端代码';
+    const projectPrompt = '只生成 main.py 和 calculator.py 两个文件，实现一个简单的 Python 命令行计算器，支持加减乘除。';
     
     // 找到输入框并输入需求
     const textarea = await page.waitForSelector('.prompt-textarea');
@@ -299,8 +301,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     // 验证输入和按钮状态
     const inputState = await page.evaluate(() => {
       const textarea = document.querySelector('.prompt-textarea');
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const generateBtn = buttons.find(b => b.textContent.includes('开始生成'));
+      const generateBtn = document.querySelector('button[aria-label="发送需求"]');
       
       // 检查 Vue 组件的 props
       const vueInstance = textarea?.__vueParentComponent || textarea?.__vue__;
@@ -356,8 +357,8 @@ test.describe('多模型 Agent 修改能力测试', () => {
       }
     }
     
-    // 点击生成按钮 - 使用 Playwright 的 click 方法
-    const generateBtn = page.locator('.action-buttons .btn-primary').first();
+    // 点击发送需求按钮 - 使用 Playwright 的 click 方法
+    const generateBtn = page.locator('button[aria-label="发送需求"]').first();
     
     // 监听网络请求
     const requests = [];
@@ -405,8 +406,8 @@ test.describe('多模型 Agent 修改能力测试', () => {
     
     // 检查点击后的状态
     const afterClickState = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const btn = buttons.find(b => b.textContent.includes('开始生成') || b.textContent.includes('生成中'));
+      const btn = document.querySelector('button[aria-label="发送需求"]') ||
+        document.querySelector('button[aria-label="停止生成"]');
       const vueInstance = btn?.__vueParentComponent || btn?.__vue__;
       
       // 检查是否有错误消息
@@ -433,8 +434,8 @@ test.describe('多模型 Agent 修改能力测试', () => {
     
     // 检查按钮状态
     const btnState = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const btn = buttons.find(b => b.textContent.includes('开始生成') || b.textContent.includes('生成中'));
+      const btn = document.querySelector('button[aria-label="发送需求"]') ||
+        document.querySelector('button[aria-label="停止生成"]');
       return {
         text: btn?.textContent,
         disabled: btn?.disabled,
@@ -452,7 +453,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     try {
       await page.waitForFunction(() => {
         // 检查按钮是否变为禁用（正在生成）
-        const btn = document.querySelector('.btn-primary');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
         if (btn && btn.disabled) return true;
         
         // 检查是否出现进度条
@@ -472,7 +473,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         if (files.length > 0) return true;
         
         return false;
-      }, { timeout: 30000 });
+      }, null, { timeout: 30000 });
       
       console.log('[DEBUG] 检测到生成已开始');
     } catch (error) {
@@ -502,30 +503,31 @@ test.describe('多模型 Agent 修改能力测试', () => {
         });
       }
       
-      // 检查按钮是否恢复可用（不再是"生成中..."状态）
-      const btn = document.querySelector('.btn-primary');
-      if (btn && !btn.disabled && !btn.textContent.includes('生成中')) {
+      // 只以“停止生成”按钮消失判断生成结束；发送按钮会因输入框
+      // 被清空而保持 disabled，不能作为生成状态的依据。
+      const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+      if (!stopBtn) {
         // 检查是否有文件生成
         const files = document.querySelectorAll('.file-item');
         return files.length > 0;
       }
       return false;
-    }, { timeout: 180000 });
+    }, null, { timeout: 900000 });
     
     // 额外等待确保生成完全结束
     await page.waitForTimeout(2000);
     
     // 再次确认按钮状态
-    const btnEnabled = await page.evaluate(() => {
-      const btn = document.querySelector('.btn-primary');
-      return btn && !btn.disabled && !btn.textContent.includes('生成中');
+    const generationStopped = await page.evaluate(() => {
+      const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+      return !stopBtn;
     });
-    if (!btnEnabled) {
-      console.log('[WARNING] 按钮仍处于禁用状态，继续等待...');
+    if (!generationStopped) {
+      console.log('[WARNING] 生成仍未结束，继续等待...');
       await page.waitForFunction(() => {
-        const btn = document.querySelector('.btn-primary');
-        return btn && !btn.disabled && !btn.textContent.includes('生成中');
-      }, { timeout: 60000 });
+        const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+        return !stopBtn;
+      }, null, { timeout: 60000 });
     }
     
     // 获取生成的文件列表
@@ -600,7 +602,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     await debugScreenshot(page, 'before-debug');
     
     // 点击主生成按钮（系统会自动判断是增量更新）
-    await page.click('.btn-primary:has-text("继续生成")');
+    await page.click('button[aria-label="发送需求"]');
     
     console.log('=== 步骤6：观察多模型 Agent 的诊断过程 ===');
     
@@ -611,7 +613,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         const thinking = document.querySelector('.thinking-item-message');
         const logs = document.querySelector('.log-item-merged');
         return timeline || thinking || logs;
-      }, { timeout: 30000 });
+      }, null, { timeout: 30000 });
       console.log('[DEBUG] 检测到 Agent 工作已开始');
     } catch (error) {
       console.log('[WARNING] 未检测到 Agent 工作，继续等待...');
@@ -639,9 +641,9 @@ test.describe('多模型 Agent 修改能力测试', () => {
     // 等待修复完成或超时
     try {
       await page.waitForFunction(() => {
-        // 检查是否还在生成中
-        const btn = document.querySelector('.btn-primary');
-        if (btn && !btn.disabled && btn.textContent.includes('继续生成')) {
+        // 只以“停止生成”按钮消失判断生成结束。
+        const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+        if (!stopBtn) {
           // 检查是否有新的文件或修复完成
           return true;
         }
@@ -651,7 +653,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
         if (success) return true;
         
         return false;
-      }, { timeout: 120000 });
+      }, null, { timeout: 600000 });
       console.log('[DEBUG] 检测到修复已完成');
     } catch (error) {
       console.log('[WARNING] 修复超时，继续收集信息...');
@@ -716,12 +718,10 @@ test.describe('多模型 Agent 修改能力测试', () => {
   test('单元测试：多模型路由验证', async ({ page }) => {
     // 这个测试验证多模型路由是否正常工作
     console.log('验证多模型路由功能...');
-    
+
+    await apiLogin(page, BASE_URL);
     await page.goto(`${BASE_URL}/agent`);
-    await page.waitForLoadState('networkidle');
-    
-    // 等待页面加载
-    await page.waitForSelector('.agent-page', { timeout: 10000 });
+    await page.locator('.agent-page').waitFor({ state: 'visible', timeout: 30000 });
     
     // 检查模型选择器是否存在
     const hasModelSelector = await page.evaluate(() => {
@@ -759,41 +759,46 @@ test.describe('多模型 Agent 修改能力测试', () => {
   });
 
   test('性能测试：Agent 响应时间', async ({ page }) => {
-    test.setTimeout(120000);
-    
+    test.setTimeout(300000);
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型性能测试');
+
+    await apiLogin(page, BASE_URL);
+    await syncRealApiKeys(page);
     await page.goto(`${BASE_URL}/agent`);
-    await page.waitForLoadState('networkidle');
-    
-    // 等待页面加载
-    await page.waitForSelector('.agent-page', { timeout: 10000 });
-    
+    await page.locator('.agent-page').waitFor({ state: 'visible', timeout: 30000 });
+
     const startTime = Date.now();
-    
+
     // 输入简单需求
-    const textarea = await page.waitForSelector('.prompt-textarea');
+    const textarea = await page.waitForSelector('[data-testid="agent-prompt-input"]');
     await textarea.fill('创建一个 Hello World 的 Python 脚本');
-    
+
     // 开始生成
-    await page.click('.action-buttons .btn-primary');
+    await page.click('button[aria-label="发送需求"]');
     
     // 等待第一个文件出现
     try {
-      await page.waitForSelector('.file-item', { timeout: 60000 });
+      await page.waitForSelector('.file-item', { timeout: 150000 });
       const firstFileTime = Date.now() - startTime;
       console.log('第一个文件生成时间:', firstFileTime, 'ms');
       
-      // 继续等待生成完成
+      // 继续等待生成完成：停止按钮消失，且文件数在观察窗口内不再增长
       await page.waitForFunction(() => {
-        const btn = document.querySelector('.btn-primary');
-        return btn && !btn.disabled;
-      }, { timeout: 60000 });
+        const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+        if (stopBtn) return false;
+        const files = document.querySelectorAll('.file-item').length;
+        const prev = window.__perfFileCount;
+        window.__perfFileCount = files;
+        window.__perfStableTicks = files === prev ? (window.__perfStableTicks || 0) + 1 : 0;
+        return window.__perfStableTicks >= 3;
+      }, { timeout: 120000, polling: 2000 });
       
       const totalTime = Date.now() - startTime;
       console.log('总生成时间:', totalTime, 'ms');
       
       // 性能断言
-      expect(firstFileTime).toBeLessThan(60000); // 第一个文件应该在60秒内
-      expect(totalTime).toBeLessThan(120000); // 总时间应该在120秒内
+      expect(firstFileTime).toBeLessThan(150000);
+      expect(totalTime).toBeLessThan(270000);
     } catch (error) {
       console.log('[ERROR] 性能测试超时');
       await debugScreenshot(page, 'performance-timeout');

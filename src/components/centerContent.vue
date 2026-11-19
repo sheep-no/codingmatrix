@@ -906,9 +906,18 @@
     const code = codeElement.textContent
 
     try {
+      let copied = false
       if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(code)
-      } else {
+        try {
+          await navigator.clipboard.writeText(code)
+          copied = true
+        } catch (err) {
+          // 权限被拒（如无剪贴板授权的浏览器）时继续走 execCommand 兜底
+          console.debug('Clipboard API 不可用，尝试 execCommand:', err?.message)
+        }
+      }
+
+      if (!copied) {
         const textArea = document.createElement('textarea')
         textArea.value = code
         textArea.style.position = 'fixed'
@@ -918,12 +927,14 @@
         textArea.select()
 
         try {
-          document.execCommand('copy')
+          if (!document.execCommand('copy')) {
+            throw new Error('浏览器拒绝了复制操作')
+          }
         } catch (err) {
           throw new Error('复制失败', { cause: err })
+        } finally {
+          document.body.removeChild(textArea)
         }
-
-        document.body.removeChild(textArea)
       }
 
       const originalHTML = buttonElement.innerHTML

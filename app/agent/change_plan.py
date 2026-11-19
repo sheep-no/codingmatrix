@@ -212,6 +212,53 @@ def expand_change_plan_for_missing_exports(
     return collapse_change_items([*existing, *extras], known_paths=known)
 
 
+def _resolve_known_path(path: str, known_paths: set[str]) -> str:
+    """Resolve a model-provided path to a unique existing snapshot path.
+
+    Models sometimes add a plausible directory prefix (for example
+    ``src/calc.py``) when the project keeps the file at the root.  For
+    modify/delete/rename the target must already exist, so a unique basename
+    match is unambiguous and safe to use.
+    """
+    normalized = path.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized in known_paths:
+        return normalized
+
+    basename = normalized.rsplit("/", 1)[-1]
+    if not basename:
+        return normalized
+    matches = [
+        candidate
+        for candidate in known_paths
+        if candidate.rsplit("/", 1)[-1] == basename
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return normalized
+
+
+def resolve_change_paths(
+    changes: Iterable[Mapping[str, object] | FileChange],
+    known_paths: Iterable[str],
+) -> list[dict[str, object]]:
+    """Normalize modify/delete/rename paths to unique existing snapshot paths."""
+    known = {str(path) for path in known_paths}
+    resolved: list[dict[str, object]] = []
+    for item in changes:
+        data = item.model_dump(mode="json") if isinstance(item, FileChange) else dict(item)
+        action = str(data.get("action", "modify"))
+        if action in ("modify", "delete", "rename"):
+            data["path"] = _resolve_known_path(str(data.get("path", "")), known)
+        if action == "rename" and data.get("previous_path"):
+            data["previous_path"] = _resolve_known_path(
+                str(data["previous_path"]), known
+            )
+        resolved.append(data)
+    return resolved
+
+
 class ChangePlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -228,7 +275,11 @@ class ChangePlan(BaseModel):
         *,
         version: int = 1,
     ) -> ChangePlan:
-        collapsed = collapse_change_items(changes, known_paths=snapshot.hashes())
+        known = set(snapshot.hashes())
+        collapsed = collapse_change_items(
+            resolve_change_paths(changes, known),
+            known_paths=known,
+        )
         normalized = tuple(
             item if isinstance(item, FileChange) else FileChange(
                 path=str(item["path"]),
@@ -243,7 +294,6 @@ class ChangePlan(BaseModel):
         paths = [item.path for item in normalized]
         if len(paths) != len(set(paths)):  # pragma: no cover - collapse 已按 path 去重
             raise ValueError("change plan paths must be unique")
-        known = set(snapshot.hashes())
         for item in normalized:
             if item.action is ChangeAction.MODIFY and item.path not in known:
                 raise ValueError(f"modified file is absent from snapshot: {item.path}")
@@ -282,4 +332,5 @@ __all__ = [
     "FileChange",
     "collapse_change_items",
     "expand_change_plan_for_missing_exports",
+    "resolve_change_paths",
 ]

@@ -4,40 +4,42 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agent.orchestrator_files import FilesMixin
-from app.agent.orchestrator_files import _fix_absolute_imports
-from app.agent.orchestrator_files import _validate_python_project_imports
-from app.agent.orchestrator_files import _validate_python_implementation
-from app.agent.orchestrator_files import _structured_import_diagnostics
-from app.agent.orchestrator_files import _validate_python_database_abstraction
-from app.agent.orchestrator_files import _validate_python_contract
-from app.agent.orchestrator_files import _repair_python_shared_base
-from app.agent.orchestrator_files import _repair_python_sqlalchemy_metadata_owner
-from app.agent.orchestrator_files import _repair_python_sqlalchemy_text_execute
-from app.agent.orchestrator_files import _repair_python_fastapi_class_route_registration
-from app.agent.orchestrator_files import _repair_python_sqlite_connection_url
-from app.agent.orchestrator_files import _repair_python_invalid_code_marker
-from app.agent.orchestrator_files import _repair_python_unmounted_fastapi_router
-from app.agent.orchestrator_files import _repair_python_sqlalchemy_datetime_defaults
-from app.agent.orchestrator_files import _repair_python_sessionmaker_class_none
-from app.agent.orchestrator_files import _repair_python_sqlalchemy_get_db
-from app.agent.orchestrator_files import _repair_python_sqlalchemy_table_initialization
-from app.agent.orchestrator_files import _repair_python_test_database_fixtures
-from app.agent.orchestrator_files import _repair_python_project_call_keywords
-from app.agent.orchestrator_files import _repair_python_schema_field_access
-from app.agent.orchestrator_files import _repair_python_known_imports
-from app.agent.orchestrator_files import _repair_python_project_symbol_imports
-from app.agent.orchestrator_files import _repair_python_sync_async_calls
-from app.agent.orchestrator_files import _validate_python_sqlalchemy_metadata_owner
-from app.agent.orchestrator_files import _validate_python_schema_field_access
 from app.agent.architect import Architect
+from app.agent.backend_engineer import BackendEngineer
 from app.agent.code_validator import CodeValidator
 from app.agent.dependency_graph import DependencyGraph
-from app.agent.backend_engineer import BackendEngineer
-from app.agent.shared_context import SharedContext
 from app.agent.orchestration.artifact_committer import ArtifactCommitter
+from app.agent.orchestrator_files import (
+    FilesMixin,
+    _fix_absolute_imports,
+    _format_review_issues,
+    _repair_python_fastapi_class_route_registration,
+    _repair_python_invalid_code_marker,
+    _repair_python_known_imports,
+    _repair_python_project_call_keywords,
+    _repair_python_project_symbol_imports,
+    _repair_python_schema_field_access,
+    _repair_python_sessionmaker_class_none,
+    _repair_python_shared_base,
+    _repair_python_sqlalchemy_datetime_defaults,
+    _repair_python_sqlalchemy_get_db,
+    _repair_python_sqlalchemy_metadata_owner,
+    _repair_python_sqlalchemy_table_initialization,
+    _repair_python_sqlalchemy_text_execute,
+    _repair_python_sqlite_connection_url,
+    _repair_python_sync_async_calls,
+    _repair_python_test_database_fixtures,
+    _repair_python_unmounted_fastapi_router,
+    _structured_import_diagnostics,
+    _validate_python_contract,
+    _validate_python_database_abstraction,
+    _validate_python_implementation,
+    _validate_python_project_imports,
+    _validate_python_schema_field_access,
+    _validate_python_sqlalchemy_metadata_owner,
+)
 from app.agent.orchestrator_utils import UtilsMixin
-from app.agent.orchestrator_files import _format_review_issues
+from app.agent.shared_context import SharedContext
 
 
 def test_sync_project_call_does_not_use_await():
@@ -1986,6 +1988,15 @@ def test_extract_strict_paths_from_only_generate_following_expression():
     }
 
 
+def test_extract_strict_paths_from_multiline_numbered_list():
+    requirement = "只生成以下 3 个文件：\n1. main.py\n2. index.html\n3. requirements.txt"
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "main.py", "index.html", "requirements.txt"
+    }
+
+
+def test_strict_file_scope_keeps_completeness_expansion_disabled():
     architect = object.__new__(Architect)
     architecture = {
         "language": "python",

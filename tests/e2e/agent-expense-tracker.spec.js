@@ -8,6 +8,9 @@ import { execSync } from 'child_process';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
+// 该用例依赖真实 LLM 长时生成（超时 90 分钟），仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 /** 清理运行中的会话，避免 429 限流 */
 function cleanupRunningSessions() {
@@ -64,9 +67,10 @@ const REQUIREMENT = `个人记账本 Web 应用
 
 test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
   test.describe.configure({ project: 'chromium' });
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）');
 
   test('生成个人记账本 Web 应用项目', async ({ page }) => {
-    test.setTimeout(5400000); // 90 分钟
+    test.setTimeout(10800000); // 180 分钟，慢推理模型生成 20+ 文件可能超过 2 小时
 
     // 清理运行中的会话
     cleanupRunningSessions();
@@ -137,7 +141,10 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
       } catch (e) {
         return { success: false, error: e.message };
       }
-    }, { email: 'admin@example.com', password: 'admin123' });
+    }, {
+      email: process.env.TEST_ADMIN_EMAIL || 'mr_yang@example.com',
+      password: process.env.TEST_ADMIN_PASSWORD || '12345678',
+    });
 
     expect(loginResult.access_token, `登录失败: ${loginResult.error || JSON.stringify(loginResult)}`).toBeTruthy();
 
@@ -167,6 +174,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     await page.goto(`${BASE_URL}/agent`);
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(3000);
+    await syncRealApiKeys(page);
 
     timeline.push({ step: '导航到 Agent', duration: Date.now() - startTime });
     console.log('✓ Agent 页面已加载');
@@ -175,21 +183,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     console.log('\n=== 步骤 3: 输入需求并触发生成 ===');
     startTime = Date.now();
 
-    // 设置假的 SiliconFlow token 让前端 hasSiliconflowKey = true
-    // （后端 .env 已有真实 API key，前端只需要通过检查）
-    await page.evaluate(() => {
-      const tokens = [{
-        id: 'test-token',
-        provider: 'siliconflow',
-        name: 'Test SiliconFlow Key',
-        enabled: true,
-        token_preview: 'sk-****test',
-        created_at: new Date().toISOString()
-      }];
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify(tokens));
-    });
-
-    // 刷新页面让 store 重新加载
+    // 刷新页面让 store 从已同步的真实 Key 重新加载
     await page.goto(`${BASE_URL}/agent`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(5000);
@@ -306,7 +300,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     const fileWaitStart = Date.now();
     let generationComplete = false;
     let fileCount = 0;
-    const maxFileWait = sseResponseOk ? 5100000 : 30000; // SSE 成功等 85 分钟，失败等 30 秒
+    const maxFileWait = sseResponseOk ? 10500000 : 30000; // SSE 成功等 175 分钟，失败等 30 秒
 
     while (!generationComplete && Date.now() - fileWaitStart < maxFileWait) {
       await page.waitForTimeout(5000);
@@ -420,6 +414,11 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
 
     timeline.push({ step: '等待生成完成', duration: Date.now() - startTime });
 
+    expect(
+      generationComplete,
+      `SSE 未在超时前完成，只生成了 ${fileCount} 个文件`,
+    ).toBe(true);
+
     // ========== 5. 验证生成结果 ==========
     console.log('\n=== 步骤 5: 验证生成结果 ===');
     startTime = Date.now();
@@ -521,5 +520,26 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     }
 
     expect(fileList.length, '应至少生成 1 个文件').toBeGreaterThan(0);
+
+    // 后端在完整性校验阶段抛错时仍可能已写出全部文件，仅校验文件数会漏判。
+    const backendErrors = await page.evaluate(() => {
+      try {
+        const agentPage = document.querySelector('.agent-page');
+        const setupState = agentPage?.__vueParentComponent?.setupState;
+        const logs = setupState?.workspace?.logs
+          || setupState?.session?.currentSession?.logs
+          || [];
+        return logs
+          .filter((entry) => entry.level === 'error')
+          .map((entry) => entry.message);
+      } catch {
+        return [];
+      }
+    });
+    expect(
+      backendErrors.filter((msg) => /missing files were not generated|生成失败/i.test(msg)),
+      `后端返回生成错误: ${backendErrors.join(' | ')}`,
+    ).toHaveLength(0);
+    expect(sseResponseOk, 'SSE 应返回 200').toBe(true);
   });
 });

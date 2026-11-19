@@ -620,6 +620,50 @@ async def test_generate_with_spec_first_static_validation_failure_raises(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_static_missing_dependency_is_recovered_before_raising(tmp_path, monkeypatch):
+    from app.agent.dependency_graph import DependencyGraph as RealDependencyGraph
+
+    class _RecoverableGraph(RealDependencyGraph):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.recovered = False
+
+        def get_missing_files(self):
+            return [] if self.recovered else ["frontend/src/components/Sidebar.vue"]
+
+        def add_missing_files(self, architecture):
+            self.recovered = True
+            architecture["file_plan"].append(
+                {"path": "frontend/src/components/Sidebar.vue", "imports": []}
+            )
+            return architecture
+
+    class _RecoveringValidator(_FakeDependencyGraphValidator):
+        def validate_static(self, dep_graph, **_kwargs):
+            if getattr(dep_graph, "recovered", False):
+                return SimpleNamespace(passed=True, issues=[])
+            return SimpleNamespace(
+                passed=False,
+                issues=[
+                    SimpleNamespace(
+                        issue_type="missing_dependency",
+                        message="HomeView.vue 声明了不存在的依赖 Sidebar.vue",
+                    )
+                ],
+            )
+
+    harness = _Harness(tmp_path)
+    _patch_generation_collaborators(monkeypatch, harness)
+    _fake_integrity(monkeypatch)
+    monkeypatch.setattr(module, "DependencyGraph", _RecoverableGraph)
+    monkeypatch.setattr(module, "DependencyGraphValidator", _RecoveringValidator)
+
+    result = await harness.generate_with_spec_first("做一个后端服务")
+
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
 async def test_generate_with_spec_first_incremental_graph_validation(tmp_path, monkeypatch):
     from app.agent.dependency_graph import DependencyGraph
 

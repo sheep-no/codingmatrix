@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Any
 
 # 覆盖率检查可调参数（模块级常量，调优入口；与 memory.py 阈值常量风格一致）
@@ -126,6 +127,7 @@ def extract_required_artifacts(requirement: str) -> list[dict[str, Any]]:
     """
     if not requirement:
         return []
+    requirement = _strip_internal_context(requirement)
     found: dict[str, bool] = {}
     order: list[str] = []
     for sentence in _SENTENCE_SPLIT_RE.split(requirement):
@@ -149,9 +151,16 @@ def extract_required_artifacts(requirement: str) -> list[dict[str, Any]]:
     return [{"path": path, "root": found[path]} for path in order]
 
 
+def _strip_internal_context(text: str) -> str:
+    """Keep only the user requirement; ignore pipeline banners and Skill text."""
+    text = re.sub(r"^\[Pipeline Mode\]\n.*?\n\n", "", text, count=1, flags=re.DOTALL)
+    return text.split("\n\n[Available Skills]\n", 1)[0]
+
+
 def check_required_artifacts(
     requirement: str,
     generated_paths: list[str],
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Verify requirement-named artifacts exist in the generated paths.
 
@@ -177,6 +186,8 @@ def check_required_artifacts(
                 candidate == path or candidate.endswith("/" + path)
                 for candidate in existing
             )
+        if not satisfied and output_dir is not None:
+            satisfied = _artifact_exists_on_disk(output_dir, path, item["root"])
         if not satisfied:
             missing.append(path)
     return {
@@ -185,3 +196,58 @@ def check_required_artifacts(
         "missing": missing,
         "passed": not missing,
     }
+
+
+def _artifact_exists_on_disk(
+    output_dir: str | Path,
+    path: str,
+    root_scoped: bool,
+) -> bool:
+    root_dir = Path(output_dir)
+    relative = Path(path)
+    if not root_dir.is_dir() or relative.is_absolute() or ".." in relative.parts:
+        return False
+    if (root_dir / relative).is_file():
+        return True
+    if root_scoped:
+        return False
+    return any(candidate.is_file() for candidate in root_dir.glob(f"**/{path}"))
+
+
+def materialize_scaffold_artifacts(
+    required: list[dict[str, Any]],
+    output_dir: str | Path,
+    language: str,
+    architecture: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Create deterministic README/manifest files that the requirement names."""
+    from app.agent.adapters.boilerplate import (
+        MANIFEST_NAMES,
+        README_NAMES,
+        scaffold_for_language,
+    )
+    from app.agent.utils import write_file_atomic
+
+    root_dir = Path(output_dir)
+    created: list[dict[str, str]] = []
+    for item in required:
+        path = str(item.get("path") or "")
+        relative = Path(path)
+        if (
+            not path
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or relative.name.lower() not in README_NAMES | MANIFEST_NAMES
+        ):
+            continue
+        content = scaffold_for_language(language, path, "", architecture)
+        if not content:
+            continue
+        write_file_atomic(
+            root_dir,
+            path,
+            content,
+            skip_placeholder_check=True,
+        )
+        created.append({"path": path, "content": content})
+    return created

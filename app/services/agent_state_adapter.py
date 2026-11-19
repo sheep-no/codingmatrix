@@ -1,5 +1,6 @@
 """Adapters from legacy Agent sessions and graph state to unified state."""
 
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +82,7 @@ async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> s
     terminal_status = _TERMINAL_SESSION_STATUS.get((state.status or "").lower())
     if terminal_status and getattr(session, "status", None) != terminal_status:
         session.status = terminal_status
+    session.updated_at = datetime.utcnow()
     unified_state = State.from_dict(state.to_dict())
     unified_state.session_id = session.id
     task_id = await save_graph_checkpoint(db, user_id, unified_state)

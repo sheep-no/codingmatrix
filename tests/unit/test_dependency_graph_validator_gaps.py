@@ -83,6 +83,22 @@ def test_heuristic_candidates_for_blank_dependency_is_empty():
     assert _heuristic_file_candidates("") == []
 
 
+def test_dependency_satisfied_resolves_extensionless_javascript_module():
+    validator = DependencyGraphValidator()
+    nodes = {"controllers/todo_controller.js", "services/todo_service.js"}
+    assert validator._dependency_satisfied(
+        "services.todo_service",
+        nodes,
+        "controllers/todo_controller.js",
+    ) is True
+
+
+def test_heuristic_candidates_cover_javascript_extensions():
+    candidates = _heuristic_file_candidates("services.todo_service")
+    assert "services/todo_service.js" in candidates
+    assert "services/todo_service.ts" in candidates
+
+
 def test_package_prefix_handles_init_and_non_file_paths():
     assert _package_prefix("src/__init__.py") == "src"
     assert _package_prefix("src/config.py") == "src/config"

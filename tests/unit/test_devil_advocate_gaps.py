@@ -70,6 +70,27 @@ async def test_success_filters_and_limits(monkeypatch):
     assert "req" in captured["prompt"]
 
 
+@pytest.mark.asyncio
+async def test_passes_architect_api_key_token(monkeypatch):
+    # 魔鬼代言人调用必须复用用户 Key，否则会退回未配置的平台 Key
+    from types import SimpleNamespace
+
+    captured = {}
+
+    async def fake_call_llm(**kwargs):
+        captured.update(kwargs)
+        return '{"challenges": []}'
+
+    monkeypatch.setattr("app.utils.call_llm", fake_call_llm)
+    items = [_item() for _ in range(3)]
+
+    await module.devil_advocate_review(
+        "req", items, architect=SimpleNamespace(api_key_token="user-token-123")
+    )
+
+    assert captured["api_key_token"] == "user-token-123"
+
+
 class TestParseDevilResponse:
     def test_valid_json_filters_incomplete(self):
         response = (

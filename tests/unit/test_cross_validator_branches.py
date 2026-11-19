@@ -137,10 +137,31 @@ class TestValidateAndSelectBranches:
             "model-b",
         )
 
-    def test_merged_requires_final_code(self):
+    def test_merged_without_final_code_falls_back_to_longer_version(self):
         validator = _plain_validator()
-        with pytest.raises(ValueError, match="merged result had no final_code"):
-            self._run(validator, '{"winner": "merged"}')
+        assert self._run(validator, '{"winner": "merged"}') == ("A", "model-a")
+
+    def test_merged_without_final_code_prefers_longer_version(self):
+        validator = _plain_validator()
+
+        async def fake_llm(**_kwargs):
+            return {"choices": [{"message": {"content": '{"winner": "merged"}'}}]}
+
+        with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+            result = asyncio.run(
+                validator.validate_and_select(
+                    file_path="test.py",
+                    file_type="backend",
+                    description="d",
+                    version_a="A",
+                    model_a="model-a",
+                    version_b="B" * 50,
+                    model_b="model-b",
+                    judge_model="judge-model",
+                )
+            )
+
+        assert result == ("B" * 50, "model-b")
 
     def test_merged_returns_combined_model_label(self):
         validator = _plain_validator()
@@ -728,7 +749,7 @@ class TestLLMFixHelpers:
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
             assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
-    def test_fix_with_llm_single_file_timeout_is_reraised(self):
+    def test_fix_with_llm_single_file_timeout_keeps_original(self):
         validator = _plain_validator()
         files = {"a.py": "missing_call()\n"}
         issues = [{"type": "symbol_not_found", "file": "a.py", "message": "m"}]
@@ -741,10 +762,9 @@ class TestLLMFixHelpers:
             raise TimeoutError("slow")
 
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
-            with pytest.raises(TimeoutError):
-                asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+            assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
-    def test_batch_timeout_is_reraised(self):
+    def test_batch_timeout_keeps_original(self):
         validator = _plain_validator()
         files = {"a.py": "missing_call()\n"}
         issues = [{"type": "symbol_not_found", "file": "a.py", "message": "m"}]
@@ -753,8 +773,7 @@ class TestLLMFixHelpers:
             raise TimeoutError("slow")
 
         with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
-            with pytest.raises(TimeoutError):
-                asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+            assert asyncio.run(validator._fix_with_llm(files, issues, "glm")) == files
 
     def test_batch_response_with_empty_content_keeps_files(self):
         validator = _plain_validator()

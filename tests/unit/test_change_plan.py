@@ -1,5 +1,10 @@
 from app.agent.adapters.python import PythonLanguageAdapter
-from app.agent.change_plan import ChangePlan, collapse_change_items, expand_change_plan_for_missing_exports
+from app.agent.change_plan import (
+    ChangePlan,
+    collapse_change_items,
+    expand_change_plan_for_missing_exports,
+    resolve_change_paths,
+)
 from app.agent.project_snapshot import ProjectSnapshot
 
 
@@ -33,6 +38,28 @@ def test_change_plan_build_accepts_duplicate_paths(tmp_path):
     assert [item.path for item in plan.changes] == ["calc.py", "main.py"]
     assert "subtract" in plan.changes[0].reason
     assert "multiply" in plan.changes[0].reason
+
+
+def test_change_plan_build_resolves_unique_path_prefix(tmp_path):
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text("print(add(1, 2))\n", encoding="utf-8")
+    snapshot = ProjectSnapshot.scan(tmp_path, revision="r1")
+
+    plan = ChangePlan.build(snapshot, [
+        {"path": "src/calc.py", "action": "modify", "reason": "subtract"},
+        {"path": "src/main.py", "action": "modify", "reason": "print"},
+    ])
+
+    assert [item.path for item in plan.changes] == ["calc.py", "main.py"]
+
+
+def test_resolve_change_paths_leaves_ambiguous_basename():
+    resolved = resolve_change_paths(
+        [{"path": "src/calc.py", "action": "modify"}],
+        {"a/calc.py", "b/calc.py"},
+    )
+
+    assert resolved[0]["path"] == "src/calc.py"
 
 
 def test_collapse_add_and_modify_keeps_modify_for_existing_file():

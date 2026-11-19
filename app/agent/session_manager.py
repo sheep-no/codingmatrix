@@ -135,9 +135,10 @@ class SessionManager:
         if not self._db_session_factory:
             return
         try:
-            from sqlalchemy import select
+            from sqlalchemy import select, update
 
             from app.db.models import ProjectSession
+            from app.models.unified_state import Session as UnifiedSession
             async with self._db_session_factory() as db:
                 result = await db.execute(
                     select(ProjectSession).where(ProjectSession.session_id == session_id)
@@ -154,6 +155,23 @@ class SessionManager:
                         session.error_message = error_message
                     if status in ("completed", "failed", "cancelled"):
                         session.completed_at = datetime.now(timezone.utc)
+                        try:
+                            user_id = int(getattr(session, "user_id", 0))
+                        except (TypeError, ValueError):
+                            user_id = 0
+                        if user_id is not None:
+                            await db.execute(
+                                update(UnifiedSession)
+                                .where(
+                                    UnifiedSession.user_id == user_id,
+                                    UnifiedSession.module == "agent",
+                                    UnifiedSession.external_id == session_id,
+                                )
+                                .values(
+                                    status=status,
+                                    updated_at=datetime.utcnow(),
+                                )
+                            )
                     await db.commit()
                     logger.debug(f"[SessionManager] DB 同步完成: session={session_id} status={status}")
                 else:

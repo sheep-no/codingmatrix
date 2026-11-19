@@ -143,7 +143,13 @@ export function useAgentFiles() {
   }
 
   function selectFile(file) {
-    selectedFile.value = file
+    if (!file?.path) {
+      selectedFile.value = file || null
+      return
+    }
+    selectedFile.value = file.content !== undefined
+      ? file
+      : generatedFiles.value.find(item => item.path === file.path) || file
   }
 
   function getLanguage(filePath) {

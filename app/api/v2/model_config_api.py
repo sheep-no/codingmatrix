@@ -346,7 +346,17 @@ async def reload_config(
 
 
 def _model_to_dict(m: ModelConfig) -> Dict:
-    """模型转字典"""
+    """模型转字典
+
+    价格与免费标记来自内置注册表（以 model_key 即 name 关联）。YAML 配置
+    本身不维护价格字段，未命中注册表的自定义模型按免费零成本处理。
+    """
+    from app.utils.aicloud.model_registry import MODEL_REGISTRY
+
+    registry_entry = next(
+        (item for item in MODEL_REGISTRY.values() if item.model_key == m.name),
+        None,
+    )
     return {
         "id": m.id,
         "name": m.name,
@@ -361,7 +371,11 @@ def _model_to_dict(m: ModelConfig) -> Dict:
         "thinking_ratio": m.thinking_ratio,
         "speed": m.speed,
         "enabled": m.enabled,
-        "tags": m.tags
+        "tags": m.tags,
+        "is_free": registry_entry.is_free if registry_entry else True,
+        "max_context": registry_entry.max_context if registry_entry else m.context_length,
+        "cost_per_1m_input": registry_entry.cost_per_1m_input if registry_entry else 0.0,
+        "cost_per_1m_output": registry_entry.cost_per_1m_output if registry_entry else 0.0,
     }
 
 

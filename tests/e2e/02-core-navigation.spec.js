@@ -43,39 +43,31 @@ test.describe('核心布局与导航', () => {
   test('侧边栏折叠 - 点击折叠按钮', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(1000);
 
-    const collapseBtn = page.locator('#collapse-btn, button[aria-label*="收起"], button[aria-label*="展开"]');
-    const isVisible = await collapseBtn.isVisible().catch(() => false);
+    const collapseBtn = page.locator('#collapse-btn');
+    const sidebar = page.locator('#leftlist');
 
-    if (isVisible) {
-      await collapseBtn.click();
-      await page.waitForTimeout(800);
+    await expect(sidebar).not.toHaveClass(/collapsed/);
 
-      const sidebar = page.locator('#leftlist');
-      const hasCollapsedClass = await sidebar.evaluate(el => el.classList.contains('collapsed'));
-      expect(hasCollapsedClass).toBeTruthy();
-    }
+    await collapseBtn.click();
+
+    await expect(sidebar).toHaveClass(/collapsed/);
+    await expect(collapseBtn).toHaveAttribute('aria-label', '展开侧边栏');
   });
 
   test('侧边栏展开 - 再次点击恢复', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(1000);
 
-    const collapseBtn = page.locator('#collapse-btn, button[aria-label*="收起"], button[aria-label*="展开"]');
-    const isVisible = await collapseBtn.isVisible().catch(() => false);
+    const collapseBtn = page.locator('#collapse-btn');
+    const sidebar = page.locator('#leftlist');
 
-    if (isVisible) {
-      await collapseBtn.click();
-      await page.waitForTimeout(800);
-      await collapseBtn.click();
-      await page.waitForTimeout(800);
+    await collapseBtn.click();
+    await expect(sidebar).toHaveClass(/collapsed/);
 
-      const sidebar = page.locator('#leftlist');
-      const hasCollapsedClass = await sidebar.evaluate(el => el.classList.contains('collapsed'));
-      expect(hasCollapsedClass).toBeFalsy();
-    }
+    await collapseBtn.click();
+    await expect(sidebar).not.toHaveClass(/collapsed/);
+    await expect(collapseBtn).toHaveAttribute('aria-label', '收起侧边栏');
   });
 
   test('路由导航 - 项目生成页面', async ({ page }) => {
@@ -107,8 +99,9 @@ test.describe('核心布局与导航', () => {
     await page.goto('/non-existent-route-xyz');
     await page.waitForLoadState('domcontentloaded');
 
-    const hasApp = await page.evaluate(() => !!document.querySelector('#app'));
-    expect(hasApp).toBeTruthy();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator('.main-layout')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible();
   });
 
   test('错误边界 - JavaScript 错误不应导致白屏', async ({ page }) => {
@@ -125,43 +118,35 @@ test.describe('核心布局与导航', () => {
 
     await page.waitForTimeout(500);
 
-    const appVisible = await page.locator('.app-container').isVisible();
-    expect(appVisible).toBeTruthy();
+    await expect(page.locator('.app-container')).toBeVisible();
+    await expect(page.locator('.main-layout')).toBeVisible();
   });
 
   test('主题切换 - 暗色模式', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"]');
-    const isVisible = await themeBtn.isVisible().catch(() => false);
+    const darkBtn = page.getByRole('radio', { name: '夜晚' });
+    await expect(darkBtn).toBeVisible();
 
-    if (isVisible) {
-      await themeBtn.click();
-      await page.waitForTimeout(300);
+    await darkBtn.click();
 
-      const themeClass = await page.evaluate(() => {
-        return document.documentElement.className;
-      });
-      expect(typeof themeClass).toBe('string');
-    }
+    await expect(darkBtn).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
+    expect(await page.evaluate(() => localStorage.getItem('app-theme'))).toBe('theme-dark');
   });
 
   test('主题持久化 - 切换主题后刷新应保持', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const themeBtn = page.locator('[class*="theme"], [class*="ThemeSwitch"]');
-    const isVisible = await themeBtn.isVisible().catch(() => false);
+    await page.getByRole('radio', { name: '夜晚' }).click();
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
 
-    if (isVisible) {
-      await themeBtn.click();
-      await page.waitForTimeout(300);
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
 
-      const savedTheme = await page.evaluate(() => localStorage.getItem('app-theme'));
-      expect(typeof savedTheme).toBe('string');
-    }
+    await expect(page.locator('html')).toHaveClass(/theme-dark/);
+    await expect(page.getByRole('radio', { name: '夜晚' })).toHaveAttribute('aria-checked', 'true');
   });
 });

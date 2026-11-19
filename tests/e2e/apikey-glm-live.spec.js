@@ -9,7 +9,9 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000'
 const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD
-const TEST_API_KEY = process.env.TEST_API_KEY
+// 智谱 GLM 使用官方 Key，与硅基流动 Key 互不通用
+const { liveKey } = require('./fixtures/liveKeys.js')
+const TEST_API_KEY = liveKey('zhipu')
 
 test.describe.configure({ mode: 'serial' })
 

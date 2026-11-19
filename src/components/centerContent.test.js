@@ -155,3 +155,73 @@ describe('chat source rendering', () => {
     wrapper.unmount()
   })
 })
+
+describe('code block copy', () => {
+  const CODE_RESPONSE = '示例：\n\n```js\nconst answer = 42\n```\n'
+  let execCommand
+
+  beforeEach(() => {
+    // jsdom 未实现 execCommand，按需注入以便观察降级路径
+    execCommand = vi.fn()
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      writable: true,
+      value: execCommand,
+    })
+  })
+
+  const mountWithCode = () => mount(CenterContent, {
+    props: {
+      conversationId: 'copy',
+      conversationHistory: [{ id: 1, prompt: '给一段代码', response: CODE_RESPONSE }]
+    },
+    global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    delete navigator.clipboard
+    delete document.execCommand
+  })
+
+  it('falls back to execCommand when the Clipboard API rejects', async () => {
+    vi.stubGlobal('isSecureContext', true)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError')) },
+    })
+    execCommand.mockReturnValue(true)
+
+    const wrapper = mountWithCode()
+    await nextTick()
+    await nextTick()
+
+    const button = wrapper.get('.copy-button')
+    await button.trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(button.text()).toContain('已复制')
+    expect(document.querySelector('textarea')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('reports failure when both clipboard paths are rejected', async () => {
+    vi.stubGlobal('isSecureContext', false)
+    execCommand.mockReturnValue(false)
+
+    const wrapper = mountWithCode()
+    await nextTick()
+    await nextTick()
+
+    const button = wrapper.get('.copy-button')
+    await button.trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(button.text()).toContain('复制失败')
+    expect(document.querySelector('textarea')).toBeNull()
+    wrapper.unmount()
+  })
+})

@@ -7,14 +7,15 @@
  */
 const { test, expect } = require('@playwright/test');
 const { apiLogin } = require('./fixtures/auth');
+const { liveKey } = require('./fixtures/liveKeys.js');
 const crypto = require('crypto');
 
 // 测试配置
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 通过测试环境变量提供 SiliconFlow API Key
-const REAL_API_KEY = process.env.TEST_API_KEY;
+// 该用例在硅基流动托管模型上运行，使用硅基流动 Key
+const REAL_API_KEY = liveKey('siliconflow');
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -122,7 +123,7 @@ async function getPageState(page) {
 test.describe('Agent 逻辑错误修复能力测试', () => {
   test('生成项目 → 删除代码行 → 模糊问题 → Agent 修复', async ({ page }) => {
     test.setTimeout(900000); // 15分钟超时
-    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
+    test.skip(!REAL_API_KEY, '需要设置 TEST_SILICONFLOW_API_KEY 才能执行真实模型验收');
 
     // 捕获浏览器控制台日志
     page.on('console', msg => {
@@ -212,7 +213,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     // ========== 步骤2：输入项目需求并生成 ==========
     console.log('=== 步骤2：输入项目需求并生成 ===');
 
-    const projectPrompt = '创建一个简单的 Python FastAPI 待办事项 API，包含 main.py 入口文件，有增删改查接口和一个简单的 index.html 前端页面';
+    const projectPrompt = '只生成 main.py 和 calculator.py 两个文件，实现一个简单的 Python 命令行计算器，支持加减乘除。';
 
     const textarea = await page.waitForSelector('.prompt-textarea');
     await textarea.focus();
@@ -221,19 +222,20 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await page.waitForTimeout(1000);
 
     // 点击生成按钮
-    const generateBtn = page.locator('.action-buttons .btn-primary').first();
+    const generateBtn = page.locator('button[aria-label="发送需求"]').first();
     await generateBtn.click({ force: true });
     console.log('[DEBUG] 已点击生成按钮');
 
     // 等待生成开始
     try {
       await page.waitForFunction(() => {
-        const btn = document.querySelector('.btn-primary');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
         if (btn && btn.disabled) return true;
         const progress = document.querySelector('.progress-bar-section');
         if (progress) return true;
         const timeline = document.querySelector('.timeline');
         if (timeline) return true;
+        if (document.querySelector('button[aria-label="停止生成"]')) return true;
         const files = document.querySelectorAll('.file-item');
         if (files.length > 0) return true;
         return false;
@@ -260,13 +262,10 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
             }
           }
         } catch (e) { /* ignore */ }
-        // fallback: 检查按钮状态
-        const btn = document.querySelector('.btn-primary');
-        const stopBtn = document.querySelector('.btn-danger');
-        if (stopBtn) return true;
-        if (btn && btn.disabled) return true;
-        if (btn && btn.textContent.includes('生成中')) return true;
-        return false;
+        // fallback: 只以“停止生成”按钮为准。发送按钮在输入框被清空后
+        // 会保持 disabled，不能据此推断仍在生成。
+        const stopBtn = document.querySelector('button[aria-label="停止生成"]');
+        return Boolean(stopBtn);
       });
     };
 
@@ -333,6 +332,11 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await page.click(`.file-item:has-text("${targetFile}")`);
     await page.waitForSelector(`.tree-item.selected:has-text("${targetFile}")`, { timeout: 5000 });
     await page.waitForSelector('.editor-actions', { timeout: 5000 });
+    // 文件内容异步加载，必须等内容真正渲染后再分析，否则会误判为空文件。
+    await page.waitForFunction(() => {
+      const codeBlock = document.querySelector('.code-block code');
+      return Boolean(codeBlock && codeBlock.textContent.trim());
+    }, { timeout: 20000 });
 
     // 获取文件内容
     const fileContent = await page.evaluate(() => {
@@ -396,7 +400,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     }
 
     if (lineToDeleteIndex === -1) {
-      console.log('[WARNING] 未找到可删除的行，跳过删除步骤');
+      throw new Error(`未在 ${targetFile} 中找到可删除的代码行，无法验证修复流程`);
     } else {
       const deletedLine = lines[lineToDeleteIndex];
       console.log(`准备删除第 ${lineToDeleteIndex + 1} 行: "${deletedLine}"`);
@@ -518,8 +522,8 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await inputForFix.dispatchEvent('input');
     await page.waitForTimeout(500);
 
-    // 点击继续生成按钮
-    const continueBtn = page.locator('button:has-text("继续生成")').first();
+    // 点击发送需求按钮（有产物后再次发送即为继续）
+    const continueBtn = page.locator('button[aria-label="发送需求"]').first();
     await continueBtn.click({ force: true });
     console.log('[DEBUG] 已点击继续生成按钮');
 
@@ -650,7 +654,8 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     console.log('\n=== 测试报告 ===');
     console.log(JSON.stringify(testReport, null, 2));
 
-    // 基本验证：Agent 应该至少产生了一些思考或日志
-    expect(diagnostics.thinkingMessages.length + finalLogs.length).toBeGreaterThan(0);
+    // 核心验证：确实删除了代码，且修复后目标文件仍然存在。
+    expect(deleteReason).not.toBe('');
+    expect(filesAfterFix).toContain(targetFile);
   });
 });

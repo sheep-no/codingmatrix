@@ -48,7 +48,9 @@ TTL 清理还会把运行中的数据库 `ProjectSession` 标记为 `expired`。
 
 `POST /api/v1/agent/orchestrate/stream` 按用户串行化创建检查。入口先清理该用户 `running` 状态且最后活动超过 7 天，或内存中缺少 `SessionState` 的僵尸会话，并将其标记为 `failed`。随后每个用户只允许一个 `running` 会话：同一 Token 对同一 `session_id`/task 且原生成任务仍活跃时，复用原任务队列并继续 SSE 重连；已有其他运行任务时返回 HTTP 429。`MAX_PROJECT_SESSIONS_PER_USER=2` 控制历史会话及其文件资源的保留数量，属于历史资源清理阈值。
 
-客户端断开 SSE 后，生成任务继续在当前进程运行；`_watch_stream_disconnect` 只把 `connected` 标为 `false`。显式取消才会停止生成。`GET /api/v1/agent/sessions` 与 `GET /api/v1/agent/sessions/{session_id}` 的 `reconnectable` 为 true 时，表示该会话在本进程 `_active_tasks` 中仍有未完成任务且当前无订阅连接。`is_resume=true` 可挂回原队列；已消费事件、决策重放和进程重启后续跑暂不支持，`recovery_note` 会说明该边界。
+客户端断开 SSE 后，生成任务继续在当前进程运行；`_watch_stream_disconnect` 把 `connected` 标为 `false`，并按 `AGENT_BACKGROUND_GRACE_SECONDS`（默认 1800 秒）启动后台宽限计时。宽限期内重新连接会取消计时；超时仍无订阅连接则停止任务并标记 `cancelled`，已生成文件保留。`GET /api/v1/agent/sessions` 与 `GET /api/v1/agent/sessions/{session_id}` 的 `reconnectable` 为 true 时，表示该会话在本进程 `_active_tasks` 中仍有未完成任务且当前无订阅连接。`is_resume=true` 可挂回原队列；已消费事件、决策重放和进程重启后续跑暂不支持，`recovery_note` 会说明该边界。
+
+进程启动时会把上一次进程遗留的 `running` 会话统一标记为 `failed`，错误信息说明服务重启中断，并保留已生成文件供 `is_resume` 选择继续。运行期僵尸检测对近期崩溃会话同样保留文件；只有最后活动超过 7 天的超时会话才回收磁盘。
 
 `complete_session` 和 `cancel_session` 会写 JSON，并通过数据库会话工厂同步 `ProjectSession`。普通文件状态更新主要写入 JSON。
 

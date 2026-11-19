@@ -16,6 +16,11 @@ from app.agent.orchestrator_requirements.llm_prompts import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_api_key_token(architect: object | None) -> str | None:
+    """复用架构师持有的用户 Key，避免联想调用回退到未配置的平台 Key。"""
+    return getattr(architect, "api_key_token", None) if architect else None
+
+
 async def layer3_dual_model_deep(
     requirement: str,
     layer1_items: list[AssociationItem],
@@ -26,6 +31,7 @@ async def layer3_dual_model_deep(
     if not architect:
         return []
 
+    api_key_token = _resolve_api_key_token(architect)
     template_summary = summarize_items(layer1_items, "领域模板")
     history_summary = summarize_items(layer2_items, "历史项目")
     prompt = build_llm_prompt(requirement, template_summary, history_summary)
@@ -39,7 +45,8 @@ async def layer3_dual_model_deep(
         response_a = await call_llm(
             model=DUAL_MODEL_A,
             prompt=prompt,
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            api_key_token=api_key_token
         )
         model_a_items = parse_llm_response(response_a)
     except Exception as e:
@@ -50,7 +57,8 @@ async def layer3_dual_model_deep(
         response_b = await call_llm(
             model=DUAL_MODEL_B,
             prompt=prompt,
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            api_key_token=api_key_token
         )
         model_b_items = parse_llm_response(response_b)
     except Exception as e:
@@ -74,7 +82,8 @@ async def layer3_dual_model_deep(
             response = await call_llm(
                 model=DUAL_MODEL_FALLBACK,
                 prompt=prompt,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                api_key_token=api_key_token
             )
             fallback_items = parse_llm_response(response)
             for item in fallback_items:

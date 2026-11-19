@@ -1,6 +1,8 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
 
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 /**
  * 模拟用户在前端完整交互流程
  */
@@ -74,8 +76,37 @@ test.describe('前端 Code 接口完整交互测试', () => {
   })
 
   test('4. 模拟在聊天界面输入并发送', async ({ page }) => {
+    test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+    test.setTimeout(180000)
     await page.goto('/')
     await page.waitForTimeout(3000)
+
+    // 先登录并把真实 Key 同步到 localStorage，聊天接口需要鉴权
+    const login = await page.evaluate(async () => {
+      const csrfResp = await fetch('/api/v1/csrf-token', { credentials: 'include' })
+      const csrfData = await csrfResp.json()
+      const resp = await fetch('/api/v1/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfData.csrf_token },
+        body: JSON.stringify({ email: 'mr_yang@example.com', password: '12345678' }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.access_token) {
+        return { ok: false, status: resp.status }
+      }
+      const expiry = Date.now() + 3600000
+      sessionStorage.setItem('_token', data.access_token)
+      sessionStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('access_token', data.access_token)
+      localStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('username', data.username || 'mr_yang')
+      localStorage.setItem('permission_level', data.permission_level || 'superadmin')
+      return { ok: true }
+    })
+    expect(login.ok, `login failed: ${JSON.stringify(login)}`).toBeTruthy()
+    await page.goto('/')
+    await page.waitForTimeout(1000)
     
     // 查找聊天输入框
     const chatInput = page.locator('textarea, [contenteditable="true"], input[type="text"]').first()
@@ -99,7 +130,7 @@ test.describe('前端 Code 接口完整交互测试', () => {
         console.log('已点击发送按钮')
         
         // 等待响应
-        await page.waitForTimeout(5000)
+        await page.waitForTimeout(20000)
         await page.screenshot({ path: 'test-results/04-after-send.png', fullPage: true })
         
         // 检查是否有响应内容

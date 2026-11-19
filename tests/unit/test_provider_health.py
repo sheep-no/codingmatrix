@@ -102,6 +102,17 @@ class TestProviderHealthChecker:
         config = PROVIDER_CONFIGS.get("unknown_provider")
         assert config is None
 
+    def test_probe_models_are_free_tier(self):
+        """探测模型必须使用各供应商的免费额度模型。
+
+        硅基流动用付费模型探测会把只有免费额度的 Key 误判为无效；
+        智谱裸名 glm-4-flash 已不在当前模型清单，需使用带日期的版本名。
+        """
+        from app.services.provider_health import PROVIDER_CONFIGS
+
+        assert PROVIDER_CONFIGS["siliconflow"]["model"] == "Qwen/Qwen2.5-7B-Instruct"
+        assert PROVIDER_CONFIGS["glm"]["model"] == "glm-4-flash-250414"
+
     def test_check_timeout_default(self):
         """测试默认超时设置"""
         from app.services.provider_health import TEST_TIMEOUT

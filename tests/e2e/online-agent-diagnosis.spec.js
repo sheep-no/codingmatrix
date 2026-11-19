@@ -4,7 +4,8 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin } from './fixtures/auth.js'
 
-const ONLINE_URL = 'https://3000-9f66c22588b66963.monkeycode-ai.online'
+// 预览域名会随会话变化，默认回到当前运行的 baseURL
+const ONLINE_URL = process.env.ONLINE_URL || process.env.BASE_URL || 'http://127.0.0.1:3000'
 
 test.describe('在线预览环境 /agent 白屏诊断', () => {
   test('诊断 /agent 页面渲染问题', async ({ page }) => {
@@ -23,6 +24,9 @@ test.describe('在线预览环境 /agent 白屏诊断', () => {
       errors.push(error.message)
       console.error(`[PAGE ERROR]: ${error.message}`)
     })
+
+    // 登录后才能进入受保护的 /agent 页面，否则会被守卫重定向
+    await apiLogin(page, ONLINE_URL)
 
     // 访问 /agent 页面
     console.log(`Navigating to ${ONLINE_URL}/agent`)
@@ -68,5 +72,6 @@ test.describe('在线预览环境 /agent 白屏诊断', () => {
 
     // 期望：至少应该有一些 DOM 元素
     expect(domInfo.appExists).toBeTruthy()
+    expect(domInfo.hasAgentPageClass).toBeTruthy()
   })
 })

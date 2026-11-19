@@ -198,6 +198,31 @@ describe('首页工作台响应式导航', () => {
     warn.mockRestore()
   })
 
+  it('首轮收到 conversation_id 后仍能把流式增量写回迁移后的会话（FRESCAN-55）', () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = 'temp_1'
+    state.tempConversationId = 'temp_1'
+    state.conversationHistory = [{ prompt: 'q', response: '', isStreaming: true }]
+    state.conversationHistoryMap.set('temp_1', [{ prompt: 'q', response: '', isStreaming: true }])
+
+    state.handleChatStream({ conversation_id: 42 }, 'temp_1', 0, { prompt: 'q' })
+    expect(state.currentConversationId).toBe('42')
+    expect(state.conversationHistoryMap.has('42')).toBe(true)
+    expect(state.conversationHistoryMap.has('temp_1')).toBe(false)
+
+    state.handleChatStream(
+      { choices: [{ delta: { content: '迁移后的回复' } }] },
+      'temp_1',
+      0,
+      { prompt: 'q' }
+    )
+    state.streamUpdateBatcher.flush()
+
+    expect(state.conversationHistoryMap.get('42')[0].response).toBe('迁移后的回复')
+    expect(state.conversationHistory[0].response).toBe('迁移后的回复')
+  })
+
   it('从历史接口恢复来源和失败提示', async () => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState

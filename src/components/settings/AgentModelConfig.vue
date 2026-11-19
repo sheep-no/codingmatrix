@@ -209,6 +209,9 @@ async function loadModels() {
           provider: m.provider,
           model_key: m.name,
           tags: m.tags || [],
+          is_free: m.is_free,
+          max_context: m.max_context ?? m.context_length,
+          cost_per_1m_input: m.cost_per_1m_input,
         }))
       return
     }

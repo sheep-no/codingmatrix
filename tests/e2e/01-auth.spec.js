@@ -16,9 +16,9 @@ test.describe('认证模块', () => {
     await page.waitForTimeout(1500);
     
     await expect(page).toHaveTitle(/CodingMatrix/);
-    // 检查页面 body 存在即可（避免 Vue 挂载时序问题）
-    await page.waitForSelector('body', { state: 'attached' });
-    expect(true).toBe(true);
+    await expect(page.locator('.main-layout')).toBeVisible();
+    await expect(page.locator('.login-btn')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible();
   });
 
   test('API 登录 - 有效凭据应成功', async ({ page }) => {

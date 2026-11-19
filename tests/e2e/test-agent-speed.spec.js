@@ -1,7 +1,12 @@
 const { test, expect } = require('@playwright/test')
 
+// 速度基准依赖真实模型长时生成，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
+
 test.describe('Agent 多模型生成速度测试', () => {
   test.setTimeout(600000) // 10 分钟总超时
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
 
   // 登录并设置环境
   async function setupLogin(page) {
@@ -19,25 +24,21 @@ test.describe('Agent 多模型生成速度测试', () => {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfData.csrf_token
         },
-        body: JSON.stringify({ email: 'admin@example.com', password: 'admin123' })
+        body: JSON.stringify({
+          email: 'mr_yang@example.com',
+          password: '12345678',
+        })
       })
 
       const data = await loginResponse.json()
       localStorage.setItem('access_token', data.access_token)
       localStorage.setItem('username', data.username || 'admin')
       localStorage.setItem('permission_level', data.permission_level || 'superadmin')
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
-        token: 'test-token-for-e2e',
-        provider: 'siliconflow',
-        remark: 'E2E Test Key',
-        status: 'verified',
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        ttl_seconds: 604800,
-        enabled: true
-      }]))
       return data
     })
+
+    // Key 必须在进入 Agent 页前写入，Pinia store 初始化时才读取 localStorage
+    await syncRealApiKeys(page)
 
     return loginResult
   }
@@ -152,13 +153,13 @@ test.describe('Agent 多模型生成速度测试', () => {
     console.log('初始状态:', JSON.stringify(initialStatus))
 
     // 输入简单项目描述
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     await textarea.fill('创建一个简单的 Python 计算器，支持加减乘除运算，包含 main.py 和 requirements.txt')
     await page.waitForTimeout(500)
 
     // 点击生成按钮
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('已点击生成按钮')
@@ -202,13 +203,13 @@ test.describe('Agent 多模型生成速度测试', () => {
     await page.waitForTimeout(3000)
 
     // 输入中等项目描述
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     await textarea.fill('创建一个 Vue 3 Todo 应用，包含以下功能：1. 添加/删除/编辑待办事项 2. 标记完成状态 3. 筛选全部/已完成/未完成 4. 本地存储持久化 5. 响应式设计。使用 Vite 构建，包含 package.json、index.html、src/App.vue、src/components/TodoList.vue、src/components/TodoItem.vue')
     await page.waitForTimeout(500)
 
     // 点击生成按钮
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('已点击生成按钮')
@@ -237,13 +238,13 @@ test.describe('Agent 多模型生成速度测试', () => {
     await page.waitForTimeout(3000)
 
     // 输入复杂项目描述
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     await textarea.fill('创建一个全栈博客系统，前端使用 Vue 3 + Vue Router + Pinia，后端使用 Python FastAPI + SQLAlchemy。功能包括：1. 用户注册/登录（JWT认证） 2. 文章CRUD（标题、内容、标签、分类） 3. 评论系统 4. 文章搜索 5. Markdown渲染 6. 响应式布局。包含完整的前后端代码、数据库模型、API接口')
     await page.waitForTimeout(500)
 
     // 点击生成按钮
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('已点击生成按钮')
@@ -272,12 +273,12 @@ test.describe('Agent 多模型生成速度测试', () => {
     await page.waitForTimeout(3000)
 
     // 先生成简单项目
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     await textarea.fill('创建一个简单的 Python 计算器，支持加减乘除运算，包含 main.py')
     await page.waitForTimeout(500)
 
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('第一步: 生成基础项目...')
@@ -327,12 +328,12 @@ test.describe('Agent 多模型生成速度测试', () => {
     await page.waitForTimeout(3000)
 
     // 先生成中等项目
-    const textarea = page.locator('textarea').first()
+    const textarea = page.locator('textarea.prompt-textarea')
     await expect(textarea).toBeVisible({ timeout: 10000 })
     await textarea.fill('创建一个简单的 Vue 计数器应用，包含 App.vue 和 main.js，支持加减和重置功能')
     await page.waitForTimeout(500)
 
-    const generateButton = page.locator('button:has-text("开始生成")').first()
+    const generateButton = page.locator('button[aria-label="发送需求"]').first()
     await expect(generateButton).toBeVisible({ timeout: 5000 })
     await generateButton.click()
     console.log('第一步: 生成基础项目...')
@@ -389,18 +390,12 @@ test.describe('Agent 多模型生成速度测试', () => {
 
     console.log('\n当前 Agent 模型配置:')
     console.log('========================')
-    for (const [level, models] of Object.entries(config.assignments)) {
-      console.log(`${level}:`)
-      console.log(`  架构师: ${models.architect_model}`)
-      console.log(`  前端: ${models.frontend_model}`)
-      console.log(`  后端: ${models.backend_model}`)
-      console.log(`  审查: ${models.reviewer_model}`)
+    for (const [role, model] of Object.entries(config.roles || {})) {
+      console.log(`  ${role}: ${model}`)
     }
 
     console.log('\n降级链配置:')
-    for (const [chain, models] of Object.entries(config.fallback_chains)) {
-      console.log(`  ${chain}: ${models.join(' -> ')}`)
-    }
+    console.log(`  ${(config.fallback_chain || []).join(' -> ') || '未配置'}`)
 
     console.log('\n速度预期:')
     console.log('  简单项目: 30-60 秒')

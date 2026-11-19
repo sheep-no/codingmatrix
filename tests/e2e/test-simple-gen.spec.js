@@ -1,6 +1,11 @@
 const { test, expect } = require('@playwright/test')
 
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
+
 test('简单项目生成测试', async ({ page }) => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
   test.setTimeout(300000) // 5 分钟
 
   // 登录
@@ -18,33 +23,29 @@ test('简单项目生成测试', async ({ page }) => {
         'Content-Type': 'application/json',
         'X-CSRF-Token': csrfData.csrf_token
       },
-      body: JSON.stringify({ email: 'admin@example.com', password: 'admin123' })
+      body: JSON.stringify({ email: 'mr_yang@example.com', password: '12345678' })
     })
 
     const data = await loginResponse.json()
     localStorage.setItem('access_token', data.access_token)
     localStorage.setItem('username', data.username || 'admin')
     localStorage.setItem('permission_level', data.permission_level || 'superadmin')
-    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
-      token: 'test-token-for-e2e',
-      provider: 'siliconflow',
-      status: 'verified',
-      enabled: true
-    }]))
   })
+
+  await syncRealApiKeys(page)
 
   // 导航到 Agent 页面
   await page.goto('/agent')
   await page.waitForTimeout(3000)
 
   // 输入需求
-  const textarea = page.locator('textarea').first()
+  const textarea = page.locator('textarea.prompt-textarea')
   await expect(textarea).toBeVisible({ timeout: 10000 })
   await textarea.fill('创建一个简单的 Python 计算器，支持加减乘除运算')
   await page.waitForTimeout(500)
 
-  // 点击生成按钮
-  const generateButton = page.locator('button:has-text("开始生成")').first()
+  // 点击发送需求按钮
+  const generateButton = page.locator('button[aria-label="发送需求"]').first()
   await expect(generateButton).toBeVisible({ timeout: 5000 })
   await generateButton.click()
 
@@ -91,7 +92,7 @@ test('简单项目生成测试', async ({ page }) => {
     }
   }
 
-  const totalTime = ((Date.now() - startTime) / 1000).toFixed(1)
+  const totalTime = Number(((Date.now() - startTime) / 1000).toFixed(1))
   console.log(`生成完成，总耗时: ${totalTime}s`)
 
   // 获取最终文件列表

@@ -139,6 +139,7 @@ class ModelInfoResponse(BaseModel):
     max_context: int
     capabilities: list
     is_default: bool
+    is_free: bool
     cost_per_1m_input: float
     cost_per_1m_output: float
     tags: list

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import time
 from collections import deque
@@ -50,6 +51,11 @@ PASSTHROUGH_SSE_EVENTS: frozenset[str] = frozenset({
     "react_tool_call", "react_tool_result", "react_generating",
     "pipeline_mode",
 })
+
+# 客户端断开后允许后台继续生成的宽限期；超时仍无连接则停止，避免任务永久挂起。
+BACKGROUND_DISCONNECT_GRACE_SECONDS = float(
+    os.getenv("AGENT_BACKGROUND_GRACE_SECONDS", "1800")
+)
 
 
 def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: bool | None = None) -> dict[str, Any]:
@@ -224,6 +230,8 @@ def _generation_result_error(result: dict[str, Any]) -> str | None:
     """Return an actionable error when an orchestrator result is unsuccessful."""
     if result.get("success") is True:
         return None
+    if result.get("error_message"):
+        return str(result["error_message"])
     errors = result.get("errors") or []
     if isinstance(errors, str):
         errors = [errors]
@@ -461,6 +469,7 @@ async def _cancel_active_generation(session_id: str) -> bool:
     active_task = _active_tasks.pop(session_id, None)
     if not active_task:
         return False
+    _cancel_background_abandon(active_task)
     gen_task = active_task.get("gen_task")
     if not gen_task or gen_task.done():
         return True
@@ -496,6 +505,7 @@ async def _cancel_stream_generation(
     await asyncio.gather(generation_task, return_exceptions=True)
     active = _active_tasks.get(session_id)
     if active is not None and active.get("gen_task") is generation_task:
+        _cancel_background_abandon(active)
         _active_tasks.pop(session_id, None)
 
 
@@ -520,10 +530,65 @@ async def _watch_stream_disconnect(
                     active["connected"] = (
                         channel.has_subscribers() if channel is not None else False
                     )
+                    if not active["connected"]:
+                        _schedule_background_abandon(session_id, active)
                 return
             await asyncio.sleep(0.25)
     except asyncio.CancelledError:
         return
+
+
+def _cancel_background_abandon(active: dict) -> None:
+    abandon_task = active.pop("abandon_task", None)
+    if abandon_task is not None and not abandon_task.done():
+        abandon_task.cancel()
+
+
+def _schedule_background_abandon(session_id: str, active: dict) -> None:
+    """Stop a detached generation after the reconnect grace period."""
+    existing = active.get("abandon_task")
+    if existing is not None and not existing.done():
+        return
+    gen_task = active.get("gen_task")
+    if gen_task is None or gen_task.done():
+        return
+    active["abandon_task"] = asyncio.create_task(
+        _abandon_background_generation(session_id, gen_task)
+    )
+
+
+async def _abandon_background_generation(
+    session_id: str,
+    gen_task: asyncio.Task,
+) -> None:
+    try:
+        await asyncio.sleep(BACKGROUND_DISCONNECT_GRACE_SECONDS)
+    except asyncio.CancelledError:
+        return
+
+    active = _active_tasks.get(session_id)
+    if active is None or active.get("gen_task") is not gen_task:
+        return
+    if active.get("connected") or gen_task.done():
+        return
+
+    logger.warning(
+        "[SSE] 后台生成超过 %.0fs 无连接，停止任务 | session=%s",
+        BACKGROUND_DISCONNECT_GRACE_SECONDS,
+        session_id,
+    )
+    cancel_event = active.get("cancel_event")
+    if cancel_event is not None:
+        cancel_event.set()
+    gen_task.cancel()
+    try:
+        await asyncio.wait_for(gen_task, timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+    except Exception:
+        logger.debug("后台任务停止时异常 | session=%s", session_id, exc_info=True)
+    sm = await get_session_manager()
+    await sm.cancel_session(session_id)
 
 
 def _skill_context_for_user(user_id: str, requirement: str = "") -> str:
@@ -1146,6 +1211,7 @@ async def orchestrate_project_stream(
             raise HTTPException(status_code=409, detail="任务已结束或当前进程无可重连任务，请刷新详情")
         if not await _mark_disconnected_if_stale(active):
             raise HTTPException(status_code=409, detail="任务仍有订阅连接，请断开后重试")
+        _cancel_background_abandon(active)
         active["connected"] = True
 
         async def resume_events():
@@ -1165,6 +1231,8 @@ async def orchestrate_project_stream(
             finally:
                 channel.unsubscribe(subscriber_queue)
                 active["connected"] = channel.has_subscribers()
+                if not active["connected"]:
+                    _schedule_background_abandon(session.session_id, active)
 
         return StreamingResponse(resume_events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1242,6 +1310,7 @@ async def orchestrate_project_stream(
                     )
                     await _supersede_running_generation(db, running_session)
                 else:
+                    _cancel_background_abandon(active_task)
                     active_task["connected"] = True
                     logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
                     async def reconnect_generator():
@@ -1264,6 +1333,10 @@ async def orchestrate_project_stream(
                         finally:
                             channel.unsubscribe(subscriber_queue)
                             active_task["connected"] = channel.has_subscribers()
+                            if not active_task["connected"]:
+                                _schedule_background_abandon(
+                                    running_session.session_id, active_task
+                                )
 
                     return StreamingResponse(
                         reconnect_generator(),
@@ -1292,7 +1365,10 @@ async def orchestrate_project_stream(
                 )
 
         # ========== 意图检测：处理"继续"语义 ==========
-        resume_intent = await detect_resume_intent(request.requirement) if request.is_resume is None else {
+        resume_intent = await detect_resume_intent(
+            request.requirement,
+            api_key_token=request.api_key_token,
+        ) if request.is_resume is None else {
             "is_resume": False, "has_changes": False, "additional_requirement": ""
         }
         is_resume = resume_intent.get("is_resume", False)
@@ -1301,7 +1377,12 @@ async def orchestrate_project_stream(
         
         if is_resume:
             # 方案 2：智能解析要恢复的 session
-            target_session = await resolve_resume_session(db, user_id, request.requirement)
+            target_session = await resolve_resume_session(
+                db,
+                user_id,
+                request.requirement,
+                api_key_token=request.api_key_token,
+            )
             
             if target_session:
                 # 恢复已有会话
@@ -1328,7 +1409,10 @@ async def orchestrate_project_stream(
                         
                         if generated_files:
                             files_to_regenerate = await analyze_files_to_regenerate(
-                                original_requirement, additional_requirement, generated_files
+                                original_requirement,
+                                additional_requirement,
+                                generated_files,
+                                api_key_token=request.api_key_token,
                             )
                             
                             # 删除需要重新生成的文件
@@ -1693,6 +1777,10 @@ async def orchestrate_project_stream(
                 active = _active_tasks.get(session_id)
                 if active:
                     active["connected"] = channel.has_subscribers()
+                    if active["connected"]:
+                        _cancel_background_abandon(active)
+                    elif not gen_task.done():
+                        _schedule_background_abandon(session_id, active)
                 # 不设置 cancel_event，不取消 gen_task
                 # 生成任务在服务端独立运行，用户重新连接后可查看进度
                 if not gen_task.done():
@@ -1702,6 +1790,8 @@ async def orchestrate_project_stream(
                 # 但 gen_task 已完成且无异常 → 生成实际上已成功 → 不可标 cancelled
                 gen_finished = gen_task.done()
                 if generation_completed or gen_finished:
+                    if active:
+                        _cancel_background_abandon(active)
                     if cancel_event.is_set() or gen_task.cancelled():
                         logger.info(f"[SSE] 生成已停止 | session={session_id}")
                     else:
@@ -1712,6 +1802,9 @@ async def orchestrate_project_stream(
                     logger.info(f"[SSE] 生成未完成，任务继续在后台运行 | session={session_id}")
                     # 注册完成回调，任务结束后清理 _active_tasks
                     def _on_task_done(t):
+                        finished = _active_tasks.get(session_id)
+                        if finished:
+                            _cancel_background_abandon(finished)
                         _active_tasks.pop(session_id, None)
                         logger.info(f"[SSE] 后台任务完成，清理活跃任务 | session={session_id}")
                     gen_task.add_done_callback(_on_task_done)
@@ -1868,6 +1961,59 @@ async def complete_project(
 # ==================== 方案 3：Agent 工具 - 搜索历史会话 ====================
 
 
+def _parse_partial_scores(content: str, expected: int) -> list[float]:
+    """从可能被截断的 JSON 中按顺序抢救分数。
+
+    模型被 max_tokens 截断时，尾部的 JSON 括号会缺失；此时按位置取已经
+    完整出现的数字，保证靠前的候选仍能参与排序。
+    """
+    import re
+
+    match = re.search(r'"scores"\s*:\s*\[(.*)', content, re.DOTALL)
+    if not match:
+        return []
+    numbers = re.findall(r'\d+(?:\.\d+)?', match.group(1))
+    values = []
+    for raw in numbers[:expected]:
+        value = float(raw)
+        if value > 1:
+            break
+        values.append(value)
+    return values
+
+
+def _parse_partial_score_map(content: str) -> dict[str, float]:
+    """侥幸解析被截断的对象形评分，如 {"scores": {"1": 0.9, "5": 0.7。"""
+    import re
+
+    match = re.search(r'"scores"\s*:\s*\{(.*)', content, re.DOTALL)
+    if not match:
+        return {}
+    pairs = re.findall(r'"(\d+)"\s*:\s*(\d+(?:\.\d+)?)', match.group(1))
+    return {key: max(0.0, min(1.0, float(value))) for key, value in pairs}
+
+
+def _resolve_scored_session_id(raw_key: str, sessions: list) -> str:
+    """把模型返回的评分键映射回真实会话 ID。
+
+    模型常给键加 "session_id_" 前缀或返回整段描述，直接用键查表会全部落空，
+    导致相关性分数静默变成 0。
+    """
+    key = str(raw_key).strip()
+    for session in sessions:
+        if key == session.session_id:
+            return session.session_id
+    # 短数字是候选列表里的 1 起始编号，必须优先于子串匹配
+    if key.isdigit() and len(key) <= 3:
+        index = int(key) - 1
+        if 0 <= index < len(sessions):
+            return sessions[index].session_id
+    for session in sessions:
+        if session.session_id in key:
+            return session.session_id
+    return key
+
+
 @router.post("/search_sessions", response_model=SearchSessionsResponse)
 async def search_sessions(
     request: SearchSessionsRequest,
@@ -1888,7 +2034,8 @@ async def search_sessions(
         query = select(ProjectSession).where(
             ProjectSession.user_id == user_id
         )
-        query = query.order_by(ProjectSession.created_at.desc()).limit(request.limit)
+        # 候选池要大一些，最后再按分数截断；否则老会话永远进不了候选，语义搜索失效
+        query = query.order_by(ProjectSession.created_at.desc()).limit(max(request.limit, 50))
         
         result = await db.execute(query)
         sessions = list(result.scalars().all())
@@ -1897,26 +2044,22 @@ async def search_sessions(
         from app.utils import call_llm
         
         session_summaries = []
-        for s in sessions:
+        for index, s in enumerate(sessions, start=1):
             req_preview = s.requirement[:150] + ("..." if len(s.requirement) > 150 else "")
-            session_summaries.append(
-                f"- ID: {s.session_id}\n"
-                f"  需求: {req_preview}\n"
-                f"  状态: {s.status}"
-            )
-        
+            session_summaries.append(f"{index}. {req_preview}（状态: {s.status}）")
+
         summaries_text = "\n".join(session_summaries)
-        
-        prompt = f"""你是会话匹配助手。根据用户的搜索查询，为历史会话列表中的每个会话打分。
+
+        prompt = f"""你是会话匹配助手。根据用户的搜索查询，从历史会话中找出相关的会话并打分。
 
 搜索查询："{request.query}"
 
-历史会话列表（按时间倒序）：
+历史会话列表（按时间倒序编号，共 {len(sessions)} 条）：
 {summaries_text}
 
-请为每个会话返回一个匹配分数（0-1 之间，表示与该查询的相关性）。
-严格使用以下 JSON 格式返回，不要其他文字：
-{{"scores": {{"session_id_1": 0.9, "session_id_2": 0.3, ...}}}}"""
+只返回相关性大于 0.5 的会话，用编号作为键，分数为 0-1 之间的数字。
+严格使用以下 JSON 格式返回，不要其他文字；没有相关会话时返回 {{"scores": {{}}}}：
+{{"scores": {{"1": 0.9, "5": 0.7}}}}"""
 
         scores = {}
         try:
@@ -1924,11 +2067,18 @@ async def search_sessions(
                 model=DEFAULT_FAST_MODEL,
                 prompt=prompt,
                 temperature=0.1,
-                max_tokens=1000
+                # 每个会话一个 0.0/0.9 分数，按候选数给足预算，避免 JSON 被截断
+                max_tokens=max(1000, len(sessions) * 16 + 200),
+                api_key_token=request.api_key_token,
             )
 
             content = result_llm.get("choices", [{}])[0].get("message", {}).get("content", "")
-            logger.info(f"LLM 评分原始输出: {content[:200]}...")
+            logger.info(
+                "LLM 评分原始输出 | len=%s tail=%r head=%r",
+                len(content),
+                content[-60:],
+                content[:120],
+            )
 
             # 尝试多种解析方式
             import re
@@ -1940,25 +2090,51 @@ async def search_sessions(
                 parsed = json.loads(content)
                 if isinstance(parsed, dict) and "scores" in parsed:
                     data = parsed
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.info("评分 JSON 直接解析失败: %s | head=%r", exc, content[:80])
             if data is None:
                 json_match = re.search(r'\{.*"scores".*\}', content, re.DOTALL)
                 if json_match:
                     try:
                         data = json.loads(json_match.group())
-                    except ValueError:
+                    except ValueError as exc:
+                        logger.info("评分 JSON 正则解析失败: %s | len=%s", exc, len(content))
                         data = None
+            if data is None:
+                # 输出被 max_tokens 截断时 JSON 不完整，尽量抢救已完整给出的分数
+                rescued_map = _parse_partial_score_map(content)
+                if rescued_map:
+                    logger.info("评分 JSON 被截断，抢救 %s 个编号分数", len(rescued_map))
+                    data = {"scores": rescued_map}
+                else:
+                    rescued = _parse_partial_scores(content, len(sessions))
+                    if rescued:
+                        logger.info("评分 JSON 被截断，按位置抢救 %s 个分数", len(rescued))
+                        data = {"scores": rescued}
             if data is not None:
                 scores_dict = data.get("scores", {})
-                for sid, score in scores_dict.items():
-                    scores[sid] = max(0, min(1, float(score)))
+                logger.info(
+                    "评分解析 | type=%s size=%s sessions=%s",
+                    type(scores_dict).__name__,
+                    len(scores_dict) if hasattr(scores_dict, "__len__") else -1,
+                    len(sessions),
+                )
+                if isinstance(scores_dict, list):
+                    # 顺序数组：位置即会话顺序，避免模型回显长 ID 出错
+                    for index, score in enumerate(scores_dict[: len(sessions)]):
+                        scores[sessions[index].session_id] = max(0, min(1, float(score)))
+                elif isinstance(scores_dict, dict):
+                    for sid, score in scores_dict.items():
+                        # 兼容 {"1": 0.9} 这类按序号返回的字典
+                        mapped = _resolve_scored_session_id(sid, sessions)
+                        scores[mapped] = max(0, min(1, float(score)))
             else:
                 # 尝试简单键值对格式
                 for line in content.strip().split("\n"):
                     if ":" in line:
                         parts = line.split(":")
-                        session_id = parts[0].strip()
+                        raw_id = parts[0].strip()
+                        session_id = _resolve_scored_session_id(raw_id, sessions)
                         try:
                             score = float(parts[-1].strip())
                             scores[session_id] = max(0, min(1, score))
@@ -1980,8 +2156,9 @@ async def search_sessions(
                 relevance_score=scores.get(s.session_id, 0.0)
             ))
         
-        # 按相关性排序
+        # 按相关性排序，并按请求数量截断
         matches.sort(key=lambda m: m.relevance_score, reverse=True)
+        matches = matches[: request.limit]
         
         return SearchSessionsResponse(
             query=request.query,

@@ -5,6 +5,9 @@ const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
 const DUMP = '/tmp/reasoning-stream-probe.json'
 
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+
 async function loginAndSeedKeys(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' })
   const login = await page.evaluate(async ({ email, password }) => {
@@ -50,6 +53,7 @@ async function loginAndSeedKeys(page) {
 }
 
 test('深度思考流式实测：抓请求/响应/页面', async ({ page }) => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
   test.setTimeout(180000)
   await loginAndSeedKeys(page)
 

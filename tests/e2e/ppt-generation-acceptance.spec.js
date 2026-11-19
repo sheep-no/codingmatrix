@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -79,7 +80,8 @@ async function openPptPage(page) {
 
 test.describe('PPT 生成验收', () => {
   test('工具集进入后走完大纲批准并生成 PPTX', async ({ page }) => {
-    test.setTimeout(360000)
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实 PPT 生成验收')
+    test.setTimeout(600000)
     const apiLog = []
     page.on('response', (response) => {
       const url = response.url()
@@ -103,13 +105,14 @@ test.describe('PPT 生成验收', () => {
     await expect(pptPage.locator('.ppt-generate-page')).toBeVisible()
 
     await pptPage.getByPlaceholder(/请输入 PPT 主题/).fill(TOPIC)
-    await pptPage.locator('.option-label', { hasText: '最终总页数' }).locator('select').selectOption('5')
+    await pptPage.locator('.option-label', { hasText: '页数' }).locator('select').selectOption('8')
     await pptPage.locator('.option-label', { hasText: '自动配图' }).locator('input').uncheck()
     await pptPage.getByRole('button', { name: '一键生成 PPT' }).click()
 
-    await expect(pptPage.getByText('第 2 步：审阅大纲')).toBeVisible({ timeout: 120000 })
+    await expect(pptPage.getByText('第 2 步：审阅大纲')).toBeVisible({ timeout: 240000 })
     await expect(pptPage.locator('.outline-title-input').first()).toHaveValue(/.+/)
-    const outlineCreated = apiLog.some((item) => item.method === 'POST' && item.url.includes('/pptx/outlines') && item.status === 201)
+    // 前端用 SSE 创建大纲，接口返回 200 流式响应；非流式调用才返回 201
+    const outlineCreated = apiLog.some((item) => item.method === 'POST' && item.url.includes('/pptx/outlines') && (item.status === 200 || item.status === 201))
     expect(outlineCreated, `create outline missing: ${JSON.stringify(apiLog)}`).toBeTruthy()
 
     const firstTitle = pptPage.locator('.outline-title-input').first()
@@ -129,7 +132,7 @@ test.describe('PPT 生成验收', () => {
     await expect(pptPage.getByText('第 3 步：选择质量模式')).toBeVisible({ timeout: 30000 })
 
     await pptPage.getByRole('button', { name: '开始生成 PPT' }).click()
-    await expect(pptPage.getByText('生成成功!')).toBeVisible({ timeout: 240000 })
+    await expect(pptPage.getByText('生成成功！')).toBeVisible({ timeout: 240000 })
     await expect(pptPage.getByRole('button', { name: '下载 PPTX 文件' })).toBeVisible()
     await expect(pptPage.getByRole('main').getByRole('button', { name: '在线预览' })).toBeVisible()
 

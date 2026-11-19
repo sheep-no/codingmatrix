@@ -699,6 +699,9 @@ async def test_list_models_payload(test_db):
     assert payload.provider["provider"] == "siliconflow"
     assert payload.models
     assert all(isinstance(m["capabilities"], list) for m in payload.models)
+    assert all("is_free" in m for m in payload.models)
+    assert all(m["cost_per_1m_input"] == 0.0 for m in payload.models if m["is_free"])
+    assert all("max_context" in m for m in payload.models)
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,11 @@ class ModelInfoResponse(BaseModel):
     capabilities: List[str]
     tags: List[str]
     is_default: bool = False
+    is_free: bool = False
+    max_context: int = 0
+    max_tokens: int = 0
+    cost_per_1m_input: float = 0.0
+    cost_per_1m_output: float = 0.0
 
 
 class ModelListResponse(BaseModel):
@@ -64,6 +69,24 @@ def get_current_default_model_id() -> str:
     return get_default_model().id
 
 
+def _build_model_response(model_id: str, model, is_default: bool) -> ModelInfoResponse:
+    """由注册表条目构建响应，缺失的可选字段按免费零成本兜底。"""
+    return ModelInfoResponse(
+        id=model_id,
+        name=model.name,
+        model_key=model.model_key,
+        description=model.description,
+        capabilities=[c.value for c in model.capabilities],
+        tags=model.tags,
+        is_default=is_default,
+        is_free=getattr(model, "is_free", True),
+        max_context=getattr(model, "max_context", 0),
+        max_tokens=getattr(model, "max_tokens", 0),
+        cost_per_1m_input=getattr(model, "cost_per_1m_input", 0.0),
+        cost_per_1m_output=getattr(model, "cost_per_1m_output", 0.0),
+    )
+
+
 # ==================== API 端点 ====================
 
 # 同时注册无斜杠别名，避免 SPA catch-all 先匹配到 /api/v1/models 后返回 404。
@@ -86,17 +109,8 @@ async def list_models(
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"无效的能力类型：{capability}")
 
-        caps = [c.value for c in model.capabilities]
         is_default = model_id == get_current_default_model_id()
-        models.append(ModelInfoResponse(
-            id=model_id,
-            name=model.name,
-            model_key=model.model_key,
-            description=model.description,
-            capabilities=caps,
-            tags=model.tags,
-            is_default=is_default
-        ))
+        models.append(_build_model_response(model_id, model, is_default))
 
     return ModelListResponse(
         models=models,
@@ -112,16 +126,7 @@ async def get_default():
     model = get_model(model_id)
     if not model:
         raise HTTPException(status_code=404, detail=f"模型 {model_id} 不存在")
-    caps = [c.value for c in model.capabilities]
-    return ModelInfoResponse(
-        id=model_id,
-        name=model.name,
-        model_key=model.model_key,
-        description=model.description,
-        capabilities=caps,
-        tags=model.tags,
-        is_default=True
-    )
+    return _build_model_response(model_id, model, True)
 
 
 @router.get("/capabilities/list", summary="列出所有可用能力")
@@ -196,14 +201,5 @@ async def get_model_info(model_id: str):
             status_code=404,
             detail=f"模型 {model_id} 不存在，可用模型：{', '.join(MODEL_REGISTRY.keys())}"
         )
-    caps = [c.value for c in model.capabilities]
     is_default = model_id == get_current_default_model_id()
-    return ModelInfoResponse(
-        id=model_id,
-        name=model.name,
-        model_key=model.model_key,
-        description=model.description,
-        capabilities=caps,
-        tags=model.tags,
-        is_default=is_default
-    )
+    return _build_model_response(model_id, model, is_default)

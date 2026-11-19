@@ -61,40 +61,30 @@ test.describe('Tools E2E Tests', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const toolkitBtn = page.locator('#toolkit, button:has-text("工具集"), button:has-text("Tools"), [class*="toolkit"]');
-    const btnCount = await toolkitBtn.count();
+    const toolkitBtn = page.locator('#toolkit');
+    await expect(toolkitBtn).toBeVisible();
 
-    if (btnCount > 0) {
-      await toolkitBtn.first().click();
-      await page.waitForTimeout(500);
+    await toolkitBtn.click();
+    await expect(page.locator('#toolkit-menu')).toBeVisible();
+    await expect(toolkitBtn).toHaveAttribute('aria-expanded', 'true');
 
-      const panelVisible = await page.evaluate(() => {
-        return !!document.querySelector('.toolkit-menu') ||
-               !!document.querySelector('[class*="toolkit"]:visible') ||
-               !!document.querySelector('.toolkit-item') ||
-               !!document.querySelector('[class*="tool-panel"]');
-      });
-      expect(panelVisible).toBeTruthy();
-
-      await toolkitBtn.first().click();
-      await page.waitForTimeout(500);
-    }
+    await toolkitBtn.click();
+    await expect(page.locator('#toolkit-menu')).not.toBeVisible();
+    await expect(toolkitBtn).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('工具面板打开/关闭测试 - 工具面板应包含工具项', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const toolkitBtn = page.locator('#toolkit, button:has-text("工具集"), button:has-text("Tools")');
-    if (await toolkitBtn.count() > 0) {
-      await toolkitBtn.first().click();
-      await page.waitForTimeout(500);
+    await page.locator('#toolkit').click();
 
-      const toolItems = await page.evaluate(() => {
-        const items = document.querySelectorAll('.toolkit-item, [class*="tool-item"]');
-        return items.length;
-      });
-      expect(toolItems).toBeGreaterThanOrEqual(0);
+    const menu = page.locator('#toolkit-menu');
+    await expect(menu).toBeVisible();
+
+    // 未登录态下的真实菜单条目
+    for (const label of ['项目', '能力', '文档', '设置', 'Docker 配置', 'Nginx 配置', 'PPT 生成', 'AI 绘画']) {
+      await expect(menu.locator('.toolkit-item', { hasText: label }).first()).toBeVisible();
     }
   });
 
@@ -102,90 +92,58 @@ test.describe('Tools E2E Tests', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    await page.keyboard.press('Control+k');
-    await page.waitForTimeout(500);
+    const textarea = page.getByRole('textbox', { name: '消息输入框' });
+    await expect(textarea).not.toBeFocused();
 
-    const hasReaction = await page.evaluate(() => {
-      return !!document.querySelector('[class*="search"]') ||
-             !!document.querySelector('[class*="modal"]') ||
-             !!document.querySelector('[class*="palette"]') ||
-             !!document.querySelector('[class*="overlay"]');
-    });
-    expect(typeof hasReaction).toBe('boolean');
+    await page.keyboard.press('Control+k');
+
+    // mod+k 的契约是聚焦首页消息输入框
+    await expect(textarea).toBeFocused();
   });
 
   test('快捷键测试 - Escape 键应关闭模态框', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const toolkitBtn = page.locator('#toolkit, button:has-text("工具集")');
-    if (await toolkitBtn.count() > 0) {
-      await toolkitBtn.first().click();
-      await page.waitForTimeout(500);
+    await page.locator('#toolkit').click();
+    await expect(page.locator('#toolkit-menu')).toBeVisible();
 
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(500);
-
-      const modalClosed = await page.evaluate(() => {
-        const overlays = document.querySelectorAll('.overlay, [class*="overlay"], .modal, [class*="modal"]');
-        for (const overlay of overlays) {
-          if (overlay.offsetParent !== null) {
-            return false;
-          }
-        }
-        return true;
-      });
-      expect(typeof modalClosed).toBe('boolean');
-    }
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#toolkit-menu')).not.toBeVisible();
   });
 
   test('拖拽上传测试 - 拖拽区域应存在', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const dropZone = page.locator('[class*="drop"], [class*="upload"], [class*="drag"], input[type="file"]');
-    const dropZoneCount = await dropZone.count();
-
-    if (dropZoneCount > 0) {
-      const hasDropZone = await dropZone.first().isVisible();
-      expect(hasDropZone).toBeTruthy();
-    }
+    // 首页的附件入口由上传按钮 + 隐藏 file input 组成
+    await expect(page.getByRole('button', { name: '上传文件或图片' })).toBeVisible();
+    await expect(page.locator('.hidden-file-input[type="file"]')).toHaveCount(1);
   });
 
   test('拖拽上传测试 - 文件上传 input 应存在', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const fileInput = page.locator('input[type="file"]');
-    const fileInputCount = await fileInput.count();
+    const fileInput = page.locator('.hidden-file-input[type="file"]');
+    await expect(fileInput).toHaveAttribute('multiple', '');
 
-    if (fileInputCount > 0) {
-      const isVisible = await fileInput.first().isVisible();
-      expect(typeof isVisible).toBe('boolean');
-    }
+    // 点击上传按钮应弹出文件选择器
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: '上传文件或图片' }).click();
+    const chooser = await chooserPromise;
+    expect(chooser).toBeTruthy();
   });
 
   test('工具面板测试 - 项目生成工具应可打开', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    const toolkitBtn = page.locator('#toolkit, button:has-text("工具集")');
-    if (await toolkitBtn.count() > 0) {
-      await toolkitBtn.first().click();
-      await page.waitForTimeout(500);
+    await page.locator('#toolkit').click();
+    await page.locator('#toolkit-menu .toolkit-item', { hasText: '项目' }).first().click();
 
-      const projectGenItem = page.locator('.toolkit-item:has-text("项目生成"), .toolkit-item:has-text("Project")');
-      if (await projectGenItem.count() > 0) {
-        await projectGenItem.first().click();
-        await page.waitForTimeout(1000);
-
-        const modalVisible = await page.evaluate(() => {
-          return !!document.querySelector('.project-generator-overlay') ||
-                 !!document.querySelector('.project-generator-modal') ||
-                 !!document.querySelector('[class*="generator"]');
-        });
-        expect(typeof modalVisible).toBe('boolean');
-      }
-    }
+    // 已登录（beforeEach 完成 API 登录）时「项目」直接进入 Agent 工作区
+    await expect(page).toHaveURL(/\/agent$/);
+    await expect(page.locator('.agent-page')).toBeVisible();
   });
 });

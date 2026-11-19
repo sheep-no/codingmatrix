@@ -130,4 +130,23 @@ describe('project deletion client', () => {
       status: 409
     })
   })
+
+  it('sends the session search query under the backend field name', async () => {
+    const baseClient = {
+      post: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ query: '计算器', matches: [{ session_id: 'a' }] })
+      })
+    }
+    const client = createProjectClient(baseClient)
+
+    await expect(client.searchSessions('计算器', 5)).resolves.toEqual({
+      query: '计算器',
+      matches: [{ session_id: 'a' }]
+    })
+    expect(baseClient.post).toHaveBeenCalledWith('/agent/search_sessions', {
+      query: '计算器',
+      limit: 5
+    })
+  })
 })

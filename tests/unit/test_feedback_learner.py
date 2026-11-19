@@ -3,9 +3,10 @@ import asyncio
 
 class TestFeedbackLearner:
     @pytest.fixture
-    def learner(self):
+    def learner(self, tmp_path):
         from app.agent.feedback_learner import FeedbackLearner
-        return FeedbackLearner()
+        # 使用临时目录，避免 record_fix 写入仓库内 data/learning_data/fix_patterns.json
+        return FeedbackLearner(learning_dir=tmp_path)
     
     def test_record_fix(self, learner):
         learner.record_fix(

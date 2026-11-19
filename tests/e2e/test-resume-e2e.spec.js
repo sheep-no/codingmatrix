@@ -1,12 +1,18 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@example.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
+
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent 继续功能端到端测试', () => {
-  test('简单需求：生成 → 停止 → 继续 → 停止 → 继续+变更', async ({ page }) => {
-    test.setTimeout(600000); // 10 分钟超时
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
+  test('简单需求：生成 → 继续 → 继续+变更', async ({ page }) => {
+    test.setTimeout(1200000); // 三轮真实生成，20 分钟超时
 
     // ========== 1. 登录并设置环境 ==========
     await page.goto(`${BASE_URL}/`);
@@ -37,16 +43,10 @@ test.describe('Agent 继续功能端到端测试', () => {
       localStorage.setItem('access_token', token);
       localStorage.setItem('_token_expiry', String(expiry));
       localStorage.setItem('username', 'admin');
-      localStorage.setItem('email', 'admin@example.com');
+      localStorage.setItem('email', 'mr_yang@example.com');
       localStorage.setItem('permission_level', 'superadmin');
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
-        token: 'test-siliconflow-token', provider: 'siliconflow',
-        remark: 'Test Key', status: 'verified',
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        ttl_seconds: 86400, enabled: true,
-      }]));
     }, token);
+    await syncRealApiKeys(page);
 
     // ========== 2. 进入 Agent 页面 ==========
     await page.goto(`${BASE_URL}/agent`);
@@ -103,6 +103,19 @@ test.describe('Agent 继续功能端到端测试', () => {
       }
     });
 
+    // 记录每轮请求是否为增量续跑
+    const streamBodies = [];
+    page.on('request', req => {
+      if (req.url().includes('/agent/orchestrate/stream')) {
+        try {
+          const body = req.postDataJSON();
+          streamBodies.push({ incremental: body.incremental, is_resume: body.is_resume, project_path: body.project_path });
+        } catch {
+          streamBodies.push({ parseError: true });
+        }
+      }
+    });
+
     // 获取文件信息：检查 DOM 中的 .file-item 元素
     const getFileInfo = () => page.evaluate(() => {
       const fileItems = document.querySelectorAll('.file-item .file-name');
@@ -114,9 +127,7 @@ test.describe('Agent 继续功能端到端测试', () => {
 
     // 检查是否正在生成
     const isGeneratingNow = () => page.evaluate(() => {
-      const stopBtn = document.querySelector('.action-buttons .btn-danger');
-      const disabledPrimary = document.querySelector('.action-buttons .btn-primary[disabled]');
-      return !!(stopBtn || disabledPrimary);
+      return !!document.querySelector('button[aria-label="停止生成"]');
     });
 
     // 等待文件出现（主要检测方式）
@@ -128,9 +139,7 @@ test.describe('Agent 继续功能端到端测试', () => {
 
         const check = () => {
           const fileItems = document.querySelectorAll('.file-item .file-name');
-          const stopBtn = document.querySelector('.action-buttons .btn-danger');
-          const disabledPrimary = document.querySelector('.action-buttons .btn-primary[disabled]');
-          const generating = !!(stopBtn || disabledPrimary);
+          const generating = !!document.querySelector('button[aria-label="停止生成"]');
 
           // 文件已出现
           if (fileItems.length > 0) {
@@ -179,12 +188,14 @@ test.describe('Agent 继续功能端到端测试', () => {
 
     // 点击生成按钮
     const clickGenerate = async () => {
-      const generateBtn = page.locator('.action-buttons .btn-primary');
+      await confirmDecisionIfPresent();
+
+      const generateBtn = page.locator('button[aria-label="发送需求"]');
       await expect(generateBtn).toBeEnabled({ timeout: 10000 });
 
       // 检查按钮状态和 prompt 值
       const btnState = await page.evaluate(() => {
-        const btn = document.querySelector('.action-buttons .btn-primary');
+        const btn = document.querySelector('button[aria-label="发送需求"]');
         const textarea = document.querySelector('textarea.prompt-textarea');
         return {
           btnDisabled: btn?.disabled,
@@ -201,21 +212,50 @@ test.describe('Agent 继续功能端到端测试', () => {
       // 等一下看 isGenerating 是否变为 true
       await page.waitForTimeout(1000);
       const genState = await page.evaluate(() => {
-        const stopBtn = document.querySelector('.action-buttons .btn-danger');
-        const disabledPrimary = document.querySelector('.action-buttons .btn-primary[disabled]');
-        return { hasStopBtn: !!stopBtn, hasDisabledPrimary: !!disabledPrimary };
+        return { hasStopBtn: !!document.querySelector('button[aria-label="停止生成"]') };
       });
       console.log(`[ClickGenerate] After click state: ${JSON.stringify(genState)}`);
     };
 
-    // 点击停止按钮
-    const clickStop = async () => {
-      const stopBtn = page.locator('.action-buttons .btn-danger');
-      if (await stopBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await stopBtn.click();
-        await page.waitForTimeout(2000);
-        return true;
+    // 确认生成前的决策卡片（默认值 + 确认）
+    const confirmDecisionIfPresent = async () => {
+      const decisionConfirm = page.locator('.decision-card .btn-decision-primary');
+      if (!(await decisionConfirm.first().isVisible({ timeout: 1000 }).catch(() => false))) {
+        return false;
       }
+      const useDefault = page.locator('.decision-card .btn-decision-secondary');
+      if (await useDefault.first().isVisible({ timeout: 1000 }).catch(() => false)) {
+        await useDefault.first().click();
+      }
+      await decisionConfirm.first().click();
+      await page.waitForTimeout(1000);
+      console.log('[Decision] 已确认决策卡片');
+      return true;
+    };
+
+    // 等待生成自然结束：停止按钮消失即代表生成结束
+    const waitForIdle = async (timeoutMs = 420000) => {
+      const deadline = Date.now() + timeoutMs;
+      const stopBtn = page.locator('button[aria-label="停止生成"]');
+      let idleTicks = 0;
+
+      while (Date.now() < deadline) {
+        await confirmDecisionIfPresent();
+
+        if (!(await stopBtn.isVisible().catch(() => false))) {
+          idleTicks += 1;
+        } else {
+          idleTicks = 0;
+        }
+        if (idleTicks >= 2) {
+          console.log('[waitForIdle] 生成已结束');
+          return true;
+        }
+
+        await page.waitForTimeout(1000);
+      }
+
+      console.log('[waitForIdle] 超时，生成未结束');
       return false;
     };
 
@@ -223,8 +263,8 @@ test.describe('Agent 继续功能端到端测试', () => {
     const textarea = page.locator('textarea.prompt-textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
 
-    // 使用简单需求，确保快速生成
-    await textarea.fill('创建一个简单的 HTML 页面，包含标题和段落');
+    // 使用单文件需求，确保能在超时内自然结束
+    await textarea.fill('创建一个 Hello World 的 Python 脚本，只有一个 main.py');
     await page.waitForTimeout(500);
 
     await clickGenerate();
@@ -240,13 +280,8 @@ test.describe('Agent 继续功能端到端测试', () => {
     const firstResult = await waitForFiles(180000);
     console.log(`[Step 2] 第一次生成: ${firstResult.fileCount} 个文件, reason=${firstResult.reason}, generating=${firstResult.generating}`);
 
-    // 等待生成完成（停止按钮消失）
-    if (firstResult.generating) {
-      console.log('[Step 2] 等待生成完成...');
-      const stopBtn = page.locator('.action-buttons .btn-danger');
-      await stopBtn.waitFor({ state: 'hidden', timeout: 180000 }).catch(() => {});
-      console.log('[Step 2] 生成完成');
-    }
+    // 等待第一轮自然结束，才能进入增量继续流程
+    expect(await waitForIdle()).toBe(true);
 
     // 等一下让 Vue 更新 DOM
     await page.waitForTimeout(2000);
@@ -256,7 +291,7 @@ test.describe('Agent 继续功能端到端测试', () => {
       console.log(`  文件: ${firstFinal.files.join(', ')}`);
     }
 
-    // ========== 5. 测试"继续"功能 ==========
+    // ========== 5. 测试"继续"功能（增量） ==========
     console.log('[Step 3] 测试继续功能...');
     await textarea.fill('继续');
     await page.waitForTimeout(500);
@@ -266,12 +301,7 @@ test.describe('Agent 继续功能端到端测试', () => {
     const secondResult = await waitForFiles(180000);
     console.log(`[Step 4] 继续后: ${secondResult.fileCount} 个文件, reason=${secondResult.reason}`);
 
-    // 等待生成完成
-    if (secondResult.generating) {
-      console.log('[Step 4] 等待生成完成...');
-      const stopBtn = page.locator('.action-buttons .btn-danger');
-      await stopBtn.waitFor({ state: 'hidden', timeout: 180000 }).catch(() => {});
-    }
+    expect(await waitForIdle()).toBe(true);
 
     await page.waitForTimeout(2000);
     const secondFinal = await getFileInfo();
@@ -279,7 +309,7 @@ test.describe('Agent 继续功能端到端测试', () => {
 
     // ========== 6. 测试"继续 + 变更需求"功能 ==========
     console.log('[Step 5] 测试继续+变更需求...');
-    await textarea.fill('继续，加上一个联系表单');
+    await textarea.fill('继续，加一个打印当前日期的函数');
     await page.waitForTimeout(500);
 
     await clickGenerate();
@@ -287,12 +317,7 @@ test.describe('Agent 继续功能端到端测试', () => {
     const thirdResult = await waitForFiles(180000);
     console.log(`[Step 6] 继续+变更后: ${thirdResult.fileCount} 个文件, reason=${thirdResult.reason}`);
 
-    // 等待生成完成
-    if (thirdResult.generating) {
-      console.log('[Step 6] 等待生成完成...');
-      const stopBtn = page.locator('.action-buttons .btn-danger');
-      await stopBtn.waitFor({ state: 'hidden', timeout: 180000 }).catch(() => {});
-    }
+    expect(await waitForIdle()).toBe(true);
 
     await page.waitForTimeout(2000);
     const thirdFinal = await getFileInfo();
@@ -305,6 +330,7 @@ test.describe('Agent 继续功能端到端测试', () => {
 
     const totalCount = firstFinal.fileCount + secondFinal.fileCount + thirdFinal.fileCount;
     console.log('\n===== 测试结果汇总 =====');
+    console.log(`请求增量标记: ${JSON.stringify(streamBodies)}`);
     console.log(`第一次生成文件数: ${firstFinal.fileCount}`);
     console.log(`继续后文件数: ${secondFinal.fileCount}`);
     console.log(`继续+变更后文件数: ${thirdFinal.fileCount}`);
@@ -313,7 +339,14 @@ test.describe('Agent 继续功能端到端测试', () => {
     console.log(`所有文件: ${allFiles.join(', ')}`);
     console.log('========================\n');
 
-    // 验证：整个流程至少应该生成了一些文件
+    // 验证：三轮流程都产出了文件
     expect(totalCount).toBeGreaterThan(0);
+    expect(firstFinal.fileCount).toBeGreaterThan(0);
+    expect(secondFinal.fileCount).toBeGreaterThan(0);
+    expect(thirdFinal.fileCount).toBeGreaterThan(0);
+    // 第二轮和第三轮必须走增量续跑，而不是重新建项目
+    expect(streamBodies.length).toBe(3);
+    expect(streamBodies[1].incremental).toBe(true);
+    expect(streamBodies[2].incremental).toBe(true);
   });
 });

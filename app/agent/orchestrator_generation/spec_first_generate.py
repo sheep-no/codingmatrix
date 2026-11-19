@@ -47,7 +47,10 @@ from app.agent.utils import (
 )
 from app.agent.validation_coordinator import ValidationCoordinator
 
-from .coverage_checker import check_required_artifacts
+from .coverage_checker import (
+    check_required_artifacts,
+    materialize_scaffold_artifacts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -490,6 +493,18 @@ class SpecFirstGenerateMixin:
                 language_adapter=language_adapter,
             )
             validation_result = validator.validate_static(dep_graph, architecture=architecture)
+            if not validation_result.passed and allow_plan_expansion:
+                # LLM 偶发引用计划外文件（如 Sidebar.vue）。补齐后复验比中断整轮
+                # 生成更合理：一个悬空引用会让整份项目产出 0 个文件。
+                only_missing_dependencies = all(
+                    issue.issue_type == "missing_dependency"
+                    for issue in validation_result.issues
+                )
+                if only_missing_dependencies and dep_graph.get_missing_files():
+                    architecture = dep_graph.add_missing_files(architecture)
+                    validation_result = validator.validate_static(
+                        dep_graph, architecture=architecture
+                    )
             if validation_result.passed:
                 logger.info("依赖图静态校验通过")
             else:
@@ -1198,7 +1213,34 @@ class SpecFirstGenerateMixin:
                 for item in self.generated_files
                 if isinstance(item, dict) and item.get("path")
             ],
+            output_dir=self.output_dir,
         )
+        if artifact_check["missing"]:
+            created = materialize_scaffold_artifacts(
+                artifact_check["required"],
+                self.output_dir,
+                architecture.get("language") or "python",
+                architecture,
+            )
+            for item in created:
+                self.generated_files.append({
+                    "path": item["path"],
+                    "description": "需求必需的说明或配置文件",
+                    "success": True,
+                    "size": len(item["content"].encode("utf-8")),
+                    "model_name": "scaffold",
+                })
+                ctx.save_file_content(item["path"], item["content"], "scaffold")
+            if created:
+                artifact_check = check_required_artifacts(
+                    raw_requirement,
+                    [
+                        str(item.get("path"))
+                        for item in self.generated_files
+                        if isinstance(item, dict) and item.get("path")
+                    ],
+                    output_dir=self.output_dir,
+                )
         if artifact_check["checked"] and artifact_check["missing"]:
             self.errors.append(
                 "需求指定的关键文件缺失: " + ", ".join(artifact_check["missing"])
@@ -1257,8 +1299,8 @@ class SpecFirstGenerateMixin:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
         scheduler = TopologyScheduler(
-            max_concurrent=5, max_retries=2, timeout_per_file=600.0,
-            heartbeat_timeout=600.0,  # 600 秒无 LLM 调用活动视为僵尸（推理模型需要更长时间）
+            max_concurrent=5, max_retries=2, timeout_per_file=None,
+            heartbeat_timeout=600.0,  # 600 秒无 LLM 调用活动视为僵尸；慢但持续输出的推理不误杀
             cancel_event=self.cancel_event,
             output_dir=str(self.output_dir)
         )

@@ -258,9 +258,9 @@ models:
     tags:
     - 语音识别
     - 说话人分离
-  telespeech-asr:
-    name: TeleAI/TeleSpeechASR
-    display_name: TeleSpeech ASR
+  xingchen-asr-v3.2:
+    name: XingChenAGI/XingChenASR-V3.2
+    display_name: XingChen ASR V3.2
     provider: siliconflow
     type: audio
     context_length: 4096
@@ -273,6 +273,7 @@ models:
     enabled: true
     tags:
     - 语音识别
+    - 中文
   hunyuan-mt:
     name: tencent/Hunyuan-MT-7B
     display_name: Hunyuan MT

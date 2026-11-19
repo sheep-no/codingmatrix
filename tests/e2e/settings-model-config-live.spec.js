@@ -5,6 +5,8 @@
  * afterAll 还原 YAML 角色与降级链，删除探测模型
  */
 const { test, expect } = require('@playwright/test')
+const fs = require('fs')
+const path = require('path')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000'
@@ -19,6 +21,30 @@ const YAML_ROLES = {
   fallback: 'qwen3-8b',
 }
 const YAML_CHAIN = ['qwen3-8b', 'glm-z1-9b']
+
+// 该用例会通过管理接口改写模型配置，后端整份重建 YAML（时间戳与字段顺序变化）。
+// 值虽被还原，文件字节仍会漂移，必须在结束时按原始字节写回，避免污染工作树。
+const DATA_DIR = path.join(__dirname, '..', '..', 'data')
+const YAML_FILES = ['unified_model_config.yaml', 'agent_model_config.yaml']
+const yamlSnapshots = new Map()
+
+for (const name of YAML_FILES) {
+  const file = path.join(DATA_DIR, name)
+  if (fs.existsSync(file)) yamlSnapshots.set(file, fs.readFileSync(file))
+}
+
+function restoreYamlSnapshots() {
+  for (const [file, bytes] of yamlSnapshots) {
+    try {
+      if (!fs.readFileSync(file).equals(bytes)) fs.writeFileSync(file, bytes)
+    } catch (error) {
+      console.warn(`[settings-model-config-live] 还原 ${file} 失败:`, error.message)
+    }
+  }
+}
+
+// afterAll 在进程被强杀或 worker 崩溃时可能不执行，退出钩子作为兜底。
+process.once('exit', restoreYamlSnapshots)
 
 test.describe.configure({ mode: 'serial' })
 test.setTimeout(120000)
@@ -170,7 +196,10 @@ async function waitToastsGone(page) {
 
 test.describe('设置界面 - 模型配置实测', () => {
   test.afterAll(async ({ browser }) => {
-    if (!accessToken) return
+    if (!accessToken) {
+      restoreYamlSnapshots()
+      return
+    }
     const page = await browser.newPage()
     const headers = {
       Authorization: `Bearer ${accessToken}`,
@@ -221,6 +250,8 @@ test.describe('设置界面 - 模型配置实测', () => {
       })
     }
     await page.close()
+    // 所有还原请求完成后再写回原始字节：后端每次保存都会刷新时间戳与字段顺序。
+    restoreYamlSnapshots()
   })
 
   test('Agent 模型配置：改角色、思考预算、降级链、错误映射并还原', async ({ page }) => {
@@ -299,7 +330,7 @@ test.describe('设置界面 - 模型配置实测', () => {
     expect((await restoreChainResp).ok()).toBeTruthy()
     await expect(page.locator('.el-message--success').filter({ hasText: '降级链已保存' }).last()).toBeVisible({ timeout: 8000 })
 
-    const nameError = panel.locator('.error-type-item').filter({ hasText: 'NameError' })
+    const nameError = panel.locator('.error-type-item').filter({ hasText: '名称错误' })
     await expect(nameError).toBeVisible()
     await pickModel(page, nameError.locator('.model-selector'), 'deepseek-r1', '/api/v2/models/agent-config/error-type-model')
     await expect(page.locator('.el-message--success').filter({ hasText: 'NameError' })).toBeVisible({ timeout: 8000 })

@@ -5,8 +5,9 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin, TEST_EMAIL, TEST_PASSWORD } from './fixtures/auth.js'
 
-const ONLINE_URL = 'https://3000-9f66c22588b66963.monkeycode-ai.online'
-const API_URL = 'http://localhost:8000'
+// 预览域名会随会话变化，默认回到当前运行的 baseURL
+const ONLINE_URL = process.env.ONLINE_URL || process.env.BASE_URL || 'http://127.0.0.1:3000'
+const API_URL = process.env.BACKEND_URL || 'http://127.0.0.1:8000'
 
 test.describe('在线预览环境登录测试', () => {
   test('在线环境登录并验证 token', async ({ page }) => {

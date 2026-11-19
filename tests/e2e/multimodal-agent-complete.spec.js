@@ -8,7 +8,13 @@ const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 
-const TEST_IMAGE_DATA = fs.readFileSync(path.join(__dirname, '../fixtures/test-image.png'));
+// 1x1 PNG，避免缺失的二进制 fixture 导致整个 spec 收集阶段崩溃
+const FALLBACK_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+const imagePath = path.join(__dirname, '../fixtures/test-image.png');
+const TEST_IMAGE_DATA = fs.existsSync(imagePath) ? fs.readFileSync(imagePath) : FALLBACK_PNG;
 
 test.describe('多模态 Agent Playwright 测试', () => {
   test.describe.configure({ project: 'chromium' });

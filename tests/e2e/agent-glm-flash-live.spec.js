@@ -1,16 +1,18 @@
 // @ts-check
 /**
  * Agent 浏览器实测：智谱 GLM-4.7-Flash / GLM-4-Flash-250414 / GLM-Z1-Flash
- * 使用用户 TEST_API_KEY（供应商 glm），测完恢复原角色模型。
+ * 使用 TEST_ZHIPU_API_KEY（智谱官方供应商 glm），测完恢复原角色模型。
  */
 const fs = require('fs')
 const { test, expect } = require('@playwright/test')
+const { liveKey } = require('./fixtures/liveKeys.js')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000'
 const SUPERADMIN_EMAIL = process.env.TEST_SUPERADMIN_EMAIL || 'mr_yang@example.com'
 const SUPERADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || process.env.TEST_SUPERADMIN_PASSWORD || '12345678'
-const TEST_API_KEY = process.env.TEST_API_KEY
+// 智谱官方 Key，与硅基流动 Key 互不通用
+const TEST_API_KEY = liveKey('zhipu')
 
 const GLM_MODELS = [
   {

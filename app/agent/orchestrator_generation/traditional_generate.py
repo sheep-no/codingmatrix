@@ -10,7 +10,10 @@ from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
 from app.utils.AiCodeUtil import get_embedding
 
-from .coverage_checker import check_required_artifacts
+from .coverage_checker import (
+    check_required_artifacts,
+    materialize_scaffold_artifacts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +365,33 @@ class TraditionalGenerateMixin:
                 for item in self.generated_files
                 if isinstance(item, dict) and item.get("path")
             ],
+            output_dir=self.output_dir,
         )
+        if artifact_check["missing"]:
+            created = materialize_scaffold_artifacts(
+                artifact_check["required"],
+                self.output_dir,
+                architecture.get("language") or "python",
+                architecture,
+            )
+            for item in created:
+                self.generated_files.append({
+                    "path": item["path"],
+                    "description": "需求必需的说明或配置文件",
+                    "success": True,
+                    "size": len(item["content"].encode("utf-8")),
+                    "model_name": "scaffold",
+                })
+            if created:
+                artifact_check = check_required_artifacts(
+                    raw_requirement,
+                    [
+                        str(item.get("path"))
+                        for item in self.generated_files
+                        if isinstance(item, dict) and item.get("path")
+                    ],
+                    output_dir=self.output_dir,
+                )
         if artifact_check["checked"] and artifact_check["missing"]:
             self.errors.append(
                 "需求指定的关键文件缺失: " + ", ".join(artifact_check["missing"])

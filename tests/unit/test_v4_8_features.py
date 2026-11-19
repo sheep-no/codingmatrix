@@ -255,11 +255,16 @@ class TestConcurrentLimitManager:
     @pytest.fixture
     def limit_mgr(self):
         from app.utils.dynamic_concurrent import ConcurrentLimitManager
+
+        ConcurrentLimitManager._instance = None
         manager = ConcurrentLimitManager()
+        manager._redis_client = None
+        manager._redis_resolved = True
         manager._limits = dict(manager.BASE_LIMITS)
         manager._active_sessions.clear()
         manager._change_log.clear()
-        return manager
+        yield manager
+        ConcurrentLimitManager._instance = None
 
     def test_default_limits(self, limit_mgr):
         """测试默认限制值"""

@@ -242,7 +242,7 @@ CodingMatrix 通过 `call_llm()` 统一入口调用文本与多模态模型，�
 | XingChenAGI/XingChenGSR-V1.0 | SiliconFlow | 语音/说话人 | 待模型元数据确认 |
 | XingChenAGI/XingChenASR-Diarize-V3.0 | SiliconFlow | 语音识别/说话人分离 | 待模型元数据确认 |
 | FunAudioLLM/SenseVoiceSmall | SiliconFlow | 语音识别 | 4k |
-| TeleAI/TeleSpeechASR | SiliconFlow | 语音识别 | 待模型元数据确认 |
+| XingChenAGI/XingChenASR-V3.2 | SiliconFlow | 语音识别 | 4k |
 | Kwai-Kolors/Kolors | SiliconFlow | 图像生成 | 4k |
 | tencent/Hunyuan-MT-7B | SiliconFlow | 翻译 | 32k |
 

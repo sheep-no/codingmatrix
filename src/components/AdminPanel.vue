@@ -2975,9 +2975,30 @@
       display: none;
     }
 
+    .admin-body {
+      flex-direction: column;
+      overflow: hidden;
+    }
+
     .admin-sidebar {
       width: 100%;
-      max-width: 240px;
+      max-width: none;
+      max-height: 42%;
+      flex: 0 0 auto;
+      border-right: none;
+      border-bottom: 1px solid var(--admin-border-faint);
+      padding: 12px 0;
+    }
+
+    .admin-main {
+      width: 100%;
+      flex: 1 1 auto;
+    }
+
+    .status-bar {
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      padding: 10px 12px;
     }
 
     .content-wrapper {

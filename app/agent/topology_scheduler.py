@@ -101,7 +101,7 @@ class TopologyScheduler:
         self,
         max_concurrent: int = 5,
         max_retries: int = 2,
-        timeout_per_file: float = 180.0,
+        timeout_per_file: float | None = 180.0,  # 单文件绝对上限；None 表示只依赖心跳空闲检测
         heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为僵尸（推理模型需要更长时间）
         cancel_event: asyncio.Event | None = None,
         output_dir: str | None = None  # 输出目录，用于文件写入
@@ -185,7 +185,7 @@ class TopologyScheduler:
         self,
         generator: Callable[[str, dict[str, str], Optional["HeartbeatTracker"]], Awaitable[str]],
         progress_callback: Callable[[str, str, int, int], None] | None = None,
-        global_timeout: float = 7200.0  # 全局超时 120 分钟（免费模型慢）
+        global_timeout: float = 7200.0  # 全局无进展超时：120 分钟没有新文件完成才终止
     ) -> dict[str, Any]:
         """
         执行动态拓扑调度
@@ -193,7 +193,8 @@ class TopologyScheduler:
         Args:
             generator: 文件生成函数，签名 async (file_path, upstream_context) -> content
             progress_callback: 进度回调，签名 (event, file_path, completed, total)
-            global_timeout: 全局超时时间（秒），默认 60 分钟
+            global_timeout: 无进展超时时间（秒）。慢模型持续产出文件时不计入，
+                仅在连续该时长没有任何文件完成时终止调度。
 
         Returns:
             {
@@ -209,7 +210,8 @@ class TopologyScheduler:
         self._fatal_error = None
         active_count = 0
         parallelism_samples = []
-        start_time = time.time()
+        last_progress_time = time.time()
+        last_completed_count = 0
 
         # 联动外部 cancel_event：当用户取消时同步设置 _stop_event
         cancel_watcher = None
@@ -222,10 +224,18 @@ class TopologyScheduler:
 
         try:
             while not self._should_stop():
-                # 全局超时检查
-                elapsed = time.time() - start_time
-                if elapsed > global_timeout:
-                    logger.error(f"[Scheduler] 全局超时 ({global_timeout}s)，强制终止")
+                # 全局超时按“无新文件完成”计算，持续产出的慢模型不会被总耗时误杀。
+                completed_count = sum(
+                    1 for n in self.nodes.values() if n.status == FileStatus.COMPLETED
+                )
+                if completed_count > last_completed_count:
+                    last_completed_count = completed_count
+                    last_progress_time = time.time()
+                idle_elapsed = time.time() - last_progress_time
+                if idle_elapsed > global_timeout:
+                    logger.error(
+                        f"[Scheduler] 全局无进展超时 ({global_timeout}s 无新文件完成)，强制终止"
+                    )
                     self._stop_event.set()
                     break
 
@@ -356,17 +366,23 @@ class TopologyScheduler:
 
         for attempt in range(self.max_retries + 1):
             try:
+                # 每次尝试重置心跳，避免上一轮超时后立即被判为僵尸
+                tracker.touch()
                 if progress_callback:
                     progress_callback("start", file_path, self.stats.completed_files, self.stats.total_files)
 
-                content = await asyncio.wait_for(
-                    self._run_with_heartbeat(
-                        generator(file_path, upstream_context, tracker),
-                        file_path,
-                        tracker
-                    ),
-                    timeout=self.timeout_per_file,
+                generate_coro = self._run_with_heartbeat(
+                    generator(file_path, upstream_context, tracker),
+                    file_path,
+                    tracker,
                 )
+                if self.timeout_per_file is None:
+                    content = await generate_coro
+                else:
+                    content = await asyncio.wait_for(
+                        generate_coro,
+                        timeout=self.timeout_per_file,
+                    )
 
                 async with self._lock:
                     self.completed_files[file_path] = content
@@ -383,9 +399,15 @@ class TopologyScheduler:
 
                 return
 
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
                 node.retry_count += 1
-                logger.warning(f"文件生成超时（心跳超时）: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
+                # 内层心跳超时自带说明；外层绝对超时 message 为空，需区分两者避免误判
+                reason = str(e) or f"单文件绝对超时（{self.timeout_per_file}s）"
+                node.error = reason
+                logger.warning(
+                    f"文件生成超时（{reason}）: {file_path} "
+                    f"(尝试 {attempt + 1}/{self.max_retries + 1})"
+                )
 
             except asyncio.CancelledError:
                 node.retry_count += 1

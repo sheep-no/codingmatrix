@@ -3,6 +3,7 @@
 from app.agent.llm_client import LLMClientError
 from app.core.llm_errors import (
     FATAL_LLM_ERROR_CODES,
+    LLM_AUTH_FAILED,
     PROVIDER_API_KEY_NOT_CONFIGURED,
     USER_API_KEY_NOT_FOUND,
     error_code_of,
@@ -51,3 +52,11 @@ def test_cyclic_cause_chain_terminates() -> None:
 
 def test_fatal_codes_include_provider_configuration() -> None:
     assert PROVIDER_API_KEY_NOT_CONFIGURED in FATAL_LLM_ERROR_CODES
+
+
+def test_provider_auth_failure_is_fatal() -> None:
+    exc = LLMClientError("认证失败", code="LLM_AUTH_FAILED")
+
+    assert LLM_AUTH_FAILED in FATAL_LLM_ERROR_CODES
+    assert is_fatal_llm_error(exc) is True
+    assert "API Key" in fatal_error_message(exc)

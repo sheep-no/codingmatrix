@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { HAS_SILICONFLOW_KEY } from './fixtures/liveKeys.js'
 
 const EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
 const PASSWORD = process.env.TEST_ADMIN_PASSWORD || '12345678'
@@ -78,6 +79,7 @@ async function openImagePage(page) {
 
 test.describe('AI 绘画验收', () => {
   test('工具集进入后完成一轮真实文生图', async ({ page }) => {
+    test.skip(!HAS_SILICONFLOW_KEY, '需要 TEST_SILICONFLOW_API_KEY 才能执行真实文生图验收')
     test.setTimeout(240000)
     const apiLog = []
     const trackKolors = (target) => {
@@ -115,7 +117,11 @@ test.describe('AI 绘画验收', () => {
     await expect(imagePage.locator('.error-message')).toHaveCount(0)
 
     const src = await imagePage.locator('.generated-image').first().getAttribute('src')
-    expect(src, `generated image src missing: ${JSON.stringify(apiLog)}`).toMatch(/^(data:image\/|https?:\/\/|\/)/)
+    expect(src, `generated image src missing: ${JSON.stringify(apiLog)}`).toMatch(/^(data:image\/|blob:|https?:\/\/|\/)/)
+    const imageLoaded = await imagePage.locator('.generated-image').first().evaluate(image => (
+      image.complete && image.naturalWidth > 0
+    ))
+    expect(imageLoaded, 'generated image did not decode').toBeTruthy()
     await expect(imagePage.getByRole('button', { name: '下载图片' })).toBeVisible()
 
     const generated = apiLog.some((item) => (

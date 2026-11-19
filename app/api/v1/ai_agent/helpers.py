@@ -511,6 +511,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         
         for session in running_sessions:
             is_zombie = False
+            is_expired = False
             
             # 检查 1：最后活动时间超过 7 天
             last_activity_at = session.last_activity_at
@@ -518,6 +519,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
                 last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
             if last_activity_at and last_activity_at < timeout_threshold:
                 is_zombie = True
+                is_expired = True
                 logger.warning(f"检测到超时会话 (最后活动超过7天): session_id={session.session_id}, user_id={user_id}")
             
             # 检查 2：内存中无该会话
@@ -528,13 +530,17 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
                     logger.warning(f"检测到僵尸会话 (内存无状态): session_id={session.session_id}, user_id={user_id}")
             
             if is_zombie:
-                # 清理文件
-                if session.output_dir:
+                # 仅过期会话回收磁盘；进程崩溃/重启留下的近期文件保留以支持继续生成。
+                if is_expired and session.output_dir:
                     cleanup_session_files(session.output_dir)
                 
                 # 标记为 failed
                 session.status = "failed"
-                session.error_message = "僵尸会话自动清理（超时或进程崩溃）"
+                session.error_message = (
+                    "会话超时自动清理"
+                    if is_expired
+                    else "僵尸会话自动清理（进程崩溃或重启，已生成文件保留）"
+                )
                 session.completed_at = datetime.now(timezone.utc)
                 
                 zombie_count += 1
@@ -675,7 +681,11 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> dict[str, Any]:
+async def detect_resume_intent(
+    requirement: str,
+    model: str = DEFAULT_FAST_MODEL,
+    api_key_token: str | None = None,
+) -> dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -696,7 +706,7 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
     from app.utils import call_llm
 
     resume_keywords = [
-        "继续生成", "继续项目", "继续开发", "继续写",
+        "继续", "继续生成", "继续项目", "继续开发", "继续写",
         "resume", "恢复项目", "接着生成", "接着写", "接着来",
         "上次",
     ]
@@ -732,7 +742,8 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=200
+            max_tokens=200,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -753,7 +764,7 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
         logger.warning(f"意图检测失败: {e}")
     
     # 兜底：简单关键词检测
-    resume_keywords = ["继续生成", "继续项目", "继续开发", "resume", "恢复项目", "接着生成", "接着写"]
+    resume_keywords = ["继续", "继续生成", "继续项目", "继续开发", "resume", "恢复项目", "接着生成", "接着写"]
     is_resume = any(kw in requirement for kw in resume_keywords)
     
     return {
@@ -770,7 +781,8 @@ async def resolve_resume_session(
      user_id: str,
      requirement: str,
      model: str = DEFAULT_FAST_MODEL,
-     limit: int = 20
+     limit: int = 20,
+     api_key_token: str | None = None,
 ) -> ProjectSession | None:
     """
     方案 2：智能解析要恢复的 session
@@ -835,7 +847,8 @@ async def resolve_resume_session(
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=10
+            max_tokens=10,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
@@ -856,7 +869,8 @@ async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
      generated_files: list[str],
-     model: str = DEFAULT_FAST_MODEL
+     model: str = DEFAULT_FAST_MODEL,
+     api_key_token: str | None = None,
 ) -> list[str]:
     """
     分析哪些文件需要重新生成
@@ -892,7 +906,8 @@ async def analyze_files_to_regenerate(
             model=model,
             prompt=prompt,
             temperature=0.1,
-            max_tokens=500
+            max_tokens=500,
+            api_key_token=api_key_token,
         )
         
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")

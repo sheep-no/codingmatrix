@@ -49,3 +49,18 @@ def test_registry_has_no_duplicate_keys():
         if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "MODEL_REGISTRY":
             literal_keys = [k.value for k in node.value.keys]
     assert len(literal_keys) == len(set(literal_keys)) == len(MODEL_REGISTRY)
+
+
+def test_free_models_have_zero_cost():
+    """免费模型的成本字段必须为 0，避免前端展示虚假价格。"""
+    for key, entry in MODEL_REGISTRY.items():
+        if not entry.is_free:
+            continue
+        assert entry.cost_per_1m_input == 0.0, f"{key}: 免费模型输入成本应为 0"
+        assert entry.cost_per_1m_output == 0.0, f"{key}: 免费模型输出成本应为 0"
+
+
+def test_all_registry_models_are_free():
+    """当前内置的 18 个模型在硅基流动均属免费额度模型。"""
+    paid = [key for key, entry in MODEL_REGISTRY.items() if not entry.is_free]
+    assert paid == [], f"以下模型未标记免费，需核对官方价格：{paid}"

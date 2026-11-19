@@ -959,7 +959,7 @@ MODEL_CONTEXT_LENGTHS: dict[str, int] = {
     # 特殊模型（语音/图像/视频）不在此映射中，使用默认值
     # Kwai-Kolors/Kolors          - 文生图，无上下文概念
     # FunAudioLLM/SenseVoiceSmall  - 语音识别
-    # TeleAI/TeleSpeechASR         - 语音识别
+    # XingChenAGI/XingChenASR-V3.2 - 语音识别
 }
 
 # 安全默认值

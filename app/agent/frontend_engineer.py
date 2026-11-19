@@ -66,14 +66,15 @@ class FrontendEngineer(Specialist):
     @staticmethod
     def _build_spec_constraints(file_type: str, file_spec: dict) -> str:
         """构建 project_spec 约束文本"""
-        if not file_spec:
+        # 模型有时把分组写成字符串，直接 .get() 会让整个文件生成连续失败
+        if not isinstance(file_spec, dict):
             return ""
 
         lines = []
         storage = file_spec.get("storage", {})
         terminology = file_spec.get("terminology", {})
 
-        if storage:
+        if isinstance(storage, dict) and storage:
             storage_type = storage.get("type", "unknown")
             lines.append("【存储约束 - 必须遵守】")
             lines.append(f"- 存储方式: {storage_type}")
@@ -83,7 +84,7 @@ class FrontendEngineer(Specialist):
                 lines.append(f"- 注意：{storage_type} 是后端存储方式，前端文件禁止直接使用，请通过 API 调用后端")
             lines.append("")
 
-        if terminology:
+        if isinstance(terminology, dict) and terminology:
             lines.append("【术语约束 - 必须遵守】")
             lines.append("- 项目统一使用以下术语（字段名、变量名必须遵循）:")
             for en_term, actual_term in terminology.items():
@@ -119,6 +120,8 @@ class FrontendEngineer(Specialist):
 
         # 从 project_spec 中提取当前文件的约束
         project_spec = architecture.get("project_spec", {})
+        if not isinstance(project_spec, dict):
+            project_spec = {}
         file_type = self._infer_file_type_from_path(file_path)
         file_spec = project_spec.get(file_type, project_spec.get("default", {}))
         if not is_existing_file:

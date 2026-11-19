@@ -89,4 +89,13 @@ describe('agent session store', () => {
     expect(saved.filesCount).toBe(1)
     expect(context).toBeDefined()
   })
+
+  it('describes the real input affordances in the placeholder', () => {
+    const store = useAgentSessionStore()
+
+    // 模板区已下线，空态占位文案不应再引导用户去点击不存在的“快速模板”
+    expect(store.getPlaceholder(false)).toContain('描述你想要生成的项目')
+    expect(store.getPlaceholder(false)).not.toContain('快速模板')
+    expect(store.getPlaceholder(true)).toContain('描述你需要修改或新增的内容')
+  })
 })

@@ -6,12 +6,13 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { test, expect } = require('@playwright/test')
+const { liveKey } = require('./fixtures/liveKeys.js')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000'
 const SUPERADMIN_EMAIL = process.env.TEST_SUPERADMIN_EMAIL || 'mr_yang@example.com'
 const SUPERADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || process.env.TEST_SUPERADMIN_PASSWORD || '12345678'
-const TEST_API_KEY = process.env.TEST_API_KEY
+const TEST_API_KEY = liveKey('zhipu')
 const FIXTURE_DIR = path.join(__dirname, 'fixtures', 'semi-calc')
 const ZIP_PATH = '/tmp/semi_calc.zip'
 const REPORT_PATH = '/tmp/semi-import-agent-report.json'
@@ -37,10 +38,10 @@ const GLM_MODELS = [
 ]
 
 const ROLE_MODELS = {
-  architect: 'glm-4.7-flash',
-  frontend: 'glm-4-flash-250414',
-  backend: 'glm-4-flash-250414',
-  reviewer: 'glm-z1-flash',
+  architect: process.env.TEST_ZHIPU_ARCHITECT_MODEL || 'glm-4.7-flash',
+  frontend: process.env.TEST_ZHIPU_FRONTEND_MODEL || 'glm-4-flash-250414',
+  backend: process.env.TEST_ZHIPU_BACKEND_MODEL || 'glm-4-flash-250414',
+  reviewer: process.env.TEST_ZHIPU_REVIEWER_MODEL || 'glm-z1-flash',
 }
 
 const REQUIREMENT = [
@@ -90,7 +91,7 @@ function summarizeSse(events) {
 }
 
 test.describe('半成品放入 Agent 观察反应', () => {
-  test.skip(!TEST_API_KEY, '需要 TEST_API_KEY')
+  test.skip(!TEST_API_KEY, '需要 TEST_ZHIPU_API_KEY（智谱官方 Key）')
   test.setTimeout(20 * 60 * 1000)
 
   /** @type {string | null} */
@@ -220,7 +221,7 @@ test.describe('半成品放入 Agent 观察反应', () => {
       const confirm = page.locator('.el-message-box .el-button--primary')
       await expect(confirm).toBeVisible({ timeout: 5000 })
       await confirm.click()
-      await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已清除' })).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已清除' })).toBeVisible({ timeout: 10000 })
       await page.waitForTimeout(400)
     }
   }
@@ -241,7 +242,7 @@ test.describe('半成品放入 Agent 观察反应', () => {
     await page.locator('.add-key-form-expanded .submit-btn').click()
     const submit = await submitResp
     expect(submit.ok(), `提交 Key HTTP ${submit.status()}`).toBeTruthy()
-    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM Key 已添加' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM API Key/接口密钥已添加' })).toBeVisible({ timeout: 10000 })
   }
 
   /**

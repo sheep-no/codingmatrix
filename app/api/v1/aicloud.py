@@ -973,6 +973,7 @@ async def list_models(
                 "max_context": m.max_context,
                 "capabilities": [c.value for c in m.capabilities],
                 "is_default": m.is_default,
+                "is_free": m.is_free,
                 "cost_per_1m_input": m.cost_per_1m_input,
                 "cost_per_1m_output": m.cost_per_1m_output,
                 "tags": m.tags,

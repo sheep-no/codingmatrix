@@ -197,9 +197,9 @@ models:
     temperature: 0
     timeout: 120
     speed: 1.0
-  telespeech-asr:
-    name: TeleAI/TeleSpeechASR
-    display_name: TeleSpeech ASR
+  xingchen-asr-v3.2:
+    name: XingChenAGI/XingChenASR-V3.2
+    display_name: XingChen ASR V3.2
     provider: siliconflow
     type: audio
     is_reasoning: false

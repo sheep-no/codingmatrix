@@ -35,12 +35,24 @@ class TestQualityTempFileCleanup:
 class TestCostRecording:
     """ERL4: 修复循环的 call_llm 消耗需计入 cost_tracker"""
 
-    def test_records_usage_when_tracker_present(self):
+    def test_records_usage_when_tracker_present(self, monkeypatch):
         calls = []
 
         class FakeTracker:
             def add_usage(self, model, prompt_tokens, completion_tokens, cost_usd=0.0):
                 calls.append((model, prompt_tokens, completion_tokens, cost_usd))
+
+        # 内置模型现均为免费（单价 0），此处显式注入单价以验证成本换算逻辑本身。
+        from app.agent.dynamic_model_router import LayeredModelRouter
+
+        monkeypatch.setattr(
+            LayeredModelRouter,
+            "get_model_config",
+            staticmethod(lambda model, task_type="fix": {
+                "cost_per_1m_input": 1.0,
+                "cost_per_1m_output": 4.0,
+            }),
+        )
 
         loop = _loop(cost_tracker=FakeTracker())
         loop._record_llm_cost(

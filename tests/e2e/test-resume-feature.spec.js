@@ -1,10 +1,16 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@example.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
+
+// 真实模型生成长流程，仅在提供 TEST_SILICONFLOW_API_KEY 时启用
+const { HAS_SILICONFLOW_KEY: HAS_REAL_KEY } = require('./fixtures/liveKeys.js');
+const { syncRealApiKeys } = require('./fixtures/liveAgent.js');
 
 test.describe('Agent 继续功能测试', () => {
+  test.skip(!HAS_REAL_KEY, '需要真实 LLM 凭证（TEST_SILICONFLOW_API_KEY）')
+
   let authToken = null;
 
   test.beforeAll(async ({ browser }) => {
@@ -86,13 +92,19 @@ test.describe('Agent 继续功能测试', () => {
   });
 
   test('测试完整继续流程', async ({ page }) => {
-    // 1. 设置 token
-    await page.goto(`${BASE_URL}/agent`);
+    // 1. 先在首页写入登录态，再进入 Agent 页（否则路由守卫会重定向回首页）
+    await page.goto(`${BASE_URL}/`);
     await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(1000);
 
     await page.evaluate((token) => {
+      const expiry = Date.now() + 30 * 60 * 1000;
+      sessionStorage.setItem('_token', token);
+      sessionStorage.setItem('_token_expiry', String(expiry));
       localStorage.setItem('access_token', token);
+      localStorage.setItem('_token_expiry', String(expiry));
+      localStorage.setItem('username', 'test');
+      localStorage.setItem('email', 'test@example.com');
+      localStorage.setItem('permission_level', 'normal');
       window.userStore?.setUser?.({
         username: 'test',
         permission_level: 'normal',
@@ -100,6 +112,9 @@ test.describe('Agent 继续功能测试', () => {
         expires_in: 1800,
       });
     }, authToken);
+    await syncRealApiKeys(page);
+    await page.goto(`${BASE_URL}/agent`);
+    await page.waitForLoadState('domcontentloaded');
 
     // 2. 先创建一个会话
     const textarea = page.locator('textarea.prompt-textarea');
@@ -120,7 +135,7 @@ test.describe('Agent 继续功能测试', () => {
     });
 
     // 4. 点击生成按钮
-    const generateBtn = page.locator('button:has-text("开始生成")');
+    const generateBtn = page.locator('button[aria-label="发送需求"]');
     await expect(generateBtn).toBeVisible({ timeout: 5000 });
     await generateBtn.click();
 
@@ -128,7 +143,7 @@ test.describe('Agent 继续功能测试', () => {
     await page.waitForTimeout(5000);
 
     // 6. 停止生成（模拟用户中断）
-    const stopBtn = page.locator('button:has-text("停止")');
+    const stopBtn = page.locator('button[aria-label="停止生成"]');
     if (await stopBtn.isVisible()) {
       await stopBtn.click();
       await page.waitForTimeout(1000);

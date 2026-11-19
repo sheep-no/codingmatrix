@@ -45,10 +45,8 @@ test.describe('冒烟测试 - 核心功能验证', () => {
     })
     
     await test.step('验证页面元素', async () => {
-      // 检查任意可见元素（避免具体的类名依赖）
-      const body = await page.locator('body')
-      // Body is always technically visible, but VUE might add hidden class temporarily
-      expect(true).toBe(true)
+      await expect(page.locator('.main-layout')).toBeVisible()
+      await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible()
     })
   })
 
@@ -64,17 +62,8 @@ test.describe('冒烟测试 - 核心功能验证', () => {
     })
     
     await test.step('查找登录按钮', async () => {
-      // 使用更宽松的 selector 策略
       const loginButton = page.locator('button:has-text("登录"), button:has-text("Login")').first()
-      
-      // 等待按钮出现（最多 10 秒）
-      try {
-        await loginButton.waitFor({ state: 'visible', timeout: 10000 })
-        await expect(loginButton).toBeVisible()
-      } catch (error) {
-        console.log('未找到登录按钮，可能是已登录状态')
-        // 已登录状态也算通过
-      }
+      await expect(loginButton).toBeVisible({ timeout: 10000 })
     })
   })
 

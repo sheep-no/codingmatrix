@@ -21,7 +21,7 @@ test.describe('AI 绘画页面', () => {
   test('页面加载 - AI 绘画页面应正常渲染', async ({ page }) => {
     await openImagePage(page);
     await expect(page).toHaveURL(/image-generate/);
-    await expect(page.locator('.image-generator-container')).toBeVisible();
+    await expect(page.locator('.image-generate-page')).toBeVisible();
   });
 
   test('Prompt 输入 - 文本框应可见', async ({ page }) => {
@@ -43,7 +43,8 @@ test.describe('AI 绘画页面', () => {
 
   test('图片展示 - 生成后应显示图片', async ({ page }) => {
     await openImagePage(page);
-    await expect(page.locator('.result-section')).toHaveCount(0);
-    await expect(page.locator('.image-generator-container')).toBeVisible();
+    // 未生成时展示空状态画布，生成结果容器仅在成功后出现
+    await expect(page.locator('.result-panel .empty-state')).toBeVisible();
+    await expect(page.locator('.image-generate-page')).toBeVisible();
   });
 });

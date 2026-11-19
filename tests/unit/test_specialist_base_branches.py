@@ -443,6 +443,20 @@ def test_react_engine_receives_heartbeat_timeout_default():
     assert engine_cls.call_args.kwargs["heartbeat_timeout"] == 600.0
 
 
+def test_default_heartbeat_tracker_is_created_when_not_provided():
+    specialist, client = _make_specialist()
+    client.call.return_value = "final"
+    engine = AsyncMock()
+    engine.run.return_value = "final"
+
+    with patch("app.agent.specialist_base.ReActEngine", return_value=engine) as engine_cls:
+        asyncio.run(specialist.call_llm_with_tools(prompt="p"))
+
+    tracker = engine_cls.call_args.kwargs["heartbeat_tracker"]
+    assert tracker is not None
+    assert tracker.timeout == 600.0
+
+
 def test_heartbeat_timeout_comes_from_tracker():
     specialist, client = _make_specialist()
     client.call.return_value = "final"

@@ -434,6 +434,10 @@ class SearchSessionsRequest(BaseModel):
     """搜索历史会话请求"""
     query: str = Field(..., description="搜索查询，用于语义匹配历史会话")
     limit: int = Field(10, ge=1, le=50, description="返回结果数量")
+    api_key_token: str | None = Field(
+        None,
+        description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）",
+    )
 
 
 class SessionMatch(BaseModel):

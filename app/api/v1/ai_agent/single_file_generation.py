@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from app.agent.dynamic_model_router import get_dynamic_router
-from app.agent.utils import clean_code_block, validate_syntax_for_extension
+from app.agent.utils import (
+    clean_code_block,
+    strip_leading_file_label,
+    validate_syntax_for_extension,
+)
 from app.utils.aicloud.llm_caller import call_llm
 
 _LANGUAGE_EXTENSIONS = {
@@ -137,7 +141,10 @@ async def generate_single_file(
         api_key_token=api_key_token,
         provider_id=provider_id,
     )
-    content = clean_code_block(_response_text(response))
+    content = strip_leading_file_label(
+        clean_code_block(_response_text(response)),
+        filename,
+    )
     file_path.write_text(content + "\n", encoding="utf-8")
 
     syntax_ok = bool(content.strip())

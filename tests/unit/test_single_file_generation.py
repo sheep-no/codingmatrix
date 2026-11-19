@@ -40,6 +40,22 @@ async def test_generate_single_file_validates_and_runs_in_temp_dir(monkeypatch, 
     assert result["validation"]["run"]["stdout"] == "helloworld\n"
 
 
+@pytest.mark.asyncio
+async def test_generate_single_file_strips_leading_filename(monkeypatch, tmp_path):
+    async def fake_call_llm(**_kwargs):
+        return {
+            "choices": [{"message": {"content": 'helloworld.py\nprint("helloworld")'}}],
+        }
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, "call_llm", fake_call_llm)
+
+    result = await module.generate_single_file("写一个输出 helloworld 的 Python 文件")
+
+    assert result["success"] is True
+    assert result["files"][0]["content"].strip() == 'print("helloworld")'
+
+
 def test_infer_requires_simple_request_marker():
     assert module.infer_single_file_request("输出 hello 的 Python 文件") is None
 

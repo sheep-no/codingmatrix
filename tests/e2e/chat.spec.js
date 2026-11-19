@@ -1,194 +1,147 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('@playwright/test')
+const { apiLogin } = require('./fixtures/auth.js')
 
-const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
+const REPLY_MARKDOWN = '这是来自 E2E 的模拟回复。\n\n```js\nconst answer = 42\n```\n'
+const CONVERSATION_ID = 99001
 
-async function ensureAuthenticated(page) {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
+/**
+ * 首页对话用例全部用 page.route 回放后端 SSE，不依赖真实模型额度。
+ * 断言以真实 DOM（.message-user / .message-ai / .history-item）为准。
+ */
+async function mockChatStream(page, { conversationId = CONVERSATION_ID, content = REPLY_MARKDOWN } = {}) {
+  const requests = []
+  await page.route('**/api/v1/chat', async route => {
+    requests.push(JSON.parse(route.request().postData() || '{}'))
+    const events = [
+      { choices: [{ delta: { content } }] },
+      { conversation_id: conversationId },
+    ]
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''),
+    })
+  })
+  return requests
+}
 
-  const token = await page.evaluate(() => localStorage.getItem('access_token'));
-  if (token) return true;
+async function seedMockApiKey(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{
+      token: 'e2e-mock-siliconflow-token',
+      provider: 'siliconflow',
+      status: 'verified',
+      enabled: true,
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    }]))
+  })
+}
 
-  const apiLogin = await page.evaluate(async ({ email, password }) => {
-    await fetch('/api/v1/csrf-token', { credentials: 'include' });
-    const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
-    const csrfToken = csrfMatch ? csrfMatch[1] : '';
-
-    const resp = await fetch('/api/v1/login', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (resp.ok) {
-      const data = await resp.json();
-      return data;
-    }
-    return null;
-  }, { email: TEST_EMAIL, password: TEST_PASSWORD });
-
-  if (apiLogin) {
-    await page.evaluate(({ access_token, username }) => {
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('username', username);
-      if (window.userStore && typeof window.userStore.setUser === 'function') {
-        window.userStore.setUser({
-          username,
-          permission_level: 'normal',
-          access_token,
-          expires_in: 3600,
-        });
-      }
-    }, apiLogin);
-    await page.reload();
-    await page.waitForLoadState('domcontentloaded');
-    return true;
-  }
-  return false;
+async function sendMessage(page, text) {
+  const textarea = page.getByRole('textbox', { name: '消息输入框' })
+  await expect(textarea).toBeVisible()
+  await textarea.fill(text)
+  await page.getByRole('button', { name: '发送消息' }).click()
 }
 
 test.describe('Chat E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
-    await ensureAuthenticated(page);
-  });
+    await seedMockApiKey(page)
+    await apiLogin(page)
+    await page.route('**/api/v1/history', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], total: 0 }),
+    }))
+  })
 
   test('发送消息测试 - 输入并发送消息', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    const requests = await mockChatStream(page)
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const textarea = page.locator('textarea, [contenteditable="true"], input[type="text"]').first();
-    const textareaCount = await textarea.count();
+    await sendMessage(page, 'Hello, this is a test message')
 
-    if (textareaCount > 0) {
-      await textarea.fill('Hello, this is a test message');
-
-      const sendBtn = page.locator('button:has-text("发送"), button:has-text("Send"), [class*="send"]');
-      const sendCount = await sendBtn.count();
-
-      if (sendCount > 0) {
-        await sendBtn.first().click();
-        await page.waitForTimeout(1000);
-
-        const hasMessage = await page.evaluate(() => {
-          const messages = document.querySelectorAll('[class*="message"], [class*="chat"], .log-item');
-          return messages.length > 0;
-        });
-        expect(hasMessage).toBeTruthy();
-      }
-    }
-  });
+    await expect(page.locator('.message-user')).toHaveCount(1)
+    await expect(page.locator('.message-user .user-text')).toContainText('Hello, this is a test message')
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]).toMatchObject({ prompt: 'Hello, this is a test message', stream: true })
+  })
 
   test('流式响应测试 - 应能接收流式响应', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await mockChatStream(page)
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const networkResponses = [];
-    page.on('response', (response) => {
-      if (response.url().includes('/api/') || response.url().includes('/chat')) {
-        networkResponses.push(response.url());
-      }
-    });
+    await sendMessage(page, 'Test streaming response')
 
-    const textarea = page.locator('textarea, [contenteditable="true"]').first();
-    if (await textarea.count() > 0) {
-      await textarea.fill('Test streaming response');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(3000);
-
-      expect(networkResponses.length).toBeGreaterThanOrEqual(0);
-    }
-  });
+    const aiMessage = page.locator('.message-ai').first()
+    await expect(aiMessage.locator('.card-content')).toContainText('这是来自 E2E 的模拟回复', { timeout: 15000 })
+    await expect(aiMessage).not.toHaveClass(/streaming/)
+  })
 
   test('新建会话测试 - 创建新聊天会话', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await mockChatStream(page)
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const newChatBtn = page.locator('button:has-text("新建"), button:has-text("New"), [class*="new-chat"], [class*="new_session"]');
-    const btnCount = await newChatBtn.count();
+    await sendMessage(page, 'Create a session')
+    await expect(page.locator('.message-ai .card-content')).toContainText('这是来自 E2E 的模拟回复')
 
-    if (btnCount > 0) {
-      await newChatBtn.first().click();
-      await page.waitForTimeout(500);
+    await page.getByRole('button', { name: '新建会话' }).click()
 
-      const isNewSession = await page.evaluate(() => {
-        return !!document.querySelector('[class*="empty"]') ||
-               !!document.querySelector('[class*="welcome"]') ||
-               !!document.querySelector('[class*="placeholder"]');
-      });
-      expect(typeof isNewSession).toBe('boolean');
-    }
-  });
+    await expect(page.getByRole('region', { name: '对话待机画面' })).toBeVisible()
+    await expect(page.locator('.message-user')).toHaveCount(0)
+    await expect(page.locator('.message-ai')).toHaveCount(0)
+  })
 
   test('历史记录加载测试 - 应加载历史会话列表', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.route('**/api/v1/history', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [{
+          id: 1,
+          conversation_id: 70001,
+          title: '历史会话样例',
+          prompt: '历史会话样例',
+          created_at: '2026-11-01T10:00:00Z',
+        }],
+        total: 1,
+      }),
+    }))
 
-    const sidebar = page.locator('[class*="sidebar"], [class*="history"], [class*="session-list"], #leftlist');
-    const sidebarCount = await sidebar.count();
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    if (sidebarCount > 0) {
-      await page.waitForTimeout(1000);
-
-      const hasHistory = await page.evaluate(() => {
-        const sidebar = document.querySelector('[class*="sidebar"]') ||
-                        document.querySelector('[class*="history"]') ||
-                        document.querySelector('[class*="session"]') ||
-                        document.querySelector('#leftlist');
-        if (!sidebar) return false;
-        return sidebar.querySelectorAll('li, div, button').length > 0;
-      });
-      expect(typeof hasHistory).toBe('boolean');
-    }
-  });
+    const historyItem = page.locator('#leftlist .history-item').first()
+    await expect(historyItem).toBeVisible({ timeout: 15000 })
+    await expect(historyItem).toContainText('历史会话样例')
+  })
 
   test('消息编辑测试 - 编辑已发送的消息', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await mockChatStream(page)
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const textarea = page.locator('textarea, [contenteditable="true"]').first();
-    if (await textarea.count() > 0) {
-      await textarea.fill('Original message');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(1000);
+    await sendMessage(page, 'Original message')
+    await expect(page.locator('.message-ai .card-content')).toContainText('这是来自 E2E 的模拟回复')
 
-      const editBtn = page.locator('button:has-text("编辑"), button:has-text("Edit"), [class*="edit"]');
-      const editCount = await editBtn.count();
+    await page.locator('.message-user .message-action-btn').first().click()
 
-      if (editCount > 0) {
-        await editBtn.first().click();
-        await page.waitForTimeout(500);
+    const editor = page.locator('.message-editor .editor-textarea')
+    await expect(editor).toBeVisible()
+    await expect(editor).toHaveValue('Original message')
 
-        const editMode = await page.evaluate(() => {
-          return !!document.querySelector('[class*="editing"]') ||
-                 !!document.querySelector('textarea:focus') ||
-                 !!document.querySelector('[contenteditable="true"]:focus');
-        });
-        expect(typeof editMode).toBe('boolean');
-      }
-    }
-  });
+    await editor.fill('Edited message')
+    await page.locator('.message-editor .btn-save').click()
+    await expect(editor).toHaveCount(0)
+  })
 
   test('消息复制测试 - 复制 AI 响应内容', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await mockChatStream(page)
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const copyBtn = page.locator('button:has-text("复制"), button:has-text("Copy"), [class*="copy"]');
-    const copyCount = await copyBtn.count();
+    await sendMessage(page, '给我一段代码')
 
-    if (copyCount > 0) {
-      await copyBtn.first().click();
-      await page.waitForTimeout(500);
-
-      const copied = await page.evaluate(() => {
-        return !!document.querySelector('[class*="copied"]') ||
-               !!document.querySelector('[class*="success"]');
-      });
-      expect(typeof copied).toBe('boolean');
-    }
-  });
-});
+    const copyButton = page.locator('.message-ai .copy-button').first()
+    await expect(copyButton).toBeVisible({ timeout: 15000 })
+    await copyButton.click()
+    await expect(copyButton).toContainText('已复制')
+  })
+})

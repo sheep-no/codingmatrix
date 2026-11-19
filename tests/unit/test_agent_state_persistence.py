@@ -67,6 +67,7 @@ async def test_persist_agent_state_closes_terminal_session(
     await agent_state_adapter.persist_agent_state(db, 7, state)
 
     assert session.status == expected_session_status
+    assert session.updated_at is not None
 
 
 @pytest.mark.asyncio

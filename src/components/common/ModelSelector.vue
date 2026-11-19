@@ -69,10 +69,11 @@
                   </div>
                   <div v-if="model.description" class="model-desc">{{ model.description }}</div>
                   <div class="model-meta">
-                    <span v-if="model.max_context" class="meta-item context">
-                      {{ formatContextLength(model.max_context) }}
+                    <span v-if="model.max_context || model.context_length" class="meta-item context">
+                      {{ formatContextLength(model.max_context || model.context_length) }}
                     </span>
-                    <span v-if="model.cost_per_1m_input !== undefined" class="meta-item cost">
+                    <span v-if="model.is_free" class="meta-item free">免费</span>
+                    <span v-else-if="model.cost_per_1m_input" class="meta-item cost">
                       ¥{{ model.cost_per_1m_input }}/1M
                     </span>
                     <span v-for="tag in (model.tags || []).slice(0, 3)" :key="tag" class="meta-tag">
@@ -496,6 +497,11 @@ onUnmounted(() => {
 
 .meta-item.cost {
   color: var(--success);
+}
+
+.meta-item.free {
+  color: var(--success);
+  font-weight: 500;
 }
 
 .meta-tag {

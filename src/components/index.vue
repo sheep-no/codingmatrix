@@ -238,6 +238,14 @@
     return String(conversationId)
   }
 
+  // 首轮消息拿到后端 conversation_id 后，缓存会从 temp_* 迁移到真实 ID。
+  // 流式回调手里的旧 key 随之失效，需要回落到当前会话，否则增量与收尾都会丢。
+  const resolveStreamKey = streamConversationId => {
+    const key = conversationKey(streamConversationId)
+    if (conversationHistoryMap.value.has(key)) return key
+    return conversationKey(currentConversationId.value)
+  }
+
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
       const key = conversationKey(conversationId)
@@ -256,14 +264,15 @@
   }
 
   const streamUpdateBatcher = createStreamUpdateBatcher(update => {
-    const history = conversationHistoryMap.value.get(conversationKey(update.conversationId))
+    const updateKey = resolveStreamKey(update.conversationId)
+    const history = conversationHistoryMap.value.get(updateKey)
     const message = history?.[update.lastIndex]
     if (!message) return
 
     message.response = (message.response || '') + update.responseDelta
     message.reasoning = (message.reasoning || '') + update.reasoningDelta
 
-    if (String(currentConversationId.value) === String(update.conversationId)) {
+    if (String(currentConversationId.value) === updateKey) {
       const visibleMessage = conversationHistory.value[update.lastIndex]
       if (visibleMessage) {
         Object.assign(visibleMessage, {
@@ -693,14 +702,15 @@
           conversationHistory.value[lastMessageIndex].isStreaming = false
         }
       } else {
-        const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
+        const finalConversationKey = resolveStreamKey(streamConversationId)
+        const streamHistory = conversationHistoryMap.value.get(finalConversationKey)
         if (streamHistory && streamHistory.length > 0) {
           const streamLastIndex = streamHistory.length - 1
            streamHistory[streamLastIndex].isStreaming = false
            streamHistory[streamLastIndex].chatStage = ''
-          saveConversationToMap(streamConversationId, streamHistory)
+          saveConversationToMap(finalConversationKey, streamHistory)
 
-          if (String(currentConversationId.value) === String(streamConversationId)) {
+          if (String(currentConversationId.value) === finalConversationKey) {
             if (conversationHistory.value[streamLastIndex]) {
               conversationHistory.value[streamLastIndex].isStreaming = false
               conversationHistory.value[streamLastIndex].chatStage = ''
@@ -712,7 +722,8 @@
       streamUpdateBatcher.flush()
       console.error('发送消息失败:', error)
 
-      const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
+      const failedConversationKey = resolveStreamKey(streamConversationId)
+      const streamHistory = conversationHistoryMap.value.get(failedConversationKey)
       if (!pageUnloading && streamHistory && streamHistory.length > 0) {
         const streamLastIndex = streamHistory.length - 1
         const lastMessage = streamHistory[streamLastIndex]
@@ -767,9 +778,9 @@
 
         lastMessage.isStreaming = false
         lastMessage.chatStage = ''
-        saveConversationToMap(streamConversationId)
+        saveConversationToMap(failedConversationKey)
 
-        if (String(currentConversationId.value) === String(streamConversationId)) {
+        if (String(currentConversationId.value) === failedConversationKey) {
           if (conversationHistory.value[streamLastIndex]) {
             Object.assign(conversationHistory.value[streamLastIndex], lastMessage)
           }
@@ -948,7 +959,10 @@
   }
 
   const handleChatStream = (data, streamConversationId, lastIndex, messageData) => {
-    const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
+    // 首轮数据里可能先返回 conversation_id，会话缓存随之换 key，
+    // 后续事件必须回落到迁移后的会话，否则回复会静默丢失。
+    const activeConversationKey = () => resolveStreamKey(streamConversationId)
+    const streamHistory = conversationHistoryMap.value.get(activeConversationKey())
     if (!streamHistory) {
       console.warn('[WARN] Stream chat history not found:', streamConversationId)
       return
@@ -965,7 +979,7 @@
         if (data.sources) history[lastIndex].sources = data.sources
         if (data.model) history[lastIndex].model = data.model
         if (data.search_depth) history[lastIndex].searchDepth = data.search_depth
-        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+        if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
           Object.assign(conversationHistory.value[lastIndex], { chatStage: history[lastIndex].chatStage, sources: history[lastIndex].sources, warnings: history[lastIndex].warnings, model: history[lastIndex].model, searchDepth: history[lastIndex].searchDepth })
         }
       }
@@ -978,7 +992,7 @@
       if (history[lastIndex]) {
         history[lastIndex].response = (history[lastIndex].response || '') + `\n\n出错：${data.error}`
         Object.assign(history[lastIndex], { response: history[lastIndex].response })
-        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+        if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
           Object.assign(conversationHistory.value[lastIndex], { response: history[lastIndex].response })
         }
       }
@@ -987,7 +1001,7 @@
 
     if (data.usage && history[lastIndex]) {
       history[lastIndex].usage = data.usage
-      if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+      if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
         conversationHistory.value[lastIndex].usage = data.usage
       }
     }
@@ -1052,7 +1066,7 @@
           toolCalls[index] = current
         })
         history[lastIndex].toolCalls = toolCalls
-        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+        if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
           conversationHistory.value[lastIndex].toolCalls = toolCalls
         }
       }
