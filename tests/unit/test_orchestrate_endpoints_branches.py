@@ -130,6 +130,16 @@ def test_generation_result_error_variants():
         endpoints._generation_result_error({"success": False})
         == "生成流程未达到成功终态"
     )
+    assert (
+        endpoints._generation_result_error(
+            {
+                "success": False,
+                "error_message": "API Key 认证失败",
+                "errors": ["文件生成失败: hello.py"],
+            }
+        )
+        == "API Key 认证失败"
+    )
 
 
 @pytest.mark.asyncio

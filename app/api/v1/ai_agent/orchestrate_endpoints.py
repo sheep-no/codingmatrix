@@ -230,6 +230,8 @@ def _generation_result_error(result: dict[str, Any]) -> str | None:
     """Return an actionable error when an orchestrator result is unsuccessful."""
     if result.get("success") is True:
         return None
+    if result.get("error_message"):
+        return str(result["error_message"])
     errors = result.get("errors") or []
     if isinstance(errors, str):
         errors = [errors]
