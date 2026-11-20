@@ -11,7 +11,10 @@ requests==2.33.1
 
 # 加密与令牌测试
 cryptography==50.0.0
-PyJWT==2.13.0
+PyJWT==2.15.1
+
+# 构建工具安全基线（pip-audit 门禁）
+setuptools==84.2.1
 
 # Selenium
 selenium==4.16.0

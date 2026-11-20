@@ -107,8 +107,9 @@ async def _apply_schema_migrations(conn, db_type: str, db_name: str) -> None:
     else:
         raise ValueError(f"不支持的数据库类型: {db_type}")
 
-    # 只创建不存在的表
-    for table_name, table in Base.metadata.tables.items():
+    # 按外键依赖排序建表：MySQL 创建外键时要求被引用表已存在。
+    for table in Base.metadata.sorted_tables:
+        table_name = table.name
         if table_name not in existing_tables:
             await conn.execute(CreateTable(table))
             print(f"✅ 创建表: {table_name}")
