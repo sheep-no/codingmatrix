@@ -16,6 +16,13 @@ vi.mock('@/composables/useOfflineQueue', () => ({
 }))
 vi.mock('@/utils/api/index', () => ({ api: { post: vi.fn(), stream: vi.fn() } }))
 
+const routeMock = vi.hoisted(() => ({ query: {} }))
+const routerMock = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+vi.mock('vue-router', () => ({
+  useRoute: () => routeMock,
+  useRouter: () => routerMock
+}))
+
 import HomeWorkspace from './index.vue'
 import Bottominput from './bottominput.vue'
 import { api } from '@/utils/api/index'
@@ -52,6 +59,9 @@ describe('首页工作台响应式导航', () => {
     offlineQueue.isOnline.value = true
     offlineQueue.queueMessage.mockClear()
     offlineQueue.setSendCallback.mockClear()
+    routeMock.query = {}
+    routerMock.push.mockClear()
+    routerMock.replace.mockClear()
   })
 
   afterEach(() => {
@@ -120,6 +130,28 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistory).toEqual([])
     expect(state.currentConversationId).toBeNull()
     expect(state.conversationHistoryMap.size).toBe(0)
+  })
+
+  it('登录成功后按 redirect 回到原访问页', async () => {
+    routeMock.query = { redirect: '/settings?tab=unified' }
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.leftlistRef = { fetchHistory: vi.fn().mockResolvedValue() }
+
+    await state.handleLogin()
+
+    expect(routerMock.replace).toHaveBeenCalledWith('/settings?tab=unified')
+  })
+
+  it('忽略站外 redirect，避免开放重定向', async () => {
+    routeMock.query = { redirect: '//evil.example.com' }
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.leftlistRef = { fetchHistory: vi.fn().mockResolvedValue() }
+
+    await state.handleLogin()
+
+    expect(routerMock.replace).not.toHaveBeenCalled()
   })
 
   it('登出后重置工作区并收起已打开工具（FRESCAN-54）', () => {

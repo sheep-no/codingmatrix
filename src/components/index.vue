@@ -131,7 +131,7 @@
   import CenterContent from './centerContent.vue'
   import Leftlist from './leftlist.vue'
   import ErrorBoundary from './ErrorBoundary.vue'
-  import { useRouter } from 'vue-router'
+  import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { streamManager } from '@/utils/streamManager'
   import { consumeJsonStream } from '@/utils/streamParser'
@@ -153,6 +153,7 @@
   const KeyboardShortcutsHelp = defineAsyncComponent(() => import('./KeyboardShortcutsHelp.vue'))
 
   const router = useRouter()
+  const route = useRoute()
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
 
   const navigationStore = useNavigationStore()
@@ -1228,6 +1229,12 @@
       await leftlistRef.value?.fetchHistory?.(true)
     } catch (error) {
       console.error('[ERR] Refresh history after login failed:', error?.message || error)
+    }
+
+    // 未登录访问受保护页面时，守卫会把原地址写进 redirect，登录成功后回到那里
+    const redirect = route.query.redirect
+    if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.includes('\\')) {
+      await router.replace(redirect)
     }
   }
 
