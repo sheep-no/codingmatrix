@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 告警通知转发：`POST /api/v1/health/alerts` 收到的 Alertmanager 告警由 `app/services/alert_notifier.py` 以后台任务转发到 IM Webhook（generic/feishu/dingtalk/wecom/slack）或 SMTP 邮件
+- 新增 `ALERT_WEBHOOK_*`、`ALERT_NOTIFY_MIN_SEVERITY`、`ALERT_SMTP_*` 配置与 `alert_notifications_total{channel,status}` 指标；渠道未配置时静默跳过，失败隔离不影响回调响应
+- 监控链路接入：`METRICS_TOKEN` 长期令牌、`configs/prometheus.compose.yml`、`configs/alertmanager.yml`，以及两份 Compose 的 `observability` profile
+
 ## [5.15.0] - 2026-06-09
 
 ### Documentation
@@ -295,4 +300,3 @@ See archived documentation in `docs/_archive/`.
 
 - 向后兼容: 现有 devil_advocate_review 函数保持 API 不变
 - 可扩展: 新增 ReviewSeverity 枚举，支持未来添加更多审查模式
-

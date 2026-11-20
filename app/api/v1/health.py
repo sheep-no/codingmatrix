@@ -15,11 +15,12 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.version import APP_VERSION
+from app.services.alert_notifier import notify_alerts
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
 from app.utils.security import verify_metrics_access, verify_token
@@ -199,6 +200,7 @@ async def prometheus_metrics(token: dict = Depends(verify_metrics_access)):
 @router.post("/alerts", include_in_schema=False)
 async def receive_alertmanager_webhook(
     payload: AlertmanagerWebhook,
+    background_tasks: BackgroundTasks,
     _token: dict = Depends(verify_metrics_access),
 ) -> dict:
     """Receive Alertmanager notifications and surface them in structured logs."""
@@ -218,6 +220,9 @@ async def receive_alertmanager_webhook(
             labels.get("model", "unknown"),
             summary,
         )
+    background_tasks.add_task(
+        notify_alerts, [alert.model_dump() for alert in payload.alerts]
+    )
     return {"received": len(payload.alerts), "status": payload.status}
 
 

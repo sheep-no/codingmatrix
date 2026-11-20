@@ -35,3 +35,5 @@
 `tests/integration/test_provider_stream_fault_injection.py` 通过本地真实 HTTP 服务注入 429 与中断连接，验证真实 `httpx` 流读取下的重试与不重试边界。
 
 `tests/unit/test_alert_rules_config.py`、`test_compose_structure.py`、`test_config_security_defaults.py`、`test_health_api_gaps.py` 与 `tests/integration/test_health_api.py` 覆盖监控链路：`METRICS_TOKEN` 长度校验与 JWT 回退、非 ASCII 令牌比较、Webhook 100 条上限、Alertmanager 路由、抓取凭据文件，以及两份 Compose 的 `observability` profile 接线。
+
+`tests/unit/test_alert_notifier.py` 覆盖告警转发：渠道未配置时静默、严重级别过滤、五种 Webhook 载荷格式、真实 HTTP 错误与 SMTP 失败隔离、STARTTLS/SSL 登录分支，以及文本截断。

@@ -155,6 +155,11 @@ class PrometheusMetrics:
         labels = {"provider": provider, "model": model}
         self._registry.counter("llm_empty_streams_total", labels)
 
+    def record_alert_notification(self, channel: str, status: str):
+        """记录告警通知渠道的投递结果。"""
+        labels = {"channel": channel, "status": status}
+        self._registry.counter("alert_notifications_total", labels)
+
     def set_memory_usage(self, bytes_used: int):
         """设置内存使用"""
         self._registry.gauge("memory_usage_bytes", bytes_used)

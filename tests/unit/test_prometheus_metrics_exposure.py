@@ -75,3 +75,14 @@ def test_empty_stream_counter_is_exported(registry):
         'llm_empty_streams_total{model="deepseek-ai/DeepSeek-V3",'
         'provider="siliconflow"} 1'
     ) in text
+
+
+def test_alert_notification_counter_is_exported(registry):
+    metrics_module.get_prometheus_metrics().record_alert_notification(
+        "webhook", "failed"
+    )
+
+    text = metrics_module.generate_metrics_text()
+
+    assert "# TYPE alert_notifications_total counter" in text
+    assert 'alert_notifications_total{channel="webhook",status="failed"} 1' in text

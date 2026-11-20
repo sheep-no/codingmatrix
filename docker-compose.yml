@@ -29,6 +29,17 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/app.db}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - METRICS_TOKEN=${METRICS_TOKEN:-}
+      # 告警转发渠道（可选）；留空时只写结构化日志
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_TYPE=${ALERT_WEBHOOK_TYPE:-generic}
+      - ALERT_NOTIFY_MIN_SEVERITY=${ALERT_NOTIFY_MIN_SEVERITY:-warning}
+      - ALERT_SMTP_HOST=${ALERT_SMTP_HOST:-}
+      - ALERT_SMTP_PORT=${ALERT_SMTP_PORT:-587}
+      - ALERT_SMTP_SECURITY=${ALERT_SMTP_SECURITY:-starttls}
+      - ALERT_SMTP_USER=${ALERT_SMTP_USER:-}
+      - ALERT_SMTP_PASSWORD=${ALERT_SMTP_PASSWORD:-}
+      - ALERT_SMTP_FROM=${ALERT_SMTP_FROM:-}
+      - ALERT_SMTP_TO=${ALERT_SMTP_TO:-}
       # 与 celery 共用同一密钥卷，避免各容器各自生成 RSA 密钥
       - RSA_KEY_DIR=/app/keys
       # 可选：设置后私钥以口令加密落盘，留空则保持明文（仅 0o600 权限保护）

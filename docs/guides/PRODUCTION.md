@@ -44,6 +44,24 @@ docker compose --profile observability up -d
 
 启用后 Prometheus UI 位于 `127.0.0.1:9090`，Alertmanager UI 位于 `127.0.0.1:9093`。未启用 profile 时应用仍可启动，`METRICS_TOKEN` 留空表示指标端点只接受 JWT。
 
+### 告警通知渠道
+
+Alertmanager 回调进入 `POST /api/v1/health/alerts` 后，`app/services/alert_notifier.py` 在后台任务中转发告警，不阻塞回调响应。IM Webhook 与 SMTP 邮件相互独立，未配置的渠道直接跳过，单个渠道失败只写日志和 `alert_notifications_total{channel,status}`，`POST` 仍返回 200。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ALERT_WEBHOOK_URL` | 空 | IM 群机器人地址；留空不发送 |
+| `ALERT_WEBHOOK_TYPE` | `generic` | `generic`、`feishu`、`dingtalk`、`wecom` 或 `slack`，决定载荷字段 |
+| `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | 低于该级别的告警不转发；未知级别按 `warning` 处理 |
+| `ALERT_SMTP_HOST` | 空 | SMTP 主机；与发件人、收件人同时存在才发邮件 |
+| `ALERT_SMTP_PORT` | `587` | 端口，取值 1-65535 |
+| `ALERT_SMTP_SECURITY` | `starttls` | `starttls`、`ssl` 或 `none` |
+| `ALERT_SMTP_USER` / `ALERT_SMTP_PASSWORD` | 空 | 留空跳过登录，适用于内网中继 |
+| `ALERT_SMTP_FROM` | 空 | 发件地址 |
+| `ALERT_SMTP_TO` | 空 | 收件地址，逗号分隔多个 |
+
+`ALERT_WEBHOOK_URL` 仅接受 `http(s)`；各渠道地址都可指向内网，因此该变量只应由运维在部署环境中配置，应用不会校验其指向的公网性。
+
 ### 生产 Compose
 
 `docker-compose.prod.yml` 的 `services` 实际包含 7 个服务：`api`、`celery`、`scheduler`、`mysql`、`redis`、`redis-apikeys`、`nginx`。
@@ -58,7 +76,7 @@ docker compose --profile observability up -d
 
 生产 Compose 没有 Jaeger 服务。应用的 `app/agent/tracing.py` 支持 `OTEL_ENABLED`、`OTEL_EXPORTER`、`OTEL_JAEGER_ENDPOINT` 和 OTLP 配置，默认关闭追踪；当前 Compose 没有提供 Jaeger 或 OTEL Collector，因此仅设置 `OTEL_ENABLED=1` 不能形成完整的追踪链路。
 
-生产 Compose 同样以 `observability` profile 提供 Prometheus/Alertmanager。两者等待 API 健康后启动，抓取与回调共用 `metrics-token` 卷。空流告警规则由 `configs/alert_rules.yml` 加载，告警经 `configs/alertmanager.yml` 投递到 API 的结构化日志。
+生产 Compose 同样以 `observability` profile 提供 Prometheus/Alertmanager。两者等待 API 健康后启动，抓取与回调共用 `metrics-token` 卷。空流告警规则由 `configs/alert_rules.yml` 加载，告警经 `configs/alertmanager.yml` 投递到 API，再由 `alert_notifier` 转发到已配置的 IM 或邮件渠道。
 
 ## 当前 Docker 配置
 

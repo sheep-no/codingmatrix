@@ -362,11 +362,21 @@ async def test_alertmanager_webhook_logs_alerts(monkeypatch):
         ],
     )
 
-    result = await health_api.receive_alertmanager_webhook(payload, _token={})
+    tasks = []
+
+    class _Background:
+        def add_task(self, func, *args, **kwargs):
+            tasks.append((func, args, kwargs))
+
+    result = await health_api.receive_alertmanager_webhook(
+        payload, _Background(), _token={}
+    )
 
     assert result == {"received": 1, "status": "firing"}
     assert "alertmanager_alert status=firing" in messages[0]
     assert "alertname=LlmEmptyStreamSpike" in messages[0]
+    assert tasks[0][0] is health_api.notify_alerts
+    assert tasks[0][1][0][0]["labels"]["alertname"] == "LlmEmptyStreamSpike"
 
 
 @pytest.mark.asyncio

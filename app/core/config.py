@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     # 供 Prometheus/Alertmanager 抓取和回调使用的长期令牌；留空时仅允许 JWT。
     METRICS_TOKEN: str = ""
+    # 告警转发：IM Webhook（留空则不发）与 SMTP 邮件（主机留空则不发）
+    ALERT_WEBHOOK_URL: str = ""
+    ALERT_WEBHOOK_TYPE: str = "generic"
+    ALERT_NOTIFY_MIN_SEVERITY: str = "warning"
+    ALERT_SMTP_HOST: str = ""
+    ALERT_SMTP_PORT: int = 587
+    ALERT_SMTP_SECURITY: str = "starttls"
+    ALERT_SMTP_USER: str = ""
+    ALERT_SMTP_PASSWORD: str = ""
+    ALERT_SMTP_FROM: str = ""
+    ALERT_SMTP_TO: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
 
@@ -73,6 +84,44 @@ class Settings(BaseSettings):
     def validate_metrics_token(cls, v):
         if v and len(v) < 16:
             raise ValueError("METRICS_TOKEN 长度不能小于 16 字符")
+        return v
+
+    @field_validator("ALERT_WEBHOOK_URL")
+    @classmethod
+    def validate_alert_webhook_url(cls, v):
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("ALERT_WEBHOOK_URL 必须是 http(s) 地址")
+        return v
+
+    @field_validator("ALERT_WEBHOOK_TYPE")
+    @classmethod
+    def validate_alert_webhook_type(cls, v):
+        allowed = {"generic", "feishu", "dingtalk", "wecom", "slack"}
+        if v not in allowed:
+            raise ValueError(f"ALERT_WEBHOOK_TYPE 必须是 {sorted(allowed)} 之一")
+        return v
+
+    @field_validator("ALERT_NOTIFY_MIN_SEVERITY")
+    @classmethod
+    def validate_alert_min_severity(cls, v):
+        allowed = {"info", "warning", "critical"}
+        if v not in allowed:
+            raise ValueError(f"ALERT_NOTIFY_MIN_SEVERITY 必须是 {sorted(allowed)} 之一")
+        return v
+
+    @field_validator("ALERT_SMTP_PORT")
+    @classmethod
+    def validate_alert_smtp_port(cls, v):
+        if not 1 <= v <= 65535:
+            raise ValueError("ALERT_SMTP_PORT 必须在 1-65535 之间")
+        return v
+
+    @field_validator("ALERT_SMTP_SECURITY")
+    @classmethod
+    def validate_alert_smtp_security(cls, v):
+        allowed = {"starttls", "ssl", "none"}
+        if v not in allowed:
+            raise ValueError(f"ALERT_SMTP_SECURITY 必须是 {sorted(allowed)} 之一")
         return v
 
     @field_validator("DB_POOL_SIZE")

@@ -112,3 +112,32 @@ def test_metrics_token_is_optional_but_never_short():
     assert _settings(METRICS_TOKEN="m" * 16).METRICS_TOKEN == "m" * 16
     with pytest.raises(ValidationError):
         _settings(METRICS_TOKEN="short")
+
+
+def test_alert_notifier_defaults_are_disabled():
+    """未配置通知渠道时保持静默，避免默认向外部发送告警。"""
+    settings = _settings()
+
+    assert settings.ALERT_WEBHOOK_URL == ""
+    assert settings.ALERT_SMTP_HOST == ""
+    assert settings.ALERT_NOTIFY_MIN_SEVERITY == "warning"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("ALERT_WEBHOOK_URL", "ftp://example.com/hook"),
+        ("ALERT_WEBHOOK_TYPE", "telegram"),
+        ("ALERT_NOTIFY_MIN_SEVERITY", "debug"),
+        ("ALERT_SMTP_SECURITY", "plain"),
+    ),
+)
+def test_alert_notifier_rejects_invalid_values(field, value):
+    with pytest.raises(ValidationError):
+        _settings(**{field: value})
+
+
+@pytest.mark.parametrize("port", (0, 65536))
+def test_alert_smtp_port_bounds(port):
+    with pytest.raises(ValidationError):
+        _settings(ALERT_SMTP_PORT=port)
