@@ -303,3 +303,28 @@ async def test_mysql_permission_index_rejects_compound_index():
     ])
 
     assert await _has_unique_user_id_index(conn, "mysql", "ai_agent") is False
+
+
+@pytest.mark.asyncio
+async def test_schema_migration_creates_tables_in_dependency_order(monkeypatch):
+    from sqlalchemy import Column, Integer, MetaData, Table
+
+    metadata = MetaData()
+    agent_sessions = Table("agent_sessions", metadata, Column("id", Integer))
+    user = Table("user", metadata, Column("id", Integer))
+
+    class _FakeMetadata:
+        tables = {"agent_sessions": agent_sessions, "user": user}
+        sorted_tables = [user, agent_sessions]
+
+    monkeypatch.setattr(migration_runner.Base, "metadata", _FakeMetadata())
+    conn = _FakeConnection([_FakeResult(rows=[]), _FakeResult(), _FakeResult()])
+
+    await migration_runner._apply_schema_migrations(conn, "sqlite", "")
+
+    created = [
+        statement.split()[2].strip('"')
+        for statement, _ in conn.statements
+        if statement.strip().upper().startswith("CREATE TABLE")
+    ]
+    assert created == ["user", "agent_sessions"]
