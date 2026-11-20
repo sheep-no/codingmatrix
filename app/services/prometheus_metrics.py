@@ -150,6 +150,11 @@ class PrometheusMetrics:
         labels = {"task": task_name, "status": status}
         self._registry.counter("celery_tasks_total", labels)
 
+    def record_empty_stream(self, provider: str, model: str):
+        """记录供应商返回 200 但没有任何 chunk 的流式响应。"""
+        labels = {"provider": provider, "model": model}
+        self._registry.counter("llm_empty_streams_total", labels)
+
     def set_memory_usage(self, bytes_used: int):
         """设置内存使用"""
         self._registry.gauge("memory_usage_bytes", bytes_used)

@@ -154,9 +154,14 @@ def reset_empty_stream_stats() -> None:
 
 async def _record_empty_stream(provider: Optional[ModelProvider], model: str) -> None:
     provider_key = getattr(provider, "value", provider) or "unknown"
-    key = (str(provider_key), model or "unknown")
+    provider_key = str(provider_key)
+    model_key = model or "unknown"
+    key = (provider_key, model_key)
     async with _empty_stream_lock:
         _empty_stream_counts[key] = _empty_stream_counts.get(key, 0) + 1
+    from app.services.prometheus_metrics import get_prometheus_metrics
+
+    get_prometheus_metrics().record_empty_stream(provider_key, model_key)
 
 
 async def _prime_stream(

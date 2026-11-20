@@ -61,3 +61,17 @@ def test_database_gauges_are_exported(registry):
     assert "# TYPE database_connections_active gauge" in text
     assert 'database_connections_active{state="active"} 2' in text
     assert 'database_connections_active{state="idle"} 5' in text
+
+
+def test_empty_stream_counter_is_exported(registry):
+    metrics_module.get_prometheus_metrics().record_empty_stream(
+        "siliconflow", "deepseek-ai/DeepSeek-V3"
+    )
+
+    text = metrics_module.generate_metrics_text()
+
+    assert "# TYPE llm_empty_streams_total counter" in text
+    assert (
+        'llm_empty_streams_total{model="deepseek-ai/DeepSeek-V3",'
+        'provider="siliconflow"} 1'
+    ) in text

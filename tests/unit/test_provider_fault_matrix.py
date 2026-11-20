@@ -314,6 +314,13 @@ def test_normalize_http_error_preserves_rate_limit_metadata():
 @pytest.mark.asyncio
 async def test_empty_stream_is_counted_and_logged(monkeypatch):
     llm_caller.reset_empty_stream_stats()
+    from app.services.prometheus_metrics import get_prometheus_metrics
+
+    registry = get_prometheus_metrics().get_registry()
+    metric_key = (
+        'llm_empty_streams_total{model="empty-model",provider="siliconflow"}'
+    )
+    before = registry.get_all()["counters"].get(metric_key, {}).get("value", 0)
     warnings = []
 
     def capture(message, *args, **_kwargs):
@@ -346,6 +353,8 @@ async def test_empty_stream_is_counted_and_logged(monkeypatch):
         "empty_stream provider=siliconflow model=empty-model" in message
         for message in warnings
     )
+    after = registry.get_all()["counters"][metric_key]["value"]
+    assert after - before == 1
 
 
 @pytest.mark.asyncio
