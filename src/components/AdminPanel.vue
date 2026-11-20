@@ -933,7 +933,11 @@
 
     // 通知服务端吊销 access/refresh token；失败不阻塞本地登出
     try {
-      await api.logout()
+      // 限时等待，避免后端无响应时退出按钮卡在确认状态
+      await Promise.race([
+        api.logout(),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ])
     } catch (error) {
       console.warn('[AdminPanel] 后端登出失败:', error?.message || error)
     }

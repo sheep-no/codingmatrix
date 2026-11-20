@@ -42,11 +42,17 @@ export function useAuth() {
   }
 
   async function logout() {
-    try {
-      await api.logout()
-    } catch (e) {
+    const revoke = Promise.resolve(api.logout()).catch((e) => {
       // 后端吊销失败不应阻塞本地登出
       console.warn('[useAuth] 后端登出失败:', e?.message || e)
+      return false
+    })
+
+    try {
+      // 给吊销留出有限时间，后端卡住时也要完成本地登出
+      await Promise.race([revoke, new Promise(resolve => setTimeout(resolve, 2000))])
+    } catch {
+      // 忽略，继续本地清理
     }
     userStore.clearUser()
     window.location.reload()

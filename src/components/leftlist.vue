@@ -715,6 +715,10 @@
 
   // 退出登录
   const handleLogout = () => {
+    // 先发起服务端吊销（读取当前 token），再同步清理本地状态。
+    // 不 await：网络异常或后端无响应时不能阻塞退出。
+    Promise.resolve(api.logout()).catch(() => {})
+
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
 

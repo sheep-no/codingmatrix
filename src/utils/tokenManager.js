@@ -8,8 +8,36 @@
 let accessToken = null
 let tokenExpiry = null
 
+// 每次本地登出递增；在途刷新携带旧世代结果时必须丢弃，否则会把
+// 用户刚清掉的 token 写回存储，表现为"退出后又自动登录"。
+let sessionEpoch = 0
+
 // 进行中的刷新请求：并发调用共享同一次刷新，避免重复请求与竞态覆盖
 let inFlightRefresh = null
+
+// 单次刷新请求超时：网络或后端挂起时必须尽快失败，否则 inFlightRefresh
+// 会永久占位，所有等待刷新的请求随之卡死，首屏遮罩也无法结束。
+const REFRESH_TIMEOUT_MS = 6000
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  let timer = null
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      if (controller) controller.abort()
+      reject(new Error('Token refresh timeout'))
+    }, REFRESH_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([
+      fetch(url, controller ? { ...options, signal: controller.signal } : options),
+      timeout
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 // 初始化时尝试从 sessionStorage 恢复
 try {
@@ -104,6 +132,7 @@ export const useTokenManager = () => {
    * 清除 token
    */
   function clearToken() {
+    sessionEpoch += 1
     accessToken = null
     tokenExpiry = null
     try {
@@ -118,11 +147,12 @@ export const useTokenManager = () => {
    * 刷新 access token
    */
   async function performRefresh() {
+    const epochAtStart = sessionEpoch
     try {
       // 首先获取 CSRF token
       let csrfToken = null
       try {
-        const csrfResp = await fetch('/api/v1/csrf-token', { credentials: 'same-origin' })
+        const csrfResp = await fetchWithTimeout('/api/v1/csrf-token', { credentials: 'same-origin' })
         if (csrfResp.ok) {
           const csrfData = await csrfResp.json()
           csrfToken = csrfData.csrf_token
@@ -136,7 +166,7 @@ export const useTokenManager = () => {
         headers['X-CSRF-Token'] = csrfToken
       }
 
-      const response = await fetch('/api/v1/refresh', {
+      const response = await fetchWithTimeout('/api/v1/refresh', {
         method: 'POST',
         credentials: 'same-origin',
         headers
@@ -155,6 +185,10 @@ export const useTokenManager = () => {
 
       const data = await response.json()
       if (data.access_token) {
+        if (epochAtStart !== sessionEpoch) {
+          // 刷新期间用户已登出，丢弃晚到的 token
+          return false
+        }
         const parts = data.access_token.split('.')
         if (parts.length !== 3) {
           console.warn('[WARN] Invalid access_token format from refresh')
