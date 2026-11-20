@@ -329,9 +329,59 @@ async def test_empty_stream_is_counted_and_logged(monkeypatch):
         return empty()
 
     result = await llm_caller._invoke_adapter_with_retry(
-        factory, model="empty-model", stream=True, skip_semaphore=True
+        factory,
+        model="empty-model",
+        stream=True,
+        skip_semaphore=True,
+        provider=ModelProvider.SILICONFLOW,
     )
     assert [chunk async for chunk in result] == []
 
-    assert llm_caller.get_empty_stream_stats() == {"empty_stream_total": 1}
-    assert any("empty_stream model=empty-model" in message for message in warnings)
+    assert llm_caller.get_empty_stream_stats() == {
+        "empty_stream_total": 1,
+        "provider=siliconflow": 1,
+        "provider=siliconflow,model=empty-model": 1,
+    }
+    assert any(
+        "empty_stream provider=siliconflow model=empty-model" in message
+        for message in warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_stream_stats_group_by_provider_and_model(monkeypatch):
+    llm_caller.reset_empty_stream_stats()
+
+    async def factory():
+        async def empty():
+            if False:
+                yield ""
+
+        return empty()
+
+    async def fake_warning(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(llm_caller.logger, "warning", fake_warning)
+
+    for provider, model in (
+        (ModelProvider.SILICONFLOW, "a"),
+        (ModelProvider.SILICONFLOW, "b"),
+        (ModelProvider.DEEPSEEK, "a"),
+    ):
+        await llm_caller._invoke_adapter_with_retry(
+            factory,
+            model=model,
+            stream=True,
+            skip_semaphore=True,
+            provider=provider,
+        )
+
+    assert llm_caller.get_empty_stream_stats() == {
+        "empty_stream_total": 3,
+        "provider=siliconflow": 2,
+        "provider=siliconflow,model=a": 1,
+        "provider=siliconflow,model=b": 1,
+        "provider=deepseek": 1,
+        "provider=deepseek,model=a": 1,
+    }

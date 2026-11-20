@@ -615,9 +615,6 @@ class TestCallLLMDynamic:
             def get_fallback_providers(self, provider, model):
                 return []
 
-            def get_fallback_providers(self, provider, model):
-                return []
-
         class Adapter:
             provider = primary
             api_key = "k"
@@ -1105,6 +1102,33 @@ class TestCallLLMStreamFallback:
         result = await llm_caller.call_llm("m", "p", stream=True)
 
         assert [chunk async for chunk in result] == ["a", "b"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_empty_stream_is_counted_by_provider(self, monkeypatch):
+        primary = ModelProvider.SILICONFLOW
+        fallback = ModelProvider.DEEPSEEK
+
+        class Fallback:
+            provider = fallback
+            api_key = "k"
+            timeout = 0
+
+            async def call_llm(self, **kwargs):
+                return _agen()
+
+        self._install(monkeypatch, primary, fallback, Fallback())
+        monkeypatch.setattr("app.agent.llm_client.get_global_semaphore", lambda: None)
+        monkeypatch.setattr("app.agent.llm_client.get_model_semaphore", lambda model: None)
+        llm_caller.reset_empty_stream_stats()
+
+        result = await llm_caller.call_llm("fallback-empty", "p", stream=True)
+
+        assert [chunk async for chunk in result] == []
+        assert llm_caller.get_empty_stream_stats() == {
+            "empty_stream_total": 1,
+            "provider=deepseek": 1,
+            "provider=deepseek,model=fallback-empty": 1,
+        }
 
     @pytest.mark.asyncio
     async def test_fallback_non_stream_result_releases_semaphores(self, monkeypatch):

@@ -13,7 +13,7 @@ import time
 from collections import OrderedDict
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, Optional, Union
+from typing import Any, AsyncIterator, Dict, Optional, Tuple, Union
 
 import httpx
 
@@ -136,16 +136,57 @@ _model_cooldown_until: Dict[str, float] = {}
 _SEMAPHORE_ACQUIRE_TIMEOUT = 30.0
 
 # 200 空流代表供应商可能在首包前断开；计数并告警，先观测再决定是否升级为错误。
-_empty_stream_total = 0
+_empty_stream_counts: Dict[Tuple[str, str], int] = {}
+_empty_stream_lock = asyncio.Lock()
 
 
 def get_empty_stream_stats() -> Dict[str, int]:
-    return {"empty_stream_total": _empty_stream_total}
+    stats = {"empty_stream_total": sum(_empty_stream_counts.values())}
+    for (provider, model), count in _empty_stream_counts.items():
+        stats[f"provider={provider}"] = stats.get(f"provider={provider}", 0) + count
+        stats[f"provider={provider},model={model}"] = count
+    return stats
 
 
 def reset_empty_stream_stats() -> None:
-    global _empty_stream_total
-    _empty_stream_total = 0
+    _empty_stream_counts.clear()
+
+
+async def _record_empty_stream(provider: Optional[ModelProvider], model: str) -> None:
+    provider_key = getattr(provider, "value", provider) or "unknown"
+    key = (str(provider_key), model or "unknown")
+    async with _empty_stream_lock:
+        _empty_stream_counts[key] = _empty_stream_counts.get(key, 0) + 1
+
+
+async def _prime_stream(
+    result: Any,
+    provider: Optional[ModelProvider],
+    model: str,
+    attempt: str,
+) -> Optional[Any]:
+    """Peek the first chunk, recording empty streams and closing on failure."""
+    iterator = result.__aiter__()
+    try:
+        first_chunk = await iterator.__anext__()
+    except StopAsyncIteration:
+        await _record_empty_stream(provider, model)
+        logger.warning(
+            "empty_stream provider=%s model=%s attempt=%s",
+            getattr(provider, "value", provider) or "unknown",
+            model,
+            attempt,
+        )
+        return None
+    except Exception:
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            try:
+                await close()
+            except Exception:
+                pass
+        raise
+    return _PrefixedAsyncIterator(first_chunk, iterator)
 
 
 def reset_model_cooldowns() -> None:
@@ -316,6 +357,7 @@ async def _invoke_adapter_with_retry(
     stream: bool = False,
     skip_semaphore: bool = False,
     max_attempts: int = _RETRY_MAX_ATTEMPTS,
+    provider: Optional[ModelProvider] = None,
 ):
     """Call the adapter; on 429 release semaphores, cool down, then re-acquire."""
     lease = _LLMSemaphoreLease()
@@ -326,31 +368,18 @@ async def _invoke_adapter_with_retry(
         try:
             result = await coro_factory()
             if stream and hasattr(result, "__aiter__"):
-                iterator = result.__aiter__()
-                try:
-                    first_chunk = await iterator.__anext__()
-                except StopAsyncIteration:
-                    global _empty_stream_total
-                    _empty_stream_total += 1
-                    logger.warning(
-                        "empty_stream model=%s attempt=%d/%d",
-                        model,
-                        attempt + 1,
-                        max_attempts,
-                    )
+                primed = await _prime_stream(
+                    result,
+                    provider,
+                    model,
+                    f"{attempt + 1}/{max_attempts}",
+                )
+                if primed is None:
                     global_sem, model_sem = lease.transfer()
                     return _SemaphoreWrappedAsyncIterator(result, global_sem, model_sem)
-                except Exception:
-                    close = getattr(iterator, "aclose", None)
-                    if close is not None:
-                        try:
-                            await close()
-                        except Exception:
-                            pass
-                    raise
                 global_sem, model_sem = lease.transfer()
                 return _SemaphoreWrappedAsyncIterator(
-                    _PrefixedAsyncIterator(first_chunk, iterator),
+                    primed,
                     global_sem,
                     model_sem,
                 )
@@ -766,7 +795,7 @@ async def call_llm(
             thinking_budget=thinking_budget,
             cancel_event=cancel_event,
             messages=messages,
-        ), model=model, stream=stream, skip_semaphore=_skip_semaphore)
+        ), model=model, stream=stream, skip_semaphore=_skip_semaphore, provider=adapter.provider)
         if stream and hasattr(result, '__aiter__'):
             logger.info(f"[信号量] 流式模式，信号量将在迭代期间持有 {model}")
             return result
@@ -822,7 +851,17 @@ async def call_llm(
                         messages=messages,
                     )
                     if stream and hasattr(fallback_result, '__aiter__'):
-                        return _SemaphoreWrappedAsyncIterator(fallback_result, global_sem, model_sem)
+                        primed = await _prime_stream(
+                            fallback_result,
+                            fallback,
+                            model,
+                            "fallback",
+                        )
+                        if primed is None:
+                            return _SemaphoreWrappedAsyncIterator(
+                                fallback_result, global_sem, model_sem
+                            )
+                        return _SemaphoreWrappedAsyncIterator(primed, global_sem, model_sem)
                     if model_sem:
                         model_sem.release()
                     if global_sem:

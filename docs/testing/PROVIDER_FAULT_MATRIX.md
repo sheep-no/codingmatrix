@@ -15,14 +15,14 @@
 | 流式 5xx | 立即上抛，不重试 | `httpx.HTTPStatusError` | 不重试 | 本矩阵新增 |
 | 错误体过大 | 只保留前 500 字符 | 同流式非 200 | 同左 | 本矩阵新增 |
 | 错误体读取失败 | 仍抛出状态错误，body 为空 | `httpx.HTTPStatusError` | 同左 | 本矩阵新增 |
-| 200 但空流 | 视为成功的空输出，累计 `empty_stream_total` 并打 WARNING | 无 | 无 | 本矩阵新增 |
+| 200 但空流 | 视为成功的空输出，按 provider/model 累计并打 WARNING | 无 | 无 | 本矩阵新增 |
 
 ## 统一约定
 
 - 所有适配器的非 200 响应统一抛 `app.utils.aicloud.errors.LLMCallError`，携带 `status_code`、稳定 `code` 和可选的 `retry_after`。
 - `llm_caller.call_llm` 对遗留的 `HTTPException`、`httpx.HTTPStatusError` 和带 `status_code` 的异常做最后归一化，公共调用方只需处理 `LLMCallError`。
 - 流式传输错误只在首个 chunk 交付前重试；一旦有 chunk 交付就停止重试，避免重复输出。
-- 空流保留成功语义，通过 `get_empty_stream_stats()` 和 `empty_stream` 日志观测；连续增长时再评估升级为错误。
+- 空流保留成功语义，通过 `get_empty_stream_stats()` 观测总量、provider 汇总和 provider/model 明细；连续增长时再评估升级为错误。
 
 ## 新增回归
 

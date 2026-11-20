@@ -1134,9 +1134,9 @@ E2E 维持非阻塞：`e2e.yml` 已记录 GH runner 的 Chromium TimeTicks 崩�
 | P1 宽泛异常 | 新增棘轮测试，`except Exception` 总数不得超过 832（含 rebase 后上游新增 2 处），阻止继续扩散 | `tests/unit/test_error_handling_budget.py` | 1 项通过 |
 | P2 真实 MySQL | 新增 MySQL 8.4 运行时集成测试：全量建表、迁移幂等、迁移命名锁互斥、会话 ID 命名锁互斥；CI 增加 `mysql-integration` job | `tests/integration/test_mysql_runtime.py`、`.github/workflows/ci.yml` | 本地无 MySQL 时 4 项跳过；CI job 真实执行 |
 | 依赖安全 | `pip-audit` 改为阻断；可修复依赖升级到补丁版，漏洞从 79 项降至 7 项已知且显式豁免（ecdsa/python-jose 无修复、soupsieve 需 Python >= 3.11.5、OTel 1.45 与 jaeger-thrift 1.21 不兼容） | `configs/requirements.txt`、`.github/workflows/ci.yml` | 带豁免运行 `pip-audit` 返回 0 |
-| P2 故障注入 | 建立 Provider 故障矩阵，明确认证、限流、5xx、超时、流式中断的预期错误码与重试策略；适配器非 200 统一为 `LLMCallError`，公共入口兜底归一化；空流计数并告警；首 chunk 前传输错误退避重试；补齐 8 项缺口与 2 项真实 HTTP 注入回归 | `docs/testing/PROVIDER_FAULT_MATRIX.md`、`app/utils/aicloud/errors.py`、`tests/unit/test_provider_fault_matrix.py`、`tests/integration/test_provider_stream_fault_injection.py` | 新增 10 项通过 |
+| P2 故障注入 | 建立 Provider 故障矩阵，明确认证、限流、5xx、超时、流式中断的预期错误码与重试策略；适配器非 200 统一为 `LLMCallError`，公共入口兜底归一化；空流按 provider/model 计数并告警，覆盖 fallback；首 chunk 前传输错误退避重试；补齐 9 项缺口与 2 项真实 HTTP 注入回归 | `docs/testing/PROVIDER_FAULT_MATRIX.md`、`app/utils/aicloud/errors.py`、`tests/unit/test_provider_fault_matrix.py`、`tests/integration/test_provider_stream_fault_injection.py` | 新增 12 项通过 |
 
-全量回归（`tests/unit` + `tests/integration`，`--cov-branch`）：`14871 passed, 6 skipped, 0 failed`，总覆盖率 `99.74%`。
+全量回归（`tests/unit` + `tests/integration`，`--cov-branch`）：`14873 passed, 6 skipped, 0 failed`，总覆盖率 `99.74%`。
 
 ## 相关文档
 
