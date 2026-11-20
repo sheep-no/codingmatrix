@@ -1,5 +1,6 @@
 import logging
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -14,6 +15,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
+metrics_security = HTTPBearer(auto_error=False)
 WS_TOKEN_EXPIRED = 4001
 WS_TOKEN_REFRESH_EXPIRED = 4003
 # bcrypt 只使用输入的前 72 字节，超出部分被静默丢弃会导致不同密码碰撞。
@@ -163,6 +165,25 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     set_user_id(payload.get("sub"))
 
     return payload
+
+
+async def verify_metrics_access(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(metrics_security),
+) -> dict:
+    """Allow the long-lived metrics token or a normal JWT for monitoring endpoints."""
+    token = credentials.credentials.strip() if credentials is not None else ""
+    expected = settings.METRICS_TOKEN.strip()
+    # compare_digest 对非 ASCII str 会抛 TypeError，统一转 bytes 比较。
+    if expected and token and secrets.compare_digest(
+        token.encode("utf-8"), expected.encode("utf-8")
+    ):
+        return {"sub": "metrics", "type": "metrics"}
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少监控访问令牌",
+        )
+    return await verify_token(credentials)
 
 
 def require_superadmin(payload: dict = Depends(verify_token)) -> dict:

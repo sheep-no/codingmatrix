@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1 import health as health_api
 
@@ -264,6 +265,118 @@ async def test_prometheus_metrics_without_gc_stats_skips_counter(monkeypatch):
     await health_api.prometheus_metrics(token={})
 
     assert counters == []
+
+
+@pytest.mark.asyncio
+async def test_metrics_access_accepts_long_lived_token(monkeypatch):
+    from app.utils import security
+
+    monkeypatch.setattr(security.settings, "METRICS_TOKEN", "m" * 20)
+    credentials = security.HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="m" * 20
+    )
+
+    payload = await security.verify_metrics_access(credentials)
+
+    assert payload == {"sub": "metrics", "type": "metrics"}
+
+
+@pytest.mark.asyncio
+async def test_metrics_access_rejects_missing_and_invalid_token(monkeypatch):
+    from app.utils import security
+
+    monkeypatch.setattr(security.settings, "METRICS_TOKEN", "m" * 20)
+    with pytest.raises(HTTPException) as missing:
+        await security.verify_metrics_access(None)
+    assert missing.value.status_code == 401
+
+    async def reject(_credentials):
+        raise HTTPException(status_code=401, detail="Token 无效")
+
+    monkeypatch.setattr(security, "verify_token", reject)
+    wrong = security.HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="wrong-token"
+    )
+    with pytest.raises(HTTPException) as invalid:
+        await security.verify_metrics_access(wrong)
+    assert invalid.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_metrics_access_falls_back_to_jwt(monkeypatch):
+    from app.utils import security
+
+    monkeypatch.setattr(security.settings, "METRICS_TOKEN", "")
+
+    async def accept(credentials):
+        assert credentials.credentials == "jwt"
+        return {"sub": "1", "type": "access"}
+
+    monkeypatch.setattr(security, "verify_token", accept)
+    credentials = security.HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="jwt"
+    )
+
+    assert await security.verify_metrics_access(credentials) == {
+        "sub": "1",
+        "type": "access",
+    }
+
+
+@pytest.mark.asyncio
+async def test_metrics_access_handles_non_ascii_and_padded_token(monkeypatch):
+    from app.utils import security
+
+    monkeypatch.setattr(security.settings, "METRICS_TOKEN", " 监控令牌-abcdef  \n")
+    credentials = security.HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials="监控令牌-abcdef"
+    )
+
+    assert await security.verify_metrics_access(credentials) == {
+        "sub": "metrics",
+        "type": "metrics",
+    }
+
+
+@pytest.mark.asyncio
+async def test_alertmanager_webhook_logs_alerts(monkeypatch):
+    messages = []
+    monkeypatch.setattr(
+        health_api.logger,
+        "warning",
+        lambda message, *args: messages.append(message % args),
+    )
+    payload = health_api.AlertmanagerWebhook(
+        status="firing",
+        alerts=[
+            health_api.AlertmanagerAlert(
+                status="firing",
+                labels={
+                    "alertname": "LlmEmptyStreamSpike",
+                    "severity": "warning",
+                    "provider": "siliconflow",
+                    "model": "empty-model",
+                },
+                annotations={"summary": "empty streams"},
+            )
+        ],
+    )
+
+    result = await health_api.receive_alertmanager_webhook(payload, _token={})
+
+    assert result == {"received": 1, "status": "firing"}
+    assert "alertmanager_alert status=firing" in messages[0]
+    assert "alertname=LlmEmptyStreamSpike" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_alertmanager_webhook_rejects_more_than_100_alerts():
+    alerts = [
+        {"status": "firing", "labels": {"alertname": f"a{i}"}}
+        for i in range(101)
+    ]
+    with pytest.raises(Exception):
+        health_api.AlertmanagerWebhook(alerts=alerts)
 
 
 @pytest.mark.asyncio

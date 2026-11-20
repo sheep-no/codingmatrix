@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     GENERATED_ASSET_RETENTION_DAYS: int = 30
 
     SECRET_KEY: str = ""
+    # 供 Prometheus/Alertmanager 抓取和回调使用的长期令牌；留空时仅允许 JWT。
+    METRICS_TOKEN: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
 
@@ -64,6 +66,13 @@ class Settings(BaseSettings):
             return "development-only-secret-key-change-me"
         if len(v) < 16:
             raise ValueError("SECRET_KEY 长度不能小于 16 字符")
+        return v
+
+    @field_validator("METRICS_TOKEN")
+    @classmethod
+    def validate_metrics_token(cls, v):
+        if v and len(v) < 16:
+            raise ValueError("METRICS_TOKEN 长度不能小于 16 字符")
         return v
 
     @field_validator("DB_POOL_SIZE")

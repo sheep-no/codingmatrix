@@ -16,15 +16,30 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.version import APP_VERSION
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
-from app.utils.security import verify_token
+from app.utils.security import verify_metrics_access, verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
+
+
+class AlertmanagerAlert(BaseModel):
+    status: str = "firing"
+    labels: dict[str, str] = Field(default_factory=dict)
+    annotations: dict[str, str] = Field(default_factory=dict)
+    startsAt: str | None = None
+    endsAt: str | None = None
+
+
+class AlertmanagerWebhook(BaseModel):
+    version: str = "4"
+    status: str = "firing"
+    alerts: list[AlertmanagerAlert] = Field(default_factory=list, max_length=100)
 
 
 def _release_info() -> dict:
@@ -148,7 +163,7 @@ async def detailed_health_check(token: dict = Depends(verify_token)):
 
 
 @router.get("/metrics", include_in_schema=False)
-async def prometheus_metrics(token: dict = Depends(verify_token)):
+async def prometheus_metrics(token: dict = Depends(verify_metrics_access)):
     """
     Prometheus 指标端点
 
@@ -179,6 +194,31 @@ async def prometheus_metrics(token: dict = Depends(verify_token)):
 
     text = generate_metrics_text()
     return Response(content=text, media_type="text/plain; charset=utf-8")
+
+
+@router.post("/alerts", include_in_schema=False)
+async def receive_alertmanager_webhook(
+    payload: AlertmanagerWebhook,
+    _token: dict = Depends(verify_metrics_access),
+) -> dict:
+    """Receive Alertmanager notifications and surface them in structured logs."""
+    for alert in payload.alerts:
+        labels = alert.labels
+        summary = (
+            alert.annotations.get("summary")
+            or alert.annotations.get("description")
+            or ""
+        )[:200]
+        logger.warning(
+            "alertmanager_alert status=%s alertname=%s severity=%s provider=%s model=%s summary=%s",
+            alert.status,
+            labels.get("alertname", "unknown"),
+            labels.get("severity", "unknown"),
+            labels.get("provider", "unknown"),
+            labels.get("model", "unknown"),
+            summary,
+        )
+    return {"received": len(payload.alerts), "status": payload.status}
 
 
 @router.get("/models", summary="模型健康状态")

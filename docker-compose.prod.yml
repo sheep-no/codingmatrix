@@ -34,6 +34,7 @@ services:
       # 多 worker/多容器必须共用外部数据库；示例见 .env.example
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       # 与 celery/scheduler 共用同一密钥卷，避免各容器各自生成 RSA 密钥
       - RSA_KEY_DIR=/app/keys
       # 可选：设置后私钥以口令加密落盘，留空则保持明文（仅 0o600 权限保护）
@@ -301,6 +302,96 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  # ---------------------------------------------------------------------------
+  # Prometheus + Alertmanager (optional: --profile observability)
+  # ---------------------------------------------------------------------------
+  metrics-init:
+    image: alpine:3.20
+    container_name: ai-agent-metrics-init-prod
+    profiles: ["observability"]
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        test -n "$$METRICS_TOKEN" ||
+        { echo "METRICS_TOKEN must be set for observability profile" >&2; exit 1; };
+        printf %s "$$METRICS_TOKEN" > /token/metrics_token
+    environment:
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+    volumes:
+      - metrics-token:/token
+    networks:
+      - ai-agent-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 32M
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    container_name: ai-agent-prometheus-prod
+    profiles: ["observability"]
+    restart: always
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./configs/prometheus.compose.yml:/etc/prometheus/prometheus.yml:ro
+      - ./configs/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - metrics-token:/etc/monitoring:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      metrics-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - ai-agent-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: ai-agent-alertmanager-prod
+    profiles: ["observability"]
+    restart: always
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./configs/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - metrics-token:/etc/monitoring:ro
+      - alertmanager-data:/alertmanager
+    depends_on:
+      metrics-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - ai-agent-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
 # ---------------------------------------------------------------------------
 # Named Volumes
 # ---------------------------------------------------------------------------
@@ -326,6 +417,12 @@ volumes:
   redis-apikeys-data:
     driver: local
   nginx-logs:
+    driver: local
+  metrics-token:
+    driver: local
+  prometheus-data:
+    driver: local
+  alertmanager-data:
     driver: local
 
 # ---------------------------------------------------------------------------

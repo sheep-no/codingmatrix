@@ -104,3 +104,11 @@ def test_settings_exposes_no_unwired_allowed_models_field():
 def test_settings_exposes_no_unwired_allowed_file_types_field():
     """CFG3：ALLOWED_FILE_TYPES 零消费（上传实际用 file_upload.ALLOWED_EXTENSIONS），已移除。"""
     assert not hasattr(get_settings(), "ALLOWED_FILE_TYPES")
+
+
+def test_metrics_token_is_optional_but_never_short():
+    """监控令牌留空表示仅允许 JWT；一旦配置必须足够长以抵抗猜测。"""
+    assert _settings(METRICS_TOKEN="").METRICS_TOKEN == ""
+    assert _settings(METRICS_TOKEN="m" * 16).METRICS_TOKEN == "m" * 16
+    with pytest.raises(ValidationError):
+        _settings(METRICS_TOKEN="short")

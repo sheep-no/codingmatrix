@@ -59,3 +59,36 @@ def test_prod_compose_shares_cleanup_volumes_with_scheduler():
 
     for volume in ("uploads", "ppt-artifacts", "generated-images", "projects"):
         assert volume in compose["volumes"]
+
+
+def test_monitoring_stack_is_optional_and_wired():
+    compose = _load("docker-compose.yml")
+    services = compose["services"]
+
+    assert {"metrics-init", "prometheus", "alertmanager"} <= set(services)
+    for name in ("metrics-init", "prometheus", "alertmanager"):
+        assert services[name]["profiles"] == ["observability"]
+
+    assert "metrics-token:/etc/monitoring:ro" in services["prometheus"]["volumes"]
+    assert "metrics-token:/etc/monitoring:ro" in services["alertmanager"]["volumes"]
+    assert "metrics-token:/token" in services["metrics-init"]["volumes"]
+
+    default_services = {
+        name
+        for name, service in services.items()
+        if not service.get("profiles")
+    }
+    assert default_services.isdisjoint({"metrics-init", "prometheus", "alertmanager"})
+
+
+def test_prod_monitoring_stack_is_optional_and_wired():
+    compose = _load("docker-compose.prod.yml")
+    services = compose["services"]
+
+    for name in ("metrics-init", "prometheus", "alertmanager"):
+        assert services[name]["profiles"] == ["observability"]
+
+    assert services["prometheus"]["depends_on"]["api"]["condition"] == "service_healthy"
+    assert services["alertmanager"]["depends_on"]["api"]["condition"] == "service_healthy"
+    for volume in ("metrics-token", "prometheus-data", "alertmanager-data"):
+        assert volume in compose["volumes"]

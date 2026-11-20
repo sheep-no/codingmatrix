@@ -35,6 +35,15 @@
 
 基础 Compose 还定义了 `jaeger` 服务，通过 `profiles: ["observability"]` 门控，默认不启动。执行 `docker compose --profile observability up` 才会拉起，因此默认服务数为 4。
 
+同一 profile 还提供 `metrics-init`、`prometheus` 和 `alertmanager`。`metrics-init` 从 `METRICS_TOKEN` 生成共享令牌文件，Prometheus 用它抓取 `/api/v1/health/metrics`，Alertmanager 用它回调 `/api/v1/health/alerts`。启用前必须设置至少 16 字符的 `METRICS_TOKEN`：
+
+```bash
+export METRICS_TOKEN=$(openssl rand -hex 32)
+docker compose --profile observability up -d
+```
+
+启用后 Prometheus UI 位于 `127.0.0.1:9090`，Alertmanager UI 位于 `127.0.0.1:9093`。未启用 profile 时应用仍可启动，`METRICS_TOKEN` 留空表示指标端点只接受 JWT。
+
 ### 生产 Compose
 
 `docker-compose.prod.yml` 的 `services` 实际包含 7 个服务：`api`、`celery`、`scheduler`、`mysql`、`redis`、`redis-apikeys`、`nginx`。
@@ -48,6 +57,8 @@
 - `nginx` 等待 `api` 健康后启动，暴露 `80:80`，使用 `nginx-logs`；静态目录仍挂载为 `./src/dist:/workspace/src/dist:ro`。
 
 生产 Compose 没有 Jaeger 服务。应用的 `app/agent/tracing.py` 支持 `OTEL_ENABLED`、`OTEL_EXPORTER`、`OTEL_JAEGER_ENDPOINT` 和 OTLP 配置，默认关闭追踪；当前 Compose 没有提供 Jaeger 或 OTEL Collector，因此仅设置 `OTEL_ENABLED=1` 不能形成完整的追踪链路。
+
+生产 Compose 同样以 `observability` profile 提供 Prometheus/Alertmanager。两者等待 API 健康后启动，抓取与回调共用 `metrics-token` 卷。空流告警规则由 `configs/alert_rules.yml` 加载，告警经 `configs/alertmanager.yml` 投递到 API 的结构化日志。
 
 ## 当前 Docker 配置
 
@@ -165,7 +176,8 @@ alembic -c configs/alembic.ini current
 | `GET /api/v1/health/live` | 只返回 `status: alive` 和 UTC `timestamp`，不检查外部依赖。 |
 | `GET /api/v1/health/ready` | 检查数据库和 Redis，并返回 `status: ready/not_ready`、`checks.database`、`checks.redis` 和 UTC `timestamp`。Redis 未配置时快速检查视为通过。 |
 | `GET /api/v1/health/detailed` | 返回 `health_checker.check_all()` 结果，包含 `api`、`database`、`redis`、`celery`、`websocket`、`system` 六类检查、各项状态和整体状态。`version` 与 `/health` 同源。Celery 在 broker 不可达、inspect 抛错，或 broker 可达但无任何 worker 响应时标记为 `degraded`。 |
-| `GET /api/v1/health/metrics` | 返回 `text/plain; charset=utf-8` 的自定义 Prometheus 文本；更新 API 和进程内存状态。当前源码对同步方法 `get_connection_count()` 使用 `await`，异常会被捕获并把 WebSocket 健康状态写为 0，活跃连接数不会更新。源码还创建 GC 计数器，但当前文本生成器只输出部分计数器和 gauge。 |
+| `GET /api/v1/health/metrics` | 返回 `text/plain; charset=utf-8` 的自定义 Prometheus 文本；更新 API 和进程内存状态。接受 `METRICS_TOKEN` 长期令牌或普通 JWT。当前源码对同步方法 `get_connection_count()` 使用 `await`，异常会被捕获并把 WebSocket 健康状态写为 0，活跃连接数不会更新。源码还创建 GC 计数器，但当前文本生成器只输出部分计数器和 gauge。 |
+| `POST /api/v1/health/alerts` | Alertmanager Webhook 接收端，用 `METRICS_TOKEN` 鉴权；每条告警写入 `alertmanager_alert` 结构化日志，返回接收数量与整体状态。 |
 | `GET /api/v1/health/models` | 调用动态模型路由器的 `get_model_health_report()`，返回 `status: success`、`models`、UTC 时间戳；模型报告具体字段由动态路由器实现决定。 |
 
 通过 Nginx 验证入口：
@@ -175,7 +187,7 @@ curl -i http://localhost/health
 curl -i http://localhost/api/v1/health/live
 curl -i http://localhost/api/v1/health/ready
 curl -i http://localhost/api/v1/health/detailed
-curl -i http://localhost/api/v1/health/metrics
+curl -i -H "Authorization: Bearer $METRICS_TOKEN" http://localhost/api/v1/health/metrics
 curl -i http://localhost/api/v1/health/models
 ```
 

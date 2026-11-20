@@ -27,7 +27,9 @@
 │   ├── .coveragerc              # 覆盖率配置
 │   ├── nginx.conf               # Nginx 配置
 │   ├── prometheus.yml           # Prometheus 抓取配置
+│   ├── prometheus.compose.yml   # 容器内 Prometheus 抓取与告警路由
 │   ├── alert_rules.yml          # Prometheus 空流告警规则
+│   ├── alertmanager.yml         # Alertmanager 路由与 API Webhook
 │   └── playwright.config.js     # Playwright 多浏览器配置
 │
 ├── .git/                        # Git 仓库

@@ -1,0 +1,26 @@
+# Prometheus configuration for the observability compose profile.
+# The scrape token is mounted from the shared metrics-token volume.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ai-agent-server'
+    static_configs:
+      - targets: ['api:8080']
+    metrics_path: '/api/v1/health/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /etc/monitoring/metrics_token
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml

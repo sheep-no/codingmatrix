@@ -47,7 +47,7 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 `configs/requirements.txt` 已声明 OpenTelemetry API、SDK、Jaeger Thrift exporter 和 OTLP exporter 依赖。
 
-仓库根目录 `docker-compose.yml` 当前把 Jaeger 定义缩进在顶层 `networks` 块内，未形成可由 Compose 启动的 `services.jaeger`。使用 `docker compose up jaeger` 前应先修复 Compose 结构，或使用部署环境已有的 collector。
+仓库根目录 `docker-compose.yml` 已将 Jaeger 放入 `services`，并以 `observability` profile 门控。执行 `docker compose --profile observability up` 可同时拉起 Jaeger、Prometheus 和 Alertmanager；监控令牌由 `METRICS_TOKEN` 经共享卷注入。
 
 ## 实际 Span
 
@@ -144,7 +144,7 @@ headers = inject_trace_context({"Content-Type": "application/json"})
 - 将 `shutdown_tracing()` 接入 FastAPI lifespan 的关闭阶段。
 - 为 HTTP 与 Celery 入口建立根 Span，并在出站请求中调用 `inject_trace_context()`。
 - 对采样率与批处理配置增加边界校验和错误回退。
-- 修复 Compose 的 Jaeger 服务结构，再将 Jaeger UI 纳入本地观测拓扑。
+- 为 Alertmanager Webhook 增加实际的 IM/邮件通知渠道，当前只写入结构化日志。
 - 按数据分类规则审核新增属性，避免采集凭据和用户内容。
 
 ## 相关文档

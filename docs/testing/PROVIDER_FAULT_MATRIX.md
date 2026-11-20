@@ -25,6 +25,8 @@
 - 空流保留成功语义，通过 `get_empty_stream_stats()` 观测总量、provider 汇总和 provider/model 明细；连续增长时再评估升级为错误。
 - 同一事件同步写入 `llm_empty_streams_total{provider,model}` 指标，供 `/metrics` 聚合与告警。
 - `configs/alert_rules.yml` 提供两级告警：单模型 10 分钟 3 次为 warning，单 provider 30 分钟 10 次为 critical。
+- `configs/alertmanager.yml` 将告警回调到 `POST /api/v1/health/alerts`，与指标抓取共用 `METRICS_TOKEN`；回调内容写入结构化日志，便于后续接入 IM/邮件通知。
+- 容器观测链路由 `observability` profile 提供：`metrics-init` 写入令牌，Prometheus 抓取指标并加载规则，Alertmanager 负责分组与投递。
 
 ## 新增回归
 

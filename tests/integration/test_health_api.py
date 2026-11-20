@@ -6,20 +6,23 @@
 - GET /api/v1/health/ready - 就绪检查
 - GET /api/v1/health/live - 存活检查
 """
-import pytest
-from httpx import AsyncClient, ASGITransport
-import sys
 import os
+import sys
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.main import app
-from app.utils.security import verify_token
+from app.utils.security import verify_metrics_access, verify_token
 
 
 @pytest.fixture
 def auth_override():
     """/health/detailed 与 /health/metrics 需要鉴权，测试直接覆盖依赖。"""
     app.dependency_overrides[verify_token] = lambda: {"sub": "1"}
+    app.dependency_overrides[verify_metrics_access] = lambda: {"sub": "1"}
     yield
     app.dependency_overrides.clear()
 
