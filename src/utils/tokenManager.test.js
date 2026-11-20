@@ -59,4 +59,43 @@ describe('tokenManager.refreshAccessToken 并发去重', () => {
     expect(await tokenManager.refreshAccessToken()).toBe(true)
     expect(refreshCallCount()).toBe(2)
   })
+
+  it('刷新在途时登出，晚到的刷新结果不得写回 token', async () => {
+    const tokenManager = useTokenManager()
+
+    const refreshing = tokenManager.refreshAccessToken()
+    tokenManager.clearToken()
+
+    expect(await refreshing).toBe(false)
+    expect(tokenManager.getToken()).toBeNull()
+    expect(localStorage.getItem('access_token')).toBeNull()
+    expect(sessionStorage.getItem('_token')).toBeNull()
+  })
+
+  it('刷新请求挂起时在超时后失败，且后续刷新可重新发起', async () => {
+    vi.useFakeTimers()
+    let hang = true
+    fetchMock.mockImplementation(async (url) => {
+      const target = String(url)
+      if (target.includes('/csrf-token')) {
+        return { ok: true, json: async () => ({ csrf_token: 'csrf' }) }
+      }
+      if (target.includes('/refresh')) {
+        if (hang) return new Promise(() => {})
+        return { ok: true, json: async () => ({ access_token: makeAccessToken() }) }
+      }
+      throw new Error(`unexpected fetch: ${target}`)
+    })
+
+    const tokenManager = useTokenManager()
+    const pending = tokenManager.refreshAccessToken()
+    await vi.advanceTimersByTimeAsync(7000)
+
+    expect(await pending).toBe(false)
+    expect(tokenManager.getToken()).toBeNull()
+
+    hang = false
+    expect(await tokenManager.refreshAccessToken()).toBe(true)
+    vi.useRealTimers()
+  })
 })

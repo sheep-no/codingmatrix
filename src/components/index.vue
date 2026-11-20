@@ -1232,6 +1232,11 @@
   }
 
   const handleLogout = () => {
+    // 中断仍在进行的流式生成，避免登出后旧请求继续写入会话
+    if (isStreamActive.value) {
+      streamManager.abortCurrentRequest()
+      isStreamActive.value = false
+    }
     resetWorkspaceForAccountChange()
     navigationStore.hideAllTools()
   }

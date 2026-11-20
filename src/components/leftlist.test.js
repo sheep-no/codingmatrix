@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const apiMock = vi.hoisted(() => ({
   post: vi.fn(),
   delete: vi.fn(),
-  deleteChatHistory: vi.fn()
+  deleteChatHistory: vi.fn(),
+  logout: vi.fn()
 }))
 
 const userState = vi.hoisted(() => ({
@@ -77,6 +78,8 @@ describe('搜索历史记录', () => {
     apiMock.delete.mockReset()
     apiMock.deleteChatHistory.mockReset()
     apiMock.deleteChatHistory.mockResolvedValue(jsonResponse({ ok: true }))
+    apiMock.logout.mockReset()
+    apiMock.logout.mockResolvedValue(true)
     chatDbMock.deleteConversation.mockReset()
     chatDbMock.deleteConversation.mockResolvedValue(true)
     userState.isLoggedIn = true
@@ -213,4 +216,19 @@ describe('搜索历史记录', () => {
     expect(wrapper.findAll('.history-item')).toHaveLength(0)
     wrapper.unmount()
   })
+
+  it('侧边栏退出时通知服务端吊销令牌并清理本地登录态', async () => {
+    const wrapper = mountLeftlist()
+    await flushAfterLogout(wrapper)
+
+    expect(apiMock.logout).toHaveBeenCalledTimes(1)
+    expect(userState.clearUser).toHaveBeenCalled()
+    expect(wrapper.emitted('logout')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })
+
+async function flushAfterLogout(wrapper) {
+  await wrapper.get('.logout-btn').trigger('click')
+  await flushPromises()
+}

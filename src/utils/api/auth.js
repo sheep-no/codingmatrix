@@ -3,7 +3,7 @@
  */
 import { encryptLoginData } from '../encryption'
 import { getCsrfToken } from '../csrf'
-import { apiUrl } from './base'
+import { apiUrl, getValidToken } from './base'
 
 export function createAuthClient(client) {
   return {
@@ -76,8 +76,26 @@ export function createAuthClient(client) {
     },
 
     async logout() {
+      // 登出必须使用当前 token 立即吊销，不能走客户端的自动刷新：
+      // 登出期间刷新返回的新 token 会被作废，refresh Cookie 反而残留。
+      const token = getValidToken()
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
+
       try {
-        const response = await client.post('/logout', {})
+        const response = await fetch(`${apiUrl}/logout`, {
+          method: 'POST',
+          headers,
+          body: '{}',
+          credentials: 'include',
+          keepalive: true
+        })
         return response.ok
       } catch (error) {
         return false
