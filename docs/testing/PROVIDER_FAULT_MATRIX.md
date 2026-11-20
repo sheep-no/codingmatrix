@@ -24,6 +24,7 @@
 - 流式传输错误只在首个 chunk 交付前重试；一旦有 chunk 交付就停止重试，避免重复输出。
 - 空流保留成功语义，通过 `get_empty_stream_stats()` 观测总量、provider 汇总和 provider/model 明细；连续增长时再评估升级为错误。
 - 同一事件同步写入 `llm_empty_streams_total{provider,model}` 指标，供 `/metrics` 聚合与告警。
+- `configs/alert_rules.yml` 提供两级告警：单模型 10 分钟 3 次为 warning，单 provider 30 分钟 10 次为 critical。
 
 ## 新增回归
 

@@ -1,0 +1,20 @@
+groups:
+  - name: llm-provider-health
+    rules:
+      - alert: LlmEmptyStreamSpike
+        expr: sum by (provider, model) (increase(llm_empty_streams_total[10m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM 空流激增"
+          description: "{{ $labels.provider }}/{{ $labels.model }} 在 10 分钟内新增 {{ $value }} 次空流"
+
+      - alert: LlmEmptyStreamProviderSustained
+        expr: sum by (provider) (increase(llm_empty_streams_total[30m])) >= 10
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM 供应商持续返回空流"
+          description: "{{ $labels.provider }} 在 30 分钟内累计 {{ $value }} 次空流，请检查上游状态或熔断"

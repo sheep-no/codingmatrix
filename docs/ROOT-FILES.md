@@ -26,7 +26,8 @@
 │   ├── pytest.ini               # Pytest 配置
 │   ├── .coveragerc              # 覆盖率配置
 │   ├── nginx.conf               # Nginx 配置
-│   ├── prometheus.yml           # Prometheus 配置
+│   ├── prometheus.yml           # Prometheus 抓取配置
+│   ├── alert_rules.yml          # Prometheus 空流告警规则
 │   └── playwright.config.js     # Playwright 多浏览器配置
 │
 ├── .git/                        # Git 仓库
