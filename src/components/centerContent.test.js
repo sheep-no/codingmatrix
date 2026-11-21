@@ -100,10 +100,14 @@ describe('chat resize scrolling', () => {
     expect(wrapper.get('#conversation-title').text()).toBe('最新一轮提问')
   })
 
-  it('toggles the header menu and closes it on outside click', async () => {
+  it('opens the header menu and keeps it open on a repeated click', async () => {
     const trigger = wrapper.get('.header-menu-btn')
     expect(trigger.attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('.header-menu-list').exists()).toBe(false)
+
+    await trigger.trigger('click')
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('.header-menu-list').exists()).toBe(true)
 
     await trigger.trigger('click')
     expect(trigger.attributes('aria-expanded')).toBe('true')

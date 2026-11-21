@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import UploadModal from './UploadModal.vue'
 
 afterEach(() => {
@@ -36,5 +36,26 @@ describe('UploadModal accessibility', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+  })
+
+  it('ignores an overlay click that belongs to the opening double click', async () => {
+    const wrapper = mount(UploadModal, {
+      attachTo: document.body,
+      props: { modelValue: false }
+    })
+
+    await wrapper.setProps({ modelValue: true })
+    await wrapper.vm.$nextTick()
+
+    document.querySelector('.modal-overlay').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 1000)
+    document.querySelector('.modal-overlay').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    vi.useRealTimers()
   })
 })
