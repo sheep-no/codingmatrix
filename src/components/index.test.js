@@ -191,6 +191,29 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistoryMap.size).toBe(0)
   })
 
+  it('新建会话时中断流式请求并清空草稿与侧栏高亮', () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = '42'
+    state.conversationHistory = [{ prompt: 'old' }]
+    state.conversationHistoryMap.set('42', [{ prompt: 'old' }])
+    state.isStreamActive = true
+    const clearActiveHistory = vi.fn()
+    const clearDraft = vi.fn()
+    state.leftlistRef = { clearActiveHistory }
+    state.bottominputRef = { clearDraft }
+    const abort = vi.spyOn(streamManager, 'abortCurrentRequest')
+
+    state.handleNewConversation()
+
+    expect(abort).toHaveBeenCalled()
+    expect(state.isStreamActive).toBe(false)
+    expect(state.conversationHistory).toEqual([])
+    expect(state.currentConversationId).toBeNull()
+    expect(clearActiveHistory).toHaveBeenCalled()
+    expect(clearDraft).toHaveBeenCalled()
+  })
+
   it.each([undefined, 'chosen-model'])('传递联网模式并保持自动或显式选模：%s', async model => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState

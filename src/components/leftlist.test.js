@@ -109,6 +109,17 @@ describe('搜索历史记录', () => {
     wrapper.unmount()
   })
 
+  it('工具集菜单使用浮层定位并限制在视口内', async () => {
+    const wrapper = mountLeftlist()
+    await wrapper.get('#toolkit').trigger('click')
+    const menu = wrapper.get('#toolkit-menu')
+    expect(menu.attributes('style')).toContain('top:')
+    expect(menu.attributes('style')).toContain('max-height:')
+
+    wrapper.vm.clearActiveHistory()
+    wrapper.unmount()
+  })
+
   it('provides a task queue entry so the mounted tool is reachable（FRESCAN-64）', async () => {
     const wrapper = mountLeftlist()
     await wrapper.get('#toolkit').trigger('click')

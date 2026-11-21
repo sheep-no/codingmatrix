@@ -1105,6 +1105,8 @@
     currentConversationId.value = null
     tempConversationId.value = null
     conversationHistory.value = []
+    editMessage.value = ''
+    showMessageEditor.value = false
     localStorage.removeItem('chatState')
     streamManager.clearStreamRequestState()
   }
@@ -1214,6 +1216,13 @@
   }
 
   const handleNewConversation = () => {
+    // 会话打开态点「新建会话」：先中断仍在进行的流式请求，
+    // 否则 isStreamActive 一直为 true，输入框保持禁用，看起来像点击无效。
+    if (isStreamActive.value) {
+      streamManager.abortCurrentRequest()
+      isStreamActive.value = false
+    }
+
     if (currentConversationId.value) {
       saveConversationToMap(currentConversationId.value)
     }
@@ -1224,6 +1233,8 @@
     conversationHistory.value = []
     localStorage.removeItem('chatState')
     streamManager.clearStreamRequestState()
+    leftlistRef.value?.clearActiveHistory?.()
+    bottominputRef.value?.clearDraft?.()
   }
 
   const resetWorkspaceForAccountChange = () => {

@@ -568,6 +568,19 @@
 
   defineExpose({
     sendMessage,
+    clearDraft: () => {
+      inputMessage.value = ''
+      for (const file of attachedFiles.value) {
+        if (file.preview) {
+          URL.revokeObjectURL(file.preview)
+        }
+      }
+      attachedFiles.value = []
+      const textarea = textareaRef.value
+      if (textarea) {
+        textarea.style.height = '48px'
+      }
+    },
     textareaRef
   })
 </script>
