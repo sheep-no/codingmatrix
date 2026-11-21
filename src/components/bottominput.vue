@@ -171,7 +171,7 @@
           :aria-label="'配置' + (showConfig ? '，已展开' : '，已收起')"
           :aria-expanded="showConfig"
           title="配置"
-          @click="toggleConfig"
+          v-on="configPressHandlers"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -237,7 +237,7 @@
   const useReasoning = ref(false)
   const searchMode = ref('auto')
   const searchDepth = ref('shallow')
-  const { isOpen: showConfig, toggle: toggleConfig, close: closeConfig } = useDisclosure()
+  const { isOpen: showConfig, pressHandlers: configPressHandlers, close: closeConfig } = useDisclosure()
   const textareaRef = ref(null)
   const inputWrapperRef = ref(null)
   const dropZoneRef = ref(null)

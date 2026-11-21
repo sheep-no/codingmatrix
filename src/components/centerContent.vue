@@ -34,7 +34,7 @@
             aria-haspopup="menu"
             :aria-expanded="headerMenuOpen ? 'true' : 'false'"
             aria-controls="conversation-menu"
-            @click="openHeaderMenu"
+            v-on="headerMenuPress"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <circle cx="5" cy="12" r="1.6" />
@@ -342,7 +342,7 @@
   const selectedHistory = ref(null)
   const messagesContainer = ref(null)
   const headerMenuEl = ref(null)
-  const { isOpen: headerMenuOpen, open: openHeaderMenu, close: closeHeaderMenu } = useDisclosure()
+  const { isOpen: headerMenuOpen, close: closeHeaderMenu, pressHandlers: headerMenuPress } = useDisclosure()
   const isLoadingMore = ref(false)
   const isHistoryLoaded = ref(false)
   const isUserScrolling = ref(false)
@@ -1086,7 +1086,8 @@
 
   // 组件挂载时初始化
   onMounted(async () => {
-    document.addEventListener('click', closeHeaderMenuOnOutsideClick)
+    // 用 pointerdown：mouseup 落点偏移时浏览器补发的 click 不该关掉刚打开的菜单。
+    document.addEventListener('pointerdown', closeHeaderMenuOnOutsideClick)
     document.addEventListener('keydown', closeHeaderMenuOnEscape)
 
     try {
@@ -1105,7 +1106,7 @@
   })
 
   onUnmounted(() => {
-    document.removeEventListener('click', closeHeaderMenuOnOutsideClick)
+    document.removeEventListener('pointerdown', closeHeaderMenuOnOutsideClick)
     document.removeEventListener('keydown', closeHeaderMenuOnEscape)
     conversationRevision++
     if (autoSaveTimer) clearTimeout(autoSaveTimer)
