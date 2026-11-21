@@ -29,7 +29,11 @@ const userStore = useUserStore()
 initApiClient(userStore)
 
 // 将首屏初始化暴露为可重建的 Promise，让 AppLoading 绑定真实生命周期。
-const initializeUser = () => Promise.resolve().then(() => userStore.restoreUser())
+// 冷启动只有 refresh cookie 时，restoreUser 只返回内存 token 是否存在，
+// 因此这里显式等待 ensureSession，让首个业务请求拿到可用 token。
+const initializeUser = () => Promise.resolve()
+  .then(() => userStore.restoreUser())
+  .then(() => userStore.ensureSession())
 window.__appInitialization = initializeUser()
 window.__retryAppInitialization = () => {
   window.__appInitialization = initializeUser()

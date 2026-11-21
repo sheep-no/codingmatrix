@@ -11,6 +11,16 @@ const CSRF_SKIP_ENDPOINTS = [
   '/api/v1/register'
 ]
 
+// 这些端点的 401 是业务结果（密码错误、refresh 失效等），
+// 不能触发「刷新 token 后重试」的自动恢复流程。
+const AUTH_401_SKIP_ENDPOINTS = [
+  '/api/v1/login',
+  '/api/v1/register',
+  '/api/v1/refresh',
+  '/api/v1/csrf-token',
+  '/api/v1/logout'
+]
+
 const MAX_REFRESH_RETRIES = 2
 
 export function normalizeApiError(error, fallbackMessage = '请求失败') {
@@ -31,6 +41,10 @@ export function normalizeApiError(error, fallbackMessage = '请求失败') {
 
 function needsCsrfToken(url) {
   return !CSRF_SKIP_ENDPOINTS.some(endpoint => url.includes(endpoint))
+}
+
+function canRecoverFrom401(url) {
+  return !AUTH_401_SKIP_ENDPOINTS.some(endpoint => url.includes(endpoint))
 }
 
 export const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -183,7 +197,16 @@ export function createBaseClient(userStore = null) {
         throw normalizeApiError(error, '网络请求失败')
       }
 
-      if ((response.status === 401 || response.status === 4001) && token && !isRetry) {
+      // 401 时即使当前没有内存 token（例如页面刚重载、refresh 尚未完成），
+      // 只要本地存在登录用户，也要尝试用 refresh cookie 换一次 token 再重试；
+      // 否则冷启动阶段的首个业务请求会永久失败，页面只能展示空的本地缓存。
+      const hasStoredSession = Boolean(token) || Boolean(localStorage.getItem('username'))
+      if (
+        (response.status === 401 || response.status === 4001) &&
+        !isRetry &&
+        hasStoredSession &&
+        canRecoverFrom401(fullUrl)
+      ) {
         client.state.refreshRetryCount++
 
         if (client.state.refreshRetryCount >= MAX_REFRESH_RETRIES) {
@@ -200,7 +223,9 @@ export function createBaseClient(userStore = null) {
               return this.request(url, options, true)
             }
           }
+          client.state.refreshRetryCount = 0
         } catch (refreshError) {
+          client.state.refreshRetryCount = 0
           handleSessionExpired(effectiveUserStore)
           throw new Error('Authentication failed', { cause: refreshError })
         }

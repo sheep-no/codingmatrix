@@ -109,6 +109,28 @@ describe('首页工作台响应式导航', () => {
     expect(api.stream).not.toHaveBeenCalled()
   })
 
+  it('本地没有 Key 缓存时先向后端求证，已配置则正常发送', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
+    vi.spyOn(state.apiKeyStore, 'listKeys').mockImplementation(async () => {
+      state.apiKeyStore.tokens.push({
+        provider: 'siliconflow',
+        token: 'server-token',
+        enabled: true,
+        expires_at: new Date(Date.now() + 3600000).toISOString()
+      })
+      return state.apiKeyStore.tokens
+    })
+    api.stream.mockResolvedValue({ ok: true, body: new ReadableStream({ start(controller) { controller.close() } }) })
+
+    await state.handleSendMessage({ prompt: 'q' })
+
+    expect(state.apiKeyStore.listKeys).toHaveBeenCalledTimes(1)
+    expect(routerMock.push).not.toHaveBeenCalledWith('/settings')
+    expect(api.stream).toHaveBeenCalledTimes(1)
+  })
+
   it('挂载时把发送函数注册到离线队列（FESTATE-02）', () => {
     wrapper = mountHomeWorkspace()
 

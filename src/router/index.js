@@ -120,8 +120,13 @@ export function resolveRouteAccess(to, token, permissionLevel) {
 }
 
 // 路由守卫：认证 + 权限验证 (v5.0.2 修复：从 Pinia store 读取 token)
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
+  // 冷启动时浏览器只有 refresh cookie，access token 需要异步换取。
+  // 需要鉴权的路由必须先等会话恢复，否则会被误判未登录而跳回首页。
+  if (to.meta.requiresAuth) {
+    await userStore.ensureSession()
+  }
   const token = userStore.getAccessToken() || localStorage.getItem('access_token')
   const permissionLevel = userStore.permissionLevel || localStorage.getItem('permission_level')
   const access = resolveRouteAccess(to, token, permissionLevel)

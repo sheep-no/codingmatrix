@@ -29,6 +29,38 @@ function configureSseProxy(proxy) {
 
 export default defineConfig({
   plugins: [vue()],
+  // 显式声明运行时依赖，避免 Vite 在用户首次交互触发懒加载时才发现新依赖，
+  // 进而触发"重新预构建 + 整页重载"，表现为首次点击被初始化遮罩吞掉。
+  optimizeDeps: {
+    include: [
+      'axios',
+      'dompurify',
+      'echarts',
+      'echarts/charts',
+      'echarts/components',
+      'echarts/renderers',
+      'element-plus',
+      'highlight.js',
+      'highlight.js/lib/core',
+      'highlight.js/lib/languages/bash',
+      'highlight.js/lib/languages/css',
+      'highlight.js/lib/languages/dockerfile',
+      'highlight.js/lib/languages/javascript',
+      'highlight.js/lib/languages/json',
+      'highlight.js/lib/languages/python',
+      'highlight.js/lib/languages/sql',
+      'highlight.js/lib/languages/typescript',
+      'highlight.js/lib/languages/xml',
+      'highlight.js/lib/languages/yaml',
+      'jszip',
+      'marked',
+      'pinia',
+      'pinia-plugin-persistedstate',
+      'vue',
+      'vue-router',
+      'xlsx'
+    ]
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('.', import.meta.url)),

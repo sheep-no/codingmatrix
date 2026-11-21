@@ -501,7 +501,15 @@
     }
     if (isLoading.value) return
 
-    // 检查 API Key 配置
+    // 检查 API Key 配置。本地缓存可能为空或过期（例如冷启动时列表尚未同步），
+    // 此时先向后端求证一次，避免把已经在服务端配置好 Key 的用户强行跳转到设置页。
+    if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
+      try {
+        await apiKeyStore.listKeys()
+      } catch (_error) {
+        // 同步失败时按本地缓存继续判断
+      }
+    }
     if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
       showError('请先配置 API Key/接口密钥后再使用')
       // 跳转到设置页面
@@ -1308,6 +1316,10 @@
   onMounted(async () => {
     // 加载 API Key 数据
     apiKeyStore.loadFromStorage()
+    // 已登录用户以后端为准做一次后台同步；本地缓存只在请求完成前兜底展示。
+    if (localStorage.getItem('username')) {
+      apiKeyStore.listKeys().catch(() => {})
+    }
     
     navigationStore.restoreNavigationFromStorage()
     await restoreStateFromStorage()
