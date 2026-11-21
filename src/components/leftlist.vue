@@ -412,6 +412,7 @@
   import LoginDialog from './LoginDialog.vue'
   import VirtualHistoryList from './VirtualHistoryList.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useDisclosure } from '@/composables/useDisclosure'
 
   const emit = defineEmits(['newConversation', 'selectHistory', 'deleteHistory', 'login', 'logout', 'useTool'])
 
@@ -431,7 +432,7 @@
   const showLoginDialog = ref(false)
   const isLoading = ref(false)
   const loadError = ref('')
-  const showToolkitMenu = ref(false)
+  const { isOpen: showToolkitMenu, toggle: toggleToolkit, close: closeToolkitMenu } = useDisclosure()
   const showSearchBox = ref(false)
   const searchKeyword = ref('')
 
@@ -457,7 +458,7 @@
   }
 
   const openToolkit = () => {
-    showToolkitMenu.value = !showToolkitMenu.value
+    toggleToolkit()
   }
 
   // 菜单贴住“工具集”按钮下沿展开，并限制在视口内，
@@ -475,11 +476,7 @@
   }
 
   const closeToolkitOnViewportChange = () => {
-    if (showToolkitMenu.value) showToolkitMenu.value = false
-  }
-
-  const closeToolkitMenu = () => {
-    showToolkitMenu.value = false
+    if (showToolkitMenu.value) closeToolkitMenu()
   }
 
   // 新建会话后侧栏不应继续高亮旧会话，否则用户会以为仍停留在原会话。
@@ -488,7 +485,7 @@
   }
 
   const openWorkbenchPage = path => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     if (!userStore.isLoggedIn) {
       showLoginDialog.value = true
       return
@@ -497,7 +494,7 @@
   }
 
   const useTool = toolName => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
 
     if (toolName === 'searchHistory') {
       showSearchBox.value = true
@@ -515,12 +512,12 @@
   }
 
   const openPPTGenerator = () => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     window.open('/ppt-generate', '_blank')
   }
 
   const openChartEditor = () => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     if (!userStore.isLoggedIn) {
       showLoginDialog.value = true
       return
@@ -529,17 +526,17 @@
   }
 
   const openImageGenerator = () => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     window.open('/image-generate', '_blank')
   }
 
   const openWorkflow = () => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     window.open('/workflow', '_blank')
   }
 
   const navigateToAdmin = () => {
-    showToolkitMenu.value = false
+    closeToolkitMenu()
     window.open('/admin', '_blank')
   }
 
@@ -777,7 +774,7 @@
         !event.target.closest('.toolkit-menu') &&
         !event.target.closest('#toolkit')
       ) {
-        showToolkitMenu.value = false
+        closeToolkitMenu()
       }
     }
     document.addEventListener('click', handleClickOutside)

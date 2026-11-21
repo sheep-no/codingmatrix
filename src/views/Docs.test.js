@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Docs from './Docs.vue'
 
 function mountDocs() {
@@ -44,5 +44,37 @@ describe('Docs workbench guide', () => {
     expect(text).toContain('Nginx 配置')
     expect(text.includes('Architect Agent')).toBe(false)
     expect(text.includes('GirlAI')).toBe(false)
+  })
+})
+
+describe('Docs expandable cards', () => {
+  beforeEach(() => {
+    global.IntersectionObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  })
+
+  it('opens the FAQ answer on a single click', async () => {
+    const wrapper = mountDocs()
+    const trigger = wrapper.findAll('#faq .expand-trigger')[0]
+
+    await trigger.trigger('click')
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('#faq .expand-body')).toHaveLength(1)
+  })
+
+  it('keeps the FAQ answer open when the trigger is double clicked', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountDocs()
+    const trigger = wrapper.findAll('#faq .expand-trigger')[0]
+
+    await trigger.trigger('click')
+    await trigger.trigger('click')
+
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('#faq .expand-body')).toHaveLength(1)
+    vi.useRealTimers()
   })
 })

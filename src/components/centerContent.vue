@@ -34,7 +34,7 @@
             aria-haspopup="menu"
             :aria-expanded="headerMenuOpen ? 'true' : 'false'"
             aria-controls="conversation-menu"
-            @click="headerMenuOpen = true"
+            @click="openHeaderMenu"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <circle cx="5" cy="12" r="1.6" />
@@ -283,6 +283,7 @@
   import EmptyState from './EmptyState.vue'
   import SkeletonLoader from './SkeletonLoader.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useDisclosure } from '@/composables/useDisclosure'
   import {
     calculateVisibleRange,
     getMessageOffset,
@@ -341,7 +342,7 @@
   const selectedHistory = ref(null)
   const messagesContainer = ref(null)
   const headerMenuEl = ref(null)
-  const headerMenuOpen = ref(false)
+  const { isOpen: headerMenuOpen, open: openHeaderMenu, close: closeHeaderMenu } = useDisclosure()
   const isLoadingMore = ref(false)
   const isHistoryLoaded = ref(false)
   const isUserScrolling = ref(false)
@@ -868,20 +869,20 @@
   }
 
   const runHeaderAction = action => {
-    headerMenuOpen.value = false
+    closeHeaderMenu()
     action()
   }
 
   const closeHeaderMenuOnOutsideClick = event => {
     if (!headerMenuOpen.value) return
     if (headerMenuEl.value && !headerMenuEl.value.contains(event.target)) {
-      headerMenuOpen.value = false
+      closeHeaderMenu()
     }
   }
 
   const closeHeaderMenuOnEscape = event => {
     if (event.key === 'Escape' && headerMenuOpen.value) {
-      headerMenuOpen.value = false
+      closeHeaderMenu()
     }
   }
 

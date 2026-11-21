@@ -26,10 +26,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       </button>
       <div ref="moreRef" class="topbar-more">
-        <button class="topbar-btn" title="更多" aria-label="更多 Agent 操作" :aria-expanded="showMore" @click="showMore = !showMore">
+        <button class="topbar-btn" title="更多" aria-label="更多 Agent 操作" :aria-expanded="showMore" @click="toggleMore">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
         </button>
-        <div v-if="showMore" class="topbar-dropdown" @click="showMore = false">
+        <div v-if="showMore" class="topbar-dropdown" @click="closeMore">
           <button :disabled="!hasFiles" @click="$emit('save-project')">保存项目</button>
           <button :disabled="!hasFiles" @click="$emit('open-performance')">性能监控</button>
           <button @click="$emit('open-learning')">学习反馈</button>
@@ -42,6 +42,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { useDisclosure } from '@/composables/useDisclosure'
 
 const props = defineProps({
   status: { type: String, default: 'idle' },
@@ -52,7 +53,7 @@ const props = defineProps({
 
 defineEmits(['back', 'open-upload', 'open-settings', 'save-project', 'open-performance', 'open-learning', 'analyze-complexity'])
 
-const showMore = ref(false)
+const { isOpen: showMore, toggle: toggleMore, close: closeMore } = useDisclosure()
 const moreRef = ref(null)
 
 const statusLabel = computed(() => ({
@@ -71,7 +72,7 @@ function formatNumber(num) {
 
 function handleClickOutside(e) {
   if (moreRef.value && !moreRef.value.contains(e.target)) {
-    showMore.value = false
+    closeMore()
   }
 }
 
