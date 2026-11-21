@@ -5,6 +5,7 @@
         v-if="visible"
         class="app-loading-overlay"
         :class="{ 'is-loading': status === 'loading' }"
+        style="pointer-events: none"
       >
         <div class="app-loading-container">
           <div class="app-loading-logo">
@@ -27,7 +28,12 @@
           <div class="app-loading-progress">
             <div class="progress-bar" :style="{ width: progress + '%' }"></div>
           </div>
-          <div v-if="status === 'error'" class="app-loading-error" role="alert">
+          <div
+            v-if="status === 'error'"
+            class="app-loading-error"
+            role="alert"
+            style="pointer-events: auto"
+          >
             <span>{{ error || '应用初始化失败，请重试。' }}</span>
             <button type="button" @click="emit('retry')">重试</button>
           </div>
@@ -146,16 +152,17 @@ defineExpose({ reset, startProgress, complete })
   background: var(--bg-primary);
 }
 
-/* 加载中不拦截指针事件：初始化在后台继续，用户的首个点击直接落到真实控件上。 */
-.app-loading-overlay.is-loading {
-  pointer-events: none;
-}
-
 .app-loading-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 32px;
+  /* 遮罩本身不接收指针事件，仅失败态的重试区域恢复可点击。 */
+  pointer-events: none;
+}
+
+.app-loading-error {
+  pointer-events: auto;
 }
 
 .app-loading-logo {

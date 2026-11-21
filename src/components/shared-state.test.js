@@ -163,6 +163,31 @@ describe('shared workbench state components', () => {
     const overlay = document.body.querySelector('.app-loading-overlay')
     expect(overlay).not.toBeNull()
     expect(overlay.classList.contains('is-loading')).toBe(true)
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
+
+    wrapper.unmount()
+  })
+
+  it('fading overlay still lets clicks pass through after init completes', async () => {
+    const wrapper = mount(AppLoading, { props: { visible: true, status: 'loading' } })
+
+    // 初始化完成后遮罩进入 0.4s 淡出：is-loading 被移除，但节点仍然覆盖全屏。
+    // 此时若恢复指针事件，pointerup 会落在遮罩上，整个 click 被浏览器丢弃。
+    await wrapper.setProps({ status: 'ready' })
+    const overlay = document.body.querySelector('.app-loading-overlay')
+    expect(overlay).not.toBeNull()
+    expect(overlay.classList.contains('is-loading')).toBe(false)
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
+
+    wrapper.unmount()
+  })
+
+  it('error overlay keeps retry button interactive', async () => {
+    const wrapper = mount(AppLoading, { props: { visible: true, status: 'error', error: '初始化失败' } })
+
+    const overlay = document.body.querySelector('.app-loading-overlay')
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
+    expect(document.body.querySelector('.app-loading-error').style.pointerEvents).toBe('auto')
 
     wrapper.unmount()
   })
