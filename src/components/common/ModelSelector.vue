@@ -102,6 +102,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useDisclosure } from '@/composables/useDisclosure'
 
 const props = defineProps({
   models: { type: Array, required: true },
@@ -115,7 +116,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:selectedId', 'select'])
 
-const isOpen = ref(false)
+const { isOpen, toggle: toggleDisclosure, close: closeDisclosure } = useDisclosure()
 const searchQuery = ref('')
 const searchInput = ref(null)
 const activeCapabilities = ref([])
@@ -182,7 +183,7 @@ function isDisabled(model) {
 }
 
 function toggleDropdown() {
-  isOpen.value = !isOpen.value
+  toggleDisclosure()
   if (isOpen.value) {
     nextTick(() => {
       searchInput.value?.focus()
@@ -191,7 +192,7 @@ function toggleDropdown() {
 }
 
 function closeDropdown() {
-  isOpen.value = false
+  closeDisclosure()
   searchQuery.value = ''
 }
 

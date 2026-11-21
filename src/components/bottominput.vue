@@ -171,7 +171,7 @@
           :aria-label="'配置' + (showConfig ? '，已展开' : '，已收起')"
           :aria-expanded="showConfig"
           title="配置"
-          @click="showConfig = !showConfig"
+          @click="toggleConfig"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -227,6 +227,7 @@
   import FilePreview from './FilePreview.vue'
   import { useToast } from '@/composables/useToast'
   import { createImageThumbnail } from '@/utils/imageThumbnail'
+  import { useDisclosure } from '@/composables/useDisclosure'
 
   const navigationStore = useNavigationStore()
   const userStore = useUserStore()
@@ -236,7 +237,7 @@
   const useReasoning = ref(false)
   const searchMode = ref('auto')
   const searchDepth = ref('shallow')
-  const showConfig = ref(false)
+  const { isOpen: showConfig, toggle: toggleConfig, close: closeConfig } = useDisclosure()
   const textareaRef = ref(null)
   const inputWrapperRef = ref(null)
   const dropZoneRef = ref(null)
@@ -501,6 +502,7 @@
     }
     inputMessage.value = ''
     attachedFiles.value = []
+    closeConfig()
     const textarea = textareaRef.value
     if (textarea) {
       textarea.style.height = '48px'

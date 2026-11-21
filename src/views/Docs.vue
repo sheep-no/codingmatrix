@@ -69,7 +69,7 @@
           </div>
           <div class="card-list">
             <div v-for="f in features" :key="f.id" class="expand-card" :class="{ open: openId === f.id }">
-              <button class="expand-trigger" @click="openId = openId === f.id ? null : f.id">
+              <button class="expand-trigger" type="button" :aria-expanded="openId === f.id ? 'true' : 'false'" @click="toggleFeature(f.id)">
                 <span class="expand-icon">{{ f.icon }}</span>
                 <span class="expand-info">
                   <span class="expand-title">{{ f.title }}</span>
@@ -436,7 +436,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
           </div>
           <div class="card-list">
             <div v-for="f in faqs" :key="f.q" class="expand-card" :class="{ open: openFaq === f.q }">
-              <button class="expand-trigger" @click="openFaq = openFaq === f.q ? null : f.q">
+              <button class="expand-trigger" type="button" :aria-expanded="openFaq === f.q ? 'true' : 'false'" @click="toggleFaq(f.q)">
                 <span class="expand-info">
                   <span class="expand-title">{{ f.q }}</span>
                 </span>
@@ -461,12 +461,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useAccordion } from '@/composables/useDisclosure'
 
 const search = ref('')
 const active = ref('overview')
 const mainRef = ref(null)
-const openId = ref(null)
-const openFaq = ref(null)
+const { activeKey: openId, toggle: toggleFeature } = useAccordion()
+const { activeKey: openFaq, toggle: toggleFaq } = useAccordion()
 
 const go = (id) => {
   const el = document.getElementById(id)
