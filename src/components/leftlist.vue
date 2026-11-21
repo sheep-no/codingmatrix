@@ -38,7 +38,7 @@
       :aria-label="'工具集' + (showToolkitMenu ? '，已展开' : '，已收起')"
       :aria-expanded="showToolkitMenu"
       :aria-controls="showToolkitMenu ? 'toolkit-menu' : null"
-      @click="openToolkit"
+      v-on="toolkitPressHandlers"
     >
       <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path
@@ -432,7 +432,7 @@
   const showLoginDialog = ref(false)
   const isLoading = ref(false)
   const loadError = ref('')
-  const { isOpen: showToolkitMenu, toggle: toggleToolkit, close: closeToolkitMenu } = useDisclosure()
+  const { isOpen: showToolkitMenu, pressHandlers: toolkitPressHandlers, close: closeToolkitMenu } = useDisclosure()
   const showSearchBox = ref(false)
   const searchKeyword = ref('')
 
@@ -455,10 +455,6 @@
 
   const newConversation = () => {
     emit('newConversation')
-  }
-
-  const openToolkit = () => {
-    toggleToolkit()
   }
 
   // 菜单贴住“工具集”按钮下沿展开，并限制在视口内，
@@ -768,6 +764,7 @@
       }, 500)
     }
 
+    // 用 pointerdown：mouseup 落点偏移时浏览器补发的 click 不该关掉刚打开的菜单。
     handleClickOutside = event => {
       if (
         showToolkitMenu.value &&
@@ -777,7 +774,7 @@
         closeToolkitMenu()
       }
     }
-    document.addEventListener('click', handleClickOutside)
+    document.addEventListener('pointerdown', handleClickOutside)
     window.addEventListener('resize', closeToolkitOnViewportChange)
     window.addEventListener('orientationchange', closeToolkitOnViewportChange)
   })
@@ -786,7 +783,7 @@
     window.removeEventListener('resize', closeToolkitOnViewportChange)
     window.removeEventListener('orientationchange', closeToolkitOnViewportChange)
     if (handleClickOutside) {
-      document.removeEventListener('click', handleClickOutside)
+      document.removeEventListener('pointerdown', handleClickOutside)
     }
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer)

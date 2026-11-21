@@ -1,7 +1,7 @@
 <template>
   <div class="model-selector" :class="{ 'is-open': isOpen }">
     <!-- 选择器触发器 -->
-    <div class="selector-trigger" @click="toggleDropdown">
+    <div class="selector-trigger" role="button" tabindex="0" v-on="triggerPressHandlers" @keydown.enter="toggleDropdown" @keydown.space.prevent="toggleDropdown">
       <div class="trigger-content">
         <div v-if="selectedModel" class="selected-model">
           <span class="model-name">{{ selectedModel.name || selectedModel.id }}</span>
@@ -116,7 +116,11 @@ const props = defineProps({
 
 const emit = defineEmits(['update:selectedId', 'select'])
 
-const { isOpen, toggle: toggleDisclosure, close: closeDisclosure } = useDisclosure()
+const { isOpen, toggle: toggleDisclosure, close: closeDisclosure, pressHandlers: triggerPressHandlers } = useDisclosure(false, {
+  onChange: open => {
+    if (open) nextTick(() => searchInput.value?.focus())
+  }
+})
 const searchQuery = ref('')
 const searchInput = ref(null)
 const activeCapabilities = ref([])
@@ -184,11 +188,6 @@ function isDisabled(model) {
 
 function toggleDropdown() {
   toggleDisclosure()
-  if (isOpen.value) {
-    nextTick(() => {
-      searchInput.value?.focus()
-    })
-  }
 }
 
 function closeDropdown() {
@@ -226,7 +225,7 @@ function getHealthClass(score) {
 }
 
 // 点击外部关闭
-function handleClickOutside(e) {
+function handlePointerOutside(e) {
   if (!isOpen.value) return
   const selector = e.target.closest('.model-selector')
   if (!selector) {
@@ -235,11 +234,11 @@ function handleClickOutside(e) {
 }
 
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
+  document.addEventListener('pointerdown', handlePointerOutside)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('pointerdown', handlePointerOutside)
 })
 </script>
 

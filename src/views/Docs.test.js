@@ -65,6 +65,23 @@ describe('Docs expandable cards', () => {
     expect(wrapper.findAll('#faq .expand-body')).toHaveLength(1)
   })
 
+  it('opens the FAQ when the browser drops the click after pointerdown', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountDocs()
+    const trigger = wrapper.findAll('#faq .expand-trigger')[0]
+
+    const down = new Event('pointerdown', { bubbles: true })
+    Object.assign(down, { button: 0, isPrimary: true, pointerType: 'mouse', clientX: 10, clientY: 10 })
+    trigger.element.dispatchEvent(down)
+    window.dispatchEvent(new Event('pointerup'))
+    vi.runAllTimers()
+    await wrapper.vm.$nextTick()
+
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('#faq .expand-body')).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
   it('keeps the FAQ answer open when the trigger is double clicked', async () => {
     vi.useFakeTimers()
     const wrapper = mountDocs()

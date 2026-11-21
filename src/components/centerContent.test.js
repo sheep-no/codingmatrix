@@ -113,7 +113,7 @@ describe('chat resize scrolling', () => {
     expect(trigger.attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('.header-menu-list').exists()).toBe(true)
 
-    document.body.click()
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await nextTick()
     expect(trigger.attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('.header-menu-list').exists()).toBe(false)
