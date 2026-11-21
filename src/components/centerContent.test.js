@@ -86,6 +86,35 @@ describe('chat resize scrolling', () => {
     expect(writes).toEqual([])
   })
 
+  it('updates the conversation title when a newer message arrives', async () => {
+    await wrapper.setProps({ historyItem: { conversation_id: 'temp_a', title: '旧标题' } })
+    expect(wrapper.get('#conversation-title').text()).toBe('hello')
+
+    await wrapper.setProps({
+      conversationHistory: [
+        ...wrapper.props('conversationHistory'),
+        { id: 999, prompt: '最新一轮提问', title: '最新一轮提问' }
+      ]
+    })
+
+    expect(wrapper.get('#conversation-title').text()).toBe('最新一轮提问')
+  })
+
+  it('toggles the header menu and closes it on outside click', async () => {
+    const trigger = wrapper.get('.header-menu-btn')
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.header-menu-list').exists()).toBe(false)
+
+    await trigger.trigger('click')
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('.header-menu-list').exists()).toBe(true)
+
+    document.body.click()
+    await nextTick()
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.header-menu-list').exists()).toBe(false)
+  })
+
   it('respects an upward scroll before the animation frame runs', async () => {
     resize()
     top -= 300
