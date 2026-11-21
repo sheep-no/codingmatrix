@@ -156,4 +156,14 @@ describe('shared workbench state components', () => {
     wrapper.unmount()
     vi.useRealTimers()
   })
+
+  it('loading overlay lets clicks pass through while initialization runs', () => {
+    const wrapper = mount(AppLoading, { props: { visible: true, status: 'loading' } })
+
+    const overlay = document.body.querySelector('.app-loading-overlay')
+    expect(overlay).not.toBeNull()
+    expect(overlay.classList.contains('is-loading')).toBe(true)
+
+    wrapper.unmount()
+  })
 })

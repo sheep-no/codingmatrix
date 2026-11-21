@@ -150,6 +150,37 @@ export const useUserStore = defineStore(
       return false
     }
 
+    let sessionRestorePromise = null
+
+    /**
+     * 确保会话已恢复：有本地登录身份但没有 access token 时，
+     * 用 refresh cookie 换一次 token。并发调用共享同一次刷新。
+     * 路由守卫与首屏初始化都依赖它，避免冷启动首个需要鉴权的
+     * 路由在 token 就绪前被误判为未登录。
+     */
+    async function ensureSession() {
+      if (tokenManager.getToken()) return true
+      if (!localStorage.getItem('username')) return false
+
+      if (!sessionRestorePromise) {
+        sessionRestorePromise = tokenManager.refreshAccessToken()
+          .then(ok => {
+            const valid = Boolean(ok) && Boolean(tokenManager.getToken())
+            isLoggedIn.value = valid
+            if (!valid) clearUser()
+            return valid
+          })
+          .catch(() => {
+            clearUser()
+            return false
+          })
+          .finally(() => {
+            sessionRestorePromise = null
+          })
+      }
+      return sessionRestorePromise
+    }
+
     /**
      * 刷新访问令牌
      */
@@ -196,6 +227,7 @@ export const useUserStore = defineStore(
       setUser,
       clearUser,
       restoreUser,
+      ensureSession,
       refreshAccessToken,
       updateUsername,
       getPermissionFromToken

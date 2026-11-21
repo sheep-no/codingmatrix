@@ -39,8 +39,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import DynamicProviderManager from '@/components/settings/DynamicProviderManager.vue'
 import APIKeyManager from '@/components/settings/APIKeyManager.vue'
@@ -50,9 +50,40 @@ import UnifiedModelConfig from '@/components/settings/UnifiedModelConfig.vue'
 import GithubConfigPanel from '@/components/GithubConfigPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const isSuperUser = computed(() => userStore.isSuperUser)
 const currentTab = ref('providers')
+const SETTINGS_TAB_STORAGE_KEY = 'settings-active-tab'
+
+function isTabAllowed(tab) {
+  if (!tab) return false
+  if (['admin', 'unified'].includes(tab)) return isSuperUser.value
+  return ['providers', 'apikey', 'agent', 'github'].includes(tab)
+}
+
+function resolveInitialTab() {
+  if (isTabAllowed(route.query.tab)) return route.query.tab
+  try {
+    const stored = sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)
+    if (isTabAllowed(stored)) return stored
+  } catch {
+    // 忽略禁用存储的情况
+  }
+  return 'providers'
+}
+
+// tab 状态写回 URL：整页重载后仍能停留在用户选择的 tab。
+watch(currentTab, tab => {
+  try {
+    sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, tab)
+  } catch {
+    // 忽略禁用存储的情况
+  }
+  if (route.query.tab === tab) return
+  const query = { ...route.query, tab }
+  router.replace({ query })
+})
 
 function handleTabKey(event) {
   const tabs = [...event.currentTarget.parentElement.querySelectorAll('[role="tab"]')]
@@ -69,10 +100,7 @@ function handleTabKey(event) {
 }
 
 onMounted(() => {
-  const allowedTabs = ['providers', 'apikey', 'agent', 'github', 'admin', 'unified']
-  if (allowedTabs.includes(route.query.tab) && (['admin', 'unified'].includes(route.query.tab) ? isSuperUser.value : true)) {
-    currentTab.value = route.query.tab
-  }
+  currentTab.value = resolveInitialTab()
 })
 </script>
 

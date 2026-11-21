@@ -1,7 +1,11 @@
 <template>
   <Teleport to="body">
     <Transition name="app-loading">
-      <div v-if="visible" class="app-loading-overlay">
+      <div
+        v-if="visible"
+        class="app-loading-overlay"
+        :class="{ 'is-loading': status === 'loading' }"
+      >
         <div class="app-loading-container">
           <div class="app-loading-logo">
             <div class="logo-ring logo-ring-1"></div>
@@ -140,6 +144,11 @@ defineExpose({ reset, startProgress, complete })
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
+}
+
+/* 加载中不拦截指针事件：初始化在后台继续，用户的首个点击直接落到真实控件上。 */
+.app-loading-overlay.is-loading {
+  pointer-events: none;
 }
 
 .app-loading-container {
