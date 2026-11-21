@@ -20,28 +20,40 @@
       <header class="conversation-header" role="banner">
         <div class="conversation-info">
           <h2 id="conversation-title" class="conversation-title">
-            {{
-              selectedHistory?.title || truncateTitle(conversationHistory[0]?.prompt) || '新对话'
-            }}
+            {{ conversationTitle }}
           </h2>
           <p class="conversation-kicker">
             <span class="message-count" aria-label="消息数量">{{ conversationHistory.length }} 条</span>
           </p>
         </div>
-        <details ref="headerMenuEl" class="header-menu">
-          <summary class="header-menu-btn" aria-label="对话操作">
+        <div ref="headerMenuEl" class="header-menu">
+          <button
+            type="button"
+            class="header-menu-btn"
+            aria-label="对话操作"
+            aria-haspopup="menu"
+            :aria-expanded="headerMenuOpen ? 'true' : 'false'"
+            aria-controls="conversation-menu"
+            @click="headerMenuOpen = !headerMenuOpen"
+          >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <circle cx="5" cy="12" r="1.6" />
               <circle cx="12" cy="12" r="1.6" />
               <circle cx="19" cy="12" r="1.6" />
             </svg>
-          </summary>
-          <div class="header-menu-list" role="toolbar" aria-label="对话操作">
+          </button>
+          <div
+            v-if="headerMenuOpen"
+            id="conversation-menu"
+            class="header-menu-list"
+            role="toolbar"
+            aria-label="对话操作"
+          >
             <button type="button" class="header-menu-item" aria-label="导出对话" @click="runHeaderAction(exportConversation)">导出</button>
             <button type="button" class="header-menu-item" aria-label="清空对话" @click="runHeaderAction(clearConversation)">清空</button>
             <button type="button" class="header-menu-item danger" aria-label="关闭对话" @click="runHeaderAction(closeConversation)">关闭</button>
           </div>
-        </details>
+        </div>
       </header>
 
       <!-- 消息列表 -->
@@ -329,6 +341,7 @@
   const selectedHistory = ref(null)
   const messagesContainer = ref(null)
   const headerMenuEl = ref(null)
+  const headerMenuOpen = ref(false)
   const isLoadingMore = ref(false)
   const isHistoryLoaded = ref(false)
   const isUserScrolling = ref(false)
@@ -493,6 +506,19 @@
     if (!text) return ''
     return text.length > maxLength ? text.slice(0, maxLength) + '...' : text
   }
+
+  // 后端为每条消息都保存标题，会话标题应跟随最新一条消息。
+  // 否则在同一会话继续提问时，头部会一直停留在选中会话时的旧标题。
+  const conversationTitle = computed(() => {
+    const latest = props.conversationHistory[props.conversationHistory.length - 1]
+    return (
+      latest?.title ||
+      latest?.prompt ||
+      selectedHistory.value?.title ||
+      truncateTitle(props.conversationHistory[0]?.prompt) ||
+      '新对话'
+    )
+  })
 
   // 初始化 IndexedDB
   const initIndexedDB = () => {
@@ -842,8 +868,21 @@
   }
 
   const runHeaderAction = action => {
+    headerMenuOpen.value = false
     action()
-    if (headerMenuEl.value) headerMenuEl.value.open = false
+  }
+
+  const closeHeaderMenuOnOutsideClick = event => {
+    if (!headerMenuOpen.value) return
+    if (headerMenuEl.value && !headerMenuEl.value.contains(event.target)) {
+      headerMenuOpen.value = false
+    }
+  }
+
+  const closeHeaderMenuOnEscape = event => {
+    if (event.key === 'Escape' && headerMenuOpen.value) {
+      headerMenuOpen.value = false
+    }
   }
 
   // 清空对话
@@ -1046,6 +1085,9 @@
 
   // 组件挂载时初始化
   onMounted(async () => {
+    document.addEventListener('click', closeHeaderMenuOnOutsideClick)
+    document.addEventListener('keydown', closeHeaderMenuOnEscape)
+
     try {
       await initIndexedDB()
     } catch (error) {
@@ -1062,6 +1104,8 @@
   })
 
   onUnmounted(() => {
+    document.removeEventListener('click', closeHeaderMenuOnOutsideClick)
+    document.removeEventListener('keydown', closeHeaderMenuOnEscape)
     conversationRevision++
     if (autoSaveTimer) clearTimeout(autoSaveTimer)
     if (copyButtonsTimer) clearTimeout(copyButtonsTimer)
@@ -1321,6 +1365,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: relative;
     padding: 10px 28px 8px;
     background: transparent;
     border-bottom: 1px solid color-mix(in srgb, var(--control-border) 80%, transparent);
@@ -1369,7 +1414,6 @@
   }
 
   .header-menu-btn {
-    list-style: none;
     width: 36px;
     height: 36px;
     display: flex;
@@ -1382,16 +1426,8 @@
     cursor: pointer;
   }
 
-  .header-menu-btn::-webkit-details-marker {
-    display: none;
-  }
-
-  .header-menu-btn::marker {
-    content: none;
-  }
-
   .header-menu-btn:hover,
-  .header-menu[open] .header-menu-btn {
+  .header-menu-btn[aria-expanded="true"] {
     background: var(--bg-secondary);
     color: var(--text-primary);
   }
@@ -1411,6 +1447,7 @@
     padding: 6px;
     border: 1px solid var(--control-border);
     border-radius: 14px;
+    background: var(--bg-secondary);
     background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
     box-shadow: 0 16px 40px color-mix(in srgb, var(--text-primary) 10%, transparent);
     backdrop-filter: blur(12px);
