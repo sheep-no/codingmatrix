@@ -1316,10 +1316,6 @@
   onMounted(async () => {
     // 加载 API Key 数据
     apiKeyStore.loadFromStorage()
-    // 已登录用户以后端为准做一次后台同步；本地缓存只在请求完成前兜底展示。
-    if (localStorage.getItem('username')) {
-      apiKeyStore.listKeys().catch(() => {})
-    }
     
     navigationStore.restoreNavigationFromStorage()
     await restoreStateFromStorage()
