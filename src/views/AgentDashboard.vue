@@ -395,12 +395,14 @@ const buildSessionSnapshot = () => ({
   fallbackHistory: generation.fallbackHistory,
   recoveryAttempts: generation.recoveryAttempts
 })
-const doCreateNewSession = () => {
+const doCreateNewSession = async () => {
   if (generation.isGenerating) {
     ElMessage.warning('项目生成期间无法新建会话')
     return false
   }
-  return session.createNewSession(buildSessionSnapshot())
+  const created = session.createNewSession(buildSessionSnapshot())
+  if (created && mobilePanel.value) await closeMobilePanel()
+  return created
 }
 let sessionSwitchRequest = 0
 const doSwitchSession = async (id) => {
@@ -499,7 +501,10 @@ const downloadFile = (f) => workspace.downloadFile(f)
 const deleteFileFromBackend = (filePath) => backend.deleteFileFromBackend(filePath, workspace.currentProjectPath)
 const downloadProject = () => backend.downloadProject(workspace.currentProjectPath)
 const toggleCategory = (category) => files.toggleCategory(category)
-const selectFile = (file) => files.selectFile(file)
+const selectFile = async (file) => {
+  files.selectFile(file)
+  if (mobilePanel.value === 'files') await closeMobilePanel()
+}
 
 // ========== Modal Actions ==========
 const openSettingsWithBackend = () => backend.openSettingsWithBackend()

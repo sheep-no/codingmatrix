@@ -214,6 +214,19 @@ describe('首页工作台响应式导航', () => {
     expect(clearDraft).toHaveBeenCalled()
   })
 
+  it('移动端从抽屉新建会话后关闭抽屉，不在主区留下遮罩', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    await wrapper.get('.mobile-home-menu').trigger('click')
+    expect(wrapper.find('.mobile-home-scrim').exists()).toBe(true)
+
+    state.handleNewConversation()
+    await flushPromises()
+
+    expect(wrapper.find('.mobile-home-scrim').exists()).toBe(false)
+    expect(wrapper.get('#leftlist').classes()).not.toContain('mobile-home-drawer-open')
+  })
+
   it.each([undefined, 'chosen-model'])('传递联网模式并保持自动或显式选模：%s', async model => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState

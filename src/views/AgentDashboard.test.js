@@ -78,4 +78,19 @@ describe('Agent Dashboard 响应式工作区', () => {
     expect(wrapper.find('.agent-mobile-scrim').exists()).toBe(false)
     expect(document.activeElement).toBe(trigger.element)
   })
+
+  it('从抽屉新建会话后关闭抽屉，避免遮罩继续挡住顶栏', async () => {
+    wrapper = mountAgentDashboard()
+    const trigger = wrapper.get('[aria-label="打开会话列表"]')
+    await trigger.trigger('click')
+    expect(wrapper.find('.agent-mobile-scrim').exists()).toBe(true)
+
+    const state = wrapper.vm.$.setupState
+    state.generation.isGenerating = false
+    await state.doCreateNewSession()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.agent-mobile-scrim').exists()).toBe(false)
+    expect(wrapper.get('.agent-sidebar').classes()).not.toContain('mobile-drawer-open')
+  })
 })

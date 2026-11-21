@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="modal-overlay" @click.self="close" @keydown="onKeydown">
+    <div v-if="modelValue" class="modal-overlay" @click.self="onOverlayClick" @keydown="onKeydown">
       <div ref="dialogRef" class="modal-content" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" tabindex="-1">
         <div class="modal-header">
           <h3 id="upload-modal-title">导入项目</h3>
@@ -28,9 +28,17 @@ const emit = defineEmits(['update:modelValue', 'upload'])
 const dialogRef = ref(null)
 const fileInput = ref(null)
 let previousFocus = null
+// 双击「导入项目」时第二次 click 会落在刚出现的遮罩上，
+// 短暂忽略遮罩点击，避免弹窗开了又立刻被关掉。
+let openedAt = 0
+const OVERLAY_CLICK_GUARD_MS = 400
 
 const close = () => emit('update:modelValue', false)
 const openFilePicker = () => fileInput.value?.click()
+const onOverlayClick = () => {
+  if (Date.now() - openedAt < OVERLAY_CLICK_GUARD_MS) return
+  close()
+}
 
 const onKeydown = (event) => {
   if (event.key === 'Escape') {
@@ -58,6 +66,7 @@ const onKeydown = (event) => {
 watch(() => props.modelValue, async (open) => {
   if (open) {
     previousFocus = document.activeElement
+    openedAt = Date.now()
     await nextTick()
     dialogRef.value?.focus()
   } else {

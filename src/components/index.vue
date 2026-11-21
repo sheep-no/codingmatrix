@@ -465,6 +465,7 @@
   }
 
   const handleUseTool = toolName => {
+    if (homeDrawerOpen.value) closeHomeDrawer()
     navigationStore.showTool(toolName)
   }
 
@@ -1112,6 +1113,8 @@
   }
 
   const handleSelectHistory = async item => {
+    if (homeDrawerOpen.value) closeHomeDrawer()
+
     if (!item) {
       selectedHistoryItem.value = null
       currentConversationId.value = null
@@ -1216,6 +1219,8 @@
   }
 
   const handleNewConversation = () => {
+    if (homeDrawerOpen.value) closeHomeDrawer()
+
     // 会话打开态点「新建会话」：先中断仍在进行的流式请求，
     // 否则 isStreamActive 一直为 true，输入框保持禁用，看起来像点击无效。
     if (isStreamActive.value) {

@@ -34,7 +34,7 @@
             aria-haspopup="menu"
             :aria-expanded="headerMenuOpen ? 'true' : 'false'"
             aria-controls="conversation-menu"
-            @click="headerMenuOpen = !headerMenuOpen"
+            @click="headerMenuOpen = true"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <circle cx="5" cy="12" r="1.6" />
