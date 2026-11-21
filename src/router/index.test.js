@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveRouteAccess } from './index'
+import router, { resolveRouteAccess } from './index'
 
 describe('resolveRouteAccess', () => {
   it('redirects anonymous users and keeps the requested destination', () => {
@@ -40,5 +40,9 @@ describe('resolveRouteAccess', () => {
       'token',
       'normal'
     )).toEqual({ name: 'home' })
+  })
+
+  it('exposes the agent dashboard at /projects', () => {
+    expect(router.resolve('/projects').name).toBe('agent-dashboard')
   })
 })

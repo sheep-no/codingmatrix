@@ -41,6 +41,7 @@ const router = createRouter({
     {
       path: '/agent',
       name: 'agent-dashboard',
+      alias: '/projects',
       component: () => import('../views/AgentDashboard.vue'),
       meta: { requiresAuth: true }
     },

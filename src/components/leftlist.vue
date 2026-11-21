@@ -34,6 +34,7 @@
     <!-- 工具集按钮 -->
     <button
       id="toolkit"
+      ref="toolkitBtnRef"
       :aria-label="'工具集' + (showToolkitMenu ? '，已展开' : '，已收起')"
       :aria-expanded="showToolkitMenu"
       :aria-controls="showToolkitMenu ? 'toolkit-menu' : null"
@@ -54,6 +55,7 @@
       role="menu"
       aria-label="工具集菜单"
       class="toolkit-menu"
+      :style="toolkitMenuStyle()"
       @click.stop
     >
       <div
@@ -425,6 +427,7 @@
 
   const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
   const activeId = ref(null)
+  const toolkitBtnRef = ref(null)
   const showLoginDialog = ref(false)
   const isLoading = ref(false)
   const loadError = ref('')
@@ -457,8 +460,31 @@
     showToolkitMenu.value = !showToolkitMenu.value
   }
 
+  // 菜单贴住“工具集”按钮下沿展开，并限制在视口内，
+  // 避免长菜单顶到视口底部被裁切而看起来像没有打开。
+  const toolkitMenuStyle = () => {
+    const rect = toolkitBtnRef.value?.getBoundingClientRect()
+    if (!rect) return {}
+    const top = Math.round(rect.bottom + 8)
+    const available = Math.max(160, window.innerHeight - top - 16)
+    return {
+      top: `${top}px`,
+      left: `${Math.round(rect.left)}px`,
+      maxHeight: `${available}px`
+    }
+  }
+
+  const closeToolkitOnViewportChange = () => {
+    if (showToolkitMenu.value) showToolkitMenu.value = false
+  }
+
   const closeToolkitMenu = () => {
     showToolkitMenu.value = false
+  }
+
+  // 新建会话后侧栏不应继续高亮旧会话，否则用户会以为仍停留在原会话。
+  const clearActiveHistory = () => {
+    activeId.value = null
   }
 
   const openWorkbenchPage = path => {
@@ -755,9 +781,13 @@
       }
     }
     document.addEventListener('click', handleClickOutside)
+    window.addEventListener('resize', closeToolkitOnViewportChange)
+    window.addEventListener('orientationchange', closeToolkitOnViewportChange)
   })
 
   onUnmounted(() => {
+    window.removeEventListener('resize', closeToolkitOnViewportChange)
+    window.removeEventListener('orientationchange', closeToolkitOnViewportChange)
     if (handleClickOutside) {
       document.removeEventListener('click', handleClickOutside)
     }
@@ -780,7 +810,8 @@
     openLogin,
     toggleCollapse,
     showSearchBox,
-    closeToolkitMenu
+    closeToolkitMenu,
+    clearActiveHistory
   })
 </script>
 
@@ -1176,22 +1207,19 @@
    工具集下拉菜单 (现代化重构)
    ======================================== */
   .toolkit-menu {
+    position: fixed;
+    width: 240px;
     background: var(--surface-raised);
     backdrop-filter: blur(10px);
     border: 1px solid var(--control-border);
     border-radius: 12px;
-    margin-bottom: var(--spacing-md);
     padding: 6px;
     box-shadow:
       0 10px 30px var(--shadow-color),
       0 2px 8px var(--shadow-color);
     animation: menuSlideDown 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    position: relative;
-    z-index: 100;
+    z-index: 130;
     pointer-events: auto;
-    flex: 0 0 auto;
-    min-height: 0;
-    max-height: min(72vh, 640px);
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
