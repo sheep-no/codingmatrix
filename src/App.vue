@@ -136,7 +136,7 @@
 </script>
 
 <template>
-  <div id="app" class="app-container" role="application" aria-label="CodingMatrix">
+  <div class="app-container" role="application" aria-label="CodingMatrix">
     <AppLoading
       ref="appLoadingRef"
       :visible="isLoading"
