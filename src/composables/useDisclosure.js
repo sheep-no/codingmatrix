@@ -17,8 +17,6 @@ function createGuard(guardMs) {
 
 // 指针移动超过该距离视为拖拽/取消，不再触发动作。
 const DRAG_CANCEL_PX = 8
-// 兜底执行后，忽略可能迟到的 click，避免同一次按压执行两遍。
-const LATE_CLICK_IGNORE_MS = 400
 
 /**
  * 点击兜底：正常情况仍然由 click 执行动作。
@@ -36,7 +34,10 @@ const LATE_CLICK_IGNORE_MS = 400
 function createPressHandlers({ canInvoke, invoke }) {
   let pending = null
   let fallbackTimer = null
-  let ignoreClickUntil = 0
+  // 兜底执行后，吞掉随之而来的那次迟到 click，避免同一次按压执行两遍。
+  // 用布尔标记而不是时间窗：关闭大弹层等重渲染会让 click 延迟数百毫秒，
+  // 固定时间窗一旦过期，迟到的 click 就会把兜底刚打开的菜单又关掉。
+  let swallowNextClick = false
 
   const detach = () => {
     window.removeEventListener('pointerup', onWindowPointerup, true)
@@ -56,12 +57,33 @@ function createPressHandlers({ canInvoke, invoke }) {
     const press = pending
     detach()
     if (!press) return
+    const scheduleFallback = () => {
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null
+        if (!pending) return
+        clearPending()
+        swallowNextClick = true
+        if (canInvoke()) invoke()
+      }, 0)
+    }
     const distance = Number.isFinite(event.clientX) && Number.isFinite(event.clientY)
       ? Math.hypot(event.clientX - press.x, event.clientY - press.y)
       : 0
     if (distance > DRAG_CANCEL_PX) {
       clearPending()
       return
+    }
+    // 滚动中按下再抬起时，元素会在按住期间移走，抬起点落到列表里的相邻控件上。
+    // 元素发生位移说明是滚动/重排把落点换了位置，意图仍是原控件；
+    // 元素没动而指针落到相邻控件，才是真的滑过去，应当让位。
+    if (press.rect && press.element?.isConnected) {
+      const current = press.element.getBoundingClientRect()
+      const moved = Math.abs(current.left - press.rect.left) > 1 ||
+        Math.abs(current.top - press.rect.top) > 1
+      if (moved) {
+        scheduleFallback()
+        return
+      }
     }
     // 指针滑到另一个可点击控件上时，浏览器会把 click 派发给它，
     // 这里让位给那个控件，避免一次按压触发两个动作。
@@ -71,13 +93,7 @@ function createPressHandlers({ canInvoke, invoke }) {
       return
     }
     // click 紧接 pointerup 派发；先排到任务末尾，click 一到就取消兜底。
-    fallbackTimer = setTimeout(() => {
-      fallbackTimer = null
-      if (!pending) return
-      clearPending()
-      ignoreClickUntil = Date.now() + LATE_CLICK_IGNORE_MS
-      if (canInvoke()) invoke()
-    }, 0)
+    scheduleFallback()
   }
 
   function onWindowPointercancel() {
@@ -91,19 +107,25 @@ function createPressHandlers({ canInvoke, invoke }) {
     if (event.pointerType === 'touch') return
     clearPending()
     // 新手势开始，之前兜底留下的迟到 click 不应影响这次按压。
-    ignoreClickUntil = 0
-    pending = { x: event.clientX ?? 0, y: event.clientY ?? 0, element: event.currentTarget }
+    swallowNextClick = false
+    const element = event.currentTarget
+    const rect = element && typeof element.getBoundingClientRect === 'function'
+      ? element.getBoundingClientRect()
+      : null
+    pending = { x: event.clientX ?? 0, y: event.clientY ?? 0, element, rect }
     window.addEventListener('pointerup', onWindowPointerup, true)
     window.addEventListener('pointercancel', onWindowPointercancel, true)
   }
 
-  const onClick = () => {
+  const onClick = event => {
     clearPending()
-    if (Date.now() < ignoreClickUntil) {
-      ignoreClickUntil = 0
+    // 只吞鼠标/触摸来源的迟到 click（detail > 0）。键盘 Enter/Space 的
+    // click 没有 pointerdown 前置，不能被上一次按压的残留标记吞掉。
+    if (swallowNextClick && (event?.detail ?? 0) > 0) {
+      swallowNextClick = false
       return
     }
-    ignoreClickUntil = 0
+    swallowNextClick = false
     if (canInvoke()) invoke()
   }
 

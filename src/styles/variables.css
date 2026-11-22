@@ -48,7 +48,9 @@
 
   /* 功能色背景 */
   --success-bg: #ecfdf5;
+  --chip-ok-fg: #166534;
   --warning-bg: #fffbeb;
+  --notice-fg: #92400e;
   --danger-bg: #fef2f2;
   --danger-100: #fee2e2;
 
@@ -144,7 +146,9 @@
 
   /* 功能色背景 */
   --success-bg: #ecfdf5;
+  --chip-ok-fg: #166534;
   --warning-bg: #fffbeb;
+  --notice-fg: #92400e;
   --danger-bg: #fef2f2;
   --danger-100: #fee2e2;
 
@@ -240,7 +244,9 @@
 
   /* 功能色背景 */
   --success-bg: #064e3b;
+  --chip-ok-fg: #a7f3d0;
   --warning-bg: #78350f;
+  --notice-fg: #fef3c7;
   --danger-bg: #7f1d1d;
   --danger-100: #991b1b;
 
@@ -348,7 +354,9 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
 
   /* 功能色背景 */
   --success-bg: #ecfdf5;
+  --chip-ok-fg: #166534;
   --warning-bg: #fffbeb;
+  --notice-fg: #92400e;
   --danger-bg: #fef2f2;
   --danger-100: #fee2e2;
 

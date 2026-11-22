@@ -1212,15 +1212,15 @@ const faqs = [
   gap: 10px;
   padding: 14px 18px;
   background: var(--warning-bg);
-  border: 1px solid #fde68a;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
   border-radius: 10px;
   margin-bottom: 16px;
   font-size: 13px;
-  color: #92400e;
+  color: var(--notice-fg, #92400e);
   line-height: 1.6;
 }
 .notice-box svg { color: #f59e0b; flex-shrink: 0; margin-top: 1px; }
-.notice-box strong { color: #92400e; }
+.notice-box strong { color: var(--notice-fg, #92400e); }
 
 /* ── Lang Chips ── */
 .lang-chips {
@@ -1237,9 +1237,9 @@ const faqs = [
   color: var(--text-secondary, #64748b);
 }
 .chip-ok {
-  border-color: #86efac;
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
   background: var(--success-bg);
-  color: #166534;
+  color: var(--chip-ok-fg, #166534);
   font-weight: 500;
 }
 
