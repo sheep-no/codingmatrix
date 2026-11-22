@@ -471,8 +471,14 @@
     }
   }
 
+  // 移动端点击时地址栏收起会触发 resize（仅高度变化），
+  // 此时关闭菜单会让刚展开的工具集一闪而过，看起来像没打开。
+  // 只有宽度变化或横竖屏切换才需要收起，避免菜单脱离按钮位置。
+  let lastViewportWidth = window.innerWidth
   const closeToolkitOnViewportChange = () => {
-    if (showToolkitMenu.value) closeToolkitMenu()
+    const widthChanged = window.innerWidth !== lastViewportWidth
+    lastViewportWidth = window.innerWidth
+    if (widthChanged && showToolkitMenu.value) closeToolkitMenu()
   }
 
   // 新建会话后侧栏不应继续高亮旧会话，否则用户会以为仍停留在原会话。
@@ -753,15 +759,25 @@
   let searchFocusTimer = null
   let historyFetchTimer = null
 
+  const scheduleHistoryLoad = () => {
+    // 等待 token 刷新完成后再加载历史记录，避免 401 错误
+    if (historyFetchTimer) clearTimeout(historyFetchTimer)
+    historyFetchTimer = setTimeout(() => {
+      fetchHistory().catch(() => {})
+      historyFetchTimer = null
+    }, 500)
+  }
+
   onMounted(() => {
-    // 恢复用户信息并等待 token 刷新完成后再加载历史记录
+    // 恢复用户信息并等待 token 刷新完成后再加载历史记录。
+    // 冷启动/新标签页只有 refresh cookie 时 restoreUser() 同步返回 false，
+    // 必须等 ensureSession() 换取 access token 后再拉取，否则历史列表会一直为空。
     if (userStore.restoreUser()) {
-      // 等待 token 刷新完成后再加载历史记录，避免 401 错误
-      if (historyFetchTimer) clearTimeout(historyFetchTimer)
-      historyFetchTimer = setTimeout(() => {
-        fetchHistory().catch(() => {})
-        historyFetchTimer = null
-      }, 500)
+      scheduleHistoryLoad()
+    } else {
+      userStore.ensureSession?.()
+        .then(ok => { if (ok) scheduleHistoryLoad() })
+        .catch(() => {})
     }
 
     // 用 pointerdown：mouseup 落点偏移时浏览器补发的 click 不该关掉刚打开的菜单。

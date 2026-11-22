@@ -13,6 +13,7 @@ const userState = vi.hoisted(() => ({
   username: 'tester',
   isSuperUser: false,
   restoreUser: vi.fn(() => false),
+  ensureSession: vi.fn(() => Promise.resolve(false)),
   clearUser: vi.fn()
 }))
 
@@ -84,6 +85,8 @@ describe('搜索历史记录', () => {
     chatDbMock.deleteConversation.mockResolvedValue(true)
     userState.isLoggedIn = true
     userState.restoreUser.mockReturnValue(false)
+    userState.ensureSession.mockReset()
+    userState.ensureSession.mockResolvedValue(false)
     apiMock.post.mockResolvedValue(jsonResponse({ items: [], total: 0 }))
   })
 
@@ -120,6 +123,26 @@ describe('搜索历史记录', () => {
     wrapper.unmount()
   })
 
+  it('移动端地址栏收起只改变高度时不关闭已展开的工具集（回归）', async () => {
+    const wrapper = mountLeftlist()
+    await wrapper.get('#toolkit').trigger('click')
+    expect(wrapper.get('#toolkit-menu').exists()).toBe(true)
+
+    const originalWidth = window.innerWidth
+    window.innerWidth = originalWidth
+    window.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(wrapper.get('#toolkit-menu').exists()).toBe(true)
+
+    window.innerWidth = originalWidth - 120
+    window.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(wrapper.find('#toolkit-menu').exists()).toBe(false)
+
+    window.innerWidth = originalWidth
+    wrapper.unmount()
+  })
+
   it('provides a task queue entry so the mounted tool is reachable（FRESCAN-64）', async () => {
     const wrapper = mountLeftlist()
     await wrapper.get('#toolkit').trigger('click')
@@ -150,6 +173,29 @@ describe('搜索历史记录', () => {
       offset: 0
     })
     expect(wrapper.get('.history-item').text()).toContain('检索规划')
+    wrapper.unmount()
+  })
+
+  it('冷启动只有 refresh cookie 时等 ensureSession 成功后再加载历史（回归）', async () => {
+    apiMock.post.mockResolvedValue(jsonResponse({
+      items: [{ id: 31, conversation_id: 9, title: '冷启动历史', prompt: '冷启动历史' }],
+      total: 1
+    }))
+    userState.restoreUser.mockReturnValue(false)
+    userState.ensureSession.mockResolvedValue(true)
+
+    const wrapper = mountLeftlist()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(userState.ensureSession).toHaveBeenCalled()
+    expect(apiMock.post).toHaveBeenCalledWith('/history', {
+      prompt_keyword: '',
+      limit: 50,
+      offset: 0
+    })
+    expect(wrapper.get('.history-item').text()).toContain('冷启动历史')
     wrapper.unmount()
   })
 
