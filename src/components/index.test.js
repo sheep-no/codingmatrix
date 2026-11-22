@@ -8,8 +8,15 @@ const offlineQueue = vi.hoisted(() => ({
   setSendCallback: vi.fn()
 }))
 
+const shortcutHandlers = vi.hoisted(() => new Map())
+
 vi.mock('@/composables/useKeyboardShortcuts', () => ({
-  useKeyboardShortcuts: () => ({ register: () => () => {} })
+  useKeyboardShortcuts: () => ({
+    register: (shortcut, handler) => {
+      shortcutHandlers.set(shortcut, handler)
+      return () => shortcutHandlers.delete(shortcut)
+    }
+  })
 }))
 vi.mock('@/composables/useOfflineQueue', () => ({
   useOfflineQueue: () => offlineQueue
@@ -62,6 +69,7 @@ describe('首页工作台响应式导航', () => {
     routeMock.query = {}
     routerMock.push.mockClear()
     routerMock.replace.mockClear()
+    shortcutHandlers.clear()
   })
 
   afterEach(() => {
@@ -204,6 +212,34 @@ describe('首页工作台响应式导航', () => {
     expect(hideAllTools).toHaveBeenCalled()
     expect(state.conversationHistory).toEqual([])
     expect(state.conversationHistoryMap.size).toBe(0)
+  })
+
+  it('生成中按 Esc 中断流式请求，优先于关闭面板', async () => {
+    wrapper = mountHomeWorkspace()
+    await flushPromises()
+    const state = wrapper.vm.$.setupState
+    state.isStreamActive = true
+    const abort = vi.spyOn(streamManager, 'abortCurrentRequest')
+    const hideAllTools = vi.spyOn(state.navigationStore, 'hideAllTools')
+
+    shortcutHandlers.get('escape')()
+
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(hideAllTools).not.toHaveBeenCalled()
+  })
+
+  it('未生成时按 Esc 保持原有行为：关闭工具面板', async () => {
+    wrapper = mountHomeWorkspace()
+    await flushPromises()
+    const state = wrapper.vm.$.setupState
+    state.isStreamActive = false
+    const abort = vi.spyOn(streamManager, 'abortCurrentRequest')
+    const hideAllTools = vi.spyOn(state.navigationStore, 'hideAllTools')
+
+    shortcutHandlers.get('escape')()
+
+    expect(abort).not.toHaveBeenCalled()
+    expect(hideAllTools).toHaveBeenCalled()
   })
 
   it('新建会话时中断流式请求并清空草稿与侧栏高亮', () => {

@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, ref, nextTick, watch } from 'vue'
+import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 const props = defineProps({
   prompt: { type: String, default: '' },
@@ -123,6 +123,21 @@ function onKeydown(event) {
   }
 }
 
+function isEditableTarget(target) {
+  if (!target) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable
+}
+
+// Esc 停止只在输入框聚焦时生效，焦点落在页面其他位置就收不到键。
+// 生成期间补一层窗口监听；输入框内的 Esc 交给 textarea 自身处理，避免重复停止。
+function onWindowKeydown(event) {
+  if (event.key !== 'Escape' || !props.generating) return
+  if (isEditableTarget(event.target)) return
+  event.preventDefault()
+  emit('stop')
+}
+
 function autoResize() {
   nextTick(() => {
     if (textareaRef.value) {
@@ -133,6 +148,14 @@ function autoResize() {
 }
 
 watch(() => props.prompt, () => autoResize())
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown)
+})
 </script>
 
 <style scoped>

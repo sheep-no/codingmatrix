@@ -1389,6 +1389,11 @@
         showShortcutsHelp.value = false
         return
       }
+      // 生成中按 Esc 应停止流式输出，与输入框页脚「Esc 停止」的提示一致。
+      if (isStreamActive.value) {
+        abortStream()
+        return
+      }
       leftlistRef.value?.closeToolkitMenu?.()
       navigationStore.hideAllTools()
       showMessageEditor.value = false
