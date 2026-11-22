@@ -69,12 +69,17 @@ test.describe('主题与快捷键', () => {
   test('Ctrl+Enter - 发送消息', async ({ page }) => {
     // 发送守卫要求存在可用的模型凭据，缺省时会拦截并跳转设置页；同时首页在加载到
     // 历史会话后会渲染既有消息，令「消息数 > 0」成为依赖本地状态的假阳性。
-    // 这里注入未过期的占位凭据放行守卫，并断言消息数在按键后增加，使用例只验证
-    // 快捷键与乐观插入链路，不依赖后端模型或既有历史。
-    await page.addInitScript(() => {
-      localStorage.setItem('codingmatrix_apikeys', JSON.stringify([
-        { provider: 'siliconflow', enabled: true, expires_at: '2099-01-01T00:00:00.000Z' }
-      ]));
+    // 发送前会以后端记录为准，因此这里 mock 列表接口返回可用凭据，
+    // 让用例只验证快捷键与乐观插入链路，不依赖真实后端模型或既有历史。
+    await page.route('**/api/v1/agent/apikeys', async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { provider: 'siliconflow', token: 'e2e-token', enabled: true, status: 'verified', expires_at: '2099-01-01T00:00:00.000Z' }
+        ])
+      });
     });
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 

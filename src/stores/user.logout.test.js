@@ -4,12 +4,14 @@ import { createPinia, setActivePinia } from 'pinia'
 vi.mock('@/utils/tokenManager', () => ({
   useTokenManager: () => ({
     clearToken: vi.fn(),
+    setToken: vi.fn(),
     getToken: vi.fn(() => null),
     isTokenValid: vi.fn(() => false)
   })
 }))
 
 import { useUserStore } from './user'
+import { useApiKeyStore } from './apikey'
 
 describe('user store 注销清理', () => {
   beforeEach(() => {
@@ -31,6 +33,7 @@ describe('user store 注销清理', () => {
 
   it('clearUser 清除 API Key / 供应商 / 模型覆盖缓存（FRESCAN-47）', () => {
     localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{ provider: 'siliconflow', token: 'x' }]))
+    localStorage.setItem('codingmatrix_apikeys_owner', 'admin_test')
     localStorage.setItem('codingmatrix_rsa_public_key', 'pubkey')
     localStorage.setItem('codingmatrix_model_overrides', JSON.stringify({ siliconflow: ['m'] }))
     localStorage.setItem('codingmatrix_providers', JSON.stringify([{ base_url: 'https://x' }]))
@@ -38,9 +41,33 @@ describe('user store 注销清理', () => {
     useUserStore().clearUser()
 
     expect(localStorage.getItem('codingmatrix_apikeys')).toBeNull()
+    expect(localStorage.getItem('codingmatrix_apikeys_owner')).toBeNull()
     expect(localStorage.getItem('codingmatrix_rsa_public_key')).toBeNull()
     expect(localStorage.getItem('codingmatrix_model_overrides')).toBeNull()
     expect(localStorage.getItem('codingmatrix_providers')).toBeNull()
+  })
+
+  it('clearUser 同时清空内存中的密钥状态', () => {
+    const apiKeyStore = useApiKeyStore()
+    apiKeyStore.tokens = [{ provider: 'siliconflow', token: 'old-account-token', enabled: true }]
+
+    useUserStore().clearUser()
+
+    expect(apiKeyStore.tokens).toEqual([])
+  })
+
+  it('切换到不同账号时清空上一账号的密钥缓存', () => {
+    localStorage.setItem('username', 'previous_user')
+    localStorage.setItem('codingmatrix_apikeys', JSON.stringify([{ provider: 'siliconflow', token: 'previous-token' }]))
+    localStorage.setItem('codingmatrix_apikeys_owner', 'previous_user')
+    const apiKeyStore = useApiKeyStore()
+    apiKeyStore.tokens = [{ provider: 'siliconflow', token: 'previous-token', enabled: true }]
+
+    useUserStore().setUser({ username: 'new_user', access_token: 'new-token' })
+
+    expect(apiKeyStore.tokens).toEqual([])
+    expect(localStorage.getItem('codingmatrix_apikeys')).toBeNull()
+    expect(localStorage.getItem('codingmatrix_apikeys_owner')).toBeNull()
   })
 
   it('clearUser 清除系统日志与过滤状态（FRESCAN-48）', () => {

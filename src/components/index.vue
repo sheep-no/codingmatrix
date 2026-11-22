@@ -514,11 +514,11 @@
     }
     if (isLoading.value) return
 
-    // 检查 API Key 配置。本地缓存可能为空或过期（例如冷启动时列表尚未同步），
-    // 此时先向后端求证一次，避免把已经在服务端配置好 Key 的用户强行跳转到设置页。
-    if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
+    // 发消息前以后端记录为准：本地缓存可能为空、过期，或残留上一账号的令牌。
+    // 每个账号在本次会话内只校准一次，校准失败时退回本地缓存判断。
+    if (!messageData.model) {
       try {
-        await apiKeyStore.listKeys()
+        await apiKeyStore.ensureSynced()
       } catch (_error) {
         // 同步失败时按本地缓存继续判断
       }

@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useTokenManager } from '@/utils/tokenManager'
 import { useNavigationStore } from './navigation'
+import { useApiKeyStore } from './apikey'
 
 // 注销时必须一并清除的跨账户浏览器状态（FRESCAN-55）
 const CROSS_ACCOUNT_LOCAL_KEYS = [
@@ -47,8 +48,24 @@ export const useUserStore = defineStore(
      * 设置用户信息（登录后调用）
      */
     function setUser(data) {
+      // 切换到另一个账号时，上一账号缓存的密钥归属已失效。
+      // 清掉持久化与内存中的密钥状态，避免新账号在请求完成前读到旧令牌。
+      const previousUsername = localStorage.getItem('username') || ''
+      const nextUsername = data.username || ''
+      if (previousUsername && previousUsername !== nextUsername) {
+        try {
+          useApiKeyStore().reset()
+        } catch {
+          // Pinia 尚未激活时至少清掉持久化键，下次加载会重新向后端同步。
+        }
+        localStorage.removeItem('codingmatrix_apikeys')
+        localStorage.removeItem('codingmatrix_apikeys_owner')
+        localStorage.removeItem('codingmatrix_rsa_public_key')
+        localStorage.removeItem('codingmatrix_model_overrides')
+      }
+
       isLoggedIn.value = true
-      username.value = data.username || ''
+      username.value = nextUsername
       email.value = data.email || ''
       permissionLevel.value = data.permission_level || 'normal'
 
@@ -58,7 +75,7 @@ export const useUserStore = defineStore(
       }
 
       // 保存非敏感信息到 localStorage
-      localStorage.setItem('username', data.username || '')
+      localStorage.setItem('username', nextUsername)
       localStorage.setItem('email', data.email || '')
       localStorage.setItem('permission_level', data.permission_level || 'normal')
     }
@@ -88,7 +105,13 @@ export const useUserStore = defineStore(
 
       // 清除 API Key / 供应商 / 模型覆盖缓存，避免下一账户在请求完成前
       // 展示或回退使用上一账户的令牌、供应商地址与模型映射
+      try {
+        useApiKeyStore().reset()
+      } catch {
+        // Pinia 尚未激活时忽略，持久化键仍会被清除
+      }
       localStorage.removeItem('codingmatrix_apikeys')
+      localStorage.removeItem('codingmatrix_apikeys_owner')
       localStorage.removeItem('codingmatrix_rsa_public_key')
       localStorage.removeItem('codingmatrix_model_overrides')
       localStorage.removeItem('codingmatrix_providers')
