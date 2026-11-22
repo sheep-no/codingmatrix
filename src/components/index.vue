@@ -742,15 +742,17 @@
       }
     } catch (error) {
       streamUpdateBatcher.flush()
-      console.error('发送消息失败:', error)
+      // 用户主动停止会以 AbortError 抛出，属于预期结束，不写入错误日志。
+      const isUserAbort = error.name === 'AbortError' && abortController.signal.aborted
+      if (!isUserAbort) {
+        console.error('发送消息失败:', error)
+      }
 
       const failedConversationKey = resolveStreamKey(streamConversationId)
       const streamHistory = conversationHistoryMap.value.get(failedConversationKey)
       if (!pageUnloading && streamHistory && streamHistory.length > 0) {
         const streamLastIndex = streamHistory.length - 1
         const lastMessage = streamHistory[streamLastIndex]
-
-        const isUserAbort = error.name === 'AbortError' && abortController.signal.aborted
 
         if (isUserAbort) {
           lastMessage.isStreaming = false
@@ -762,8 +764,11 @@
             lastMessage.thinkingClosed = true
           }
 
-          if (!existingResponse.includes('已暂停：项目生成已停止')) {
-            lastMessage.response += `\n\n已暂停：项目生成已停止`
+          const pausedLabel = currentMessageData.is_project_generator
+            ? '已暂停：项目生成已停止'
+            : '已暂停：已停止生成'
+          if (!existingResponse.includes(pausedLabel)) {
+            lastMessage.response += `\n\n${pausedLabel}`
           }
           if (existingReasoning && !existingReasoning.includes('已暂停：思考已停止')) {
             lastMessage.reasoning =

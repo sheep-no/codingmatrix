@@ -483,4 +483,52 @@ describe('首页工作台响应式导航', () => {
     expect(JSON.parse(localStorage.getItem('streamRequestState')).isStreaming).toBe(true)
     expect(JSON.parse(localStorage.getItem('chatState')).conversationHistory[0].chatStage).toBe('正在搜索资料')
   })
+
+  describe('用户主动停止生成', () => {
+    async function abortWhileStreaming(messageData = {}, { conversationId = '' } = {}) {
+      wrapper = mountHomeWorkspace()
+      const state = wrapper.vm.$.setupState
+      vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
+      vi.spyOn(state.apiKeyStore, 'hasSiliconflowKey', 'get').mockReturnValue(true)
+      state.currentConversationId = conversationId
+
+      api.stream.mockImplementation((url, data, signal) => {
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'))
+          })
+        })
+      })
+
+      const sendPromise = state.handleSendMessage({ prompt: '写点东西', ...messageData })
+      await flushPromises()
+      streamManager.abortCurrentRequest()
+      await sendPromise
+      return state
+    }
+
+    it('中断不计入错误日志，普通聊天提示改为已停止生成', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const state = await abortWhileStreaming()
+
+      expect(consoleError).not.toHaveBeenCalledWith('发送消息失败:', expect.anything())
+      const last = state.conversationHistory[state.conversationHistory.length - 1]
+      expect(last.isStreaming).toBe(false)
+      expect(last.response).toContain('已暂停：已停止生成')
+      expect(last.response).not.toContain('项目生成已停止')
+      consoleError.mockRestore()
+    })
+
+    it('项目生成场景保留原有暂停文案', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const state = await abortWhileStreaming(
+        { is_project_generator: true, model: 'deepseek-chat', session_id: 'session-1' },
+        { conversationId: 'project-conv-1' }
+      )
+
+      const last = state.conversationHistory[state.conversationHistory.length - 1]
+      expect(last.response).toContain('已暂停：项目生成已停止')
+      consoleError.mockRestore()
+    })
+  })
 })
