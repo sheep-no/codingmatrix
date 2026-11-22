@@ -1198,6 +1198,16 @@
   background: color-mix(in srgb, var(--primary), transparent 92%);
   transform: translateY(-2px);
 }
+.upload-zone .upload-icon {
+  display: block;
+  margin: 0 auto 12px;
+  color: var(--primary);
+}
+.upload-zone p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
 
 /* 设置区域 */
 .settings-modal { max-width: 900px; }

@@ -525,15 +525,6 @@ const exportPerformanceData = () => backend.exportPerformanceData()
 const clearBackendCache = () => backend.clearBackendCache()
 const rollback = (tag) => backend.rollbackToSnapshot(tag, session.currentSessionId)
 
-// 首页路由组件是懒加载的，冷启动时首次「返回」要等它编译/下载完才完成导航，
-// 期间页面停在 /agent 毫无反馈，用户会以为没点到而再点一次。
-// 空闲时提前加载，让返回在首次点击时就立即生效。
-let homePrefetchTimer = null
-const prefetchHome = () => {
-  homePrefetchTimer = null
-  import('../components/index.vue').catch(() => {})
-}
-
 // ========== Auto-save ==========
 watch([() => files.generatedFiles?.length, () => session.currentSessionId, () => generation.workflowStages?.length], () => {
   if (session.currentSessionId) {
@@ -542,11 +533,6 @@ watch([() => files.generatedFiles?.length, () => session.currentSessionId, () =>
 }, { deep: true })
 
 onMounted(() => {
-  if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(prefetchHome, { timeout: 2000 })
-  } else {
-    homePrefetchTimer = setTimeout(prefetchHome, 800)
-  }
   window.addEventListener('keydown', handlePageKeydown)
   apiKeyStore.loadFromStorage()
   providerStore.loadFromStorage()
@@ -564,10 +550,6 @@ onMounted(() => {
   backend.loadAvailableSkills()
 })
 onBeforeUnmount(() => {
-  if (homePrefetchTimer) {
-    clearTimeout(homePrefetchTimer)
-    homePrefetchTimer = null
-  }
   window.removeEventListener('keydown', handlePageKeydown)
   session.stopAutoSave()
 })

@@ -43,3 +43,14 @@ window.__retryAppInitialization = () => {
 if (import.meta.hot) import.meta.hot.dispose(() => performanceMetrics.stop())
 
 app.mount('#app')
+
+// 首页是登录后的高频返回目标。路由保持懒加载以免撑大初始包，
+// 在首屏挂载后利用空闲时间提前取回 chunk，返回时无需再等待下载。
+const prefetchHome = () => {
+  import('./components/index.vue').catch(() => {})
+}
+if (typeof requestIdleCallback === 'function') {
+  requestIdleCallback(prefetchHome, { timeout: 3000 })
+} else {
+  setTimeout(prefetchHome, 1200)
+}

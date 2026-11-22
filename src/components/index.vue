@@ -513,8 +513,8 @@
     }
     if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
       showError('请先配置 API Key/接口密钥后再使用')
-      // 跳转到设置页面
-      router.push('/settings')
+      // 直接落到 API Key 页签，避免用户停留在「自定义供应商」还要自己再切一次
+      router.push({ path: '/settings', query: { tab: 'apikey' } })
       return
     }
 
