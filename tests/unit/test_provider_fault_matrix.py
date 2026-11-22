@@ -9,6 +9,18 @@ from app.utils.aicloud.errors import LLMCallError, normalize_llm_error
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_cooldowns():
+    """隔离每个用例的 429 冷却状态。
+
+    有的用例把 time.monotonic 打桩成很小的值来断言冷却时长，写入的截止时间
+    在打桩恢复后会远大于真实 monotonic；若不清空，后续用例会误等数百秒。
+    """
+    llm_caller.reset_model_cooldowns()
+    yield
+    llm_caller.reset_model_cooldowns()
+
+
 def _response(status_code: int) -> httpx.Response:
     request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
     return httpx.Response(status_code, request=request)
