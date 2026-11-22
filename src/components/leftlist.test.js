@@ -21,13 +21,15 @@ const chatDbMock = vi.hoisted(() => ({
   deleteConversation: vi.fn()
 }))
 
+const routerPushMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/utils/api/index', () => ({ api: apiMock }))
 vi.mock('@/utils/chatDatabase', () => ({ chatDB: chatDbMock }))
 vi.mock('@/stores/user', () => ({
   useUserStore: () => userState
 }))
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() })
+  useRouter: () => ({ push: routerPushMock })
 }))
 vi.mock('element-plus', () => ({
   ElMessage: { error: vi.fn(), success: vi.fn() },
@@ -109,6 +111,25 @@ describe('搜索历史记录', () => {
     const labels = wrapper.findAll('[role="menuitem"]').map(node => node.text())
     expect(labels.some(text => text.includes('Nginx 配置'))).toBe(true)
     expect(labels.some(text => text.includes('Docker 配置'))).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('工具集工作台入口统一走路由跳转，不再开新标签', async () => {
+    const wrapper = mountLeftlist()
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+    for (const label of ['图表编辑器', 'PPT 生成', 'AI 绘画', '临时工作流']) {
+      if (!wrapper.find('#toolkit-menu').exists()) {
+        await wrapper.get('#toolkit').trigger('click')
+      }
+      routerPushMock.mockClear()
+      const item = wrapper.findAll('[role="menuitem"]').find(node => node.text().includes(label))
+      await item.trigger('click')
+      expect(routerPushMock, `${label} 应使用路由跳转`).toHaveBeenCalledTimes(1)
+    }
+
+    expect(openSpy).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
     wrapper.unmount()
   })
 

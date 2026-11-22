@@ -10,7 +10,7 @@
           </svg>
         </button>
         <div class="title-block">
-          <h2>图表编辑器</h2>
+          <h1>图表编辑器</h1>
           <span class="subtitle">导入数据 · 配置字段 · 一键导出</span>
         </div>
         <div v-if="charts.length > 0" class="header-stats">
@@ -1192,7 +1192,7 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.title-block h2 {
+.title-block h1 {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
@@ -1760,7 +1760,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 600px) {
   .editor-header { padding: 8px 12px; height: 56px; }
-  .title-block h2 { font-size: 16px; }
+  .title-block h1 { font-size: 16px; }
   .subtitle { display: none; }
   .header-stats { display: none; }
   .toolbar-btn span:not(.toolbar-kbd) { display: none; }

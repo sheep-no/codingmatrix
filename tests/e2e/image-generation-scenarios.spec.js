@@ -77,19 +77,8 @@ async function openImagePage(page) {
   await page.locator('#toolkit').click()
   const menu = page.locator('#toolkit-menu')
   await expect(menu).toBeVisible()
-  const popupPromise = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null)
   await menu.getByText('AI 绘画', { exact: true }).click()
-  const popup = await popupPromise
-  if (popup) {
-    try {
-      await popup.waitForLoadState('domcontentloaded')
-      await expect(popup.locator('.image-generate-page')).toBeVisible({ timeout: 15000 })
-      return popup
-    } catch {
-      await popup.close().catch(() => {})
-    }
-  }
-  await page.goto('/image-generate', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/image-generate/, { timeout: 15000 })
   await expect(page.locator('.image-generate-page')).toBeVisible({ timeout: 15000 })
   return page
 }

@@ -15,7 +15,7 @@
           <line x1="16" y1="17" x2="8" y2="17"/>
           <polyline points="10 9 9 9 8 9"/>
         </svg>
-        <span>AI PPT 生成</span>
+        <h1>AI PPT 生成</h1>
       </div>
       <div class="header-actions">
          <button class="header-btn" type="button" title="生成历史" :aria-expanded="showHistoryPanel" aria-controls="ppt-history-panel" @click="toggleHistory">
@@ -1386,6 +1386,12 @@ onUnmounted(() => {
 }
 
 .header-title svg { width: 20px; height: 20px; }
+.header-title h1 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-hint { font-size: 13px; color: var(--text-secondary); }
 
