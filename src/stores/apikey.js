@@ -10,6 +10,8 @@ import { getPublicKey, submitApiKey, testApiKey, deleteApiKey, listApiKeys, upda
 import { encryptWithRSAPublicKey } from '@/utils/crypto'
 
 const STORAGE_KEY = 'codingmatrix_apikeys'
+// 记录密钥缓存归属的账号，切换账号时用于丢弃上一账号的缓存。
+const STORAGE_OWNER_KEY = 'codingmatrix_apikeys_owner'
 const STORAGE_PUBLIC_KEY = 'codingmatrix_rsa_public_key'
 const STORAGE_MODEL_OVERRIDES = 'codingmatrix_model_overrides'
 
@@ -19,6 +21,16 @@ export const useApiKeyStore = defineStore('apikey', () => {
   const publicKey = ref('')
   const modelOverrides = ref({})
   const loading = ref(false)
+  // 本次会话已向后端校准过密钥列表的账号；避免每次发送都请求后端。
+  const syncedUser = ref('')
+
+  const currentUsername = () => {
+    try {
+      return localStorage.getItem('username') || ''
+    } catch {
+      return ''
+    }
+  }
 
   // Computed
   const siliconflowKey = computed(() => {
@@ -60,8 +72,22 @@ export const useApiKeyStore = defineStore('apikey', () => {
     try {
       const storedTokens = localStorage.getItem(STORAGE_KEY)
       if (storedTokens) {
-        tokens.value = JSON.parse(storedTokens)
+        const owner = localStorage.getItem(STORAGE_OWNER_KEY)
+        // 缓存属于其他账号时直接丢弃，避免切换账号后复用上一账号的密钥。
+        if (owner && owner !== currentUsername()) {
+          tokens.value = []
+          localStorage.removeItem(STORAGE_KEY)
+          localStorage.removeItem(STORAGE_OWNER_KEY)
+        } else {
+          tokens.value = JSON.parse(storedTokens)
+          // 旧缓存没有归属标记，补记到当前账号以便后续校验。
+          if (!owner) localStorage.setItem(STORAGE_OWNER_KEY, currentUsername())
+        }
+      } else {
+        // 存储为空时同步清空内存，避免注销后残留上一账号的令牌。
+        tokens.value = []
       }
+      syncedUser.value = ''
       
       const storedPublicKey = localStorage.getItem(STORAGE_PUBLIC_KEY)
       if (storedPublicKey) {
@@ -71,6 +97,8 @@ export const useApiKeyStore = defineStore('apikey', () => {
       const storedOverrides = localStorage.getItem(STORAGE_MODEL_OVERRIDES)
       if (storedOverrides) {
         modelOverrides.value = JSON.parse(storedOverrides)
+      } else {
+        modelOverrides.value = {}
       }
     } catch (e) {
       console.error('加载 API Key 数据失败：', e)
@@ -82,6 +110,7 @@ export const useApiKeyStore = defineStore('apikey', () => {
    */
   function saveTokens() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens.value))
+    localStorage.setItem(STORAGE_OWNER_KEY, currentUsername())
   }
 
   /**
@@ -203,12 +232,35 @@ export const useApiKeyStore = defineStore('apikey', () => {
       if (Array.isArray(response)) {
         tokens.value = response
         saveTokens()
+        // 后端返回的就是该账号的权威记录，标记本会话已校准。
+        syncedUser.value = currentUsername()
       }
       return tokens.value
     } catch (e) {
       console.error('获取 Key 列表失败：', e)
       throw e
     }
+  }
+
+  /**
+   * 保证本地缓存与后端一致：每个账号在本次会话内只校准一次。
+   * 已有本地缓存时也执行一次校准，避免切换账号后沿用上一账号的密钥。
+   */
+  async function ensureSynced(options = {}) {
+    const force = options.force === true
+    const user = currentUsername()
+    if (!force && user && syncedUser.value === user) return tokens.value
+    return listKeys()
+  }
+
+  /**
+   * 清空内存中的密钥状态（注销或切换账号时调用）。
+   */
+  function reset() {
+    tokens.value = []
+    publicKey.value = ''
+    modelOverrides.value = {}
+    syncedUser.value = ''
   }
 
   /**
@@ -319,6 +371,8 @@ export const useApiKeyStore = defineStore('apikey', () => {
     testKey,
     deleteKey,
     listKeys,
+    ensureSynced,
+    reset,
     toggleEnabled,
     updateContextLengths,
     setModelOverride,

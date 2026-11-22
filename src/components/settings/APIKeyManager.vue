@@ -530,7 +530,8 @@ function getStatusText(status) {
     invalid: '已失效',
     expired: '已过期',
   }
-  return map[status] || '未知'
+  // 尚未提交任何密钥时后端没有 status，这里展示「未配置」比「未知」更准确。
+  return map[status] || '未配置'
 }
 
 function getProviderName(provider) {

@@ -124,11 +124,11 @@ describe('首页工作台响应式导航', () => {
     expect(api.stream).not.toHaveBeenCalled()
   })
 
-  it('本地没有 Key 缓存时先向后端求证，已配置则正常发送', async () => {
+  it('发送前以后端记录为准，已配置则正常发送', async () => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState
     vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
-    vi.spyOn(state.apiKeyStore, 'listKeys').mockImplementation(async () => {
+    vi.spyOn(state.apiKeyStore, 'ensureSynced').mockImplementation(async () => {
       state.apiKeyStore.tokens.push({
         provider: 'siliconflow',
         token: 'server-token',
@@ -141,7 +141,7 @@ describe('首页工作台响应式导航', () => {
 
     await state.handleSendMessage({ prompt: 'q' })
 
-    expect(state.apiKeyStore.listKeys).toHaveBeenCalledTimes(1)
+    expect(state.apiKeyStore.ensureSynced).toHaveBeenCalledTimes(1)
     expect(routerMock.push).not.toHaveBeenCalledWith('/settings')
     expect(api.stream).toHaveBeenCalledTimes(1)
   })
