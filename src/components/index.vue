@@ -1,6 +1,6 @@
   <template>
     <div class="main-layout">
-      <div class="mobile-home-toolbar">
+      <div v-if="isMobile" class="mobile-home-toolbar">
         <button
           ref="homeMenuTrigger"
           class="mobile-home-menu"
@@ -167,6 +167,18 @@
   const showShortcutsHelp = ref(false)
   const homeDrawerOpen = ref(false)
   const homeMenuTrigger = ref(null)
+
+  // 移动工具条只在窄屏渲染：常驻 DOM 会让桌面端留下 0x0 的幽灵「导航」按钮，
+  // 也会让读屏和自动化在桌面视图里发现一个实际不可见的入口。
+  const mobileMediaQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 768px)')
+    : null
+  // 无 matchMedia 的环境（如 jsdom）按移动端处理，与原有 DOM 结构保持一致。
+  const isMobile = ref(mobileMediaQuery ? mobileMediaQuery.matches : true)
+  const handleMobileChange = event => {
+    isMobile.value = event.matches
+    if (!event.matches && homeDrawerOpen.value) closeHomeDrawer()
+  }
 
   // 消息编辑状态
   const editMessage = ref('')
@@ -1346,6 +1358,16 @@
     _cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload))
     window.addEventListener('keydown', handleHomeDrawerKeydown)
     _cleanupFns.push(() => window.removeEventListener('keydown', handleHomeDrawerKeydown))
+    if (mobileMediaQuery) {
+      if (mobileMediaQuery.addEventListener) {
+        mobileMediaQuery.addEventListener('change', handleMobileChange)
+        _cleanupFns.push(() => mobileMediaQuery.removeEventListener('change', handleMobileChange))
+      } else {
+        // 旧版 Safari 只有 addListener/removeListener。
+        mobileMediaQuery.addListener(handleMobileChange)
+        _cleanupFns.push(() => mobileMediaQuery.removeListener(handleMobileChange))
+      }
+    }
 
     _cleanupFns.push(register('mod+k', () => {
       nextTick(() => {

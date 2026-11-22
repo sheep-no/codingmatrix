@@ -191,4 +191,36 @@ describe('shared workbench state components', () => {
 
     wrapper.unmount()
   })
+
+  it('removes a fading overlay even when transitionend never fires', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AppLoading, { props: { visible: true } })
+
+    // 模拟后台标签：CSS 过渡已启动，但渲染帧被暂停，transitionend 永远不会派发。
+    await wrapper.setProps({ visible: false })
+    expect(document.body.querySelector('.app-loading-overlay').classList.contains('is-leaving')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(800)
+    expect(document.body.querySelector('.app-loading-overlay')).toBeNull()
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('removes the overlay as soon as the fade transition ends', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AppLoading, { props: { visible: true } })
+
+    await wrapper.setProps({ visible: false })
+    const overlay = document.body.querySelector('.app-loading-overlay')
+    const transitionEnd = new Event('transitionend')
+    Object.defineProperty(transitionEnd, 'propertyName', { value: 'opacity' })
+    overlay.dispatchEvent(transitionEnd)
+    await wrapper.vm.$nextTick()
+
+    expect(document.body.querySelector('.app-loading-overlay')).toBeNull()
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
 })

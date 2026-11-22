@@ -68,6 +68,7 @@ describe('首页工作台响应式导航', () => {
     wrapper?.unmount()
     wrapper = null
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('提供主工作区、输入区和移动导航入口', () => {
@@ -79,6 +80,20 @@ describe('首页工作台响应式导航', () => {
     expect(wrapper.get('#leftlist').classes()).not.toContain('mobile-home-drawer-open')
     expect(wrapper.findComponent({ name: 'MessageEditor' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'KeyboardShortcutsHelp' }).exists()).toBe(false)
+  })
+
+  it('桌面视口不渲染移动工具条，避免留下不可见的「导航」按钮', () => {
+    vi.stubGlobal('matchMedia', query => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+    wrapper = mountHomeWorkspace()
+
+    expect(wrapper.find('.mobile-home-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.mobile-home-menu').exists()).toBe(false)
+    expect(wrapper.find('#leftlist').exists()).toBe(true)
   })
 
   it('保留搜索失败提示并显示随后回答的真实模型', async () => {

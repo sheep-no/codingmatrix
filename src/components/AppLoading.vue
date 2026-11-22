@@ -1,12 +1,12 @@
 <template>
   <Teleport to="body">
-    <Transition name="app-loading">
-      <div
-        v-if="visible"
-        class="app-loading-overlay"
-        :class="{ 'is-loading': status === 'loading' }"
-        style="pointer-events: none"
-      >
+    <div
+      v-if="rendered"
+      class="app-loading-overlay"
+      :class="{ 'is-loading': status === 'loading', 'is-leaving': leaving }"
+      style="pointer-events: none"
+      @transitionend.self="onTransitionEnd"
+    >
         <div class="app-loading-container">
           <div class="app-loading-logo">
             <div class="logo-ring logo-ring-1"></div>
@@ -39,8 +39,7 @@
           </div>
           <div v-else class="app-loading-tip">{{ tipText }}</div>
         </div>
-      </div>
-    </Transition>
+    </div>
   </Teleport>
 </template>
 
@@ -75,20 +74,23 @@ const tips = [
   '即将完成...'
 ]
 
+// 节点是否保留在 DOM 中。淡出由 is-leaving 的 CSS 过渡驱动，但后台标签会暂停
+// 渲染帧，transitionend 可能永不触发，遮罩就会永久挂在页面上（opacity 卡在 1）。
+// 因此额外用一个不依赖渲染帧的定时器做兜底，保证节点最终被移除。
+const rendered = ref(props.visible)
+const leaving = ref(false)
+// 略大于 0.4s 的淡出时长，前景标签仍能完整播放过渡。
+const FORCE_REMOVE_MS = 700
+
 let progressTimer = null
 let tipTimer = null
+let forceRemoveTimer = null
 
 onMounted(() => {
   if (props.visible) {
     startProgress()
   }
-})
-
-onBeforeUnmount(() => {
-  if (progressTimer) clearInterval(progressTimer)
-  if (tipTimer) clearInterval(tipTimer)
-  progressTimer = null
-  tipTimer = null
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 const startProgress = () => {
@@ -122,21 +124,70 @@ const resetTimers = () => {
   tipTimer = null
 }
 
+const clearForceRemove = () => {
+  if (forceRemoveTimer) {
+    clearTimeout(forceRemoveTimer)
+    forceRemoveTimer = null
+  }
+}
+
+// 进入淡出后同时启动兜底：即便渲染帧被暂停、transitionend 不来，也能移除节点。
+const scheduleForceRemove = () => {
+  clearForceRemove()
+  forceRemoveTimer = setTimeout(() => {
+    forceRemoveTimer = null
+    removeOverlay()
+  }, FORCE_REMOVE_MS)
+}
+
+const removeOverlay = () => {
+  clearForceRemove()
+  // 期间又被重新打开时，保留节点。
+  if (props.visible) return
+  leaving.value = false
+  rendered.value = false
+}
+
+const onTransitionEnd = event => {
+  if (event.propertyName === 'opacity' && leaving.value) {
+    removeOverlay()
+  }
+}
+
 const complete = () => {
   progress.value = 100
   resetTimers()
 }
 
 watch(() => props.visible, visible => {
-  if (visible) startProgress()
-  else complete()
+  if (visible) {
+    clearForceRemove()
+    leaving.value = false
+    rendered.value = true
+    startProgress()
+    return
+  }
+  complete()
+  leaving.value = true
+  scheduleForceRemove()
 })
+
+// 从后台切回前台时渲染帧恢复，若遮罩仍在淡出则重新计时，避免一直滞留。
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && leaving.value && rendered.value) {
+    scheduleForceRemove()
+  }
+}
 
 watch(() => props.status, status => {
   if (status === 'ready') complete()
 })
 
-onBeforeUnmount(resetTimers)
+onBeforeUnmount(() => {
+  resetTimers()
+  clearForceRemove()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 defineExpose({ reset, startProgress, complete })
 </script>
@@ -150,6 +201,11 @@ defineExpose({ reset, startProgress, complete })
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
+  transition: opacity 0.4s ease;
+}
+
+.app-loading-overlay.is-leaving {
+  opacity: 0;
 }
 
 .app-loading-container {
@@ -289,13 +345,4 @@ defineExpose({ reset, startProgress, complete })
   }
 }
 
-.app-loading-enter-active,
-.app-loading-leave-active {
-  transition: opacity 0.4s ease;
-}
-
-.app-loading-enter-from,
-.app-loading-leave-to {
-  opacity: 0;
-}
 </style>
