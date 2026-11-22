@@ -64,32 +64,17 @@ async function openAdminPanel(page) {
   const adminItem = menu.getByText('管理员面板', { exact: true })
   const visible = await adminItem.isVisible().catch(() => false)
   if (visible) {
-    const popupPromise = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null)
     await adminItem.click()
-    const popup = await popupPromise
-    if (popup) {
-      try {
-        await popup.waitForLoadState('domcontentloaded')
-        await expect(popup.locator('.admin-panel')).toBeVisible({ timeout: 15000 })
-        return popup
-      } catch {
-        // CI 渲染进程可能在 popup 导航瞬间崩溃（page crashed）；
-        // 关闭崩溃 popup，退化直达导航保住断言覆盖
-        await popup.close().catch(() => {})
-      }
-    }
+    await expect(page).toHaveURL(/\/admin/, { timeout: 15000 })
+    await expect(page.locator('.admin-panel')).toBeVisible({ timeout: 15000 })
+    return page
   }
   await page.goto('/admin', { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.admin-panel')).toBeVisible({ timeout: 15000 })
   return page
 }
 
-async function returnAndReopen(homePage, adminPage) {
-  if (adminPage !== homePage && !adminPage.isClosed()) {
-    await adminPage.close()
-    await expect(homePage.locator('#toolkit')).toBeVisible({ timeout: 15000 })
-    return openAdminPanel(homePage)
-  }
+async function returnAndReopen(adminPage) {
   await adminPage.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(adminPage.locator('#toolkit')).toBeVisible({ timeout: 15000 })
   return openAdminPanel(adminPage)
@@ -149,7 +134,7 @@ test.describe('管理员界面浏览器场景', () => {
     await expect(logoutDialog).toHaveCount(0)
     await expect(admin.locator('.admin-panel')).toBeVisible()
 
-    admin = await returnAndReopen(page, admin)
+    admin = await returnAndReopen(admin)
     await expect(admin.locator('.users-section')).toBeVisible()
     await expect(admin.locator('.nav-item', { hasText: '用户管理' }).first()).toHaveClass(/active/)
     await expectSeedUserVisible(admin)
@@ -176,7 +161,7 @@ test.describe('管理员界面浏览器场景', () => {
     await expect(admin.locator('.logs-section')).toBeVisible()
     await expect(admin.getByText('日志面板')).toBeVisible()
 
-    admin = await returnAndReopen(page, admin)
+    admin = await returnAndReopen(admin)
     await expect(admin.locator('.logs-section')).toBeVisible()
     await expect(admin.getByText('日志面板')).toBeVisible()
     await expect(admin.locator('.quick-link, .nav-item', { hasText: '系统日志' }).first()).toHaveClass(/active/)

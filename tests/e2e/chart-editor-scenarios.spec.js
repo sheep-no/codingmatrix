@@ -59,34 +59,14 @@ async function openChartEditor(page) {
   await page.locator('#toolkit').click()
   const menu = page.locator('#toolkit-menu')
   await expect(menu).toBeVisible()
-  const popupPromise = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null)
   await menu.getByText('图表编辑器', { exact: true }).click()
-  const popup = await popupPromise
-  if (popup) {
-    try {
-      await popup.waitForLoadState('domcontentloaded')
-      await expect(popup.getByRole('heading', { name: '图表编辑器' })).toBeVisible({ timeout: 15000 })
-      return popup
-    } catch {
-      // CI 渲染进程可能在 popup 导航瞬间崩溃（page crashed）；
-      // 关闭崩溃 popup，退化直达导航保住断言覆盖
-      await popup.close().catch(() => {})
-    }
-  }
-  await page.goto('/chart-editor', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/chart-editor/, { timeout: 15000 })
   await expect(page.getByRole('heading', { name: '图表编辑器' })).toBeVisible({ timeout: 15000 })
   return page
 }
 
-async function returnAndReopen(homePage, editorPage) {
-  const closePromise = editorPage.waitForEvent('close', { timeout: 5000 }).catch(() => null)
-  // 返回按钮可能同步关闭 popup，点击自身的 CDP 调用会随之抛 "Target page closed"；
-  // 窗口是否关闭以 close 事件为准，忽略点击中断。
-  await editorPage.locator('.back-btn').click().catch(() => {})
-  await closePromise
-  if (editorPage.isClosed()) {
-    return openChartEditor(homePage)
-  }
+async function returnAndReopen(editorPage) {
+  await editorPage.locator('.back-btn').click()
   await expect(editorPage).toHaveURL(/\/(?:$|\?)/, { timeout: 10000 })
   await editorPage.goto('/chart-editor', { waitUntil: 'domcontentloaded' })
   await expect(editorPage.getByRole('heading', { name: '图表编辑器' })).toBeVisible({ timeout: 15000 })
@@ -137,7 +117,7 @@ test.describe('图表编辑器浏览器场景', () => {
     await expect(confirm).toHaveCount(0)
     await expect(editor.locator('.chart-preview-item')).toHaveCount(1)
 
-    editor = await returnAndReopen(page, editor)
+    editor = await returnAndReopen(editor)
     await expect(editor.locator('.data-item')).toContainText('sales.json')
     await expect(editor.locator('.chart-preview-title')).toHaveText(title)
     await expect(editor.getByText('需要重新选择文件')).toBeVisible()
@@ -172,7 +152,7 @@ test.describe('图表编辑器浏览器场景', () => {
     const midTitle = `E2E途中返回 ${Date.now()}`
     await editor.getByPlaceholder('图表标题').fill(midTitle)
     await expect(editor.locator('.chart-preview-title')).toHaveText(midTitle)
-    editor = await returnAndReopen(page, editor)
+    editor = await returnAndReopen(editor)
     await expect(editor.getByRole('heading', { name: '图表编辑器' })).toBeVisible()
     await expect(editor.locator('.chart-preview-title')).toHaveText(midTitle)
     await expect(editor.getByPlaceholder('图表标题')).toBeEnabled()

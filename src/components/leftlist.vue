@@ -84,9 +84,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="openChartEditor"
-        @keydown.enter="openChartEditor"
-        @keydown.space.prevent="openChartEditor"
+        @click.stop="openWorkbenchPage('/chart-editor')"
+        @keydown.enter="openWorkbenchPage('/chart-editor')"
+        @keydown.space.prevent="openWorkbenchPage('/chart-editor')"
       >
         <svg
           class="tool-icon-svg"
@@ -156,9 +156,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item admin-tool"
-        @click.stop="navigateToAdmin"
-        @keydown.enter="navigateToAdmin"
-        @keydown.space.prevent="navigateToAdmin"
+        @click.stop="openWorkbenchPage('/admin')"
+        @keydown.enter="openWorkbenchPage('/admin')"
+        @keydown.space.prevent="openWorkbenchPage('/admin')"
       >
         <svg
           class="tool-icon-svg"
@@ -182,16 +182,28 @@
         @keydown.enter="useTool('virtualGirl')"
         @keydown.space.prevent="useTool('virtualGirl')"
       >
-        <img src="../img/AiChat.jpeg" alt="AI 虚拟姬" class="tool-image" />
+        <svg
+          class="tool-icon-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="8" r="4"></circle>
+          <path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path>
+          <line x1="12" y1="2" x2="12" y2="4"></line>
+          <circle cx="12" cy="2" r="1"></circle>
+        </svg>
         <span class="tool-text">虚拟姬</span>
       </div>
       <div
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="openPPTGenerator"
-        @keydown.enter="openPPTGenerator"
-        @keydown.space.prevent="openPPTGenerator"
+        @click.stop="openWorkbenchPage('/ppt-generate')"
+        @keydown.enter="openWorkbenchPage('/ppt-generate')"
+        @keydown.space.prevent="openWorkbenchPage('/ppt-generate')"
       >
         <svg
           class="tool-icon-svg"
@@ -213,9 +225,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="openImageGenerator"
-        @keydown.enter="openImageGenerator"
-        @keydown.space.prevent="openImageGenerator"
+        @click.stop="openWorkbenchPage('/image-generate')"
+        @keydown.enter="openWorkbenchPage('/image-generate')"
+        @keydown.space.prevent="openWorkbenchPage('/image-generate')"
       >
         <svg
           class="tool-icon-svg"
@@ -235,9 +247,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="openWorkflow"
-        @keydown.enter="openWorkflow"
-        @keydown.space.prevent="openWorkflow"
+        @click.stop="openWorkbenchPage('/workflow')"
+        @keydown.enter="openWorkbenchPage('/workflow')"
+        @keydown.space.prevent="openWorkbenchPage('/workflow')"
       >
         <svg
           class="tool-icon-svg"
@@ -511,35 +523,6 @@
     } else {
       emit('useTool', toolName)
     }
-  }
-
-  const openPPTGenerator = () => {
-    closeToolkitMenu()
-    window.open('/ppt-generate', '_blank')
-  }
-
-  const openChartEditor = () => {
-    closeToolkitMenu()
-    if (!userStore.isLoggedIn) {
-      showLoginDialog.value = true
-      return
-    }
-    window.open('/chart-editor', '_blank')
-  }
-
-  const openImageGenerator = () => {
-    closeToolkitMenu()
-    window.open('/image-generate', '_blank')
-  }
-
-  const openWorkflow = () => {
-    closeToolkitMenu()
-    window.open('/workflow', '_blank')
-  }
-
-  const navigateToAdmin = () => {
-    closeToolkitMenu()
-    window.open('/admin', '_blank')
   }
 
   const closeSearchBox = () => {
@@ -1324,22 +1307,6 @@
   .toolkit-item:hover .tool-icon-svg {
     color: var(--teal);
     transform: scale(1.1);
-  }
-
-  .tool-image {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    object-fit: cover;
-    flex-shrink: 0;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    border: 2px solid white;
-  }
-
-  .toolkit-item:hover .tool-image {
-    transform: scale(1.1) rotate(3deg);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
   /* ========================================

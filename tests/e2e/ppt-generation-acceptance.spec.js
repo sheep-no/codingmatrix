@@ -63,18 +63,8 @@ async function openPptPage(page) {
   await page.locator('#toolkit').click()
   const menu = page.locator('#toolkit-menu')
   await expect(menu).toBeVisible()
-  const popupPromise = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null)
   await menu.getByText('PPT 生成', { exact: true }).click()
-  const popup = await popupPromise
-  if (popup) {
-    try {
-      await popup.waitForLoadState('domcontentloaded')
-      return popup
-    } catch {
-      await popup.close().catch(() => {})
-    }
-  }
-  await page.goto('/ppt-generate', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/ppt-generate/, { timeout: 15000 })
   return page
 }
 
