@@ -77,15 +77,30 @@ async def test_prompt_fields_still_reject_sql_injection(path, field):
 
 
 @pytest.mark.asyncio
-async def test_prompt_relaxation_logs_audit_record(caplog):
-    """放行 XSS 特征时必须留下审计日志，便于事后追溯。"""
+async def test_prompt_relaxation_logs_audit_record(monkeypatch):
+    """放行 XSS 特征时必须留下审计日志，便于事后追溯。
+
+    直接断言 logger 调用：CI 中 app logger 配置了 propagate=False，
+    caplog 无法捕获，依赖 caplog 会让测试随日志配置波动。
+    """
+    import app.middleware.input_validator as module
+
+    warnings = []
+    monkeypatch.setattr(
+        module.logger,
+        "warning",
+        lambda message, *args: warnings.append((message, args)),
+    )
     body = json.dumps({"prompt": "<script>alert(1)</script>"}).encode()
 
-    with caplog.at_level("WARNING", logger="app.middleware.input_validator"):
-        reached, _ = await _run("/api/v1/chat", body)
+    reached, _ = await _run("/api/v1/chat", body)
 
     assert reached is True
-    assert any("提示词 XSS 特征已放行" in record.message for record in caplog.records)
+    assert warnings
+    message, args = warnings[0]
+    assert "提示词 XSS 特征已放行" in message
+    assert "/api/v1/chat" in args
+    assert ["prompt"] in args
 
 
 @pytest.mark.asyncio
