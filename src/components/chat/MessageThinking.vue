@@ -5,7 +5,8 @@
         v-for="(data, agent) in message.thinkingGroups"
         :key="agent"
         class="thinking-details"
-        :open="message.isStreaming || message.thinkingOpen !== false"
+        :open="isOpen(agent)"
+        @toggle="onToggle(agent, $event)"
       >
         <summary class="thinking-summary" :aria-label="`${agent} 思考过程，点击展开或收起`">
           <div class="thinking-indicator">
@@ -19,7 +20,7 @@
         <div class="thinking-content" v-html="renderMarkdown(data.content)"></div>
       </details>
     </template>
-    <details v-else class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
+    <details v-else class="thinking-details" :open="isOpen(DEFAULT_KEY)" @toggle="onToggle(DEFAULT_KEY, $event)">
       <summary class="thinking-summary" aria-label="深度思考过程，点击展开或收起">
         <div class="thinking-indicator">
           <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
@@ -34,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, h } from 'vue'
+import { computed, h, ref } from 'vue'
 
 const props = defineProps({
   message: { type: Object, required: true },
@@ -42,6 +43,16 @@ const props = defineProps({
 })
 
 const hasGroups = computed(() => Object.keys(props.message.thinkingGroups || {}).length > 0)
+
+// 流式期间保持展开；结束后默认折叠，用户手动展开的选择优先。
+const DEFAULT_KEY = '__default__'
+const userOpen = ref({})
+const isOpen = key => (props.message.isStreaming ? true : Boolean(userOpen.value[key]))
+function onToggle(key, event) {
+  if (props.message.isStreaming) return
+  userOpen.value = { ...userOpen.value, [key]: event.target.open }
+}
+
 const InfoIcon = () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'aria-hidden': 'true' }, [
   h('circle', { cx: 12, cy: 12, r: 10 }),
   h('path', { d: 'M12 16v-4' }),
