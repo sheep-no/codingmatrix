@@ -331,6 +331,7 @@
       model: metadata.model || message.model || '',
       searchDepth: metadata.search_depth || 'shallow',
       warnings,
+      searchUnavailable: Boolean(metadata.search_unavailable),
       usage: metadata.usage || message.usage,
       toolCalls: metadata.tool_calls || message.tool_calls || []
     }
@@ -584,6 +585,7 @@
           isProjectGenerator: messageData.is_project_generator || false,
           thinkingContent: '',
           otherContent: '',
+          searchUnavailable: false,
           files: messageData.files || []
         })
       } else {
@@ -593,6 +595,7 @@
         lastMessage.chatStage = lastMessage.chatStage || '正在恢复回答'
         lastMessage.response = ''
         lastMessage.reasoning = ''
+        lastMessage.searchUnavailable = false
       }
     } else {
       conversationHistory.value.push({
@@ -607,6 +610,7 @@
         isProjectGenerator: messageData.is_project_generator || false,
         thinkingContent: '',
         otherContent: '',
+        searchUnavailable: false,
         files: messageData.files || []
       })
     }
@@ -993,8 +997,16 @@
         if (data.sources) history[lastIndex].sources = data.sources
         if (data.model) history[lastIndex].model = data.model
         if (data.search_depth) history[lastIndex].searchDepth = data.search_depth
+        if (data.search_unavailable !== undefined) history[lastIndex].searchUnavailable = data.search_unavailable
         if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
-          Object.assign(conversationHistory.value[lastIndex], { chatStage: history[lastIndex].chatStage, sources: history[lastIndex].sources, warnings: history[lastIndex].warnings, model: history[lastIndex].model, searchDepth: history[lastIndex].searchDepth })
+          Object.assign(conversationHistory.value[lastIndex], {
+            chatStage: history[lastIndex].chatStage,
+            sources: history[lastIndex].sources,
+            warnings: history[lastIndex].warnings,
+            model: history[lastIndex].model,
+            searchDepth: history[lastIndex].searchDepth,
+            searchUnavailable: history[lastIndex].searchUnavailable
+          })
         }
       }
       return

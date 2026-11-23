@@ -438,6 +438,40 @@ def test_search_depth_contract_and_followup_query_bounds():
     assert Aicode.build_followup_search_query("q", [{"title": "", "snippet": ""}]) is None
 
 
+def test_search_unavailable_instruction_is_only_added_without_web_sources():
+    prompt = "请回答"
+    assert Aicode._with_search_status(prompt, True, []) == f"{Aicode.SEARCH_UNAVAILABLE_INSTRUCTION}\n\n{prompt}"
+    assert Aicode._with_search_status(prompt, True, [{"kind": "file", "title": "a.txt"}]) != prompt
+    assert Aicode._with_search_status(
+        prompt, True, [{"kind": "web", "title": "t", "url": "https://example.test"}]
+    ) == prompt
+    # 未触发联网时不添加「无法核实」约束
+    assert Aicode._with_search_status(prompt, False, []) == prompt
+
+
+@pytest.mark.asyncio
+async def test_exhausted_search_marks_answer_as_unverified(monkeypatch):
+    """两轮全空后仍会作答，但必须把「未联网核实」状态交给前端与模型。"""
+    class Search:
+        async def search_with_sources(self, **kwargs):
+            return "搜索暂时不可用", []
+
+    monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+    _install_search_stubs(monkeypatch)
+
+    context, sources, did_search, _, warnings = await _build_context(
+        1, "人工智能最近的进展有哪些？", _Db(), None, None, 3,
+        search_mode="on", search_depth="multi",
+    )
+
+    assert did_search is True
+    assert sources == []
+    assert warnings
+    assert Aicode._with_search_status("模板", did_search, sources).startswith(
+        Aicode.SEARCH_UNAVAILABLE_INSTRUCTION
+    )
+
+
 @pytest.mark.asyncio
 async def test_build_context_uses_planned_search_queries(monkeypatch):
     called = []

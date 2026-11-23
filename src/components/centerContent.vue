@@ -179,8 +179,8 @@
                 </div>
               </details>
               <div v-if="message.chatStage" class="chat-stage" role="status">{{ message.chatStage }}</div>
-              <div v-if="message.warnings?.length" class="chat-warnings" role="alert">
-                <div v-for="(warning, index) in message.warnings" :key="index">{{ warning }}</div>
+              <div v-if="visibleWarnings(message).length" class="chat-warnings" role="alert">
+                <div v-for="(warning, index) in visibleWarnings(message)" :key="index">{{ warning }}</div>
               </div>
               <details v-if="message.sources?.length" class="chat-sources" aria-label="参考来源">
                 <summary class="chat-sources-title">参考来源 <span>{{ message.sources.length }}</span></summary>
@@ -200,6 +200,9 @@
               <!-- AI 响应内容 -->
               <div v-if="message.response || message.isStreaming || message.requestError" class="ai-response-content">
                 <div class="response-card">
+                  <div v-if="message.searchUnavailable" class="response-notice" role="note">
+                    未能联网核实：本次搜索没有返回可用结果，以下回答未包含联网查证的内容，时效性信息请以官方来源为准。
+                  </div>
                   <div
                     class="card-content markdown-body"
                     v-html="renderMarkdown(message.response)"
@@ -1047,6 +1050,13 @@
     })
   }
 
+  // 搜索彻底无结果时由头部标记统一说明，避免黄色警告条重复同一信息。
+  const visibleWarnings = message => {
+    const warnings = message.warnings || []
+    if (!message.searchUnavailable) return warnings
+    return warnings.filter(warning => !/搜索未获得有效结果|未获得网页来源|未获得网页正文/.test(String(warning)))
+  }
+
   // 处理下载
   const handleDownload = async outputDir => {
     try {
@@ -1851,6 +1861,18 @@
 
   .response-card:hover {
     border-color: transparent;
+  }
+
+  .response-notice {
+    margin: 0 0 10px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--color-warning-500);
+    border-radius: 0 8px 8px 0;
+    background: var(--warning-bg);
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
   }
 
   .response-error-actions {
