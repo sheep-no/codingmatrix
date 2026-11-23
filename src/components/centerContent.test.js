@@ -342,6 +342,59 @@ describe('markdown rendering safety', () => {
     expect(hrefs.some(href => href.startsWith('javascript:'))).toBe(false)
     wrapper.unmount()
   })
+
+  it('highlights fenced code blocks with the requested language', () => {
+    const wrapper = mountWithResponse('```js\nconst answer = 42\n```')
+    const code = wrapper.get('.ai-response-content pre code')
+
+    expect(code.classes()).toContain('language-js')
+    expect(code.classes()).toContain('hljs')
+    expect(code.findAll('span.hljs-keyword').length).toBeGreaterThan(0)
+    expect(code.findAll('span').length).toBeGreaterThan(0)
+    wrapper.unmount()
+  })
+
+  it('keeps unregistered-language code inert and escapes html snippets', () => {
+    const wrapper = mountWithResponse('```unknown-language\n<script>alert(1)</script>\n```')
+    const code = wrapper.get('.ai-response-content pre code')
+
+    expect(code.find('script').exists()).toBe(false)
+    expect(code.text()).toContain('<script>alert(1)</script>')
+    expect(code.html()).toContain('&lt;script&gt;')
+    expect(code.findAll('span')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('auto-detects language when the fence has no language tag', () => {
+    const wrapper = mountWithResponse('```\nconst answer = 42\n```')
+    const code = wrapper.get('.ai-response-content pre code')
+
+    expect(code.classes()).toContain('hljs')
+    expect(code.findAll('span').length).toBeGreaterThan(0)
+    wrapper.unmount()
+  })
+
+  it('wraps tables in a horizontal scroll container', () => {
+    const wrapper = mountWithResponse('| 方法 | 复杂度 |\n| - | - |\n| 二分 | O(log n) |')
+    const body = wrapper.get('.ai-response-content')
+
+    expect(body.find('.markdown-table-wrap table').exists()).toBe(true)
+    expect(body.findAll('th').length).toBe(2)
+    expect(body.findAll('td').length).toBe(2)
+    wrapper.unmount()
+  })
+
+  it('keeps a single code block header when decoration reruns', async () => {
+    const wrapper = mountWithResponse('```js\nconst answer = 42\n```')
+    await nextTick()
+    await nextTick()
+
+    const pre = wrapper.get('.ai-response-content pre')
+    expect(pre.findAll('.code-block-header')).toHaveLength(1)
+    expect(pre.findAll('.code-lang')).toHaveLength(1)
+    expect(pre.findAll('.copy-button')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })
 
 describe('code block copy', () => {
