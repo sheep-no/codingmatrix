@@ -283,6 +283,7 @@
   import dockerfile from 'highlight.js/lib/languages/dockerfile'
   import 'highlight.js/styles/github-dark.css'
   import { api } from '@/utils/api/index'
+  import { isTransportPlaceholder } from '@/utils/requestError'
   import EmptyState from './EmptyState.vue'
   import SkeletonLoader from './SkeletonLoader.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1052,7 +1053,11 @@
 
   // 搜索彻底无结果时由头部标记统一说明，避免黄色警告条重复同一信息。
   const visibleWarnings = message => {
-    const warnings = message.warnings || []
+    // 传输层占位串（HTTP error! status: 400）对用户没有信息量，
+    // 统一由错误卡片展示服务端文案，这里直接过滤。
+    const warnings = (message.warnings || []).filter(
+      warning => !isTransportPlaceholder(String(warning).trim())
+    )
     if (!message.searchUnavailable) return warnings
     return warnings.filter(warning => !/搜索未获得有效结果|未获得网页来源|未获得网页正文/.test(String(warning)))
   }

@@ -143,7 +143,11 @@
   import { useToast } from '@/composables/useToast'
   import { useOfflineQueue } from '@/composables/useOfflineQueue'
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
-  import { normalizeRequestError, extractApiErrorMessage } from '@/utils/requestError'
+  import {
+    normalizeRequestError,
+    extractApiErrorMessage,
+    stripTransportPlaceholderLines
+  } from '@/utils/requestError'
 
   // 工具组件延迟加载 - 减少初始包大小
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
@@ -322,7 +326,8 @@
       id: message.id,
       conversation_id: parseInt(message.conversation_id, 10),
       prompt: message.prompt,
-      response: message.response || '',
+      // 旧版本曾把「出错：HTTP error! status: 400」写进正文，展示前清理。
+      response: stripTransportPlaceholderLines(message.response || ''),
       reasoning: message.thinking || '',
       thinkingOpen: true,
       createdAt: message.created_at,
@@ -1016,10 +1021,21 @@
     if (data.error) {
       streamUpdateBatcher.flush()
       if (history[lastIndex]) {
-        history[lastIndex].response = (history[lastIndex].response || '') + `\n\n出错：${data.error}`
-        Object.assign(history[lastIndex], { response: history[lastIndex].response })
+        // 与请求失败路径一致：错误只写入 requestError 卡片一次，
+        // 避免服务端再回传传输层占位串时正文与卡片各显示一行。
+        const requestError = normalizeRequestError({
+          message: data.error,
+          status: data.status_code || data.status
+        })
+        Object.assign(history[lastIndex], {
+          requestError,
+          retryRequest: requestError.retryable ? createRetryRequest(messageData) : null
+        })
         if (String(currentConversationId.value) === activeConversationKey() && conversationHistory.value[lastIndex]) {
-          Object.assign(conversationHistory.value[lastIndex], { response: history[lastIndex].response })
+          Object.assign(conversationHistory.value[lastIndex], {
+            requestError: history[lastIndex].requestError,
+            retryRequest: history[lastIndex].retryRequest
+          })
         }
       }
       return

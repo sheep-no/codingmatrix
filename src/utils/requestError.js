@@ -39,7 +39,7 @@ export function extractApiErrorMessage(payload) {
   return ''
 }
 
-function isTransportPlaceholder(message) {
+export function isTransportPlaceholder(message) {
   return /^HTTP error! status: \d+$/i.test(message) || /^HTTP\s+\d+$/i.test(message)
 }
 
@@ -77,4 +77,16 @@ export function normalizeRequestError(error, fallback = '请求失败') {
 
 export function getRequestErrorMessage(error, fallback = '请求失败') {
   return normalizeRequestError(error, fallback).message
+}
+
+// 历史消息可能残留旧版本写入的「出错：HTTP error! status: 400」。
+// 这类传输层占位串对用户没有信息量，展示前按行剔除。
+export function stripTransportPlaceholderLines(text) {
+  if (typeof text !== 'string' || !text) return text || ''
+  return text
+    .split('\n')
+    .filter(line => !isTransportPlaceholder(line.replace(/^\s*(出错：|失败：)?\s*/, '').trim()))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
