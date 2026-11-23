@@ -67,6 +67,7 @@
           ref="bottominputRef"
           :is-streaming="isStreamActive"
           :edit-message="editMessage"
+          :conversation-id="currentConversationId"
           @send="handleSendMessage"
           @stop="abortStream"
           @require-login="handleRequireLogin"
@@ -583,7 +584,7 @@
           isProjectGenerator: messageData.is_project_generator || false,
           thinkingContent: '',
           otherContent: '',
-          files: messageData.files?.filter(f => f.category === 'image') || []
+          files: messageData.files || []
         })
       } else {
         lastMessage.isStreaming = true
@@ -606,7 +607,7 @@
         isProjectGenerator: messageData.is_project_generator || false,
         thinkingContent: '',
         otherContent: '',
-        files: messageData.files?.filter(f => f.category === 'image') || []
+        files: messageData.files || []
       })
     }
 

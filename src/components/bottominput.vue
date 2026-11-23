@@ -248,6 +248,12 @@
 
   let fileCounter = 0
 
+  // 仅真实会话 ID 才随上传提交，temp_* 草稿会话后端不接受。
+  const uploadConversationId = () => {
+    const id = Number(props.conversationId)
+    return Number.isInteger(id) && id > 0 ? id : null
+  }
+
   const codeExtensions = [
     'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'c', 'cpp', 'go', 'rs', 'rb',
     'php', 'vue', 'html', 'css', 'scss', 'json', 'yaml', 'yml', 'xml', 'sql', 'sh', 'md', 'txt'
@@ -266,7 +272,8 @@
   // 接收父组件传入的流式状态
   const props = defineProps({
     isStreaming: { type: Boolean, default: false },
-    editMessage: { type: String, default: '' }
+    editMessage: { type: String, default: '' },
+    conversationId: { type: [String, Number], default: '' }
   })
 
   const emit = defineEmits(['send', 'stop', 'require-login', 'cancel-edit', 'save-edit'])
@@ -380,9 +387,10 @@
       attachedFiles.value.push(fileObj)
 
       try {
-        const result = await api.uploadFile(file)
+        const result = await api.uploadFile(file, uploadConversationId())
         fileObj.serverId = result.id
-        fileObj.serverPath = result.file_path
+        // 上传接口不回传 file_path，用文件名兜底；后端按文件名匹配已上传记录。
+        fileObj.serverPath = result.file_path || result.filename
         fileObj.downloadUrl = result.download_url
         fileObj.uploading = false
         success(`图片上传成功：${file.name}`)
@@ -404,9 +412,10 @@
       attachedFiles.value.push(fileObj)
 
       try {
-        const result = await api.uploadFile(file)
+        const result = await api.uploadFile(file, uploadConversationId())
         fileObj.serverId = result.id
-        fileObj.serverPath = result.file_path
+        fileObj.serverPath = result.file_path || result.filename
+        fileObj.downloadUrl = result.download_url
         fileObj.uploading = false
         success(`代码文件上传成功：${file.name}`)
       } catch (err) {
@@ -427,9 +436,10 @@
       attachedFiles.value.push(fileObj)
 
       try {
-        const result = await api.uploadFile(file)
+        const result = await api.uploadFile(file, uploadConversationId())
         fileObj.serverId = result.id
-        fileObj.serverPath = result.file_path
+        fileObj.serverPath = result.file_path || result.filename
+        fileObj.downloadUrl = result.download_url
         fileObj.uploading = false
         success(`文件上传成功：${file.name}`)
       } catch (err) {

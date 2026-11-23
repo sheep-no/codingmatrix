@@ -42,6 +42,24 @@ describe('message parts', () => {
     expect(wrapper.text()).toContain('图片预览不可用')
   })
 
+  it('renders non-image attachments as a document entry with its download link', () => {
+    const wrapper = mount(MessageAttachments, {
+      props: {
+        files: [{
+          id: 6,
+          name: 'upload-test.txt',
+          category: 'document',
+          originalUrl: '/api/v1/files/6/download'
+        }]
+      }
+    })
+
+    const doc = wrapper.get('.attachment-document')
+    expect(doc.text()).toContain('upload-test.txt')
+    expect(doc.attributes('href')).toBe('/api/v1/files/6/download')
+    expect(wrapper.find('img').exists()).toBe(false)
+  })
+
   it('defers an original-only image until the user opens its link', () => {
     const wrapper = mount(MessageAttachments, {
       props: { files: [{ name: 'original.png', originalUrl: '/original.png' }] }
@@ -104,6 +122,29 @@ describe('message parts', () => {
 
     expect(wrapper.text()).toContain('正在思考...')
     expect(wrapper.html()).toContain('<p>legacy reasoning</p>')
+  })
+
+  it('collapses the thinking block once streaming ends', () => {
+    const wrapper = mount(MessageThinking, {
+      props: {
+        message: { reasoning: 'done reasoning', isStreaming: false },
+        renderMarkdown: content => `<p>${content}</p>`
+      }
+    })
+
+    expect(wrapper.get('details').attributes('open')).toBeUndefined()
+    expect(wrapper.text()).toContain('深度思考过程')
+  })
+
+  it('keeps the thinking block expanded while streaming', () => {
+    const wrapper = mount(MessageThinking, {
+      props: {
+        message: { reasoning: 'streaming reasoning', isStreaming: true },
+        renderMarkdown: content => `<p>${content}</p>`
+      }
+    })
+
+    expect(wrapper.get('details').attributes('open')).toBeDefined()
   })
 
   it('renders message items with stable accessibility labels', () => {
