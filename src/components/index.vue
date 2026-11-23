@@ -767,11 +767,6 @@
           const existingResponse = lastMessage.response || ''
           const existingReasoning = lastMessage.reasoning || ''
 
-          if (lastMessage.hasThinking && !lastMessage.thinkingClosed) {
-            lastMessage.response += `</div></details>\n\n`
-            lastMessage.thinkingClosed = true
-          }
-
           const pausedLabel = currentMessageData.is_project_generator
             ? '已暂停：项目生成已停止'
             : '已暂停：已停止生成'
@@ -787,11 +782,6 @@
           const hasPartialContent =
             (lastMessage.response && lastMessage.response.length > 0) ||
             (lastMessage.reasoning && lastMessage.reasoning.length > 0)
-
-          if (lastMessage.hasThinking && !lastMessage.thinkingClosed) {
-            lastMessage.response += `</div></details>\n\n`
-            lastMessage.thinkingClosed = true
-          }
 
           // 已生成的内容保持原样；没有内容时清空正文，错误只由 requestError 卡片展示一次。
           if (!hasPartialContent) lastMessage.response = ''

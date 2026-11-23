@@ -270,6 +270,7 @@
   import MessageThinking from './chat/MessageThinking.vue'
   import DOMPurify from 'dompurify'
   import { marked } from 'marked'
+  import { escapeHtml, renderMarkdownImage } from '@/utils/markdown'
   import hljs from 'highlight.js/lib/core'
   import python from 'highlight.js/lib/languages/python'
   import javascript from 'highlight.js/lib/languages/javascript'
@@ -307,8 +308,11 @@
   hljs.registerLanguage('dockerfile', dockerfile)
 
   const renderer = new marked.Renderer()
+  // 原始 HTML 一律转义：模型输出或提示注入不能生成 img/svg/video/form 等元素。
+  renderer.html = html => escapeHtml(html)
   renderer.image = (href, title, text) => {
-    return `<img src="${href}" alt="${text}" title="${title || ''}" loading="lazy" decoding="async" class="markdown-image" />`
+    const origin = typeof window !== 'undefined' ? window.location.origin : undefined
+    return renderMarkdownImage(href, title, text, origin)
   }
 
   marked.setOptions({
@@ -828,7 +832,9 @@
   // 渲染 Markdown
   const renderMarkdown = content => {
     if (!content) return ''
-    return DOMPurify.sanitize(marked(content))
+    return DOMPurify.sanitize(marked(content), {
+      ADD_ATTR: ['referrerpolicy', 'target', 'rel']
+    })
   }
 
   // 格式化消息时间
@@ -2678,23 +2684,14 @@
     }
   }
 
-  .markdown-image {
+  .markdown-body :deep(.markdown-image) {
     max-width: 100%;
     height: auto;
     border-radius: 8px;
     margin: 12px 0;
-    transition: opacity 0.3s ease;
   }
 
-  .markdown-image[loading='lazy'] {
-    opacity: 0;
-  }
-
-  .markdown-image.loaded {
-    opacity: 1;
-  }
-
-  .markdown-image:hover {
-    cursor: zoom-in;
+  .markdown-body :deep(.markdown-image-link) {
+    overflow-wrap: anywhere;
   }
 </style>
