@@ -210,6 +210,68 @@ describe('chat source rendering', () => {
     expect(wrapper.get('.response-retry-btn').text()).toBe('重试')
     wrapper.unmount()
   })
+
+  it('marks an answer as unverified when search returned no sources', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'unverified',
+        conversationHistory: [{
+          id: 4,
+          prompt: '人工智能最近的进展有哪些？',
+          response: '人工智能最近在推理能力上有进展。',
+          sources: [],
+          searchUnavailable: true
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+
+    const notice = wrapper.get('.response-notice')
+    expect(notice.text()).toContain('未能联网核实')
+    expect(notice.attributes('role')).toBe('note')
+    expect(wrapper.text()).toContain('人工智能最近在推理能力上有进展。')
+    wrapper.unmount()
+  })
+
+  it('does not show the unverified notice when search returned sources', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'verified',
+        conversationHistory: [{
+          id: 5,
+          prompt: '诺奖得主',
+          response: '答案。',
+          sources: [{ kind: 'web', title: '来源', url: 'https://example.com' }],
+          searchUnavailable: false
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+
+    expect(wrapper.find('.response-notice').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('suppresses the duplicated search warning once the unverified notice is shown', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'dedupe',
+        conversationHistory: [{
+          id: 6,
+          prompt: '今天是几号？',
+          response: '今天是 11 月 23 日。',
+          sources: [],
+          searchUnavailable: true,
+          warnings: ['第 2 轮搜索未获得有效结果，将使用已有资料回答。']
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+
+    expect(wrapper.get('.response-notice').text()).toContain('未能联网核实')
+    expect(wrapper.find('.chat-warnings').exists()).toBe(false)
+    wrapper.unmount()
+  })
 })
 
 describe('code block copy', () => {

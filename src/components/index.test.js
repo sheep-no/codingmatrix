@@ -119,6 +119,30 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistory[0].model).toBe('reasoning-model')
   })
 
+  it('搜索无结果时接收后端标记，供回答头部显示未核实提示', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = '1'
+    state.conversationHistory = [{ prompt: '人工智能最近的进展有哪些？' }]
+    state.conversationHistoryMap.set('1', [{ prompt: '人工智能最近的进展有哪些？' }])
+
+    state.handleChatStream(
+      {
+        stage: 'answering',
+        status: 'started',
+        model: 'reasoning-model',
+        sources: [],
+        search_unavailable: true
+      },
+      '1',
+      0,
+      {}
+    )
+
+    expect(state.conversationHistory[0].searchUnavailable).toBe(true)
+    expect(state.conversationHistoryMap.get('1')[0].searchUnavailable).toBe(true)
+  })
+
   it('断网时消息进入离线队列且不发起请求（FESTATE-02）', async () => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState

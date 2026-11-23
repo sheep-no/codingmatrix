@@ -174,6 +174,25 @@ REASONING_PROMPT = """请深入分析以下问题：
 请用结构化的方式回答。"""
 
 
+SEARCH_UNAVAILABLE_INSTRUCTION = (
+    "【联网检索状态】本次联网检索已执行，但所有轮次都没有获取到可引用资料。\n"
+    "若问题可由当前时间或已提供的附件直接回答（例如今天日期、星期），可以据实回答；\n"
+    "凡依赖网络才能确认的事实（新闻、近期进展、价格、政策、统计数据、版本发布等），"
+    "必须明确说明「未能联网核实」，不得以确定语气给出具体事实或数字。"
+)
+
+
+def _has_web_sources(sources: List[Dict[str, str]]) -> bool:
+    return any(source.get("kind") != "file" for source in sources)
+
+
+def _with_search_status(system_prompt: str, did_search: bool, sources: List[Dict[str, str]]) -> str:
+    """联网检索彻底无结果时，把「无法核实」约束放在系统提示最前面。"""
+    if did_search and not _has_web_sources(sources):
+        return f"{SEARCH_UNAVAILABLE_INSTRUCTION}\n\n{system_prompt}"
+    return system_prompt
+
+
 # 工具函数
 # -----------------------------
 
@@ -1039,7 +1058,7 @@ async def stream_response(
             if event is None:
                 break
             yield json.dumps(event, ensure_ascii=False) + "\n"
-        full_context, sources, _, _, stage_errors = await context_task
+        full_context, sources, did_search, _, stage_errors = await context_task
     finally:
         if not context_task.done():
             context_task.cancel()
@@ -1047,7 +1066,10 @@ async def stream_response(
             await context_task
         except asyncio.CancelledError:
             pass
-    system_prompt = _select_prompt_template(prompt, use_reasoning)
+    system_prompt = _with_search_status(
+        _select_prompt_template(prompt, use_reasoning), did_search, sources
+    )
+    search_unavailable = did_search and not _has_web_sources(sources)
     fitted_context, context_budget = fit_context(prompt, full_context, model, api_key_token)
     final_prompt = system_prompt.format(prompt=prompt, context=fitted_context or "（无额外上下文）")
 
@@ -1059,7 +1081,14 @@ async def stream_response(
 
     response_parts = []
 
-    yield json.dumps({"stage": "answering", "status": "started", "model": model, "sources": sources, "search_depth": search_depth}, ensure_ascii=False) + "\n"
+    yield json.dumps({
+        "stage": "answering",
+        "status": "started",
+        "model": model,
+        "sources": sources,
+        "search_depth": search_depth,
+        "search_unavailable": search_unavailable,
+    }, ensure_ascii=False) + "\n"
     result_gen = None
     try:
         try:
@@ -1111,7 +1140,7 @@ async def stream_response(
             prompt=prompt,
             response=full_response,
             thinking=None,
-            metadata={"sources": sources, "warnings": stage_errors, "model": model, "stage": "completed", "search_depth": search_depth},
+            metadata={"sources": sources, "warnings": stage_errors, "model": model, "stage": "completed", "search_depth": search_depth, "search_unavailable": search_unavailable},
             commit=False
         )
         await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, full_response)
@@ -1171,7 +1200,10 @@ async def generate_response(
         api_key_token=api_key_token,
     )
     
-    system_prompt = _select_prompt_template(prompt, use_reasoning)
+    search_unavailable = did_search and not _has_web_sources(sources)
+    system_prompt = _with_search_status(
+        _select_prompt_template(prompt, use_reasoning), did_search, sources
+    )
     fitted_context, context_budget = fit_context(prompt, full_context, model, api_key_token)
     final_prompt = system_prompt.format(prompt=prompt, context=fitted_context or "（无额外上下文）")
     
@@ -1217,7 +1249,7 @@ async def generate_response(
         prompt=prompt,
         response=response,
         thinking=None,
-        metadata={"sources": sources, "warnings": stage_errors, "model": model, "search_depth": search_depth, "stages": {"search": did_search, "files": had_files}},
+        metadata={"sources": sources, "warnings": stage_errors, "model": model, "search_depth": search_depth, "search_unavailable": search_unavailable, "stages": {"search": did_search, "files": had_files}},
         commit=False
     )
     await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, response)
@@ -1237,6 +1269,7 @@ async def generate_response(
         "sources": sources,
         "search_depth": search_depth,
         "warnings": stage_errors,
+        "search_unavailable": search_unavailable,
     }
 
 
