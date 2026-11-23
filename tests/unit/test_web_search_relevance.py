@@ -329,3 +329,93 @@ def test_search_query_variants_strips_leading_year():
     assert "大模型发展趋势" in variants
     variants_zh = search_query_variants("2026年大模型发展趋势")
     assert "大模型发展趋势" in variants_zh
+
+
+def test_broad_query_variants_strip_conversational_noise():
+    from app.utils.web_search import broad_query_variants
+
+    assert "就业形势" in broad_query_variants("今年就业形势如何")
+    assert "上证指数收盘点位" in broad_query_variants("今天上证指数收盘点位")
+    assert broad_query_variants("北京故宫开放时间") == ["北京 故宫"]
+
+
+def test_broad_query_variants_keep_original_case():
+    from app.utils.web_search import broad_query_variants
+
+    assert "report Acme" in broad_query_variants("report Acme 联网搜索报告")
+
+
+def test_matches_core_query_requires_two_core_terms():
+    from app.utils.web_search import matches_core_query
+
+    travel = _item("北京旅游必去的20个景点", "https://zhihu.com/p/1", "北京攻略")
+    palace = _item("北京故宫博物院", "https://baike.baidu.com/item/故宫", "北京 故宫 开放")
+
+    assert matches_core_query(palace, "北京故宫开放时间")
+    assert not matches_core_query(travel, "北京故宫开放时间")
+
+
+def test_matches_core_query_enforces_version_hit():
+    from app.utils.web_search import matches_core_query
+
+    homepage = _item("Welcome to Python.org", "https://www.python.org/", "Python 语言")
+    whatsnew = _item(
+        "What's New In Python 3.12",
+        "https://docs.python.org/3/whatsnew/3.12.html",
+        "New features in Python 3.12",
+    )
+
+    assert matches_core_query(whatsnew, "Python 3.12 新特性")
+    assert not matches_core_query(homepage, "Python 3.12 新特性")
+
+
+@pytest.mark.asyncio
+async def test_search_uses_broad_variant_when_literal_query_is_empty(monkeypatch):
+    from app.utils.web_search import FreeWebSearch
+
+    searcher = FreeWebSearch()
+    hit = _item(
+        "2026年中国就业形势深度调研报告",
+        "https://example.test/jobs",
+        "2026年就业形势分析",
+    )
+
+    async def fake_bing(q, *_args, **_kwargs):
+        if "就业" in q and "形势" in q:
+            return [hit]
+        return []
+
+    async def empty(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(searcher, "_search_bing", fake_bing)
+    monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
+    monkeypatch.setattr(searcher, "_search_wikipedia", empty)
+
+    results = await searcher.search("今年就业形势如何", count=3)
+    assert results[0].url == hit.url
+
+
+@pytest.mark.asyncio
+async def test_search_relaxed_results_stay_guarded(monkeypatch):
+    """放宽短语门槛时，只保留覆盖原始查询核心词的结果。"""
+    from app.utils.web_search import FreeWebSearch
+
+    searcher = FreeWebSearch()
+    travel = _item("北京旅游必去的20个景点", "https://zhihu.com/p/1", "北京攻略")
+    palace = _item("北京故宫博物院", "https://baike.baidu.com/item/故宫", "北京 故宫 开放")
+
+    async def fake_bing(q, *_args, **_kwargs):
+        if q == "北京 故宫":
+            return [travel, palace]
+        return []
+
+    async def empty(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(searcher, "_search_bing", fake_bing)
+    monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
+    monkeypatch.setattr(searcher, "_search_wikipedia", empty)
+
+    results = await searcher.search("北京故宫开放时间", count=5)
+    assert [item.url for item in results] == [palace.url]
