@@ -20,6 +20,7 @@ import base64
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
@@ -415,6 +416,9 @@ def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
     version_part = 1.0 if not versions else version_hits / len(versions)
     token_part = 1.0 if not scored_tokens else token_hits / len(scored_tokens)
     if versions:
+        if version_hits == 0:
+            # 带版本号的查询必须命中该版本；否则「Python」官网首页也能拿到 0.4 分。
+            return min(0.6 * version_part + 0.4 * token_part, 0.2)
         score = 0.6 * version_part + 0.4 * token_part
     else:
         score = token_part
@@ -450,6 +454,33 @@ def filter_relevant_results(
     if kept:
         return kept
     return []
+
+
+def matches_core_query(result: SearchResult, query: str) -> bool:
+    """Check a loosely-filtered hit still covers the original query's core terms.
+
+    放宽短语门槛后，Bing 的泛主题页（如只含「北京」的旅游攻略）会混进结果。
+    这里要求命中版本号，或至少覆盖两个核心词，才允许保留。
+    """
+    terms = extract_query_terms(query)
+    versions = terms.get("versions") or []
+    core = list(terms.get("english") or [])
+    core += [
+        token
+        for token in terms.get("cjk") or []
+        if token not in _GENERIC_CJK and len(token) >= 2
+    ]
+    if not core and not versions:
+        return True
+    blob = f"{result.title} {result.snippet} {result.url}".lower()
+    version_hits = sum(1 for version in versions if version.lower() in blob)
+    if versions:
+        # 查询里带版本号时，放宽结果仍必须命中该版本，否则会放进无关的首页。
+        return version_hits == len(versions)
+    token_hits = sum(1 for token in core if token.lower() in blob)
+    if len(core) == 1:
+        return token_hits == 1
+    return token_hits >= 2
 
 
 def merge_results_by_url(groups: List[List[SearchResult]]) -> List[SearchResult]:
@@ -502,6 +533,60 @@ def search_query_variants(query: str) -> List[str]:
     ):
         variants.append(f"{years[-1]}年国民经济和社会发展统计公报")
     return _unique(variants)
+
+
+_QUERY_TIME_PREFIX = re.compile(
+    r"^\s*(?:20\d{2}\s*年(?:\s*\d{1,2}\s*月)?(?:\s*\d{1,2}\s*日)?"
+    r"|20\d{2}(?=\s)|今天|今日|今年|去年|明年|本月|这个月|最近|近期|目前|现在)\s*"
+)
+_QUERY_TRAILING_NOISE = (
+    "最新进展", "最新动态", "最新消息", "最新情况", "最新发展",
+    "最新", "进展", "动态", "消息", "情况", "发展", "如何", "怎么样",
+    "怎样", "是什么", "是多少", "有多少", "有哪些", "得主", "吗", "呢",
+)
+
+
+def _strip_query_noise(text: str) -> str:
+    """Remove conversational time prefixes and trailing question words."""
+    current = (text or "").strip()
+    for _ in range(3):
+        before = current
+        current = _QUERY_TIME_PREFIX.sub("", current).strip()
+        for word in _QUERY_TRAILING_NOISE:
+            if current.endswith(word) and len(current) > len(word) + 1:
+                current = current[: -len(word)].strip()
+        if current == before:
+            break
+    return current
+
+
+def broad_query_variants(query: str) -> List[str]:
+    """Derive looser queries for cases where the literal query yields nothing.
+
+    Bing 对「今天/今年/最新…」这类口语化中文查询经常返回日历、百科等无关页，
+    去掉时间与疑问尾巴后再用核心词检索，可以把同一主题的有效结果找回来。
+    """
+    candidates: List[str] = []
+    topical = _strip_query_noise(query)
+    if topical and topical != query:
+        candidates.append(topical)
+    for text in (topical, query):
+        terms = extract_query_terms(text)
+        # 保留用户原始大小写（如产品名 Acme），小写化只用于过滤时比较。
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9+\-]{1,}", text or "")
+        tokens += [token for token in terms.get("cjk") or [] if token not in _GENERIC_CJK]
+        if len(tokens) >= 2:
+            candidates.append(" ".join(tokens[:2]))
+    normalized_keys = {re.sub(r"\s+", "", (query or "").lower())}
+    variants: List[str] = []
+    for candidate in candidates:
+        item = " ".join(candidate.split())
+        key = re.sub(r"\s+", "", item.lower())
+        if not item or key in normalized_keys:
+            continue
+        normalized_keys.add(key)
+        variants.append(item)
+    return variants
 
 
 def official_reference_results(query: str) -> List[SearchResult]:
@@ -567,6 +652,8 @@ class FreeWebSearch:
         self.summary_timeout = 30.0  # LLM 总结超时
         self.max_concurrent_fetch = 3  # 最大并发抓取数
         self.max_text_length = 5000  # 最多发送给 LLM 的文本长度
+        # DuckDuckGo 在部分网络环境下不可达；记录冷却时间避免每次回退都空等超时。
+        self._ddg_unavailable_until = 0.0
     
     async def search(
         self,
@@ -591,9 +678,25 @@ class FreeWebSearch:
             # 优先使用 Bing 搜索
             fetch_count = max(count * 2, 8)
             bing_raw = []
-            for variant in search_query_variants(query):
+            relaxed_hits: List[SearchResult] = []
+            for variant in _unique(search_query_variants(query) + broad_query_variants(query)):
                 variant_hits = await self._search_bing(variant, fetch_count, lang)
-                bing_raw.extend(filter_relevant_results(variant_hits, variant))
+                kept = filter_relevant_results(variant_hits, variant)
+                if kept:
+                    bing_raw.extend(kept)
+                else:
+                    # 严格过滤为空时只做候选收集；全部变体都无结果才启用放宽结果，
+                    # 避免个别变体把泛主题页混进正常结果。
+                    relaxed = filter_relevant_results(
+                        variant_hits, variant, min_score=0.55, require_phrase=False
+                    )
+                    relaxed_hits.extend(
+                        item for item in relaxed if matches_core_query(item, query)
+                    )
+                if len(merge_results_by_url([bing_raw])) >= count:
+                    break
+            if not bing_raw and relaxed_hits:
+                bing_raw = merge_results_by_url([relaxed_hits])
             merged_bing = merge_results_by_url([bing_raw])
             bing_results = merged_bing
             entity = extract_named_entity(query)
@@ -621,10 +724,7 @@ class FreeWebSearch:
 
             # 备用 DuckDuckGo
             logger.warning("Bing 结果不足或相关性低，尝试 DuckDuckGo")
-            ddg_results = filter_relevant_results(
-                await self._search_duckduckgo(query, max(count * 2, 8)),
-                query,
-            )
+            ddg_results = await self._search_duckduckgo(query, max(count * 2, 8))
             merged = filter_relevant_results(
                 merge_results_by_url([bing_results, ddg_results]),
                 query,
@@ -718,38 +818,41 @@ class FreeWebSearch:
 
     async def _search_bing(self, query: str, count: int, lang: str = "zh-CN") -> List[SearchResult]:
         """Bing 搜索（主要搜索结果来源）"""
-        try:
-            url = "https://www.bing.com/search"
-            use_zh = (lang or "zh-CN").lower().startswith("zh")
-            params = {
-                "q": query,
-                "count": min(count, 20),
-                "mkt": "zh-CN" if use_zh else "en-US",
-                "setlang": "zh-hans" if use_zh else "en",
-                "cc": "CN" if use_zh else "US",
-            }
-
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            }
-
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                follow_redirects=True
-            ) as client:
-                resp = await client.get(url, params=params, headers=headers)
-
-                if resp.status_code != 200:
-                    logger.warning(f"Bing 返回错误状态 | status={resp.status_code}")
+        url = "https://www.bing.com/search"
+        use_zh = (lang or "zh-CN").lower().startswith("zh")
+        params = {
+            "q": query,
+            "count": min(count, 20),
+            "mkt": "zh-CN" if use_zh else "en-US",
+            "setlang": "zh-hans" if use_zh else "en",
+            "cc": "CN" if use_zh else "US",
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        # 出站偶发 TLS 断连，单次失败不代表查询无结果；重试一次再判定为空。
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    follow_redirects=True
+                ) as client:
+                    resp = await client.get(url, params=params, headers=headers)
+                    if resp.status_code != 200:
+                        logger.warning(f"Bing 返回错误状态 | status={resp.status_code}")
+                        return []
+                    results = self._parse_bing_html(resp.text, count)
+                    if results or attempt == 1:
+                        return results
+                    logger.warning("Bing 返回空结果页，重试一次 | query=%s", query[:40])
+            except Exception as e:
+                logger.error(f"Bing 搜索异常 | error={e!r}")
+                if attempt == 1:
                     return []
-
-                return self._parse_bing_html(resp.text, count)
-
-        except Exception as e:
-            logger.error(f"Bing 搜索异常 | error={str(e)}")
-            return []
+                await asyncio.sleep(0.5)
+        return []
 
     def _parse_bing_html(self, html: str, count: int) -> List[SearchResult]:
         """解析 Bing 搜索结果 HTML"""
@@ -808,6 +911,9 @@ class FreeWebSearch:
 
     async def _search_duckduckgo(self, query: str, count: int) -> List[SearchResult]:
         """DuckDuckGo 搜索（备用）"""
+        if time.monotonic() < self._ddg_unavailable_until:
+            logger.info("DuckDuckGo 处于冷却期，跳过 | query=%s", query[:40])
+            return []
         try:
             url = "https://html.duckduckgo.com/html/"
             params = {"q": query}
@@ -819,17 +925,20 @@ class FreeWebSearch:
 
             async with httpx.AsyncClient(
                 timeout=self.timeout,
+                follow_redirects=True,
                 verify=_https_verify(),
             ) as client:
                 resp = await client.get(url, params=params, headers=headers)
 
                 if resp.status_code != 200:
+                    self._ddg_unavailable_until = time.monotonic() + 600.0
                     return []
 
                 return self._parse_duckduckgo_html(resp.text, count)
 
         except Exception as e:
-            logger.error(f"DuckDuckGo 搜索异常 | error={str(e)}")
+            self._ddg_unavailable_until = time.monotonic() + 600.0
+            logger.error(f"DuckDuckGo 搜索异常 | error={e!r}")
             return []
     
     async def _search_wikipedia(self, query: str, count: int) -> List[SearchResult]:
@@ -1041,11 +1150,15 @@ class FreeWebSearch:
     async def search_with_sources(self, query: str, count: int = 5, lang: str = "zh-CN") -> tuple[str, list[dict]]:
         """Return bounded model context and displayable source metadata together."""
         results = await self.search(query, count=count, lang=lang)
+        # 降级占位（url 为空）只用于兼容旧调用方，不能当成搜索证据喂给模型。
+        real_results = [item for item in results if item.url]
+        if not real_results:
+            return "", []
         sources = [
             {"title": item.title[:200], "url": item.url, "snippet": item.snippet[:500]}
-            for item in results[:count] if item.url
+            for item in real_results[:count]
         ]
-        return self.format_results_for_llm(results, max_results=count), sources
+        return self.format_results_for_llm(real_results, max_results=count), sources
 
 
 # 便捷函数

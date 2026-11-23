@@ -449,6 +449,64 @@ def test_search_unavailable_instruction_is_only_added_without_web_sources():
     assert Aicode._with_search_status(prompt, False, []) == prompt
 
 
+def test_retry_search_queries_replaces_repeated_failures():
+    queries = ["今年就业形势如何"]
+    retry = Aicode._retry_search_queries(
+        "今年就业形势如何", queries, queries, None
+    )
+    assert retry
+    assert "今年就业形势如何" not in retry
+    assert retry[0] == "就业形势"
+
+
+@pytest.mark.asyncio
+async def test_empty_round_retries_with_new_query_words(monkeypatch):
+    """首轮全空后必须换词重试，且总轮次不超过 2。"""
+    calls = []
+
+    class Search:
+        async def search_with_sources(self, **kwargs):
+            calls.append(kwargs["query"])
+            if len(calls) == 1:
+                return "", []
+            return "第二轮资料", [{"title": "就业形势", "url": "https://example.test/j", "snippet": "分析"}]
+
+    monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+    _install_search_stubs(monkeypatch)
+
+    context, sources, _, _, _ = await _build_context(
+        1, "今年就业形势如何", _Db(), None, None, 3,
+        search_mode="on", search_depth="shallow",
+    )
+
+    assert len(calls) == 2
+    assert calls[0] != calls[1]
+    assert "就业形势" in calls[1]
+    assert sources and "第二轮资料" in context
+
+
+@pytest.mark.asyncio
+async def test_empty_round_does_not_exceed_two_rounds_even_when_multi(monkeypatch):
+    calls = []
+
+    class Search:
+        async def search_with_sources(self, **kwargs):
+            calls.append(kwargs["query"])
+            return "", []
+
+    monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+    _install_search_stubs(monkeypatch)
+
+    _, sources, _, _, warnings = await _build_context(
+        1, "人工智能最近的进展有哪些？", _Db(), None, None, 3,
+        search_mode="on", search_depth="multi",
+    )
+
+    assert len(calls) <= 2
+    assert sources == []
+    assert warnings
+
+
 @pytest.mark.asyncio
 async def test_exhausted_search_marks_answer_as_unverified(monkeypatch):
     """两轮全空后仍会作答，但必须把「未联网核实」状态交给前端与模型。"""
