@@ -604,6 +604,59 @@ class TestContextBuilding:
         assert "网络搜索失败" in context
 
     @pytest.mark.asyncio
+    async def test_transport_outage_reports_service_unavailable(self, monkeypatch):
+        class Search:
+            async def search_with_sources(self, **_kwargs):
+                raise Aicode.WebSearchUnavailable("connection reset")
+
+        monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+        monkeypatch.setattr(
+            Aicode,
+            "plan_search_actions",
+            AsyncMock(return_value={"action": "search", "queries": ["q"], "urls": []}),
+        )
+
+        context, _, _, _, warnings = await Aicode._build_context(
+            1, "q", _Db(), None, None, 3, search_mode="on"
+        )
+
+        assert "联网服务暂时不可用" in warnings[0]["error"]
+        assert "联网服务暂时不可用" in context
+
+    @pytest.mark.asyncio
+    async def test_empty_retry_keeps_single_round_for_shallow(self, monkeypatch):
+        calls, starts = [], []
+
+        class Search:
+            async def search_with_sources(self, **kwargs):
+                calls.append(kwargs["query"])
+                if len(calls) == 1:
+                    return "", []
+                return "资料", [{"title": "T", "url": "https://a.test", "snippet": "S"}]
+
+        plans = iter(
+            [
+                {"action": "search", "queries": ["first wording"], "urls": []},
+                {"action": "search", "queries": ["second wording"], "urls": []},
+            ]
+        )
+
+        async def plan(*_args, **_kwargs):
+            return next(plans)
+
+        monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+        monkeypatch.setattr(Aicode, "plan_search_actions", plan)
+
+        context, sources, _, _, warnings = await Aicode._build_context(
+            1, "q", _Db(), None, None, 3, search_mode="on", on_stage=starts.append
+        )
+
+        assert calls == ["first wording", "second wording"]
+        assert [e.get("round") for e in starts if e["status"] == "started"] == [1, 1]
+        assert warnings == []
+        assert sources and "资料" in context
+
+    @pytest.mark.asyncio
     async def test_empty_history_context_is_not_appended(self, monkeypatch):
         monkeypatch.setattr(
             Aicode, "compress_conversation_history", AsyncMock(return_value="")

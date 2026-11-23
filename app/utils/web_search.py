@@ -121,6 +121,45 @@ _GENERIC_CJK = {
 }
 _CJK_STOP_CHARS = set("的了是在和与或吗呢吧年月")
 
+# Temporal and interrogative words carry no aspect information. Stripping them
+# keeps a derived phrase like "就业形势" instead of the unmatchable
+# "形势如何", which used to reject every result for spoken-style queries.
+_PHRASE_NOISE = (
+    "今天", "今日", "现在", "目前", "最新", "今年", "去年", "明年",
+    "本月", "本周", "昨天", "明天",
+    "怎么样", "怎么", "如何", "是什么", "什么", "为什么", "多少",
+    "哪些", "是否",
+)
+
+# ASCII tokens must match on token boundaries; a raw substring test made short
+# tokens such as "ai" match "detail", "email" and "domain".
+_ASCII_TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9.+#_-]*$")
+
+
+class WebSearchUnavailable(RuntimeError):
+    """Raised when a transport failure prevents any source from answering.
+
+    Callers can distinguish this from a genuine empty result set so a network
+    blip still gets a bounded retry instead of being reported as "no results".
+    """
+
+
+def _contains_token(blob: str, token: str) -> bool:
+    lowered = (token or "").lower()
+    if not lowered:
+        return False
+    if _ASCII_TOKEN_RE.match(lowered):
+        pattern = rf"(?<![a-z0-9]){re.escape(lowered)}(?![a-z0-9])"
+        return re.search(pattern, blob) is not None
+    return lowered in blob
+
+
+def _coverage(blob: str, tokens: List[str]) -> float:
+    if not tokens:
+        return 1.0
+    hits = sum(1 for token in tokens if _contains_token(blob, token))
+    return hits / len(tokens)
+
 
 def extract_query_terms(query: str) -> Dict[str, List[str]]:
     """Split a query into versions, English tokens, and CJK pieces."""
@@ -406,12 +445,12 @@ def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
     tokens = (terms.get("english") or []) + (terms.get("cjk") or [])
     if not versions and not tokens:
         return 1.0
-    version_hits = sum(1 for version in versions if version.lower() in blob)
+    version_hits = sum(1 for version in versions if _contains_token(blob, version))
     core_tokens = (terms.get("english") or []) + [
         token for token in (terms.get("cjk") or []) if token not in _GENERIC_CJK
     ]
     scored_tokens = core_tokens or tokens
-    token_hits = sum(1 for token in scored_tokens if token.lower() in blob)
+    token_hits = sum(1 for token in scored_tokens if _contains_token(blob, token))
     version_part = 1.0 if not versions else version_hits / len(versions)
     token_part = 1.0 if not scored_tokens else token_hits / len(scored_tokens)
     if versions:
@@ -419,17 +458,52 @@ def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
     else:
         score = token_part
     core_cjk = [token for token in (terms.get("cjk") or []) if token not in _GENERIC_CJK]
-    if core_cjk:
-        version_ok = bool(versions) and version_hits == len(versions)
-        if not version_ok and core_cjk[-1].lower() not in blob:
+    version_ok = bool(versions) and version_hits == len(versions)
+    # A Latin entity in the title is a strong topical anchor: English sources
+    # cover the Chinese aspect ("模型发布" -> "releases new model") without
+    # repeating its exact characters.
+    title_blob = f"{result.title} {result.url}".lower()
+    entity_anchored = any(
+        _contains_token(title_blob, token) for token in (terms.get("english") or [])
+    )
+    if core_cjk and not version_ok and not entity_anchored:
+        tail_hit = _contains_token(blob, core_cjk[-1])
+        coverage = _coverage(blob, core_cjk)
+        # One tail term plus broad coverage keeps real hits while still
+        # rejecting recap portals that only share the city prefix.
+        if not tail_hit and coverage < 0.75:
             return min(score, 0.2)
-        if terms.get("require_phrase", True):
-            cjk_terms = terms.get("cjk") or []
-            if not version_ok and len(cjk_terms) >= 2:
-                phrase = terms.get("phrase") or (cjk_terms[-2] + cjk_terms[-1])
-                if phrase and phrase.lower() not in blob:
-                    return min(score, 0.2)
+        if terms.get("require_phrase", True) and not _phrase_covered(
+            blob, _phrase_candidate(terms)
+        ):
+            # The aspect phrase may surface paraphrased, so bigram overlap is
+            # accepted; a literal full-phrase test dropped valid hits such as
+            # "DeepSeek 发布新模型" for the query "deepseek 最新模型发布".
+            return min(score, 0.2)
     return score
+
+
+def _phrase_candidate(terms: Dict[str, List[str]]) -> str:
+    """Return the query's trailing aspect phrase with spoken-style noise removed."""
+    phrase = str(terms.get("phrase") or "").strip()
+    for noise in _PHRASE_NOISE:
+        phrase = phrase.replace(noise, "")
+    if len(phrase) < 2:
+        cjk_terms = terms.get("cjk") or []
+        phrase = cjk_terms[-1] if cjk_terms else ""
+    return phrase
+
+
+def _phrase_covered(blob: str, phrase: str) -> bool:
+    """True when the phrase or one of its bigrams appears in the result."""
+    phrase = (phrase or "").strip().lower()
+    if not phrase:
+        return True
+    if _contains_token(blob, phrase):
+        return True
+    if len(phrase) <= 2:
+        return False
+    return any(_contains_token(blob, phrase[i:i + 2]) for i in range(len(phrase) - 1))
 
 
 def filter_relevant_results(
@@ -474,6 +548,9 @@ def search_query_variants(query: str) -> List[str]:
     if entity:
         variants.append(entity)
     variants.append(query)
+    rewritten = rewrite_search_query(query)
+    if rewritten and rewritten != query:
+        variants.append(rewritten)
     if expanded != query:
         variants.append(expanded)
     # Bing 的 HTML 抓取在查询以裸年份开头时会返回无关的日历/节假日页面，
@@ -502,6 +579,49 @@ def search_query_variants(query: str) -> List[str]:
     ):
         variants.append(f"{years[-1]}年国民经济和社会发展统计公报")
     return _unique(variants)
+
+
+def rewrite_search_query(query: str) -> str:
+    """Turn a spoken-style question into compact engine keywords.
+
+    Bing's HTML endpoint returns calendar, almanac and encyclopedia year pages
+    for queries such as "今天上证指数收盘点位". Dropping temporal and
+    interrogative words and keeping the topical tokens gives the engines
+    something they can actually match.
+    """
+    text = expand_relative_time(query or "")
+    years = _unique(re.findall(r"20\d{2}", text))
+    text = re.sub(r"\d{4}年(?:\d{1,2}月)?(?:\d{1,2}日)?", " ", text)
+    text = re.sub(r"\d{1,2}月(?:\d{1,2}日)?", " ", text)
+    text = re.sub(r"\d{1,2}日", " ", text)
+    for noise in _PHRASE_NOISE:
+        text = text.replace(noise, " ")
+    entity = extract_named_entity(text)
+    if entity:
+        text = text.replace(entity, " ")
+    text = re.sub(r"[的之至和与，。？！、,?!.:：；;]", " ", text)
+    terms = extract_query_terms(text)
+    # Keep the author's casing: "Acme" must not degrade to "acme" in a retry,
+    # since some engines treat the company name as a distinct entity.
+    english = _unique(
+        word
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9+\-]{1,}", text)
+        if word.lower() not in _EN_STOP
+    )
+    aspect = [
+        run
+        for run in re.findall(r"[\u4e00-\u9fff]+", text)
+        if run not in _GENERIC_CJK and run not in _CJK_STOP
+    ]
+    # A leading year triggers almanac pages; keep it only for statistical
+    # queries where the year is part of the fact being asked for.
+    stat_marks = ("就业", "失业", "人口", "物价", "经济", "gdp", "GDP", "工资", "指数")
+    kept_years = years if any(mark in (query or "") for mark in stat_marks) else []
+    parts = _unique(
+        ([entity] if entity else []) + english + list(terms.get("versions") or [])
+        + kept_years + aspect
+    )
+    return " ".join(parts)[:80].strip()
 
 
 def official_reference_results(query: str) -> List[SearchResult]:
@@ -591,8 +711,13 @@ class FreeWebSearch:
             # 优先使用 Bing 搜索
             fetch_count = max(count * 2, 8)
             bing_raw = []
+            transport_errors: List[Exception] = []
             for variant in search_query_variants(query):
-                variant_hits = await self._search_bing(variant, fetch_count, lang)
+                try:
+                    variant_hits = await self._search_bing(variant, fetch_count, lang)
+                except WebSearchUnavailable as exc:
+                    transport_errors.append(exc)
+                    continue
                 bing_raw.extend(filter_relevant_results(variant_hits, variant))
             merged_bing = merge_results_by_url([bing_raw])
             bing_results = merged_bing
@@ -602,9 +727,13 @@ class FreeWebSearch:
                     item for item in merged_bing
                     if entity in f"{item.title} {item.snippet}"
                 ]
-                discovered = await self._discover_official_aspect_pages(
-                    entity_hits, query, entity
-                )
+                try:
+                    discovered = await self._discover_official_aspect_pages(
+                        entity_hits, query, entity
+                    )
+                except (httpx.HTTPError, OSError) as exc:
+                    transport_errors.append(exc)
+                    discovered = []
                 wiki_raw = await self._search_wikipedia(entity, fetch_count)
                 wiki_hits = [item for item in wiki_raw if entity in (item.title or "")]
                 preferred = prefer_entity_aspect_results(
@@ -649,9 +778,15 @@ class FreeWebSearch:
                 logger.info(f"百科/官方文档补全 | 结果数={len(extra)}")
                 return extra[:count]
 
+            if transport_errors:
+                # Every source failed at the transport layer; report this as an
+                # outage so callers can retry instead of claiming "no results".
+                raise WebSearchUnavailable(str(transport_errors[-1]))
             logger.warning("所有搜索服务都失败，使用降级结果")
             return self._fallback_results(query)
 
+        except WebSearchUnavailable:
+            raise
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             logger.error(f"搜索失败 | query={query} | error={str(e)}")
             return self._fallback_results(query)
@@ -737,7 +872,8 @@ class FreeWebSearch:
 
             async with httpx.AsyncClient(
                 timeout=self.timeout,
-                follow_redirects=True
+                follow_redirects=True,
+                verify=_https_verify(),
             ) as client:
                 resp = await client.get(url, params=params, headers=headers)
 
@@ -747,6 +883,9 @@ class FreeWebSearch:
 
                 return self._parse_bing_html(resp.text, count)
 
+        except (httpx.HTTPError, OSError) as e:
+            logger.error(f"Bing 搜索异常 | error={str(e)}")
+            raise WebSearchUnavailable(f"Bing 请求失败: {e}") from e
         except Exception as e:
             logger.error(f"Bing 搜索异常 | error={str(e)}")
             return []
@@ -819,6 +958,7 @@ class FreeWebSearch:
 
             async with httpx.AsyncClient(
                 timeout=self.timeout,
+                follow_redirects=True,
                 verify=_https_verify(),
             ) as client:
                 resp = await client.get(url, params=params, headers=headers)
@@ -828,6 +968,9 @@ class FreeWebSearch:
 
                 return self._parse_duckduckgo_html(resp.text, count)
 
+        except (httpx.HTTPError, OSError) as e:
+            logger.error(f"DuckDuckGo 搜索异常 | error={str(e)}")
+            return []
         except Exception as e:
             logger.error(f"DuckDuckGo 搜索异常 | error={str(e)}")
             return []
@@ -968,13 +1111,14 @@ class FreeWebSearch:
         Returns:
             格式化的上下文文本
         """
-        if not results:
+        usable = [item for item in results if item.url]
+        if not usable:
             return "未找到相关搜索结果"
 
         context_parts = []
         context_parts.append("=== 网络搜索结果 ===\n")
 
-        for i, result in enumerate(results[:max_results], 1):
+        for i, result in enumerate(usable[:max_results], 1):
             context_parts.append(f"{i}. {result.to_context()}")
 
         context_parts.append("\n===================\n")
@@ -1041,11 +1185,16 @@ class FreeWebSearch:
     async def search_with_sources(self, query: str, count: int = 5, lang: str = "zh-CN") -> tuple[str, list[dict]]:
         """Return bounded model context and displayable source metadata together."""
         results = await self.search(query, count=count, lang=lang)
+        usable = [item for item in results if item.url]
+        if not usable:
+            # A placeholder ("搜索暂时不可用") must never reach the model as if
+            # it were search evidence; callers treat an empty result as a miss.
+            return "", []
         sources = [
             {"title": item.title[:200], "url": item.url, "snippet": item.snippet[:500]}
-            for item in results[:count] if item.url
+            for item in usable[:count]
         ]
-        return self.format_results_for_llm(results, max_results=count), sources
+        return self.format_results_for_llm(usable, max_results=count), sources
 
 
 # 便捷函数

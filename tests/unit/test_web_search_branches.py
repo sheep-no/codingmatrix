@@ -296,6 +296,41 @@ async def test_search_bing_swallows_exceptions(monkeypatch):
     assert await searcher._search_bing("q", 5) == []
 
 
+@pytest.mark.asyncio
+async def test_search_bing_raises_transport_outage(monkeypatch):
+    searcher = FreeWebSearch()
+
+    class _Boom(_FakeClient):
+        async def get(self, *_a, **_k):
+            raise ws.httpx.ConnectError("dns failed")
+
+    monkeypatch.setattr(ws.httpx, "AsyncClient", _client_factory(_Boom()))
+
+    with pytest.raises(ws.WebSearchUnavailable):
+        await searcher._search_bing("q", 5)
+
+
+@pytest.mark.asyncio
+async def test_search_raises_unavailable_when_every_source_times_out(monkeypatch):
+    searcher = FreeWebSearch()
+    bing_calls = []
+
+    async def bing_timeout(*_a, **_k):
+        bing_calls.append(1)
+        raise ws.WebSearchUnavailable("timeout")
+
+    async def empty(*_a, **_k):
+        return []
+
+    monkeypatch.setattr(searcher, "_search_bing", bing_timeout)
+    monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
+    monkeypatch.setattr(searcher, "_search_wikipedia", empty)
+
+    with pytest.raises(ws.WebSearchUnavailable):
+        await searcher.search("普通查询", count=3)
+    assert bing_calls
+
+
 def test_parse_bing_html_missing_title_and_link():
     searcher = FreeWebSearch()
     html = (
@@ -732,6 +767,27 @@ async def test_search_with_sources_filters_empty_urls(monkeypatch):
     assert len(sources) == 1
     assert sources[0]["url"] == "https://e.com"
     assert "网络搜索结果" in context
+
+
+@pytest.mark.asyncio
+async def test_search_with_sources_hides_placeholder_from_model(monkeypatch):
+    searcher = FreeWebSearch()
+
+    async def fake_search(*_args, **_kwargs):
+        return [_item("搜索暂时不可用", "")]
+
+    monkeypatch.setattr(searcher, "search", fake_search)
+
+    context, sources = await searcher.search_with_sources("q", count=2)
+
+    assert context == ""
+    assert sources == []
+
+
+def test_format_results_for_llm_rejects_placeholder_only():
+    searcher = FreeWebSearch()
+
+    assert searcher.format_results_for_llm([_item("搜索暂时不可用", "")]) == "未找到相关搜索结果"
 
 
 @pytest.mark.asyncio
