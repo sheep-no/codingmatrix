@@ -143,7 +143,7 @@
   import { useToast } from '@/composables/useToast'
   import { useOfflineQueue } from '@/composables/useOfflineQueue'
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
-  import { normalizeRequestError, getRequestErrorMessage } from '@/utils/requestError'
+  import { normalizeRequestError, extractApiErrorMessage } from '@/utils/requestError'
 
   // 工具组件延迟加载 - 减少初始包大小
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
@@ -692,16 +692,14 @@
       }
 
       if (!response.ok) {
-        let errorMessage = `HTTP error! status: ${response.status}`
+        let apiMessage = ''
         try {
-          const errorData = await response.json()
-          if (errorData.detail) {
-            errorMessage += ` - ${errorData.detail}`
-          }
+          apiMessage = extractApiErrorMessage(await response.json())
         } catch (e) {
-          console.error('无法解析错误响应:', response.statusText)
+          console.warn('无法解析错误响应:', response.statusText)
         }
-        const requestError = new Error(errorMessage)
+        // 优先携带后端可读文案，只有响应体不可解析时才退回状态码。
+        const requestError = new Error(apiMessage || `HTTP error! status: ${response.status}`)
         requestError.status = response.status
         throw requestError
       }
@@ -786,20 +784,8 @@
             lastMessage.thinkingClosed = true
           }
 
-          if (hasPartialContent) {
-            const existingResponse = lastMessage.response || ''
-            const existingReasoning = lastMessage.reasoning || ''
-
-            if (!existingResponse.includes('出错：')) {
-              lastMessage.response = existingResponse + `\n\n出错：${getRequestErrorMessage(error)}`
-            }
-            if (existingReasoning && !existingReasoning.includes('思考出错：')) {
-              lastMessage.reasoning =
-                existingReasoning + `\n\n思考出错：${getRequestErrorMessage(error)}`
-              }
-          } else {
-            lastMessage.response = `请求失败：${requestError.message}`
-          }
+          // 已生成的内容保持原样；没有内容时清空正文，错误只由 requestError 卡片展示一次。
+          if (!hasPartialContent) lastMessage.response = ''
           lastMessage.requestError = requestError
           lastMessage.retryRequest = requestError.retryable ? createRetryRequest(currentMessageData) : null
         }

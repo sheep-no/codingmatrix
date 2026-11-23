@@ -198,7 +198,7 @@
               </details>
 
               <!-- AI 响应内容 -->
-              <div v-if="message.response || message.isStreaming" class="ai-response-content">
+              <div v-if="message.response || message.isStreaming || message.requestError" class="ai-response-content">
                 <div class="response-card">
                   <div
                     class="card-content markdown-body"

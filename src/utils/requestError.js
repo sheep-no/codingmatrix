@@ -15,25 +15,66 @@ function sanitizeDetail(value) {
     .replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[已隐藏]')
 }
 
+// 从后端错误响应体里取可直接展示的文案，兼容 message/detail 字符串与
+// FastAPI 校验错误数组。取不到时返回空串，由调用方回退到状态码兜底文案。
+export function extractApiErrorMessage(payload) {
+  if (!payload) return ''
+  if (typeof payload === 'string') return payload.trim()
+
+  const direct = [payload.message, payload.detail]
+  for (const value of direct) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+
+  const detail = payload.detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map(item => (typeof item === 'string' ? item : item?.msg))
+      .filter(Boolean)
+      .join('；')
+  }
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
+    return detail.message
+  }
+  return ''
+}
+
+function isTransportPlaceholder(message) {
+  return /^HTTP error! status: \d+$/i.test(message) || /^HTTP\s+\d+$/i.test(message)
+}
+
 export function normalizeRequestError(error, fallback = '请求失败') {
   const status = getStatus(error)
   const known = STATUS_MESSAGES[status]
   const rawMessage = sanitizeDetail(error?.message || (typeof error === 'string' ? error : ''))
+  const readableMessage = isTransportPlaceholder(rawMessage) ? '' : rawMessage
 
-  if (known) return { ...known, status, detail: rawMessage, retryable: status !== 401 && status !== 403 }
+  if (known) {
+    const message = readableMessage ? `${known.message}（${readableMessage}）` : known.message
+    return {
+      ...known,
+      message,
+      status,
+      detail: readableMessage,
+      retryable: status !== 401 && status !== 403
+    }
+  }
 
   const isAbort = error?.name === 'AbortError' || error?.code === 'ERR_CANCELED'
-  if (isAbort) return { kind: 'aborted', status: 0, message: '请求已停止。', action: null, detail: rawMessage, retryable: false }
+  if (isAbort) return { kind: 'aborted', status: 0, message: '请求已停止。', action: null, detail: readableMessage, retryable: false }
 
-  const isNetwork = error?.name === 'TypeError' || error?.name === 'NetworkError' || /network|fetch|failed to fetch|连接|超时/i.test(rawMessage)
-  if (isNetwork) return { kind: 'network', status: 0, message: '网络连接失败，请检查网络后重试。', action: '重新连接', detail: rawMessage, retryable: true }
+  // 有 HTTP 状态码时以服务端文案为准；只有拿不到状态才按传输层失败归类，
+  // 否则「生成超时」这类后端文案会被通用网络提示覆盖。
+  const isNetwork = status === 0 && (
+    error?.name === 'TypeError'
+    || error?.name === 'NetworkError'
+    || /network|fetch|failed to fetch|连接|超时/i.test(rawMessage)
+  )
+  if (isNetwork) return { kind: 'network', status: 0, message: '网络连接失败，请检查网络后重试。', action: '重新连接', detail: readableMessage, retryable: true }
 
-  return { kind: 'unknown', status, message: rawMessage || fallback, action: '重试', detail: rawMessage, retryable: true }
+  return { kind: 'unknown', status, message: readableMessage || fallback, action: '重试', detail: readableMessage, retryable: true }
 }
 
 export function getRequestErrorMessage(error, fallback = '请求失败') {
-  const normalized = normalizeRequestError(error, fallback)
-  return normalized.detail && normalized.detail !== normalized.message
-    ? `${normalized.message}（${normalized.detail}）`
-    : normalized.message
+  return normalizeRequestError(error, fallback).message
 }

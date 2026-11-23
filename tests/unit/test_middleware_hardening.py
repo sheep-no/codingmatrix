@@ -126,10 +126,20 @@ class TestInputValidatorProse:
     @pytest.mark.asyncio
     async def test_regular_endpoint_still_rejects_xss_payload(self):
         body = json.dumps({"comment": "<script>alert(1)</script>"}).encode()
-        reached, messages = await _run("/api/v1/chat", body)
+        reached, messages = await _run("/api/v1/users", body)
         assert reached is False
         assert messages[0]["status"] == 400
         assert "xss" in json.loads(messages[1]["body"])["details"]["detected_issues"]
+
+    @pytest.mark.asyncio
+    async def test_chat_endpoint_allows_code_samples_in_prompt(self):
+        """编程助手的核心场景：用户要模型解释或修复的代码不应被当作 XSS 拦截。"""
+        body = json.dumps(
+            {"prompt": "帮我改这段代码：<img src=x onerror=alert(1)>"}
+        ).encode()
+        reached, messages = await _run("/api/v1/chat", body)
+        assert reached is True
+        assert messages == []
 
 
 class TestAiPathStillEnforcesTransportChecks:

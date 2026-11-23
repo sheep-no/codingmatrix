@@ -133,11 +133,54 @@ async def test_missing_content_type_non_json_body_passes_through():
 async def test_xss_payload_in_json_key_is_rejected():
     body = json.dumps({"<script>alert(1)</script>": "clean"}).encode()
 
-    reached, messages = await _run("/api/v1/chat", body, content_type="application/json")
+    reached, messages = await _run("/api/v1/users", body, content_type="application/json")
 
     assert reached is False
     assert messages[0]["status"] == 400
     assert "xss" in json.loads(messages[1]["body"])["details"]["detected_issues"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt",
+    (
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "解释这段代码：<script>alert(1)</script> 做了什么",
+        "```html\n<script>alert(1)</script>\n```",
+        "这个按钮的 `onclick=\"alert(1)\"` 属性该怎么改？",
+    ),
+)
+async def test_ai_chat_prompts_may_contain_code_samples(prompt):
+    """代码解释/修复是编程助手的高频场景，提示词里的标签与事件属性不应被当作攻击拦截。"""
+    body = json.dumps({"prompt": prompt}).encode()
+
+    reached, messages = await _run("/api/v1/chat", body, content_type="application/json")
+
+    assert reached is True, f"正常代码提问被误拦: {prompt} -> {messages}"
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_ai_chat_still_enforces_transport_checks():
+    """豁免内容扫描后，chat 入口仍必须拒绝不支持的内容类型。"""
+    body = b"<xml>payload</xml>"
+
+    reached, messages = await _run("/api/v1/chat", body, content_type="application/xml")
+
+    assert reached is False
+    assert messages[0]["status"] == 415
+
+
+@pytest.mark.asyncio
+async def test_validation_error_message_is_actionable():
+    body = json.dumps({"comment": "<script>alert(1)</script>"}).encode()
+
+    _, messages = await _run("/api/v1/users", body, content_type="application/json")
+
+    message = json.loads(messages[1]["body"])["message"]
+    assert "XSS" in message
+    assert "移除" in message
 
 
 @pytest.mark.asyncio
