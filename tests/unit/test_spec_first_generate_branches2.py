@@ -2287,6 +2287,37 @@ def test_validate_content_syntax_vue_html_css(monkeypatch):
     )
 
 
+def test_validate_content_syntax_go_and_java_use_compiler(monkeypatch):
+    harness = _Harness(Path("/tmp"))
+    from app.agent.orchestrator_generation import spec_first_generate as spec_module
+    from app.agent.orchestrator_generation.spec_first_generate import (
+        SpecFirstGenerateMixin,
+    )
+
+    seen = []
+
+    def _fake_diagnostics(language, content, file_path=""):
+        seen.append((language, file_path))
+        return ("bad",) if "BROKEN" in content else ()
+
+    monkeypatch.setattr(spec_module, "compiler_source_diagnostics", _fake_diagnostics)
+
+    assert asyncio.run(
+        SpecFirstGenerateMixin._validate_content_syntax(harness, "main.go", "package main")
+    )
+    assert not asyncio.run(
+        SpecFirstGenerateMixin._validate_content_syntax(harness, "main.go", "BROKEN")
+    )
+    assert asyncio.run(
+        SpecFirstGenerateMixin._validate_content_syntax(harness, "App.java", "class App {}")
+    )
+    assert not asyncio.run(
+        SpecFirstGenerateMixin._validate_content_syntax(harness, "App.java", "BROKEN")
+    )
+    assert ("go", "main.go") in seen
+    assert ("java", "App.java") in seen
+
+
 @pytest.mark.asyncio
 async def test_quick_llm_check_requires_backend_model_and_swallows_errors(monkeypatch):
     from app.agent.orchestrator_generation.spec_first_generate import (

@@ -1,6 +1,11 @@
-from app.agent.languages import get_language_adapter, get_language_capabilities
 from app.agent.framework_profiles import DEFAULT_PROFILES
 from app.agent.language_detector import LanguageDetector
+from app.agent.languages import (
+    get_language_adapter,
+    get_language_capabilities,
+    probe_language_compiler,
+    probe_language_test_runner,
+)
 
 
 def test_python_adapter_exposes_imports_and_symbols():
@@ -21,6 +26,46 @@ def test_typescript_alias_exposes_compile_and_test_capabilities():
     assert capabilities.supports_compile
     assert capabilities.supports_tests
     assert ".ts" in capabilities.extensions
+
+
+def test_probe_reports_no_missing_compiler_when_binary_is_installed(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    assert probe_language_compiler("go") == ()
+
+
+def test_probe_reports_missing_compiler_binaries(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    assert probe_language_compiler("java") == ("javac",)
+
+
+def test_probe_compiler_accepts_any_listed_binary(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/rustc" if name == "rustc" else None)
+
+    assert probe_language_compiler("rust") == ()
+
+
+def test_probe_reports_missing_test_runner_independently(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(
+        shutil, "which", lambda name: None if name in {"mvn", "gradle"} else "/usr/bin/javac"
+    )
+
+    assert probe_language_compiler("java") == ()
+    assert probe_language_test_runner("java") == ("mvn", "gradle")
+
+
+def test_probe_ignores_unknown_language():
+    assert probe_language_compiler("cobol") == ()
+    assert probe_language_test_runner("cobol") == ()
 
 
 def test_builtin_profiles_cover_minimum_crud_stacks():

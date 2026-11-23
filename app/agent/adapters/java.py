@@ -65,5 +65,11 @@ class JavaLanguageAdapter(GenericLanguageAdapter):
     def is_project_module(self, module_name: str) -> bool:
         return bool(module_name) and not module_name.startswith(self.external_package_prefixes)
 
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]:
+        """Delegate syntax authority to javac, ignoring cross-file resolution."""
+        from app.agent.compiler_diagnostics import compiler_source_diagnostics
+
+        return compiler_source_diagnostics("java", content, file_path)
+
 
 LanguageAdapterRegistry.register(JavaLanguageAdapter())

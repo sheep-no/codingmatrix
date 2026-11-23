@@ -507,6 +507,12 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         """JS/TS 不要求目录级入口文件"""
         return []
 
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]:
+        """Delegate syntax authority to the node/TypeScript parser."""
+        from app.agent.compiler_diagnostics import compiler_source_diagnostics
+
+        return compiler_source_diagnostics("typescript", content, file_path)
+
 
 # 注册适配器
 LanguageAdapterRegistry.register(JavaScriptLanguageAdapter())

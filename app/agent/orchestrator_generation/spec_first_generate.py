@@ -9,6 +9,7 @@ from typing import Any
 
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.architecture_inspector import ArchitectureInspector
+from app.agent.compiler_diagnostics import compiler_source_diagnostics
 from app.agent.critical_decision import (
     CriticalDecisionExtractor,
     should_skip_user_decision,
@@ -233,7 +234,7 @@ class SpecFirstGenerateMixin:
 
         # 检查缓存
         cached = None
-        if self.spec_cache and not self.incremental:
+        if self.spec_cache:
             try:
                 cached = self.spec_cache.lookup(
                     requirement, complexity_level=self.complexity.level.value
@@ -1926,9 +1927,9 @@ class SpecFirstGenerateMixin:
                 return False
 
         elif ext in ('.ts', '.tsx'):
-            # TypeScript syntax (including decorators and annotations) cannot be
-            # parsed by `node -c`; use the installed compiler's parser only.
-            # .tsx additionally requires the parser's jsx option for JSX.
+            # TypeScript counts on tsc when present, then falls back to node's
+            # built-in type stripper, and finally to a delimiter heuristic for
+            # TSX since the stripper cannot parse JSX.
             return self._check_ts_source(content, jsx=(ext == '.tsx'))
 
         elif ext in ('.js', '.jsx', '.mjs', '.cjs', '.vue'):
@@ -1958,6 +1959,16 @@ class SpecFirstGenerateMixin:
             lines = [l.strip() for l in sanitized.split('\n') if l.strip()]
             chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
             return not (chinese_lines > len(lines) * 0.3 and chinese_lines > 3)
+
+        elif ext == '.go':
+            return not await asyncio.to_thread(
+                compiler_source_diagnostics, "go", content, file_path
+            )
+
+        elif ext == '.java':
+            return not await asyncio.to_thread(
+                compiler_source_diagnostics, "java", content, file_path
+            )
 
         return True
 

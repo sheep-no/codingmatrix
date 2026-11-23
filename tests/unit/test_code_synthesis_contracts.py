@@ -12,39 +12,39 @@ from app.agent.code_synthesis_contracts import (
     StrategyDecision,
     ValidationProfile,
 )
-from app.agent.strategy_router import StrategyRouter
-from app.agent.synthesis_protocol import (
-    ComparableSynthesisInput,
-    ModelOperation,
-    ModelOperationKind,
-)
-from app.agent.stack_adapters import (
-    ExpressStackAdapter,
-    FastAPIStackAdapter,
-    GoStackAdapter,
-    SpringStackAdapter,
-    StackContractRule,
-    StackContractValidator,
-    StackRepairStrategy,
-    StackRepairStrategyRegistry,
-    fastapi_crud_repair_applies,
-    RepairContext,
-    repair_contract_digest,
-)
 from app.agent.contract_index import ContractIndex
+from app.agent.framework_profiles import FrameworkProfile, ProfileStatus, ValidationStage
 from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
 from app.agent.interface_registry import InterfaceRegistry
 from app.agent.orchestration.ir_projection import (
     UnsupportedArtifactOperation,
     project_change_plan,
 )
-from app.agent.framework_profiles import FrameworkProfile, ProfileStatus, ValidationStage
 from app.agent.orchestration.profile_bridge import (
     project_model_from_profile,
     validation_plan_from_framework,
     validation_profile_from_framework,
 )
+from app.agent.stack_adapters import (
+    ExpressStackAdapter,
+    FastAPIStackAdapter,
+    GoStackAdapter,
+    RepairContext,
+    SpringStackAdapter,
+    StackContractRule,
+    StackContractValidator,
+    StackRepairStrategy,
+    StackRepairStrategyRegistry,
+    fastapi_crud_repair_applies,
+    repair_contract_digest,
+)
+from app.agent.strategy_router import StrategyRouter
 from app.agent.synthesis_capabilities import SynthesisCapabilityRegistry
+from app.agent.synthesis_protocol import (
+    ComparableSynthesisInput,
+    ModelOperation,
+    ModelOperationKind,
+)
 
 
 def test_repair_contract_digest_is_stable_for_same_inputs():
@@ -532,3 +532,46 @@ def test_unknown_language_has_explicit_patch_degradation() -> None:
 
     assert decision.strategy is GenerationStrategy.LLM
     assert decision.degraded is True
+
+
+def test_synthesis_registry_degrades_when_compiler_binary_is_missing(monkeypatch) -> None:
+    from app.agent import synthesis_capabilities
+
+    monkeypatch.setattr(
+        synthesis_capabilities,
+        "probe_language_compiler",
+        lambda _language: ("tsc",),
+    )
+    monkeypatch.setattr(
+        synthesis_capabilities,
+        "probe_language_test_runner",
+        lambda _language: (),
+    )
+    project = ProjectModel(language="typescript", framework="express")
+
+    capabilities = synthesis_capabilities.SynthesisCapabilityRegistry().inspect(project)
+
+    assert capabilities.compiler is False
+    assert capabilities.test_runner is True
+    assert "compiler-unavailable:tsc" in capabilities.evidence
+    assert "test-runner" in capabilities.evidence
+
+
+def test_synthesis_registry_degrades_test_runner_independently(monkeypatch) -> None:
+    from app.agent import synthesis_capabilities
+
+    monkeypatch.setattr(
+        synthesis_capabilities, "probe_language_compiler", lambda _language: ()
+    )
+    monkeypatch.setattr(
+        synthesis_capabilities,
+        "probe_language_test_runner",
+        lambda _language: ("mvn", "gradle"),
+    )
+    project = ProjectModel(language="java", framework="spring-boot")
+
+    capabilities = synthesis_capabilities.SynthesisCapabilityRegistry().inspect(project)
+
+    assert capabilities.compiler is True
+    assert capabilities.test_runner is False
+    assert "test-runner-unavailable:mvn,gradle" in capabilities.evidence

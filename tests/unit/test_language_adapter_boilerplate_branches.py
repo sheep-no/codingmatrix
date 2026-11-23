@@ -12,7 +12,6 @@ from app.agent.adapters.boilerplate import (
     scaffold_test,
 )
 
-
 # ---------------------------------------------------------------------------
 # scaffold_for_language dispatch
 # ---------------------------------------------------------------------------
@@ -68,9 +67,44 @@ def test_manifest_unknown_name_returns_empty() -> None:
     assert scaffold_manifest("python", "unknown.txt", {}) == ""
 
 
-@pytest.mark.parametrize("language", ["go", "rust", "java"])
-def test_scaffold_entry_unsupported_languages_return_none(language: str) -> None:
-    assert scaffold_entry(language, "main.go", {}) is None
+def test_scaffold_entry_rust_returns_none() -> None:
+    assert scaffold_entry("rust", "src/main.rs", {}) is None
+
+
+def test_scaffold_entry_go_returns_http_server() -> None:
+    architecture = {"project_spec": {"default": {"framework": "net/http"}}}
+
+    content = scaffold_entry("go", "main.go", architecture)
+
+    assert content.startswith("package main")
+    assert "http.ListenAndServe" in content
+
+
+def test_scaffold_entry_go_without_declared_framework_is_left_to_model() -> None:
+    assert scaffold_entry("go", "main.go", {"requirement": "Build an HTTP API"}) is None
+
+
+def test_scaffold_entry_java_plain_stack_uses_file_package() -> None:
+    architecture = {"project_spec": {"default": {"framework": "plain-java"}}}
+
+    content = scaffold_entry("java", "src/main/java/com/example/App.java", architecture)
+
+    assert content.startswith("package com.example;")
+    assert "public class App" in content
+
+
+def test_scaffold_entry_java_spring_emits_annotated_bootstrap() -> None:
+    architecture = {"project_spec": {"default": {"framework": "spring-boot"}}}
+
+    content = scaffold_entry("java", "src/main/java/com/example/Application.java", architecture)
+
+    assert content.startswith("package com.example;")
+    assert "@SpringBootApplication" in content
+    assert "SpringApplication.run(Application.class, args);" in content
+
+
+def test_scaffold_entry_java_without_framework_leaves_entry_to_model() -> None:
+    assert scaffold_entry("java", "src/main/java/com/example/Application.java", {}) is None
 
 
 def test_scaffold_entry_javascript_without_express_returns_none() -> None:
@@ -285,12 +319,57 @@ def test_package_json_uses_entry_path() -> None:
     content = boilerplate._javascript_package_json(architecture)
 
     assert '"main": "server.js"' in content
+    assert '"start": "node server.js"' in content
 
 
 def test_java_pom_contains_artifact() -> None:
     content = boilerplate._java_pom({"requirement": "Demo Service"})
 
     assert "<artifactId>demo-service</artifactId>" in content
+
+
+def test_java_pom_adds_junit_when_java_tests_planned() -> None:
+    architecture = {
+        "requirement": "Demo",
+        "file_plan": [{"path": "src/test/java/com/example/AppTest.java"}],
+    }
+
+    content = boilerplate._java_pom(architecture)
+
+    assert "junit-jupiter" in content
+    assert 'scope>test</scope>' in content
+    assert "maven-surefire-plugin" in content
+
+
+def test_java_pom_omits_junit_without_java_tests() -> None:
+    content = boilerplate._java_pom({"requirement": "Demo"})
+
+    assert "junit-jupiter" not in content
+    assert "maven-surefire-plugin" not in content
+
+
+def test_java_pom_adds_spring_boot_parent_and_starter() -> None:
+    architecture = {
+        "requirement": "Demo",
+        "project_spec": {"default": {"framework": "spring-boot"}},
+    }
+
+    content = boilerplate._java_pom(architecture)
+
+    assert "spring-boot-starter-parent" in content
+    assert "spring-boot-starter-web" in content
+    assert "spring-boot-maven-plugin" in content
+
+
+def test_java_pom_omits_spring_for_plain_stack() -> None:
+    architecture = {
+        "requirement": "Demo",
+        "project_spec": {"default": {"framework": "plain-java"}},
+    }
+
+    content = boilerplate._java_pom(architecture)
+
+    assert "spring-boot" not in content
 
 
 # ---------------------------------------------------------------------------

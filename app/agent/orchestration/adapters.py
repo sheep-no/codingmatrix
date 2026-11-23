@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import re
 import time
@@ -831,8 +832,9 @@ class _PlannedAgentAdapter:
         content = response.content
         self._generated_contents[context.file_path] = content
         validation_passed = bool(result.get("validation_passed", True))
-        language_adapter, contract_diagnostics = self._validate_candidate_contract(
-            context.file_path, content
+        # Compiler probes spawn subprocesses; keep them off the event loop.
+        language_adapter, contract_diagnostics = await asyncio.to_thread(
+            self._validate_candidate_contract, context.file_path, content
         )
         source_repair = (
             language_adapter.repair_source(content, context.file_path, contract_diagnostics)
@@ -850,8 +852,8 @@ class _PlannedAgentAdapter:
             })
             content = source_repair
             self._generated_contents[context.file_path] = content
-            _, contract_diagnostics = self._validate_candidate_contract(
-                context.file_path, content
+            _, contract_diagnostics = await asyncio.to_thread(
+                self._validate_candidate_contract, context.file_path, content
             )
         original_content = str(file_info.get("original_content") or "")
         if language_adapter is not None and original_content and str(file_info.get("action") or "modify") != "add":

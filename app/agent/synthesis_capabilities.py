@@ -5,7 +5,12 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from .code_synthesis_contracts import ProjectModel
-from .languages import get_language_adapter, get_language_capabilities
+from .languages import (
+    get_language_adapter,
+    get_language_capabilities,
+    probe_language_compiler,
+    probe_language_test_runner,
+)
 from .scaffolding import (
     ScaffoldRequest,
     official_scaffold_request,
@@ -33,6 +38,12 @@ class SynthesisCapabilityRegistry:
         adapter = get_language_adapter(project.language)
         dedicated_adapter = language.language != "generic" and adapter.language != "generic"
         scaffolder = supports_official_scaffold(project.language, project.framework)
+        # Declared compile/test support is a stack property; the host may still
+        # lack the binary. Report what can actually run so callers degrade.
+        missing_compiler = probe_language_compiler(project.language)
+        missing_runner = probe_language_test_runner(project.language)
+        compiler = language.supports_compile and not missing_compiler
+        test_runner = language.supports_tests and not missing_runner
         evidence = []
         if dedicated_adapter:
             evidence.append(f"language-adapter:{adapter.language}")
@@ -40,18 +51,22 @@ class SynthesisCapabilityRegistry:
             evidence.append("parser")
         if language.supports_signatures and dedicated_adapter:
             evidence.append("signatures")
-        if language.supports_compile:
+        if compiler:
             evidence.append("compiler")
-        if language.supports_tests:
+        elif language.supports_compile:
+            evidence.append(f"compiler-unavailable:{','.join(missing_compiler)}")
+        if test_runner:
             evidence.append("test-runner")
+        elif language.supports_tests:
+            evidence.append(f"test-runner-unavailable:{','.join(missing_runner)}")
         if scaffolder:
             evidence.append(f"official-scaffolder:{project.framework}")
         return SynthesisCapabilitySnapshot(
             parser=language.supports_ast and dedicated_adapter,
             structural_editor=language.supports_ast and dedicated_adapter,
             signatures=language.supports_signatures and dedicated_adapter,
-            compiler=language.supports_compile,
-            test_runner=language.supports_tests,
+            compiler=compiler,
+            test_runner=test_runner,
             scaffolder=scaffolder,
             evidence=tuple(evidence),
         )
