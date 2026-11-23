@@ -293,6 +293,57 @@ describe('chat source rendering', () => {
   })
 })
 
+describe('markdown rendering safety', () => {
+  const mountWithResponse = response => mount(CenterContent, {
+    props: {
+      conversationId: 'markdown',
+      conversationHistory: [{ id: 1, prompt: 'q', response }]
+    },
+    global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+  })
+
+  it('escapes raw html instead of creating live elements', () => {
+    const wrapper = mountWithResponse('结果如下 <img src="https://example.com/pixel.gif" onerror="alert(1)">')
+    const body = wrapper.get('.ai-response-content')
+
+    expect(body.find('img').exists()).toBe(false)
+    expect(body.text()).toContain('<img src="https://example.com/pixel.gif"')
+    wrapper.unmount()
+  })
+
+  it('renders markdown images from the same origin with no-referrer', () => {
+    const wrapper = mountWithResponse('![示意图](/static/demo.png)')
+    const image = wrapper.get('.ai-response-content img')
+
+    expect(image.attributes('src')).toBe('/static/demo.png')
+    expect(image.attributes('referrerpolicy')).toBe('no-referrer')
+    expect(image.attributes('loading')).toBe('lazy')
+    wrapper.unmount()
+  })
+
+  it('downgrades remote markdown images to a click-through link', () => {
+    const wrapper = mountWithResponse('![追踪像素](https://example.com/pixel.gif)')
+    const body = wrapper.get('.ai-response-content')
+
+    expect(body.find('img').exists()).toBe(false)
+    const link = body.get('a.markdown-image-link')
+    expect(link.attributes('href')).toBe('https://example.com/pixel.gif')
+    expect(link.attributes('rel')).toContain('noreferrer')
+    expect(link.text()).toContain('外部图片未自动加载')
+    wrapper.unmount()
+  })
+
+  it('keeps data image sources but strips javascript links', () => {
+    const wrapper = mountWithResponse('![内联](data:image/png;base64,AAAA)\n\n[点我](javascript:alert(1))')
+    const body = wrapper.get('.ai-response-content')
+
+    expect(body.get('img').attributes('src')).toBe('data:image/png;base64,AAAA')
+    const hrefs = body.findAll('a').map(link => link.attributes('href') || '')
+    expect(hrefs.some(href => href.startsWith('javascript:'))).toBe(false)
+    wrapper.unmount()
+  })
+})
+
 describe('code block copy', () => {
   const CODE_RESPONSE = '示例：\n\n```js\nconst answer = 42\n```\n'
   let execCommand
