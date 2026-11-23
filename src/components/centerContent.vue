@@ -314,19 +314,37 @@
     const origin = typeof window !== 'undefined' ? window.location.origin : undefined
     return renderMarkdownImage(href, title, text, origin)
   }
+  // marked 12 移除了 highlight 选项，语法高亮需要在 code 渲染器里自己做。
+  renderer.code = (code, infostring) => {
+    const rawLang = (infostring || '').trim().split(/\s+/)[0]
+    const lang = /^[\w+#.-]+$/.test(rawLang) ? rawLang : ''
+    let html = ''
+    const className = lang ? `hljs language-${lang}` : 'hljs'
+
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        html = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+      } else if (!lang && code.length <= 20000) {
+        // 未注册的语言按内容自动识别，至少让常见语法有颜色。
+        html = hljs.highlightAuto(code).value
+      }
+    } catch {
+      // 高亮失败时保持 html 为空，下面回退为转义后的纯文本。
+    }
+
+    if (!html) html = escapeHtml(code)
+    return `<pre><code class="${escapeHtml(className)}">${html}</code></pre>\n`
+  }
+  // 宽表需要独立的滚动容器，直接给 table 加 overflow 会破坏表格布局。
+  renderer.table = (header, body) => {
+    const tbody = body ? `<tbody>${body}</tbody>` : ''
+    return `<div class="markdown-table-wrap"><table><thead>${header}</thead>${tbody}</table></div>\n`
+  }
 
   marked.setOptions({
     renderer,
-    highlight: (code, lang) => {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value
-      }
-      return hljs.highlightAuto(code).value
-    },
     breaks: true,
-    gfm: true,
-    headerIds: true,
-    mangle: false
+    gfm: true
   })
 
   const props = defineProps({
@@ -1007,17 +1025,15 @@
 
   // 添加复制按钮
   const addCopyButtons = () => {
-    const oldButtons = messagesContainer.value?.querySelectorAll('.copy-button')
-    if (oldButtons) {
-      oldButtons.forEach(btn => btn.remove())
-    }
-
     const codeBlocks = messagesContainer.value?.querySelectorAll('.response-card pre')
 
     if (!codeBlocks || codeBlocks.length === 0) return
 
     codeBlocks.forEach(preElement => {
-      if (preElement.querySelector('.copy-button')) return
+      // 已有完整头部就复用；只有语言标签的残留头部（旧逻辑遗留）清掉重建。
+      const existingHeader = preElement.querySelector('.code-block-header')
+      if (existingHeader?.querySelector('.copy-button')) return
+      existingHeader?.remove()
 
       preElement.style.position = 'relative'
 
@@ -2015,7 +2031,8 @@
     overflow-x: auto;
   }
 
-  .code-block-header {
+  /* 代码块头部由 JS 注入，v-html 内容没有 scoped 属性，必须用 :deep 才能命中。 */
+  .markdown-body :deep(.code-block-header) {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2024,17 +2041,53 @@
     border-bottom: 1px solid var(--border-color, #e2e8f0);
   }
 
-  .code-lang {
+  .markdown-body :deep(.code-lang) {
     font-size: 12px;
     font-weight: 600;
-    color: var(--text-tertiary, #94a3b8);
+    color: var(--text-secondary, #475569);
     text-transform: lowercase;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
   }
 
+  .markdown-body :deep(.markdown-table-wrap) {
+    margin: 16px 0;
+    overflow-x: auto;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+  }
+
+  .markdown-body :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  .markdown-body :deep(th),
+  .markdown-body :deep(td) {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .markdown-body :deep(th) {
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--bg-secondary, #f8fafc);
+    color: var(--text-primary, #0f172a);
+  }
+
+  .markdown-body :deep(tbody tr:last-child td) {
+    border-bottom: none;
+  }
+
+  .markdown-body :deep(tbody tr:hover) {
+    background: var(--bg-secondary, #f8fafc);
+  }
+
   /* 复制按钮 */
   .markdown-body :deep(pre .copy-button),
-  .code-block-header .copy-button {
+  .markdown-body :deep(.code-block-header .copy-button) {
     background: var(--primary, #14b8a6);
     color: white;
     border: none;
@@ -2051,13 +2104,13 @@
   }
 
   .markdown-body :deep(pre .copy-button:hover),
-  .code-block-header .copy-button:hover {
+  .markdown-body :deep(.code-block-header .copy-button:hover) {
     background: var(--primary-hover, #0d9488);
     transform: translateY(-1px);
   }
 
   .markdown-body :deep(pre .copy-button.copied),
-  .code-block-header .copy-button.copied {
+  .markdown-body :deep(.code-block-header .copy-button.copied) {
     background: var(--success);
     border-color: var(--success);
   }
