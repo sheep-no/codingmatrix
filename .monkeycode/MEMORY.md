@@ -378,11 +378,11 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `tests/unit/test_agent_host_api.py` 与 `test_orchestrator_validation_scopes.py` 是有状态内存用例：新增用例若直接写 `app.api.v1.agent_host._sessions`，必须在 `finally` 里清理，否则会污染后续用例。
 
 ### 协作范围与前端优先
-- Date: 2026-09-09 / 2026-08-29 / 2026-09-16 / 2026-11-11
+- Date: 2026-09-09 / 2026-08-29 / 2026-09-16 / 2026-11-11 / 2026-11-20
 - Context: 用户明确负责范围与优先方向
 - Instructions:
-  - **当前负责范围（2026-11-11 用户重申，优先于下方历史描述）：仅 Flutter 客户端与 VS Code 插件，不含后端。** 需要后端配合时，把后端需求列为阻塞项交回用户，不自行改动 `app/`、`configs/`、`migrations/` 或后端测试。
-  - 历史约定（已失效，仅作上下文）：曾把负责范围描述为「除 Agent 子系统、Flutter、VS Code 插件以外的全部模块」，该划分已不适用，一律以上一条为准。
+  - **当前负责范围（2026-11-20 用户更正，优先于下方所有历史描述）：后端。** 包括 `app/`、`configs/`、`migrations/` 与后端测试。此前「仅 Flutter 客户端与 VS Code 插件」的记录有误，已作废。
+  - 历史约定（已失效，仅作上下文）：曾把负责范围描述为「除 Agent 子系统、Flutter、VS Code 插件以外的全部模块」，也曾误记为「仅 Flutter 客户端与 VS Code 插件」，一律以最新一条为准。
   - 「Agent」指所有 Agent 子系统，不限于 `app/agent/` 目录。已知归属：`app/agent/**`、`app/utils/agent_core.py`、`app/utils/review/code_review_agent.py`、`app/utils/agent_skills.py`、`app/services/agent_memory_service.py`、`src/components/agent/**`、`src/composables/useAgent*`、`src/stores/agentSession.js`、`src/stores/agentWorkspace.js`、`src/views/AgentDashboard.vue`、`tests/e2e/agent-*.spec.js`、`.claude/skills/` 下 Agent 能力相关 Skill。判断存疑时按「属于 Agent 子系统」处理并先问。
   - 前端优先（已失效，仅作上下文）：该表述源于早期把后端也纳入范围的阶段；当前只做 Flutter 客户端与 VS Code 插件。
   - 合并上游后，若 Agent 子系统文件已含功能修复或全局文案规范落地（如 `app/agent/ppt_agent.py` 的 PPT 修复、`app/agent/tools.py` 的无 Key 检索、Agent 界面中英并列文案），保留现状不回退；冲突文件仍取上游。
