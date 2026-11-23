@@ -66,6 +66,36 @@ def _safe_join(project_root: str, target: str) -> Path:
     return candidate
 
 
+def _normalize_allowed_path(path: str) -> str:
+    """把写入目标规范化为白名单使用的相对路径形式。"""
+    normalized = re.sub(r"^(?:\./)+", "", str(path).replace("\\", "/")).lstrip("/")
+    return normalized
+
+
+def _check_write_allowed(path: str) -> dict | None:
+    """校验写入目标是否在依赖图白名单内。
+
+    返回 None 表示允许；返回错误字典表示拒绝。所有会修改磁盘的写工具
+    都必须走这个入口，避免只校验 write_file 而放过精准编辑类工具。
+    """
+    allowed_file_paths = _allowed_file_paths.get()
+    if allowed_file_paths is None:
+        return None
+    normalized = _normalize_allowed_path(path)
+    if normalized in allowed_file_paths:
+        return None
+    logger.warning(
+        "[白名单] 拒绝写入: path=%s, normalized=%s, allowed=%s...",
+        path,
+        normalized,
+        sorted(allowed_file_paths)[:5],
+    )
+    return {
+        "success": False,
+        "error": f"文件 '{path}' 不在依赖图中，拒绝写入。只允许生成依赖图中定义的文件",
+    }
+
+
 # ==================== 代码分析辅助 ====================
 
 # 语言对应的符号定义正则
@@ -391,6 +421,9 @@ def _tool_partial_update(project_path: str, path: str, target: str | None = None
                          replacement: str | None = None, function_name: str | None = None) -> dict:
     """精准替换文件中的函数或代码块"""
     try:
+        denied = _check_write_allowed(path)
+        if denied is not None:
+            return denied
         full_path = _safe_join(project_path, path)
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
@@ -454,6 +487,9 @@ def _tool_insert_content(project_path: str, path: str, content: str,
                          line: int | None = None, anchor: str | None = None) -> dict:
     """在文件指定位置插入内容（按行号或锚点文本）"""
     try:
+        denied = _check_write_allowed(path)
+        if denied is not None:
+            return denied
         full_path = _safe_join(project_path, path)
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
@@ -498,12 +534,20 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
         except ValueError:
             return {"success": False, "error": f"路径越界：'{path}' 不在项目根目录下"}
 
-        if '*' in str(full_path) or '?' in str(full_path):
+        is_glob = '*' in str(full_path) or '?' in str(full_path)
+        if is_glob:
             files = [Path(f) for f in glob.glob(str(full_path), recursive=recursive) if Path(f).is_file()]
         else:
             files = [full_path] if full_path.is_file() else []
         # glob 与符号链接都可能把实际文件指到项目外，逐个按真实路径复核。
         files = [f for f in files if f.resolve().is_relative_to(root)]
+
+        # 白名单按真实文件粒度校验：glob 模式本身不会等于白名单中的某个具体路径。
+        if _allowed_file_paths.get() is not None:
+            files = [
+                f for f in files
+                if _check_write_allowed(f.resolve().relative_to(root).as_posix()) is None
+            ]
 
         if not files:
             return {"success": False, "error": f"未匹配到文件: {path}"}
@@ -926,16 +970,9 @@ def _tool_write_file(project_path: str, path: str, content: str) -> dict:
             return {"success": False, "error": f"检测到占位符代码，拒绝写入。{ph_reason}。请提供完整的实现代码"}
 
         # 依赖图白名单校验：只允许写入依赖图中的文件
-        allowed_file_paths = _allowed_file_paths.get()
-        if allowed_file_paths is not None:
-            # 规范化路径：仅剥离开头的 "./" 与前导 "/"。不能直接 lstrip('./')，
-            # 那会把 .gitignore 这类点号文件名吞成 gitignore 而与白名单失配。
-            normalized = re.sub(r'^(?:\./)+', '', path.replace('\\', '/')).lstrip('/')
-            if normalized not in allowed_file_paths:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"[白名单] 拒绝写入: path={path}, normalized={normalized}, allowed={sorted(allowed_file_paths)[:5]}...")
-                return {"success": False, "error": f"文件 '{path}' 不在依赖图中，拒绝写入。只允许生成依赖图中定义的文件"}
+        denied = _check_write_allowed(path)
+        if denied is not None:
+            return denied
 
         # 文件名验证：拒绝无效文件名
         filename = Path(path).name
@@ -1245,6 +1282,23 @@ def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
         if not files:
             return {"success": True, "deleted": 0, "files": []}
 
+        denied_files = []
+        if _allowed_file_paths.get() is not None:
+            allowed_files = []
+            for fp in files:
+                relative = Path(fp).resolve().relative_to(root).as_posix()
+                if _check_write_allowed(relative) is None:
+                    allowed_files.append(fp)
+                else:
+                    denied_files.append(relative)
+            files = allowed_files
+            if not files:
+                return {
+                    "success": False,
+                    "error": "所有匹配文件均不在依赖图中，拒绝删除",
+                    "denied_files": denied_files,
+                }
+
         deleted = []
         errors = []
         for fp in files:
@@ -1254,7 +1308,10 @@ def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
             except Exception as e:
                 errors.append(f"{fp}: {e!s}")
 
-        return {"success": True, "deleted": len(deleted), "files": deleted, "errors": errors}
+        result = {"success": True, "deleted": len(deleted), "files": deleted, "errors": errors}
+        if denied_files:
+            result["denied_files"] = denied_files
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1311,8 +1368,9 @@ SPECIALIST_TOOLS = {
         "fn": _tool_run_command,
         "description": "执行终端命令（构建、安装依赖、运行脚本、搜索代码等）。参数: command(命令), cwd(工作目录,可选), timeout(超时秒数,可选,默认60)。"
                        "支持 pip/npm/python/node/go/cargo/make/grep/find 等。"
-                       "grep 示例: grep -rn --include='*.py' 'pattern' . | head -20  "
-                       "find 示例: find . -name '*.py' | xargs wc -l",
+                       "禁止使用 | ; && || > < 等 Shell 操作符；需要搜索时优先用 search_files 工具。"
+                       "grep 示例: grep -rn --include=*.py pattern .  "
+                       "find 示例: find . -name *.py",
         "params": {"command": "string", "cwd": "string(可选)", "timeout": "int(可选,默认60)"}
     },
     "search_files": {
