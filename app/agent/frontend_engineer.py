@@ -264,17 +264,11 @@ class FrontendEngineer(Specialist):
                 prompt += f"""
 这是一个已有文件的增量修改任务。原文件内容已在上方给出。
 
-你可以使用以下工具进行精准编辑：
-- partial_update: 替换指定函数或代码块（推荐，按函数名精准替换）
-- insert_content: 在指定位置插入内容（按行号或锚点文本）
-- regex_replace: 批量正则替换
-- execute_code: 验证修改后的代码是否正确
-
 编辑规则：
-1. 以原文件内容为基准做最小修改，不要重写整个文件
-2. 用 partial_update 或 insert_content 做精准编辑
-3. 编辑完成后，返回 JSON：{{"action": "edited", "files": ["{file_path}"], "summary": "修改摘要"}}
-4. 如果改动太大无法局部修改，返回完整文件内容
+1. 以原文件内容为基准做最小修改
+2. 如需确认依赖符号，先用只读工具（read_file/read_symbols/search_files）核对
+3. 直接返回修改后的完整 {file_actual_language} 文件内容，不要返回 JSON 或编辑指令
+4. 第一行必须是实际代码，不要包裹代码块标记
 """
         elif '__init__' in file_path:
             prompt += """

@@ -300,7 +300,9 @@ async def test_generate_file_modification_prompt_variants(monkeypatch, stub_engi
     prompt = stub_engineer._prompts[0][0]
     assert "请修改以下已有文件" in prompt
     assert "修复" in prompt
-    assert "partial_update" in prompt
+    # 该分支只注入只读工具，prompt 不能再指示模型调用未注册的写工具。
+    assert "partial_update" not in prompt
+    assert "直接返回修改后的完整" in prompt
 
     stub_engineer._prompts.clear()
     context["generation_contract"] = {}

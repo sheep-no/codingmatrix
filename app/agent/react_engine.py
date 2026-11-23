@@ -174,6 +174,18 @@ class ReActEngine:
     def _build_system_prompt(self, base_system: str) -> str:
         """构建增强的系统 prompt"""
         tools_desc = self._build_tools_description()
+        write_tools = [
+            name for name in ("partial_update", "insert_content", "regex_replace")
+            if name in self.tools
+        ]
+        if write_tools:
+            existing_file_rule = (
+                f"4. 对于已有文件：使用 {'/'.join(write_tools)} 进行精准编辑\n"
+            )
+        else:
+            existing_file_rule = (
+                "4. 对于已有文件：直接返回修改后的完整文件内容\n"
+            )
 
         if self.mode == "simple":
             return (
@@ -194,7 +206,7 @@ class ReActEngine:
                 f"1. 每次只调用一个工具，格式为：{{\"tool\": \"...\", \"params\": {{...}}}}\n"
                 f"2. 收到工具结果后，继续调用工具或生成最终代码\n"
                 f"3. 对于新文件：准备生成代码时，直接返回完整代码，不要包裹 JSON\n"
-                f"4. 对于已有文件：使用 partial_update/insert_content/regex_replace 进行精准编辑\n"
+                f"{existing_file_rule}"
                 f"5. 可用工具: {', '.join(self.tool_names)}\n"
                 f"6. 当你已收集足够上下文时，直接生成代码或文字答案，无需再调用工具\n"
                 f"7. 在生成或修改代码之前，你必须先使用工具了解项目现有代码结构。不要凭猜测生成代码\n"
