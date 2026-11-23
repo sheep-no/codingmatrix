@@ -22,7 +22,6 @@ from .coverage_checker import check_requirement_coverage
 from .error_recovery import ErrorRecoveryMixin
 from .evaluate_mixin import EvaluationMixin
 from .feature_extractor import extract_and_save_feature_list
-from .incremental_generate import IncrementalGenerateMixin
 from .incremental_modify import IncrementalModifyMixin
 from .spec_first_generate import SpecFirstGenerateMixin
 from .traditional_generate import TraditionalGenerateMixin
@@ -34,7 +33,6 @@ class GenerationMixin(
     ErrorRecoveryMixin,
     TraditionalGenerateMixin,
     SpecFirstGenerateMixin,
-    IncrementalGenerateMixin,
     IncrementalModifyMixin,
     EvaluationMixin,
 ):

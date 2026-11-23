@@ -112,9 +112,8 @@ async def _embedding(_requirement):
 
 
 class _BaseOrchestrator(TraditionalGenerateMixin):
-    def __init__(self, output_dir, *, incremental=False, spec_cache=None):
+    def __init__(self, output_dir, *, spec_cache=None):
         self.output_dir = output_dir
-        self.incremental = incremental
         self.spec_cache = spec_cache
         self.reviewer = None
         self.generated_files = []
@@ -160,7 +159,6 @@ class _BaseOrchestrator(TraditionalGenerateMixin):
         self.final_validation = {"is_valid": True}
         self.small_calls = []
         self.layer_calls = []
-        self.incremental_calls = []
         self.snapshot_messages = []
         self.cost_summary = {"total": 1.5}
         self.error_recovery = None
@@ -193,9 +191,6 @@ class _BaseOrchestrator(TraditionalGenerateMixin):
 
     async def _validate(self):
         return self.final_validation
-
-    async def _handle_incremental_generation(self, requirement, file_plan, ctx, total):
-        self.incremental_calls.append((requirement, file_plan, ctx, total))
 
     async def _generate_files_by_dep_layers(self, file_plan, ctx, total, graph):
         self.layer_calls.append((file_plan, ctx, total, graph))
@@ -373,7 +368,6 @@ class TestFullGeneration:
     async def test_full_success_records_all_artifacts(self, tmp_path, monkeypatch):
         _patch_collaborators(monkeypatch, sandbox=(False, ["sandbox warning"]))
         orchestrator = _BaseOrchestrator(tmp_path, spec_cache=_SpecCache(None))
-        orchestrator.incremental = False
         orchestrator.memory_enabled = True
         orchestrator.enable_validation = True
         orchestrator.feedback_learner = object()
@@ -473,75 +467,7 @@ class TestFullGeneration:
         assert len(orchestrator.layer_calls[0][0]) == 12
 
     @pytest.mark.asyncio
-    async def test_incremental_resumes_session_and_reads_backend_contract(
-        self, tmp_path, monkeypatch
-    ):
-        _patch_collaborators(monkeypatch)
-        orchestrator = _BaseOrchestrator(tmp_path, incremental=True)
-        orchestrator.session_id = "s1"
-        resumed = types.SimpleNamespace()
-        created = []
-
-        async def resume(_session_id):
-            return resumed
-
-        async def create(**kwargs):
-            created.append(kwargs)
-            return types.SimpleNamespace()
-
-        orchestrator.session_manager = types.SimpleNamespace(
-            resume_session=resume, create_session=create
-        )
-        orchestrator.api_contract_checker = object()
-        (tmp_path / "service.py").write_text(
-            "from fastapi import APIRouter\n"
-            "router = APIRouter()\n\n"
-            "@router.get('/users')\n"
-            "async def list_users():\n"
-            "    return []\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "__pycache__").mkdir()
-        orchestrator.files_to_generate = [
-            {"path": "main.py", "description": "entry", "success": True}
-        ]
-
-        result = await orchestrator._generate_traditional("add a helper")
-
-        assert result["success"] is True
-        assert orchestrator._session_state is resumed
-        assert created == []
-        assert orchestrator.incremental_calls
-        ctx = orchestrator.incremental_calls[0][2]
-        assert "users" in ctx["api_contract"]
-        assert orchestrator.snapshot_messages == ["Agent 增量修改: enhanced"]
-
-    @pytest.mark.asyncio
-    async def test_incremental_without_session_state_creates_one(self, tmp_path, monkeypatch):
-        _patch_collaborators(monkeypatch)
-        orchestrator = _BaseOrchestrator(tmp_path, incremental=True)
-        orchestrator.session_id = "s1"
-        orchestrator._association_result = _Association(skipped=True, enhanced=None)
-        created = []
-
-        async def resume(_session_id):
-            return None
-
-        async def create(**kwargs):
-            created.append(kwargs)
-            return types.SimpleNamespace()
-
-        orchestrator.session_manager = types.SimpleNamespace(
-            resume_session=resume, create_session=create
-        )
-
-        await orchestrator._generate_traditional("add a helper")
-
-        assert created[0]["session_id"] == "s1"
-        assert created[0]["requirement"] == "add a helper"
-
-    @pytest.mark.asyncio
-    async def test_new_session_is_created_when_not_incremental(self, tmp_path, monkeypatch):
+    async def test_new_session_is_created(self, tmp_path, monkeypatch):
         _patch_collaborators(monkeypatch)
         orchestrator = _BaseOrchestrator(tmp_path)
         orchestrator.session_id = "fresh"
@@ -640,55 +566,6 @@ class TestDegradedPaths:
 
         assert result["success"] is True
         assert any(step == "pause_for_cost_approval" for step, *_ in orchestrator.progress)
-
-    @pytest.mark.asyncio
-    async def test_incremental_contract_skips_pycache_and_empty(self, tmp_path, monkeypatch):
-        _patch_collaborators(monkeypatch)
-        orchestrator = _BaseOrchestrator(tmp_path, incremental=True)
-        orchestrator.session_id = "s1"
-        orchestrator.api_contract_checker = object()
-
-        async def resume(_session_id):
-            return types.SimpleNamespace()
-
-        orchestrator.session_manager = types.SimpleNamespace(resume_session=resume)
-        cache_dir = tmp_path / "__pycache__"
-        cache_dir.mkdir()
-        (cache_dir / "cached.py").write_text("x = 1\n", encoding="utf-8")
-
-        await orchestrator._generate_traditional("add a helper")
-
-        ctx = orchestrator.incremental_calls[0][2]
-        assert ctx["api_contract"] == ""
-
-    @pytest.mark.asyncio
-    async def test_incremental_contract_ignores_unreadable_file(self, tmp_path, monkeypatch):
-        _patch_collaborators(monkeypatch)
-        orchestrator = _BaseOrchestrator(tmp_path, incremental=True)
-        orchestrator.session_id = "s1"
-        orchestrator.api_contract_checker = object()
-
-        async def resume(_session_id):
-            return types.SimpleNamespace()
-
-        orchestrator.session_manager = types.SimpleNamespace(resume_session=resume)
-        (tmp_path / "broken.py").write_text("x = 1\n", encoding="utf-8")
-        debug_messages = []
-        import pathlib
-
-        original_read_text = pathlib.Path.read_text
-
-        def read_text(path_obj, *args, **kwargs):
-            if path_obj.name == "broken.py":
-                raise OSError("permission denied")
-            return original_read_text(path_obj, *args, **kwargs)
-
-        monkeypatch.setattr(pathlib.Path, "read_text", read_text)
-        monkeypatch.setattr(tg.logger, "debug", lambda message: debug_messages.append(message))
-
-        await orchestrator._generate_traditional("add a helper")
-
-        assert any("传统生成读取文件失败" in message for message in debug_messages)
 
     @pytest.mark.asyncio
     async def test_plan_entries_without_path_or_already_known(self, tmp_path, monkeypatch):
