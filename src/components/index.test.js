@@ -294,6 +294,31 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistory[0].chatStage).toBe('')
   })
 
+  it('请求被拒时展示后端可读文案，且错误只出现一次并保留重试', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
+    vi.spyOn(state.apiKeyStore, 'hasSiliconflowKey', 'get').mockReturnValue(true)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    api.stream.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        code: 'INPUT_VALIDATION_FAILED',
+        message: '检测到疑似 XSS 攻击内容，请移除脚本标签、事件属性或 javascript: 协议后重试',
+        details: { detected_issues: ['xss'] }
+      })
+    })
+
+    await state.handleSendMessage({ prompt: '<script>alert(1)</script>' })
+
+    const last = state.conversationHistory[state.conversationHistory.length - 1]
+    expect(last.response).toBe('')
+    expect(last.requestError.message).toContain('检测到疑似 XSS 攻击内容')
+    expect(last.requestError.message).not.toContain('HTTP error! status')
+    expect(last.retryRequest).toMatchObject({ prompt: '<script>alert(1)</script>' })
+  })
+
   it('默认浅搜索，可切换多轮，关闭联网时禁用深度选择', async () => {
     wrapper = shallowMount(Bottominput, { global: {
       plugins: [createPinia()],

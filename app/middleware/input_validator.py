@@ -107,8 +107,14 @@ SKIP_PATHS = {
     "/api/v1/health",
 }
 
-# 跳过 SQL/XSS 检查的路径（AI 项目生成需要包含代码描述）
+# 跳过 SQL/XSS 检查的路径。
+# 这些是 AI 对话/生成入口，请求体就是用户要模型解释或修改的代码与自然语言，
+# 把其中的 <script>、onclick=、SELECT ... 当攻击 payload 拦截属于类别错误：
+# 提示词只会进入模型上下文，XSS 的真正防线是前端的 DOMPurify 输出消毒。
+# 因此这里只豁免内容扫描，Content-Type 与请求体大小校验仍然生效。
 SKIP_SECURITY_CHECK_PATHS = {
+    "/api/v1/chat",
+    "/api/v1/code",
     "/api/v1/agent/orchestrate",
     "/api/v1/agent/generate",
     "/api/v1/agent/modify",
@@ -343,9 +349,13 @@ class InputValidatorMiddleware:
                 )
                 detail_parts = []
                 if "sql_injection" in issues:
-                    detail_parts.append("检测到疑似 SQL 注入内容")
+                    detail_parts.append(
+                        "检测到疑似 SQL 注入内容，请移除引号闭合、UNION SELECT、堆叠语句等片段后重试"
+                    )
                 if "xss" in issues:
-                    detail_parts.append("检测到疑似 XSS 攻击内容")
+                    detail_parts.append(
+                        "检测到疑似 XSS 攻击内容，请移除脚本标签、事件属性或 javascript: 协议后重试"
+                    )
                 await _send_json_response(
                     send,
                     status.HTTP_400_BAD_REQUEST,

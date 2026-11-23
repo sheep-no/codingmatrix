@@ -187,6 +187,29 @@ describe('chat source rendering', () => {
     expect(wrapper.get('.message-meta').text()).toContain('42 Token/令牌')
     wrapper.unmount()
   })
+
+  it('renders a failed turn once in the error card with a retry button', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'error',
+        conversationHistory: [{
+          id: 3,
+          prompt: '解释这段代码',
+          response: '',
+          requestError: { message: '检测到疑似 XSS 攻击内容，请移除脚本标签后重试', action: '重试' },
+          retryRequest: { prompt: '解释这段代码' }
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+
+    const alert = wrapper.get('.response-error-actions')
+    expect(alert.text()).toContain('检测到疑似 XSS 攻击内容')
+    expect(alert.text()).not.toContain('HTTP error! status')
+    expect(wrapper.findAll('.response-error-actions')).toHaveLength(1)
+    expect(wrapper.get('.response-retry-btn').text()).toBe('重试')
+    wrapper.unmount()
+  })
 })
 
 describe('code block copy', () => {
