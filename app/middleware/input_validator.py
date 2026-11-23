@@ -14,6 +14,7 @@ import re
 from fastapi import status
 
 from app.core.config import settings
+from app.utils.security_audit import log_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -107,25 +108,20 @@ SKIP_PATHS = {
     "/api/v1/health",
 }
 
-# 跳过 SQL/XSS 检查的路径。
-# 这些是 AI 对话/生成入口，请求体就是用户要模型解释或修改的代码与自然语言，
-# 把其中的 <script>、onclick=、SELECT ... 当攻击 payload 拦截属于类别错误：
-# 提示词只会进入模型上下文，XSS 的真正防线是前端的 DOMPurify 输出消毒。
-# 因此这里只豁免内容扫描，Content-Type 与请求体大小校验仍然生效。
-SKIP_SECURITY_CHECK_PATHS = {
-    "/api/v1/chat",
-    "/api/v1/code",
-    "/api/v1/agent/orchestrate",
-    "/api/v1/agent/generate",
-    "/api/v1/agent/modify",
-    "/api/v1/ai-agent/orchestrate",
-    "/api/v1/ai-agent/generate",
-    "/api/v1/ai-agent/modify",
-    "/api/v1/ai-agent/orchestrate/stream",
-    "/api/v1/ai_agent/process",
-    "/api/v1/ai_agent/process/stream",
-    "/api/v1/ai_agent/react/process",
+# AI 提示词字段：这些内容会原样进入模型上下文，用户让模型解释或修复
+# `<script>`、`onclick=` 是编程场景的正常输入。XSS 的真正防线是前端渲染层的
+# DOMPurify 消毒；中间件对这类字段只记录审计，不拦截。
+#
+# 作用范围严格限定为 POST /api/v1/chat 与 POST /api/v1/agent 的 prompt 字段
+# （Agent 侧字段名为 requirement）。SQL 注入检测、其他字段、其他接口以及
+# /api/v1/agent/apikey* 仍按原规则严格拦截。
+PROMPT_RELAXED_PATHS = {"/api/v1/chat"}
+PROMPT_RELAXED_PREFIXES = {"/api/v1/agent"}
+PROMPT_RELAXED_EXCLUDED_PREFIXES = {
+    "/api/v1/agent/apikey",
+    "/api/v1/agent/apikeys",
 }
+PROMPT_FIELDS = frozenset({"prompt", "requirement"})
 
 
 def _check_sql_injection(text: str) -> bool:
@@ -162,7 +158,12 @@ def _size_limit_for(content_type: str) -> int:
     return MAX_BODY_SIZE
 
 
-def _scan_value(value) -> list:
+def _scan_value(value, relaxed_xss_keys=frozenset(), _is_root=True) -> list:
+    """递归扫描 SQL/XSS 内容。
+
+    relaxed_xss_keys 仅作用于根对象的直接字段：AI 提示词里的标签与事件属性
+    属于用户要模型处理的代码样本，XSS 交由渲染层消毒，不在入口拦截。
+    """
     issues = []
     if isinstance(value, str):
         if _check_sql_injection(value):
@@ -174,11 +175,71 @@ def _scan_value(value) -> list:
         # 键承载的 payload 漏检。
         for key, item in value.items():
             issues.extend(_scan_value(key))
-            issues.extend(_scan_value(item))
+            if _is_root and key in relaxed_xss_keys and isinstance(item, str):
+                # 提示词字段只跳过 XSS 正则，SQL 注入检测照常执行。
+                if _check_sql_injection(item):
+                    issues.append("sql_injection")
+                continue
+            issues.extend(_scan_value(item, _is_root=False))
     elif isinstance(value, (list, tuple)):
         for item in value:
-            issues.extend(_scan_value(item))
+            issues.extend(_scan_value(item, _is_root=False))
     return issues
+
+
+def _prompt_fields_with_xss(data) -> list:
+    """返回根对象中命中 XSS 正则的提示词字段名，用于审计记录。"""
+    if not isinstance(data, dict):
+        return []
+    return [
+        field
+        for field in PROMPT_FIELDS
+        if isinstance(data.get(field), str) and _check_xss(data[field])
+    ]
+
+
+def _is_prompt_relaxed_path(path: str) -> bool:
+    """是否为提示词 XSS 放行路径：/api/v1/chat 与 /api/v1/agent（排除 apikey）。"""
+    if path in PROMPT_RELAXED_PATHS:
+        return True
+    if any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in PROMPT_RELAXED_EXCLUDED_PREFIXES
+    ):
+        return False
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in PROMPT_RELAXED_PREFIXES
+    )
+
+
+async def _audit_prompt_xss_relaxed(path: str, fields: list, ip_address: str) -> None:
+    """记录提示词 XSS 特征放行事件，写入安全审计日志。"""
+    await log_security_event(
+        "prompt_xss_relaxed",
+        user_id=None,
+        details={
+            "path": path,
+            "detected_issues": ["xss"],
+            "fields": fields,
+            "policy": "render_layer_sanitization",
+        },
+        ip_address=ip_address,
+        success=True,
+    )
+
+
+def _client_ip(scope) -> str:
+    """取客户端 IP；代理场景优先 X-Forwarded-For 的第一跳。"""
+    headers = {
+        k.decode("latin-1").lower(): v.decode("latin-1")
+        for k, v in scope.get("headers", [])
+    }
+    forwarded = headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    client = scope.get("client")
+    return client[0] if client else ""
 
 
 async def _read_body_safe(receive, limit: int) -> bytes:
@@ -227,12 +288,9 @@ class InputValidatorMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # AI 主链路只跳过 SQL/XSS 内容扫描，仍必须通过 Content-Type 与请求体大小校验。
-        # 采用路径段边界匹配，避免 /api/v1/agent/generate-evil 这类前缀碰撞。
-        skip_content_scan = any(
-            path == p or path.startswith(p + "/")
-            for p in SKIP_SECURITY_CHECK_PATHS
-        )
+        # AI 提示词字段只放宽 XSS 字面拦截，SQL 检测、Content-Type 与体积校验不变。
+        # 采用路径段边界匹配，避免 /api/v1/agent-evil 这类前缀碰撞。
+        relax_prompt_xss = method == "POST" and _is_prompt_relaxed_path(path)
 
         if method not in ("POST", "PUT", "PATCH", "DELETE"):
             await self.app(scope, receive, send)
@@ -300,7 +358,7 @@ class InputValidatorMiddleware:
             )
             return
 
-        if body and not skip_content_scan:
+        if body:
             try:
                 data = json.loads(body)
             except RecursionError:
@@ -330,8 +388,26 @@ class InputValidatorMiddleware:
                 # 未声明 Content-Type 且不是 JSON：无法扫描，按原样透传。
                 data = None
 
+            relaxed_keys = PROMPT_FIELDS if relax_prompt_xss else frozenset()
+            if data is not None and relaxed_keys:
+                # 放行前留痕：记录哪些提示词字段命中 XSS 特征，便于事后审计。
+                relaxed_hits = _prompt_fields_with_xss(data)
+                if relaxed_hits:
+                    logger.warning(
+                        "提示词 XSS 特征已放行（渲染层消毒）| path=%s | detected_issues=%s | fields=%s",
+                        path,
+                        ["xss"],
+                        relaxed_hits,
+                    )
+                    await _audit_prompt_xss_relaxed(path, relaxed_hits, _client_ip(scope))
+
             try:
-                issues = list(set(_scan_value(data))) if data is not None else []
+                if data is None:
+                    issues = []
+                elif relaxed_keys:
+                    issues = list(set(_scan_value(data, relaxed_keys)))
+                else:
+                    issues = list(set(_scan_value(data)))
             except RecursionError:
                 await _send_json_response(
                     send,

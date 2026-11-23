@@ -33,18 +33,18 @@ def _receive(body: bytes):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "path",
+    ("path", "field"),
     (
-        "/api/v1/agent/orchestrate",
-        "/api/v1/agent/orchestrate/stream",
-        "/api/v1/agent/modify",
-        "/api/v1/ai-agent/orchestrate",
-        "/api/v1/ai-agent/orchestrate/stream",
-        "/api/v1/ai-agent/modify",
+        ("/api/v1/chat", "prompt"),
+        ("/api/v1/agent/orchestrate", "requirement"),
+        ("/api/v1/agent/orchestrate/stream", "requirement"),
+        ("/api/v1/agent/generate", "requirement"),
+        ("/api/v1/agent/modify", "requirement"),
     ),
 )
-async def test_generation_prompts_may_contain_sql_vocabulary(path):
-    body = json.dumps({"requirement": "Create and delete SQLite database records"}).encode()
+async def test_prompt_fields_may_contain_code_and_xss_samples(path, field):
+    """编程场景的 prompt/requirement 可以包含代码样本，入口只留审计记录。"""
+    body = json.dumps({field: "<img src=x onerror=alert(1)>"}).encode()
     called = False
 
     async def app(scope, receive, send):
@@ -55,6 +55,103 @@ async def test_generation_prompts_may_contain_sql_vocabulary(path):
     await middleware(_scope(path, body), _receive(body), lambda message: None)
 
     assert called is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "field"),
+    (
+        ("/api/v1/chat", "prompt"),
+        ("/api/v1/agent/orchestrate", "requirement"),
+        ("/api/v1/agent/generate", "requirement"),
+    ),
+)
+async def test_prompt_fields_still_reject_sql_injection(path, field):
+    """XSS 字面拦截放宽，SQL 注入检测在提示词字段上仍然生效。"""
+    body = json.dumps({field: "' OR 1=1 --"}).encode()
+    reached, messages = await _run(path, body)
+
+    assert reached is False
+    assert messages[0]["status"] == 400
+    assert "sql_injection" in json.loads(messages[1]["body"])["details"]["detected_issues"]
+
+
+@pytest.mark.asyncio
+async def test_prompt_relaxation_logs_audit_record(monkeypatch):
+    """放行 XSS 特征时必须留下审计日志，便于事后追溯。
+
+    直接断言 logger 调用：CI 中 app logger 配置了 propagate=False，
+    caplog 无法捕获，依赖 caplog 会让测试随日志配置波动。
+    """
+    import app.middleware.input_validator as module
+
+    warnings = []
+    monkeypatch.setattr(
+        module.logger,
+        "warning",
+        lambda message, *args: warnings.append((message, args)),
+    )
+    body = json.dumps({"prompt": "<script>alert(1)</script>"}).encode()
+
+    reached, _ = await _run("/api/v1/chat", body)
+
+    assert reached is True
+    assert warnings
+    message, args = warnings[0]
+    assert "提示词 XSS 特征已放行" in message
+    assert "/api/v1/chat" in args
+    assert ["prompt"] in args
+
+
+@pytest.mark.asyncio
+async def test_prompt_relaxation_emits_security_audit_event(monkeypatch):
+    """放行事件必须进入安全审计通道，而不仅是应用日志。"""
+    import app.middleware.input_validator as module
+
+    events = []
+
+    async def fake_log(event_type, user_id, details, ip_address=None, success=True):
+        events.append({"event_type": event_type, "details": details})
+
+    monkeypatch.setattr(module, "log_security_event", fake_log)
+    body = json.dumps({"prompt": "<script>alert(1)</script>"}).encode()
+
+    reached, _ = await _run("/api/v1/chat", body)
+
+    assert reached is True
+    assert events == [{
+        "event_type": "prompt_xss_relaxed",
+        "details": {
+            "path": "/api/v1/chat",
+            "detected_issues": ["xss"],
+            "fields": ["prompt"],
+            "policy": "render_layer_sanitization",
+        },
+    }]
+
+
+@pytest.mark.asyncio
+async def test_non_prompt_field_on_chat_path_still_rejected():
+    """放宽只作用于根级 prompt；同一请求里的其他文本字段仍严格拦截。"""
+    body = json.dumps(
+        {"prompt": "正常问题", "image_analysis_prompt": "<script>alert(1)</script>"}
+    ).encode()
+    reached, messages = await _run("/api/v1/chat", body)
+
+    assert reached is False
+    assert messages[0]["status"] == 400
+    assert "xss" in json.loads(messages[1]["body"])["details"]["detected_issues"]
+
+
+@pytest.mark.asyncio
+async def test_agent_apikey_path_is_not_relaxed():
+    """apikey 相关接口必须保持严格拦截，不受 agent 前缀放行影响。"""
+    body = json.dumps({"prompt": "<script>alert(1)</script>"}).encode()
+    reached, messages = await _run("/api/v1/agent/apikey", body)
+
+    assert reached is False
+    assert messages[0]["status"] == 400
+    assert "xss" in json.loads(messages[1]["body"])["details"]["detected_issues"]
 
 
 @pytest.mark.asyncio

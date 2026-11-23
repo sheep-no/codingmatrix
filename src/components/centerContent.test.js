@@ -211,6 +211,25 @@ describe('chat source rendering', () => {
     wrapper.unmount()
   })
 
+  it('filters transport placeholder warnings instead of showing raw HTTP error text', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'placeholder',
+        conversationHistory: [{
+          id: 4,
+          prompt: '解释这段代码',
+          response: '部分回答',
+          warnings: ['HTTP error! status: 400']
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+
+    expect(wrapper.find('.chat-warnings').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('HTTP error! status')
+    wrapper.unmount()
+  })
+
   it('marks an answer as unverified when search returned no sources', async () => {
     const wrapper = mount(CenterContent, {
       props: {

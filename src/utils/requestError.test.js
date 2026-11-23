@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { extractApiErrorMessage, getRequestErrorMessage, normalizeRequestError } from './requestError'
+import {
+  extractApiErrorMessage,
+  getRequestErrorMessage,
+  normalizeRequestError,
+  stripTransportPlaceholderLines
+} from './requestError'
 
 describe('request error normalization', () => {
   it.each([
@@ -47,5 +52,11 @@ describe('request error normalization', () => {
     const normalized = normalizeRequestError({ status: 403, message: '当前账号无权访问该工具' })
     expect(normalized.message).toBe('当前账号没有执行此模型调用的权限。（当前账号无权访问该工具）')
     expect(normalized.message).not.toContain('HTTP error! status')
+  })
+
+  it('strips legacy transport placeholder lines from stored responses', () => {
+    expect(stripTransportPlaceholderLines('正常回答\n\n出错：HTTP error! status: 400\n')).toBe('正常回答')
+    expect(stripTransportPlaceholderLines('出错：HTTP error! status: 400')).toBe('')
+    expect(stripTransportPlaceholderLines('第一段\n第二段')).toBe('第一段\n第二段')
   })
 })

@@ -374,6 +374,21 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistory[0].warnings).toEqual(['缺少新文本'])
   })
 
+  it('流内错误写入错误卡片一次，且不把传输层占位串拼进正文', () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = '1'
+    state.conversationHistory = [{ prompt: 'q', response: '' }]
+    state.conversationHistoryMap.set('1', [{ prompt: 'q', response: '' }])
+
+    state.handleChatStream({ error: 'HTTP error! status: 400' }, '1', 0, { prompt: 'q' })
+
+    const message = state.conversationHistory[0]
+    expect(message.response).toBe('')
+    expect(message.requestError).toBeTruthy()
+    expect(message.requestError.message).not.toContain('HTTP error! status')
+  })
+
   it('数字会话 id 与字符串缓存 key 能对上流式更新', () => {
     wrapper = mountHomeWorkspace()
     const state = wrapper.vm.$.setupState
