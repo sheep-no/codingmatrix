@@ -304,7 +304,14 @@ def build_report(
     core_summary = summarize_layer(values, lambda record: record.core_passed)
     engineering_summary = summarize_layer(values, lambda record: record.engineering_passed)
     quality_summary = summarize_layer(values, lambda record: record.stage_success("repaired"))
-    matrix_complete = not missing and not invalid and len(values) == len(expected)
+    # 基础设施失败（例如鉴权失败、模型零调用）不代表被测用例跑过，
+    # 只有全部用例都产生了有效执行结果才算矩阵完整。
+    matrix_complete = (
+        not missing
+        and not invalid
+        and len(values) == len(expected)
+        and not categories["evaluation_infrastructure_failure"]
+    )
     strategy_summaries = tuple(
         _summarize_strategy(strategy, [record for record in values if record.strategy == strategy])
         for strategy in sorted({record.strategy for record in values})

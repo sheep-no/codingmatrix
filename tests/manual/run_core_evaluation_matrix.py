@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from app.agent.evaluation_matrix import EvaluationRecord, FIXED_EVALUATION_MATRIX
+from app.agent.evaluation_matrix import FIXED_EVALUATION_MATRIX, EvaluationRecord
 from tests.manual.run_core_evaluation_case import DEFAULT_URL, run_case
 
 
@@ -31,6 +31,7 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _failed_record(case, elapsed: float) -> dict[str, Any]:
+    """Transport/runner exceptions are infrastructure failures, not quality results."""
     return asdict(EvaluationRecord(
         case_id=case.case_id,
         plan_consistent=False,
@@ -49,7 +50,26 @@ def _failed_record(case, elapsed: float) -> dict[str, Any]:
         first_passed=False,
         candidate_passed=False,
         repaired_passed=False,
+        evaluation_status="evaluation_infrastructure_failure",
     ))
+
+
+def _would_overwrite_completed(existing: Any, new: dict[str, Any]) -> bool:
+    """A failed rerun must not replace real evidence with an infrastructure failure."""
+    return (
+        isinstance(existing, dict)
+        and existing.get("evaluation_status") == "completed"
+        and new.get("evaluation_status") == "evaluation_infrastructure_failure"
+    )
+
+
+def _would_overwrite_successful_detail(existing: Any, new: dict[str, Any]) -> bool:
+    """Keep the detail payload of a successful run when a rerun fails."""
+    return (
+        isinstance(existing, dict)
+        and existing.get("success") is True
+        and new.get("success") is not True
+    )
 
 
 def main() -> int:
@@ -83,15 +103,16 @@ def main() -> int:
         if case.case_id in records_by_id and not args.rerun:
             continue
         started = time.monotonic()
+        previous_detail = details.get(case.case_id)
         try:
             summary = run_case(case.case_id, url=args.url, timeout=args.timeout)
-            records_by_id[case.case_id] = summary["record"]
-            details[case.case_id] = summary
             failures += int(not summary["success"])
+            record = summary["record"]
+            detail = summary
         except Exception as exc:
             elapsed = round(time.monotonic() - started, 3)
-            records_by_id[case.case_id] = _failed_record(case, elapsed)
-            details[case.case_id] = {
+            record = _failed_record(case, elapsed)
+            detail = {
                 "case_id": case.case_id,
                 "strategy": case.strategy,
                 "file_scale": case.file_scale,
@@ -100,6 +121,11 @@ def main() -> int:
                 "errors": [{"code": type(exc).__name__, "message": str(exc)}],
             }
             failures += 1
+        # 失败重跑不得覆盖既有成功证据。
+        if not _would_overwrite_completed(records_by_id.get(case.case_id), record):
+            records_by_id[case.case_id] = record
+        if not _would_overwrite_successful_detail(previous_detail, detail):
+            details[case.case_id] = detail
         _write_json(args.records, [records_by_id[key] for key in sorted(records_by_id)])
         _write_json(args.details, details)
 
