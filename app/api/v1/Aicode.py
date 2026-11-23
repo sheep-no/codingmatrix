@@ -44,12 +44,7 @@ from app.utils.aicloud.llm_caller import LLMCallError
 from app.utils.json_parser import RobustJSONParser
 from app.utils.security import verify_token
 from app.utils.vision import analyze_image
-from app.utils.web_search import (
-    FreeWebSearch,
-    broad_query_variants,
-    expand_relative_time,
-    fetch_page_text,
-)
+from app.utils.web_search import FreeWebSearch, expand_relative_time, fetch_page_text
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -369,29 +364,6 @@ def _fallback_search_plan(
         "queries": [build_bounded_search_query(prompt, attachment_names)],
         "urls": [],
     }
-
-
-def _retry_search_queries(
-    prompt: str,
-    queries: List[str],
-    failed_queries: List[str],
-    attachment_names: Optional[List[str]] = None,
-) -> List[str]:
-    """Pick fresh queries for an empty round instead of repeating the failed ones.
-
-    上一轮全部落空时，原查询在引擎侧往往稳定返回同一批无关页；这里优先用
-    去掉口语化前后缀的宽泛变体，最后才回退到规划器的默认查询。
-    """
-    attempted = set(failed_queries) | set(queries)
-    candidates: List[str] = []
-    for query in queries:
-        candidates.extend(broad_query_variants(query))
-    candidates.append(build_bounded_search_query(prompt, attachment_names))
-    fresh = [item for item in candidates if item and item not in attempted]
-    if fresh:
-        return list(dict.fromkeys(fresh))[:3]
-    fallback = build_bounded_search_query(prompt, attachment_names)
-    return [fallback] if fallback else []
 
 
 async def plan_search_actions(
@@ -926,12 +898,7 @@ async def _build_context(
                         await stage({**event, "status": "completed", "sources": list(sources)})
                         continue
                 queries = [item for item in (plan.get("queries") or []) if item] or [fallback_query]
-                fresh_queries = [item for item in queries if item not in failed_queries]
-                if not fresh_queries:
-                    fresh_queries = _retry_search_queries(
-                        prompt, queries, failed_queries, attachment_terms
-                    )
-                queries = fresh_queries or queries
+                queries = [item for item in queries if item not in failed_queries] or queries
                 web_sources: List[Dict[str, str]] = []
                 last_error: Optional[Exception] = None
                 for query in queries[:3]:
@@ -954,8 +921,7 @@ async def _build_context(
                         last_error is None or isinstance(last_error, ValueError)
                     ):
                         empty_retry_left -= 1
-                        # 浅搜索也只允许一次换词重试，且「多轮」不会扩成第三轮。
-                        max_rounds = min(max(max_rounds, round_number + 1), 2)
+                        max_rounds = max(max_rounds, round_number + 1)
                         logger.info("检索无结果，换词重试 | failed=%s", failed_queries[:4])
                         await stage({**event, "status": "skipped", "reason": "empty_retry"})
                         continue
