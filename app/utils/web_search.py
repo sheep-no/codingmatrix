@@ -131,6 +131,18 @@ _PHRASE_NOISE = (
     "哪些", "是否",
 )
 
+# Recency words carry intent even though they are generic for scoring, so the
+# query rewrite keeps them: "AI最新进展" returns topical pages while the
+# recency-free "AI" collapses to tool-directory homepages.
+_REWRITE_KEEP_NOISE = ("最新", "近期", "最近")
+
+# Category scaffolding narrows engine recall without adding a topic. Dropping a
+# mid-query "行业" turns the zero-recall "AI行业最新进展" into "AI最新进展", which
+# returns real news. A leading or trailing "行业" is the topic itself
+# ("行业分类标准", "AI行业"), so it stays. The original wording is queried as a
+# separate variant either way.
+_SCAFFOLD_CJK = ("行业", "领域", "产业")
+
 # ASCII tokens must match on token boundaries; a raw substring test made short
 # tokens such as "ai" match "detail", "email" and "domain".
 _ASCII_TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9.+#_-]*$")
@@ -466,7 +478,13 @@ def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
     entity_anchored = any(
         _contains_token(title_blob, token) for token in (terms.get("english") or [])
     )
-    if core_cjk and not version_ok and not entity_anchored:
+    # A title that names the query's subject (its first two CJK tokens) is about
+    # the right thing even when the asked-for aspect is phrased differently: a
+    # live quote page matches "上证指数" but never spells out "收盘点位".
+    subject_in_title = len(core_cjk) >= 2 and all(
+        _contains_token(title_blob, token) for token in core_cjk[:2]
+    )
+    if core_cjk and not version_ok and not entity_anchored and not subject_in_title:
         tail_hit = _contains_token(blob, core_cjk[-1])
         coverage = _coverage(blob, core_cjk)
         # One tail term plus broad coverage keeps real hits while still
@@ -555,9 +573,14 @@ def search_query_variants(query: str) -> List[str]:
         variants.append(expanded)
     # Bing 的 HTML 抓取在查询以裸年份开头时会返回无关的日历/节假日页面，
     # 因此额外检索去掉前导年份后的主题词。
-    leading_year = re.match(r"^\s*20\d{2}年?\s*", query or "")
+    # A bare month left after stripping the year only matches calendars, so the
+    # whole date span goes with the year.
+    # Check the time-expanded form so "今天..." also yields its date-free topic.
+    leading_year = re.match(
+        r"^\s*20\d{2}年?(?:\d{1,2}月)?(?:\d{1,2}日)?\s*", expanded
+    )
     if leading_year:
-        topical = query[leading_year.end():].strip()
+        topical = expanded[leading_year.end():].strip()
         if len(topical) >= 2:
             variants.append(topical)
     terms = extract_query_terms(query)
@@ -590,17 +613,27 @@ def rewrite_search_query(query: str) -> str:
     something they can actually match.
     """
     text = expand_relative_time(query or "")
+    versions = _unique(re.findall(r"\d+(?:\.\d+)+", text))
     years = _unique(re.findall(r"20\d{2}", text))
     text = re.sub(r"\d{4}年(?:\d{1,2}月)?(?:\d{1,2}日)?", " ", text)
     text = re.sub(r"\d{1,2}月(?:\d{1,2}日)?", " ", text)
     text = re.sub(r"\d{1,2}日", " ", text)
     for noise in _PHRASE_NOISE:
+        if noise in _REWRITE_KEEP_NOISE:
+            continue
         text = text.replace(noise, " ")
     entity = extract_named_entity(text)
     if entity:
         text = text.replace(entity, " ")
+    for scaffold in _SCAFFOLD_CJK:
+        # "产业链" is a noun of its own; cutting 产业 there leaves "链分析".
+        tail = r"(?!链)" if scaffold == "产业" else ""
+        text = re.sub(
+            rf"(?<=[A-Za-z0-9\u4e00-\u9fff]){scaffold}{tail}(?=[A-Za-z0-9\u4e00-\u9fff])",
+            " ",
+            text,
+        )
     text = re.sub(r"[的之至和与，。？！、,?!.:：；;]", " ", text)
-    terms = extract_query_terms(text)
     # Keep the author's casing: "Acme" must not degrade to "acme" in a retry,
     # since some engines treat the company name as a distinct entity.
     english = _unique(
@@ -615,10 +648,10 @@ def rewrite_search_query(query: str) -> str:
     ]
     # A leading year triggers almanac pages; keep it only for statistical
     # queries where the year is part of the fact being asked for.
-    stat_marks = ("就业", "失业", "人口", "物价", "经济", "gdp", "GDP", "工资", "指数")
+    stat_marks = ("就业", "失业", "人口", "物价", "经济", "gdp", "GDP", "工资")
     kept_years = years if any(mark in (query or "") for mark in stat_marks) else []
     parts = _unique(
-        ([entity] if entity else []) + english + list(terms.get("versions") or [])
+        ([entity] if entity else []) + english + versions
         + kept_years + aspect
     )
     return " ".join(parts)[:80].strip()

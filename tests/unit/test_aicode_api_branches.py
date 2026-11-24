@@ -657,6 +657,40 @@ class TestContextBuilding:
         assert sources and "资料" in context
 
     @pytest.mark.asyncio
+    async def test_multi_depth_reaches_second_round_after_empty_first(self, monkeypatch):
+        calls = []
+
+        class Search:
+            async def search_with_sources(self, **kwargs):
+                calls.append(kwargs["query"])
+                if len(calls) <= 2:
+                    return "", []
+                return "二轮资料", [
+                    {"title": "T", "url": "https://b.test", "snippet": "S"}
+                ]
+
+        async def plan(*_args, **_kwargs):
+            return {"action": "search", "queries": [f"wording-{len(calls)}"], "urls": []}
+
+        monkeypatch.setattr(Aicode, "FreeWebSearch", Search)
+        monkeypatch.setattr(Aicode, "plan_search_actions", plan)
+        monkeypatch.setattr(Aicode, "fetch_source_pages", AsyncMock(return_value=[]))
+        stages = []
+
+        context, sources, _, _, warnings = await Aicode._build_context(
+            1, "q", _Db(), None, None, 3, search_mode="on", search_depth="multi",
+            on_stage=stages.append,
+        )
+
+        # The empty first round must not abort multi: round 2 still runs and its
+        # hits reach the context.
+        # The in-round retry stays in round 1, so round numbers are [1, 1, 2].
+        assert [e.get("round") for e in stages if e["status"] == "started"] == [1, 1, 2]
+        assert warnings == []
+        assert sources[0]["url"] == "https://b.test"
+        assert "二轮资料" in context
+
+    @pytest.mark.asyncio
     async def test_empty_history_context_is_not_appended(self, monkeypatch):
         monkeypatch.setattr(
             Aicode, "compress_conversation_history", AsyncMock(return_value="")

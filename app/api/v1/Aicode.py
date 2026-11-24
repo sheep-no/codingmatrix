@@ -979,6 +979,13 @@ async def _build_context(
                         logger.info("检索无结果，换词重试 | failed=%s", failed_queries[:4])
                         await stage({**event, "status": "skipped", "reason": "empty_retry"})
                         continue
+                    if round_number < max_rounds and isinstance(last_error, ValueError):
+                        # multi advertises a second round, so a plain "no results"
+                        # round must fall through to it instead of aborting the
+                        # loop. Hard transport faults still stop immediately.
+                        logger.info("本轮无结果，进入下一轮 | round=%s", round_number)
+                        await stage({**event, "status": "skipped", "reason": "empty_round"})
+                        continue
                     raise last_error or ValueError("未获得网页来源")
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
                 if isinstance(e, WebSearchUnavailable):
