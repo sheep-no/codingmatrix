@@ -329,3 +329,38 @@ def test_search_query_variants_strips_leading_year():
     assert "大模型发展趋势" in variants
     variants_zh = search_query_variants("2026年大模型发展趋势")
     assert "大模型发展趋势" in variants_zh
+
+
+def test_rewrite_keeps_version_numbers():
+    from app.utils.web_search import rewrite_search_query
+    assert "3.12" in rewrite_search_query("Python 3.12 新特性")
+    assert "3.4" in rewrite_search_query("Vue 3.4 更新说明")
+    assert "18.2" in rewrite_search_query("React 18.2 更新")
+
+
+def test_rewrite_keeps_recency_word_for_generic_topics():
+    from app.utils.web_search import rewrite_search_query
+    # Dropping 最新 collapsed the query to "AI 进展", which Bing fills with
+    # tool-directory homepages instead of news.
+    rewritten = rewrite_search_query("AI行业最新进展")
+    assert "最新" in rewritten
+    assert "行业" not in rewritten
+
+
+def test_rewrite_keeps_topic_position_of_scaffold_word():
+    from app.utils.web_search import rewrite_search_query
+    # A leading 行业 is the subject itself and already returns results.
+    assert rewrite_search_query("行业分类标准") == "行业分类标准"
+    assert rewrite_search_query("行业最新进展") == "行业最新进展"
+    # A trailing 行业 still marks the topic and is kept for recall.
+    assert "行业" in rewrite_search_query("AI行业")
+    # 产业链 is its own noun; cutting 产业 there would leave "链分析".
+    assert rewrite_search_query("半导体产业链分析") == "半导体产业链分析"
+
+
+def test_search_query_variants_strips_full_date_span():
+    from app.utils.web_search import search_query_variants
+    # A leftover bare month only matched calendars.
+    variants = search_query_variants("2026年11月大模型发展趋势")
+    assert "大模型发展趋势" in variants
+    assert not any(variant.startswith("11月") for variant in variants)

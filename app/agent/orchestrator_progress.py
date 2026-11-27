@@ -49,8 +49,6 @@ PROGRESS_LABELS = {
     "repair_completed": "修复完成",
     "saving_memory": "保存项目经验",
     "generation_complete": "项目生成完成",
-    "incremental_analysis": "分析变更内容",
-    "incremental_no_changes": "无变更，跳过生成",
     "tests_passed": "测试全部通过",
     "tests_failed_recovering": "测试失败，正在自动修复",
     "recovery_success": "自动修复成功",

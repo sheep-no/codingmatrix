@@ -4,7 +4,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from app.agent.api_contract_checker import generate_frontend_prompt_contract
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
@@ -62,7 +61,7 @@ class TraditionalGenerateMixin:
 
         cached = None
         requirement_vector = None
-        if self.spec_cache and not self.incremental:
+        if self.spec_cache:
             try:
                 requirement_vector = await get_embedding(requirement)
             except Exception as e:
@@ -156,40 +155,15 @@ class TraditionalGenerateMixin:
                 }
 
         if self.session_manager and self.session_id:
-            if self.incremental:
-                self._session_state = await self.session_manager.resume_session(self.session_id)
-                if not self._session_state:
-                    self._session_state = await self.session_manager.create_session(
-                        requirement=requirement,
-                        output_dir=str(self.output_dir),
-                        architecture=architecture,
-                        file_plan=file_plan,
-                        session_id=self.session_id
-                    )
-            else:
-                self._session_state = await self.session_manager.create_session(
-                    requirement=requirement,
-                    output_dir=str(self.output_dir),
-                    architecture=architecture,
-                    file_plan=file_plan,
-                    session_id=self.session_id
-                )
+            self._session_state = await self.session_manager.create_session(
+                requirement=requirement,
+                output_dir=str(self.output_dir),
+                architecture=architecture,
+                file_plan=file_plan,
+                session_id=self.session_id
+            )
 
         api_contract_prompt = ""
-        # 仅在增量模式（会话恢复）时检查已有后端文件的 API 契约
-        # 新项目此时 output_dir 为空，无需检查
-        if self.api_contract_checker and self.incremental:
-            backend_files = {}
-            for py_file in self.output_dir.rglob('*.py'):
-                if '__pycache__' not in str(py_file):
-                    try:
-                        backend_files[str(py_file.relative_to(self.output_dir))] = py_file.read_text()
-                    except Exception as e:
-                        logger.debug(f"传统生成读取文件失败：{e}")
-
-            if backend_files:
-                api_contract_prompt = generate_frontend_prompt_contract(backend_files)
-
         from app.agent.adapters.language_adapter import LanguageAdapterRegistry
         detected_language = architecture.get("language", "python")
         language_adapter = LanguageAdapterRegistry.get_adapter(detected_language)
@@ -252,11 +226,7 @@ class TraditionalGenerateMixin:
 
         total_files = len(file_plan)
 
-        if self.incremental and self.session_id:
-            await self._handle_incremental_generation(
-                requirement, file_plan, project_context, total_files
-            )
-        elif _requires_layered_generation(total_files, dep_graph):
+        if _requires_layered_generation(total_files, dep_graph):
             await self._generate_files_by_dep_layers(file_plan, project_context, total_files, dep_graph)
         else:
             await self._generate_files_small_project(file_plan, project_context, total_files)
@@ -411,11 +381,7 @@ class TraditionalGenerateMixin:
         self._report_current_cost()
         self._report_final_metrics()
 
-        await self._git_save_snapshot(
-            f"Agent 生成: {requirement[:80]}"
-            if not self.incremental
-            else f"Agent 增量修改: {requirement[:80]}"
-        )
+        await self._git_save_snapshot(f"Agent 生成: {requirement[:80]}")
 
         return {
             "success": (

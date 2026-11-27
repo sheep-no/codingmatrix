@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,11 +38,23 @@ from .models import (
     OrchestrationStage,
     OrchestrationState,
     OrchestrationStatus,
+    utc_now,
 )
 from .state_machine import advance_state, terminate_state
 from .store import OrchestrationStore
 
 logger = logging.getLogger(__name__)
+
+
+def _elapsed_since(started_at: str | None) -> float:
+    """Seconds elapsed since the recorded task start, clamped at zero."""
+    if not started_at:
+        return 0.0
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return 0.0
+    return max(0.0, (utc_now() - started).total_seconds())
 
 
 class OrchestratorCore:
@@ -61,7 +74,10 @@ class OrchestratorCore:
             engine_version=command.engine_version,
             mode=command.mode,
             budgets=command.budgets,
-            metadata={"request": command.request},
+            metadata={
+                "request": command.request,
+                "started_at": utc_now().isoformat(),
+            },
         )
         state = advance_state(
             created,
@@ -171,6 +187,7 @@ class OrchestratorCore:
                 cancel_event=cancel_event,
                 max_concurrent=max_concurrent,
                 expected_revision=started.state.revision,
+                started_at=started.state.metadata.get("started_at"),
             )
         except BaseException:
             if transaction is not None:
@@ -194,8 +211,10 @@ class OrchestratorCore:
         cancel_event: asyncio.Event | None,
         max_concurrent: int,
         expected_revision: int,
+        started_at: str | None = None,
     ) -> OrchestrationResult:
         """Schedule one frozen plan after any incremental transaction is staged."""
+        task_elapsed_seconds = _elapsed_since(started_at)
         model_routing = adapter._model_assignment_payload() if hasattr(adapter, "_model_assignment_payload") else {}
         workflow_ir = _build_workflow_ir(
             command,
@@ -240,6 +259,7 @@ class OrchestratorCore:
             stage_id=f"{command.task_id}:generating",
             cancel_event=cancel_event,
             contract_index=getattr(adapter, "contract_index", None),
+            task_elapsed_seconds=task_elapsed_seconds,
         )
         state = (await self.advance(
             command.task_id,

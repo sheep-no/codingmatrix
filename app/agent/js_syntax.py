@@ -21,6 +21,32 @@ _PYTHON_ONLY_PATTERNS = (
     r'\bself\.',
 )
 
+# `node -c file.js` parses .js as CommonJS, so an invalid ESM module exits 0.
+# Detect module syntax and re-check it in module mode to close that blind spot.
+_ESM_PATTERN = re.compile(
+    r'(?m)^\s*(?:export\b|import\s+(?!\()|import\.meta\b)'
+)
+
+# JSX is legal in .js files for React/Vite setups; when the module check fails
+# we give JSX a chance in the JSX-aware parser instead of rejecting valid code.
+_JSX_PATTERN = re.compile(r'<[A-Za-z][\w.:-]*(?:\s|/?>)')
+_JSX_CLOSING_PATTERN = re.compile(r'</[A-Za-z]')
+
+
+def _looks_like_esm(source: str) -> bool:
+    return bool(_ESM_PATTERN.search(source))
+
+
+def _looks_like_jsx(source: str) -> bool:
+    return bool(_JSX_PATTERN.search(source) or _JSX_CLOSING_PATTERN.search(source))
+
+
+def _try_jsx_parser(source: str, stderr: str) -> tuple[bool, str] | None:
+    """Re-check with the JSX parser only when the failure is about a JSX token."""
+    if "<" not in stderr or not _looks_like_jsx(source):
+        return None
+    return check_ts_source(source, jsx=True)
+
 
 def has_python_only_syntax(source: str) -> bool:
     """检测 JS/TS 源码中出现的 Python 专有语法。"""
@@ -36,6 +62,38 @@ def _heuristic_js(source: str) -> tuple[bool, str]:
         return False, "源码中出现 Python 专有语法"
     if not balanced_delimiters(source):
         return False, "花括号或圆括号不匹配"
+    return True, ""
+
+
+def _node_typescript_check(source: str) -> tuple[bool, str] | None:
+    """Parse TS with node's built-in stripper when no `tsc` is installed.
+
+    `stripTypeScriptTypes` exists in Node 22.6+ and surfaces syntax errors for
+    non-JSX TypeScript, giving a real gate instead of a delimiter heuristic.
+    Returns None when the runtime lacks the API so callers can degrade.
+    """
+    script = (
+        "const m=require('node:module');"
+        "if(typeof m.stripTypeScriptTypes!=='function'){process.exit(2);}"
+        "let b='';process.stdin.setEncoding('utf8');"
+        "process.stdin.on('data',d=>b+=d);"
+        "process.stdin.on('end',()=>{try{m.stripTypeScriptTypes(b,{mode:'transform'});}"
+        "catch(e){process.stderr.write(String(e.message||e));process.exit(1);}});"
+    )
+    try:
+        result = subprocess.run(
+            ['node', '-e', script],
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode == 2 or result.returncode < 0:
+        return None
+    if result.returncode != 0:
+        return False, result.stderr.strip() or "TypeScript 语法错误"
     return True, ""
 
 
@@ -57,7 +115,27 @@ def check_js_source(source: str) -> tuple[bool, str]:
         if result.returncode < 0:
             return _heuristic_js(source)
         if result.returncode != 0:
+            # JSX in a .js file is valid for React/Vite projects; node's
+            # CommonJS parser cannot read it, so give the JSX parser a chance.
+            jsx_result = _try_jsx_parser(source, result.stderr)
+            if jsx_result is not None:
+                return jsx_result
             return False, result.stderr.strip()
+        if _looks_like_esm(source):
+            try:
+                module_result = subprocess.run(
+                    ['node', '--input-type=module', '--check'],
+                    input=source, capture_output=True, text=True, timeout=5,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return True, ""
+            if module_result.returncode < 0:
+                return True, ""
+            if module_result.returncode != 0:
+                jsx_result = _try_jsx_parser(source, module_result.stderr)
+                if jsx_result is not None:
+                    return jsx_result
+                return False, module_result.stderr.strip()
         return True, ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return _heuristic_js(source)
@@ -69,12 +147,24 @@ def check_ts_source(source: str, *, jsx: bool = False) -> tuple[bool, str]:
         return False, "源码中出现 Python 专有语法"
     balanced = balanced_delimiters(source)
     unbalanced_error = "花括号或圆括号不匹配"
+
+    def _fallback() -> tuple[bool, str]:
+        if not balanced:
+            return False, unbalanced_error
+        # node's stripper cannot parse JSX, so only route TSX through it when
+        # the source has no JSX tokens to trip it up.
+        if not jsx or not _looks_like_jsx(source):
+            node_result = _node_typescript_check(source)
+            if node_result is not None:
+                return node_result
+        return True, ""
+
     tsc_path = shutil.which('tsc')
     if not tsc_path:
-        return balanced, "" if balanced else unbalanced_error
+        return _fallback()
     typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
     if not typescript_module.is_file():
-        return balanced, "" if balanced else unbalanced_error
+        return _fallback()
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.tsx' if jsx else '.ts', delete=False) as f:
             f.write(source)
@@ -96,12 +186,12 @@ def check_ts_source(source: str, *, jsx: bool = False) -> tuple[bool, str]:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
         if result.returncode < 0:
-            return balanced, "" if balanced else unbalanced_error
+            return _fallback()
         if result.returncode != 0:
             return False, result.stderr.strip() or "TypeScript 语法错误"
         return True, ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        return balanced, "" if balanced else unbalanced_error
+        return _fallback()
 
 
 def vue_script_source(content: str) -> tuple[str, bool, bool]:

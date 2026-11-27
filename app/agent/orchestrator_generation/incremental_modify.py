@@ -13,8 +13,11 @@ import asyncio
 import json
 import logging
 import re
+import shutil
+import tempfile
 import time
-from pathlib import PurePosixPath
+from collections.abc import Iterable
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
@@ -22,6 +25,88 @@ from app.agent.generation_plan import GenerationPlan, add_profile_components
 from app.agent.topology_scheduler import HeartbeatTracker
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_relative_path(raw: object) -> str | None:
+    """Normalize a project-relative path for snapshotting, rejecting escapes."""
+    if not isinstance(raw, str):
+        return None
+    candidate = raw.strip().replace("\\", "/")
+    if not candidate:
+        return None
+    parts = []
+    for part in candidate.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            return None
+        parts.append(part)
+    if not parts or candidate.startswith("/"):
+        return None
+    return "/".join(parts)
+
+
+class _IncrementalSnapshot:
+    """Best-effort backup of files touched by a legacy incremental run.
+
+    Backups live in a temp directory outside the project so a failed run
+    leaves no residue inside ``output_dir``. ``rollback`` restores modified and
+    deleted files and removes files the run created.
+    """
+
+    def __init__(self, root: Path, paths: Iterable[object]) -> None:
+        self.root = Path(root)
+        self._paths: list[str] = []
+        seen: set[str] = set()
+        for raw in paths:
+            normalized = _snapshot_relative_path(raw)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                self._paths.append(normalized)
+        self._backups: list[tuple[Path, Path]] = []
+        self._absent: list[Path] = []
+        self._temp_dir: Path | None = None
+        self._closed = False
+
+    def stage(self) -> None:
+        if self._closed:
+            return
+        self._temp_dir = Path(tempfile.mkdtemp(prefix="agent-incremental-snapshot-"))
+        for rel in self._paths:
+            target = self.root / rel
+            if target.is_file() or target.is_symlink():
+                backup = self._temp_dir / rel
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup)
+                self._backups.append((target, backup))
+            else:
+                self._absent.append(target)
+
+    def commit(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._temp_dir is not None:
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
+
+    def rollback(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for target in self._absent:
+            try:
+                if target.is_file() or target.is_symlink():
+                    target.unlink()
+            except OSError as exc:
+                logger.warning("增量回滚删除失败: %s: %s", target, exc)
+        for original, backup in self._backups:
+            try:
+                original.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(backup, original)
+            except OSError as exc:
+                logger.warning("增量回滚恢复失败: %s: %s", original, exc)
+        if self._temp_dir is not None:
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
 
 
 class IncrementalModifyMixin:
@@ -226,106 +311,124 @@ class IncrementalModifyMixin:
                 "priority": file_info.get("priority", 3),
             })
 
+        # 快照本次会改动/删除的文件：legacy 增量逐文件直接落盘，
+        # 任一文件失败都需要把已成功写入与已删除的文件还原。
+        snapshot = _IncrementalSnapshot(
+            self.output_dir,
+            [item.get("path") for item in all_files_to_generate]
+            + [item.get("path") for item in delete_files],
+        )
+        snapshot.stage()
+
         # ========== Step 3c: 处理删除文件 ==========
-        for file_info in delete_files:
-            file_path = file_info.get("path", "")
-            if file_path:
-                full_path = self.output_dir / file_path
-                if full_path.exists():
-                    full_path.unlink()
-                    logger.info(f"删除文件: {file_path}")
-                if file_path in dep_graph.nodes:
-                    del dep_graph.nodes[file_path]
+        try:
+            for file_info in delete_files:
+                file_path = file_info.get("path", "")
+                if file_path:
+                    full_path = self.output_dir / file_path
+                    if full_path.exists():
+                        full_path.unlink()
+                        logger.info(f"删除文件: {file_path}")
+                    if file_path in dep_graph.nodes:
+                        del dep_graph.nodes[file_path]
 
-        if not all_files_to_generate:
-            logger.info("无需生成的文件")
-            dep_graph.save(str(dep_graph_path))
-            return {
-                "success": True,
-                "total_files_created": 0,
-                "total_files": 0,
-                "elapsed_time": time.time() - start_time,
-                "generated_files": [],
-                "errors": [],
-                "warnings": []
-            }
+            if not all_files_to_generate:
+                logger.info("无需生成的文件")
+                dep_graph.save(str(dep_graph_path))
+                snapshot.commit()
+                return {
+                    "success": True,
+                    "total_files_created": 0,
+                    "total_files": 0,
+                    "elapsed_time": time.time() - start_time,
+                    "generated_files": [],
+                    "errors": [],
+                    "warnings": []
+                }
+        except BaseException:
+            snapshot.rollback()
+            raise
 
-        # ========== Step 4: 拓扑排序 + 生成 ==========
-        # 重新构建依赖关系（包括新增的文件）
-        for file_info in all_files_to_generate:
-            file_path = file_info.get("path", "")
-            if file_path and file_path not in dep_graph.nodes:
-                dep_graph.add_file(
-                    file_path,
-                    file_type=file_info.get("file_type"),
-                    priority=file_info.get("priority", 3),
-                    description=file_info.get("description", "")
-                )
+        try:
+            # ========== Step 4: 拓扑排序 + 生成 ==========
+            # 重新构建依赖关系（包括新增的文件）
+            for file_info in all_files_to_generate:
+                file_path = file_info.get("path", "")
+                if file_path and file_path not in dep_graph.nodes:
+                    dep_graph.add_file(
+                        file_path,
+                        file_type=file_info.get("file_type"),
+                        priority=file_info.get("priority", 3),
+                        description=file_info.get("description", "")
+                    )
 
-        # 构建 file_plan 供拓扑调度器使用
-        file_plan = []
-        for fi in all_files_to_generate:
-            file_plan.append({
-                "path": fi["path"],
-                "file_type": fi.get("file_type"),
-                "priority": fi.get("priority", 3),
-                "description": fi.get("description", ""),
-                "action": fi.get("action", "add"),
-                "original_content": fi.get("original_content", ""),
-                "reason": fi.get("reason", ""),
-            })
+            # 构建 file_plan 供拓扑调度器使用
+            file_plan = []
+            for fi in all_files_to_generate:
+                file_plan.append({
+                    "path": fi["path"],
+                    "file_type": fi.get("file_type"),
+                    "priority": fi.get("priority", 3),
+                    "description": fi.get("description", ""),
+                    "action": fi.get("action", "add"),
+                    "original_content": fi.get("original_content", ""),
+                    "reason": fi.get("reason", ""),
+                })
 
-        incremental_project_plan = GenerationPlan.build(
-            file_plan,
-            language=detected_language,
-            requested_paths=[item["path"] for item in file_plan],
-            policy="strict",
-        )
-        project_context["generation_plan"] = incremental_project_plan.model_dump(mode="json")
-        from app.agent.context_assembler import ContextAssembler
-        project_context["context_envelope"] = ContextAssembler().assemble(
-            task_id=getattr(self, "session_id", None) or "legacy-incremental",
-            stage="planning",
-            items=[
-                {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
-                {"source": "generation_plan", "source_id": "generation_plan", "content": str(project_context["generation_plan"]), "priority": 95},
-            ],
-        ).model_dump(mode="json")
+            incremental_project_plan = GenerationPlan.build(
+                file_plan,
+                language=detected_language,
+                requested_paths=[item["path"] for item in file_plan],
+                policy="strict",
+            )
+            project_context["generation_plan"] = incremental_project_plan.model_dump(mode="json")
+            from app.agent.context_assembler import ContextAssembler
+            project_context["context_envelope"] = ContextAssembler().assemble(
+                task_id=getattr(self, "session_id", None) or "legacy-incremental",
+                stage="planning",
+                items=[
+                    {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
+                    {"source": "generation_plan", "source_id": "generation_plan", "content": str(project_context["generation_plan"]), "priority": 95},
+                ],
+            ).model_dump(mode="json")
 
-        # 使用动态拓扑调度生成
-        from app.agent.spec_first_generator import SpecFirstGenerator
-        spec_generator = SpecFirstGenerator(ctx, language=detected_language, api_key_token=self.api_key_token)
+            # 使用动态拓扑调度生成
+            from app.agent.spec_first_generator import SpecFirstGenerator
+            spec_generator = SpecFirstGenerator(ctx, language=detected_language, api_key_token=self.api_key_token)
 
-        result = await self._generate_with_dynamic_topology_incremental(
-            ctx, dep_graph, spec_generator, requirement,
-            project_context, generated_contents, file_plan, callback, language_adapter
-        )
-
-        errors_baseline = len(self.errors)
-        files_generated = result.get("files_generated", 0)
-        files_failed = result.get("files_failed", 0)
-        self.generated_files = result.get("generated_files", [])
-        self.errors.extend(result.get("errors", []))
-        self.warnings.extend(result.get("warnings", []))
-
-        if files_failed:
-            # 只聚合本轮新增错误，避免评价/检测等前阶段遗留错误被误认为来自增量阶段
-            new_errors = self.errors[errors_baseline:]
-            failed = [err for err in new_errors if "文件生成失败" in err]
-            raise RuntimeError(
-                f"incremental file generation failed for {files_failed} file(s): "
-                + "; ".join(failed or new_errors[-files_failed:])
+            result = await self._generate_with_dynamic_topology_incremental(
+                ctx, dep_graph, spec_generator, requirement,
+                project_context, generated_contents, file_plan, callback, language_adapter
             )
 
-        # ========== Step 5: P6 增量依赖图更新 ==========
-        # 根据生成的文件内容更新依赖关系
-        await self._update_dependency_graph_incremental(
-            dep_graph, generated_contents, language_adapter
-        )
+            errors_baseline = len(self.errors)
+            files_generated = result.get("files_generated", 0)
+            files_failed = result.get("files_failed", 0)
+            self.generated_files = result.get("generated_files", [])
+            self.errors.extend(result.get("errors", []))
+            self.warnings.extend(result.get("warnings", []))
 
-        # 保存更新后的依赖图
-        dep_graph.save(str(dep_graph_path))
-        logger.info(f"依赖图已更新并保存: {len(dep_graph.nodes)} 个节点")
+            if files_failed:
+                # 只聚合本轮新增错误，避免评价/检测等前阶段遗留错误被误认为来自增量阶段
+                new_errors = self.errors[errors_baseline:]
+                failed = [err for err in new_errors if "文件生成失败" in err]
+                raise RuntimeError(
+                    f"incremental file generation failed for {files_failed} file(s): "
+                    + "; ".join(failed or new_errors[-files_failed:])
+                )
+            # ========== Step 5: P6 增量依赖图更新 ==========
+            # 根据生成的文件内容更新依赖关系
+            await self._update_dependency_graph_incremental(
+                dep_graph, generated_contents, language_adapter
+            )
+
+            # 保存更新后的依赖图
+            dep_graph.save(str(dep_graph_path))
+            logger.info(f"依赖图已更新并保存: {len(dep_graph.nodes)} 个节点")
+        except BaseException:
+            snapshot.rollback()
+            raise
+        snapshot.commit()
 
         elapsed = time.time() - start_time
         logger.info(f"增量修改完成: {files_generated} 文件, {files_failed} 失败, {elapsed:.1f}s")

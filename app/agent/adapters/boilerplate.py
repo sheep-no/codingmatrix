@@ -92,6 +92,18 @@ def scaffold_entry(language: str, file_path: str, architecture: dict[str, Any]) 
         if "express" in framework:
             return _javascript_entry(architecture)
         return None
+    if lang == "go":
+        if "net/http" in framework or "stdlib" in framework:
+            return _go_entry()
+        return None
+    if lang == "java":
+        # Spring Boot owns the entrypoint contract: a bare main class fails to
+        # boot, so emit the annotated bootstrap instead of leaving it to chance.
+        if "spring" in framework:
+            return _spring_java_entry(file_path)
+        if framework in {"plain-java", "javac", "console"}:
+            return _java_entry(file_path)
+        return None
     return None
 
 
@@ -275,6 +287,7 @@ def _javascript_package_json(architecture: dict[str, Any]) -> str:
         (item.get("path") for item in _file_plan(architecture) if item.get("file_type") == "entry"),
         "src/index.js",
     )
+    entry = entry or "src/index.js"
     framework = _framework(architecture).lower()
     dependency_lines = []
     if "express" in framework:
@@ -284,9 +297,9 @@ def _javascript_package_json(architecture: dict[str, Any]) -> str:
         "{\n"
         f'  "name": "{_slug(architecture)}",\n'
         '  "version": "1.0.0",\n'
-        f'  "main": "{entry or "src/index.js"}",\n'
+        f'  "main": "{entry}",\n'
         '  "scripts": {\n'
-        '    "start": "node src/index.js"\n'
+        f'    "start": "node {entry}"\n'
         "  },\n"
         '  "dependencies": {\n'
         f"{dependencies}\n"
@@ -297,16 +310,65 @@ def _javascript_package_json(architecture: dict[str, Any]) -> str:
 
 def _java_pom(architecture: dict[str, Any]) -> str:
     artifact = _slug(architecture)
+    is_spring = "spring" in _framework(architecture).lower()
+    test_dependency = ""
+    test_plugin = ""
+    spring_parent = ""
+    spring_dependency = ""
+    spring_plugin = ""
+    if is_spring:
+        spring_parent = """  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.5</version>
+    <relativePath/>
+  </parent>
+"""
+        spring_dependency = """    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+"""
+        spring_plugin = """      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+"""
+    if any(
+        str(item.get("path") or "").startswith("src/test/java/")
+        and str(item.get("path") or "").endswith(".java")
+        for item in _file_plan(architecture)
+    ):
+        test_dependency = """    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+"""
+        # Older Maven defaults to Surefire 2.x, which cannot discover JUnit 5.
+        test_plugin = """      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+      </plugin>
+"""
+    dependencies = spring_dependency + test_dependency
+    plugins = spring_plugin + test_plugin
+    dependencies_block = (
+        f"  <dependencies>\n{dependencies}  </dependencies>\n" if dependencies else ""
+    )
+    build_block = f"  <build>\n    <plugins>\n{plugins}    </plugins>\n  </build>\n" if plugins else ""
     return f"""<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.example</groupId>
+{spring_parent}  <groupId>com.example</groupId>
   <artifactId>{artifact}</artifactId>
   <version>0.1.0</version>
   <properties>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
   </properties>
-</project>
+{dependencies_block}{build_block}</project>
 """
 
 
@@ -407,19 +469,40 @@ def _go_entry() -> str:
     )
 
 
-def _java_entry(file_path: str) -> str:
+def _java_package_line(file_path: str) -> str:
     package_parts = list(Path(file_path).parent.parts)
-    class_name = Path(file_path).stem
-    package_line = ""
     if "java" in package_parts:
         idx = package_parts.index("java")
         package = ".".join(package_parts[idx + 1 :])
         if package:
-            package_line = f"package {package};\n\n"
+            return f"package {package};\n\n"
+    return ""
+
+
+def _java_entry(file_path: str) -> str:
+    class_name = Path(file_path).stem
+    package_line = _java_package_line(file_path)
     return (
         package_line
         + f"public class {class_name} {{\n"
         + "    public static void main(String[] args) {\n"
+        + "    }\n"
+        + "}\n"
+    )
+
+
+def _spring_java_entry(file_path: str) -> str:
+    package_line = _java_package_line(file_path)
+    class_name = Path(file_path).stem or "Application"
+    return (
+        package_line
+        + "import org.springframework.boot.SpringApplication;\n"
+        + "import org.springframework.boot.autoconfigure.SpringBootApplication;\n"
+        + "\n"
+        + "@SpringBootApplication\n"
+        + f"public class {class_name} {{\n"
+        + "    public static void main(String[] args) {\n"
+        + f"        SpringApplication.run({class_name}.class, args);\n"
         + "    }\n"
         + "}\n"
     )

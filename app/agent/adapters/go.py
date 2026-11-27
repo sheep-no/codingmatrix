@@ -72,5 +72,11 @@ class GoLanguageAdapter(GenericLanguageAdapter):
         parts = Path(module_name).parts
         return any(part in {"cmd", "internal", "pkg"} for part in parts)
 
+    def source_diagnostics(self, content: str, file_path: str = "") -> tuple[str, ...]:
+        """Delegate syntax authority to the installed gofmt parser."""
+        from app.agent.compiler_diagnostics import compiler_source_diagnostics
+
+        return compiler_source_diagnostics("go", content, file_path)
+
 
 LanguageAdapterRegistry.register(GoLanguageAdapter())

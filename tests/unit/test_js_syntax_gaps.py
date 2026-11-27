@@ -1,10 +1,7 @@
 """补齐 js_syntax 的 node/tsc 子进程与降级分支。"""
 
 import subprocess
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from app.agent import js_syntax
 
@@ -57,6 +54,63 @@ def test_check_js_source_success(monkeypatch):
     assert js_syntax.check_js_source("const x = 1;") == (True, "")
 
 
+def test_check_js_source_checks_esm_in_module_mode(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs.get("input")))
+        if command[:2] == ["node", "--input-type=module"]:
+            return SimpleNamespace(returncode=1, stderr="SyntaxError: bad esm")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(js_syntax.subprocess, "run", fake_run)
+
+    assert js_syntax.check_js_source("export const a = ;") == (
+        False,
+        "SyntaxError: bad esm",
+    )
+    assert any(call[0][:2] == ["node", "--input-type=module"] for call in calls)
+
+
+def test_check_js_source_accepts_valid_esm(monkeypatch):
+    def fake_run(command, **kwargs):
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(js_syntax.subprocess, "run", fake_run)
+
+    assert js_syntax.check_js_source("export const a = 1;") == (True, "")
+
+
+def test_check_js_source_falls_back_to_jsx_parser_for_jsx(monkeypatch):
+    def fake_run(command, **kwargs):
+        return SimpleNamespace(returncode=1, stderr="SyntaxError: Unexpected token '<'")
+
+    monkeypatch.setattr(js_syntax.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        js_syntax, "check_ts_source", lambda source, jsx=False: (True, "")
+    )
+
+    assert js_syntax.check_js_source("export const A = () => <div/>;") == (True, "")
+
+
+def test_check_js_source_does_not_mask_errors_for_jsx_like_comparison(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[:2] == ["node", "--input-type=module"]:
+            return SimpleNamespace(returncode=0, stderr="")
+        return SimpleNamespace(
+            returncode=1, stderr="SyntaxError: Unexpected token ';'"
+        )
+
+    monkeypatch.setattr(js_syntax.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        js_syntax, "check_ts_source", lambda source, jsx=False: (True, "")
+    )
+
+    result = js_syntax.check_js_source("const r = x <div> y;\nconst z = ;\n")
+
+    assert result[0] is False
+
+
 def test_check_js_source_missing_node_uses_heuristic(monkeypatch):
     def boom(*args, **kwargs):
         raise FileNotFoundError
@@ -87,6 +141,53 @@ def test_check_ts_source_no_tsc(monkeypatch):
 
     assert js_syntax.check_ts_source("const x: number = 1;") == (True, "")
     assert js_syntax.check_ts_source("const x = {") == (False, "花括号或圆括号不匹配")
+
+
+def test_check_ts_source_no_tsc_rejects_syntax_error(monkeypatch):
+    monkeypatch.setattr(js_syntax.shutil, "which", lambda name: None)
+
+    ok, error = js_syntax.check_ts_source("const v: number = ;")
+
+    assert ok is False
+    assert error
+
+
+def test_check_ts_source_no_tsc_uses_node_stripper(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs.get("input")))
+        return SimpleNamespace(returncode=1, stderr="Expression expected")
+
+    monkeypatch.setattr(js_syntax.shutil, "which", lambda name: None)
+    monkeypatch.setattr(js_syntax.subprocess, "run", fake_run)
+
+    assert js_syntax.check_ts_source("const v: number = ;") == (
+        False,
+        "Expression expected",
+    )
+    assert calls and calls[0][0][:1] == ["node"]
+
+
+def test_check_ts_source_unsupported_node_api_falls_back(monkeypatch):
+    monkeypatch.setattr(js_syntax.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        js_syntax.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=2, stderr=""),
+    )
+
+    assert js_syntax.check_ts_source("const v: number = 1;") == (True, "")
+
+
+def test_check_ts_source_jsx_skips_node_stripper(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("JSX must not use node stripper")
+
+    monkeypatch.setattr(js_syntax.shutil, "which", lambda name: None)
+    monkeypatch.setattr(js_syntax.subprocess, "run", boom)
+
+    assert js_syntax.check_ts_source("const A = () => <div/>;", jsx=True) == (True, "")
 
 
 def test_check_ts_source_missing_typescript_module(monkeypatch, tmp_path):

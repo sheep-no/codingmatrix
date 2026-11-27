@@ -1,84 +1,80 @@
 {
   "core_summary": {
-    "excluded": 0,
-    "p95_seconds": 346.71380000000005,
-    "pass_rate": 0.20833333333333334,
-    "passed": 5,
-    "total": 24
+    "excluded": 20,
+    "p95_seconds": 560.0763000000001,
+    "pass_rate": 0.25,
+    "passed": 1,
+    "total": 4
   },
   "engineering_summary": {
-    "excluded": 0,
-    "p95_seconds": 346.71380000000005,
+    "excluded": 20,
+    "p95_seconds": 560.0763000000001,
     "pass_rate": 0.0,
     "passed": 0,
-    "total": 24
+    "total": 4
   },
   "failure_categories": [
     [
+      "evaluation_infrastructure_failure",
+      20
+    ],
+    [
       "plan",
-      9
+      3
     ],
     [
       "interface",
-      24
-    ],
-    [
-      "dependency",
-      14
+      4
     ],
     [
       "artifact",
-      9
-    ],
-    [
-      "compile",
-      14
+      2
     ],
     [
       "test",
-      24
+      4
     ],
     [
       "startup",
-      24
+      4
     ],
     [
       "persistence",
-      24
+      4
     ]
   ],
   "invalid_case_ids": [],
-  "matrix_complete": true,
+  "matrix_complete": false,
   "missing_case_ids": [],
   "quality_summary": {
-    "excluded": 0,
-    "p95_seconds": 346.71380000000005,
+    "excluded": 20,
+    "p95_seconds": 560.0763000000001,
     "pass_rate": 0.0,
     "passed": 0,
-    "total": 24
+    "total": 4
   },
   "strategy_summaries": [
     {
-      "average_model_calls": 11.916666666666666,
+      "average_model_calls": 0,
       "candidate_success_rate": 0.0,
       "first_success_rate": 0.0,
-      "p95_seconds": 219.46685000000002,
+      "p95_seconds": 465.65255,
       "repaired_success_rate": 0.0,
       "strategy": "spec_first",
       "total": 12
     },
     {
-      "average_model_calls": 11.25,
+      "average_model_calls": 15.083333333333334,
       "candidate_success_rate": 0.0,
       "first_success_rate": 0.0,
-      "p95_seconds": 353.0861,
+      "p95_seconds": 539.23695,
       "repaired_success_rate": 0.0,
       "strategy": "traditional",
       "total": 12
     }
   ],
   "summary": {
-    "p95_seconds": 346.71380000000005,
+    "p95_seconds": 518.96405,
     "success_rate": 0.0,
     "successful": 0,
     "total": 24

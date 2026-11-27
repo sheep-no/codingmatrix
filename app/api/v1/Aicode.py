@@ -44,7 +44,13 @@ from app.utils.aicloud.llm_caller import LLMCallError
 from app.utils.json_parser import RobustJSONParser
 from app.utils.security import verify_token
 from app.utils.vision import analyze_image
-from app.utils.web_search import FreeWebSearch, expand_relative_time, fetch_page_text
+from app.utils.web_search import (
+    FreeWebSearch,
+    WebSearchUnavailable,
+    expand_relative_time,
+    fetch_page_text,
+    search_query_variants,
+)
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -364,6 +370,50 @@ def _fallback_search_plan(
         "queries": [build_bounded_search_query(prompt, attachment_names)],
         "urls": [],
     }
+
+
+def _distinct_search_queries(
+    queries: List[str],
+    prompt: str,
+    attachment_names: Optional[List[str]],
+    failed_queries: List[str],
+) -> List[str]:
+    """Drop already-failed queries and add rewritten variants when they empty out.
+
+    The planner may repeat its previous wording, and the deterministic fallback
+    always rebuilds the same query. Rewriting the prompt gives the retry an
+    actually different request instead of resending a query known to fail.
+    """
+    seen = {item for item in failed_queries if item}
+    ordered: List[str] = []
+    for query in queries:
+        if query and query not in seen:
+            seen.add(query)
+            ordered.append(query)
+    if ordered:
+        return ordered
+    base = build_bounded_search_query(prompt, attachment_names)
+    # Attachment identities stay in a retry: they are the only concrete entity
+    # when the prompt itself is generic ("联网搜索报告"). Dropping them turns the
+    # second attempt into a keyword-free question the planner already failed on.
+    entity_prefix = " ".join(
+        Path(name).stem.replace("_", " ").replace("-", " ").strip()
+        for name in attachment_names or []
+    ).strip()[:140]
+    for include_entity, candidate in ((False, base), (True, prompt)):
+        variants = search_query_variants(candidate)
+        if include_entity and entity_prefix:
+            variants = [
+                variant if entity_prefix in variant else f"{entity_prefix} {variant}"
+                for variant in variants
+            ]
+        for variant in variants:
+            if variant and variant not in seen:
+                seen.add(variant)
+                ordered.append(variant)
+        if ordered:
+            break
+    return ordered
 
 
 async def plan_search_actions(
@@ -858,8 +908,13 @@ async def _build_context(
         failed_queries: List[str] = []
         empty_retry_left = 1
         round_number = 0
-        while round_number < max_rounds:
-            round_number += 1
+        pending_retry = False
+        last_error: Optional[Exception] = None
+        while round_number < max_rounds or pending_retry:
+            retrying = pending_retry
+            if not retrying:
+                round_number += 1
+            pending_retry = False
             event = {"stage": "searching", "round": round_number, "total_rounds": max_rounds}
             await stage({**event, "status": "started"})
             try:
@@ -898,36 +953,65 @@ async def _build_context(
                         await stage({**event, "status": "completed", "sources": list(sources)})
                         continue
                 queries = [item for item in (plan.get("queries") or []) if item] or [fallback_query]
-                queries = [item for item in queries if item not in failed_queries] or queries
+                queries = _distinct_search_queries(
+                    queries, prompt, attachment_terms, failed_queries
+                )
                 web_sources: List[Dict[str, str]] = []
-                last_error: Optional[Exception] = None
+                # A retry must not forget why the previous attempt failed: when
+                # the planner offers no new wording, the outage cause is the only
+                # thing that distinguishes a network fault from an empty result.
+                round_error = last_error if retrying else None
                 for query in queries[:3]:
                     try:
                         round_text, round_sources = await search.search_with_sources(
                             query=query, count=search_count
                         )
+                    except WebSearchUnavailable as exc:
+                        # Transport outage: keep the real cause so the caller can
+                        # retry and report an outage rather than "no results".
+                        round_error = exc
+                        continue
                     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as exc:
-                        last_error = exc
+                        round_error = exc
                         continue
                     if not round_sources:
-                        last_error = ValueError("未获得网页来源")
+                        round_error = ValueError("未获得网页来源")
                         continue
                     if round_text:
                         context_parts.append(f"\n[第 {round_number} 轮网络搜索结果]\n{round_text}\n")
                     web_sources.extend(round_sources)
                 if not web_sources:
-                    failed_queries.extend(item for item in queries if item)
+                    if round_error is not None:
+                        last_error = round_error
+                    failed_queries.extend(
+                        item for item in queries if item and item not in failed_queries
+                    )
                     if empty_retry_left > 0 and (
-                        last_error is None or isinstance(last_error, ValueError)
+                        last_error is None
+                        or isinstance(last_error, (ValueError, WebSearchUnavailable))
                     ):
                         empty_retry_left -= 1
-                        max_rounds = max(max_rounds, round_number + 1)
+                        # Retry inside the same round so "shallow = one round"
+                        # stays true while still giving the planner a second,
+                        # differently-worded attempt.
+                        pending_retry = True
                         logger.info("检索无结果，换词重试 | failed=%s", failed_queries[:4])
                         await stage({**event, "status": "skipped", "reason": "empty_retry"})
                         continue
+                    if round_number < max_rounds and isinstance(last_error, ValueError):
+                        # multi advertises a second round, so a plain "no results"
+                        # round must fall through to it instead of aborting the
+                        # loop. Hard transport faults still stop immediately.
+                        logger.info("本轮无结果，进入下一轮 | round=%s", round_number)
+                        await stage({**event, "status": "skipped", "reason": "empty_round"})
+                        continue
                     raise last_error or ValueError("未获得网页来源")
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-                warning = {**event, "error": f"第 {round_number} 轮搜索未获得有效结果，将使用已有资料回答。"}
+                if isinstance(e, WebSearchUnavailable):
+                    message = "联网服务暂时不可用，本轮未能完成检索，将使用已有资料回答。"
+                else:
+                    message = f"第 {round_number} 轮搜索未获得有效结果，将使用已有资料回答。"
+                warning = {**event, "error": message}
                 stage_errors.append(warning)
                 context_parts.append(f"\n[网络搜索失败]\n{warning['error']}\n")
                 await stage({**warning, "status": "failed"})

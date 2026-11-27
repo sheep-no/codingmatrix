@@ -62,40 +62,14 @@ class TestBuildState:
         assert scheduler.adjacency["b"] == {"a"}
         assert scheduler.reverse_adjacency["a"] == {"b"}
 
-    def test_build_from_generation_plan(self):
-        scheduler = _scheduler()
-        plan = SimpleNamespace(
-            files=[
-                SimpleNamespace(path="a.py", dependencies=[]),
-                SimpleNamespace(path="b.py", dependencies=["a.py"]),
-            ]
-        )
-
-        scheduler.build_from_generation_plan(plan)
-
-        assert scheduler.stats.total_files == 2
-        assert scheduler.nodes["b.py"].dependency_count == 1
-        assert scheduler.reverse_adjacency["a.py"] == {"b.py"}
-        assert scheduler.adjacency["a.py"] == set()
-
-    def test_build_from_generation_plan_rejects_outside_dependency(self):
-        scheduler = _scheduler()
-        plan = SimpleNamespace(
-            files=[SimpleNamespace(path="a.py", dependencies=["ghost.py"])]
-        )
-
-        with pytest.raises(ValueError, match="outside the frozen node set"):
-            scheduler.build_from_generation_plan(plan)
-
     @pytest.mark.asyncio
     async def test_initialize_ready_queue_only_zero_dependency(self):
         scheduler = _scheduler()
-        scheduler.build_from_generation_plan(
-            SimpleNamespace(
-                files=[
-                    SimpleNamespace(path="a.py", dependencies=[]),
-                    SimpleNamespace(path="b.py", dependencies=["a.py"]),
-                ]
+        scheduler.build_from_dependency_graph(
+            _graph(
+                ["a.py", "b.py"],
+                adjacency={"a.py": set(), "b.py": {"a.py"}},
+                reverse={"a.py": {"b.py"}},
             )
         )
 
@@ -111,12 +85,11 @@ class TestRun:
     @pytest.mark.asyncio
     async def test_run_generates_dependencies_in_order(self):
         scheduler = _scheduler(cancel_event=asyncio.Event())
-        scheduler.build_from_generation_plan(
-            SimpleNamespace(
-                files=[
-                    SimpleNamespace(path="a.py", dependencies=[]),
-                    SimpleNamespace(path="b.py", dependencies=["a.py"]),
-                ]
+        scheduler.build_from_dependency_graph(
+            _graph(
+                ["a.py", "b.py"],
+                adjacency={"a.py": set(), "b.py": {"a.py"}},
+                reverse={"a.py": {"b.py"}},
             )
         )
         seen = []
@@ -247,13 +220,11 @@ class TestRun:
     @pytest.mark.asyncio
     async def test_run_partial_failure_blocks_downstream(self):
         scheduler = _scheduler(max_retries=0)
-        scheduler.build_from_generation_plan(
-            SimpleNamespace(
-                files=[
-                    SimpleNamespace(path="a.py", dependencies=[]),
-                    SimpleNamespace(path="b.py", dependencies=["a.py"]),
-                    SimpleNamespace(path="c.py", dependencies=["b.py"]),
-                ]
+        scheduler.build_from_dependency_graph(
+            _graph(
+                ["a.py", "b.py", "c.py"],
+                adjacency={"a.py": set(), "b.py": {"a.py"}, "c.py": {"b.py"}},
+                reverse={"a.py": {"b.py"}, "b.py": {"c.py"}},
             )
         )
 
@@ -364,12 +335,11 @@ class TestGenerateWithRetry:
     @pytest.mark.asyncio
     async def test_success_marks_completed_and_triggers_downstream(self):
         scheduler = _scheduler()
-        scheduler.build_from_generation_plan(
-            SimpleNamespace(
-                files=[
-                    SimpleNamespace(path="a.py", dependencies=[]),
-                    SimpleNamespace(path="b.py", dependencies=["a.py"]),
-                ]
+        scheduler.build_from_dependency_graph(
+            _graph(
+                ["a.py", "b.py"],
+                adjacency={"a.py": set(), "b.py": {"a.py"}},
+                reverse={"a.py": {"b.py"}},
             )
         )
 
